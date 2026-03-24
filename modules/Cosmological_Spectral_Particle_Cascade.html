@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Cosmological Spectral Particle Cascade — Generative Universe Engine</title>
+<meta name="description" content="An immersive generative art system simulating cosmic particle cascades, gravitational field equations, Schwarzschild radius mappings, accretion disk spirals, and kaleidoscopic fractal universes rendered in real-time WebGL-accelerated canvas. Procedural astrophysics visualization with spectral harmonics and audiovisual synthesis.">
+<meta name="keywords" content="generative space visualization, cosmic particle engine, kaleidoscopic fractal universe, procedural astrophysics graphics, audiovisual generative art, particle simulation, gravitational field visualization, Schwarzschild radius, accretion disk, plasma streams, quasar simulation, pulsar visualization, tensor field art, stochastic particle systems, WebGL generative art, interactive cosmic art, spectral harmonic synthesis, fractal noise flow, vortex simulation, galaxy procedural generation">
+<meta name="author" content="Cosmological Spectral Particle Cascade">
+<meta name="robots" content="index, follow">
+<meta property="og:title" content="Cosmological Spectral Particle Cascade — Generative Universe Engine">
+<meta property="og:description" content="Real-time procedural cosmos: gravitational fields, accretion disks, kaleidoscopic symmetry groups, particle cascades, and spectral plasma streams. Each universe is unique.">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Cosmological Spectral Particle Cascade">
+<meta name="twitter:description" content="Generative astrophysics art engine — gravitational fields, accretion disk spirals, kaleidoscopic fractal universes, spectral particle cascades.">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background: #000;
+    font-family: 'Courier New', monospace;
+  }
+  canvas {
+    display: block;
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    cursor: crosshair;
+  }
+  #hud {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    display: none;
+    z-index: 10;
+  }
+  #hud.visible { display: block; }
+  #hud-panel {
+    position: absolute;
+    top: 18px; left: 18px;
+    background: rgba(0,0,0,0.55);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 4px;
+    padding: 10px 14px;
+    color: rgba(255,255,255,0.75);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    line-height: 1.7;
+    min-width: 200px;
+  }
+  #hud-panel .val { color: rgba(180,230,255,0.95); }
+  #hud-panel .title {
+    font-size: 9px;
+    letter-spacing: 0.2em;
+    color: rgba(255,255,255,0.4);
+    text-transform: uppercase;
+    margin-bottom: 5px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    padding-bottom: 4px;
+  }
+  #hint {
+    position: fixed;
+    bottom: 18px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(255,255,255,0.25);
+    font-size: 9px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    pointer-events: none;
+    z-index: 10;
+    white-space: nowrap;
+    transition: opacity 2s;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div id="hud-panel">
+    <div class="title">Cosmological Parameters</div>
+    <div>Universe Seed: <span class="val" id="h-seed">—</span></div>
+    <div>Symmetry Order: <span class="val" id="h-sym">—</span></div>
+    <div>Particles: <span class="val" id="h-part">—</span></div>
+    <div>Schwarzschild r: <span class="val" id="h-sch">—</span></div>
+    <div>Rotation Ω: <span class="val" id="h-rot">—</span></div>
+    <div>Spectral Shift: <span class="val" id="h-spec">—</span></div>
+    <div>Filaments: <span class="val" id="h-fil">—</span></div>
+    <div>FPS: <span class="val" id="h-fps">—</span></div>
+    <div style="margin-top:6px;font-size:9px;color:rgba(255,255,255,0.3)">
+      SPACE/TAP — new universe<br>
+      H — HUD &nbsp; S — sound
+    </div>
+  </div>
+</div>
+<div id="hint">SPACE · TAP — NEW UNIVERSE &nbsp;|&nbsp; H — HUD &nbsp;|&nbsp; S — SOUND</div>
+
+<script>
+(function(){
+'use strict';
+
+// ── Canvas setup ──────────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H, CX, CY, DPR;
+
+function resize(){
+  DPR = Math.min(window.devicePixelRatio||1, 2);
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width  = W * DPR;
+  canvas.height = H * DPR;
+  canvas.style.width  = W+'px';
+  canvas.style.height = H+'px';
+  ctx.scale(DPR, DPR);
+  CX = W/2; CY = H/2;
+}
+window.addEventListener('resize', ()=>{ resize(); initUniverse(); });
+resize();
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let hudVisible = false;
+let soundEnabled = false;
+let audioCtx = null;
+let universe = {};
+let frame = 0;
+let t = 0;
+let lastTime = 0;
+let fps = 0, fpsAcc = 0, fpsFrames = 0;
+let seed = 0;
+let animId;
+
+// ── Deterministic PRNG ────────────────────────────────────────────────────────
+function mulberry32(s){
+  return function(){
+    s|=0; s=s+0x6D2B79F5|0;
+    let z=Math.imul(s^s>>>15,1|s);
+    z=z+Math.imul(z^z>>>7,61|z)^z;
+    return ((z^z>>>14)>>>0)/4294967296;
+  };
+}
+let rng;
+
+// ── Color helpers ─────────────────────────────────────────────────────────────
+function hsl(h,s,l,a=1){
+  return `hsla(${h%360},${s}%,${l}%,${a})`;
+}
+function lerp(a,b,t){ return a+(b-a)*t; }
+function clamp(v,mn,mx){ return Math.max(mn,Math.min(mx,v)); }
+
+// ── Universe parameters ───────────────────────────────────────────────────────
+function initUniverse(){
+  seed = Math.floor(Math.random()*0xFFFFFF);
+  rng = mulberry32(seed);
+
+  const r = rng;
+  universe = {
+    seed,
+    // Kaleidoscope
+    symmetry:   [3,4,5,6,7,8,9,12][Math.floor(r()*8)],
+    mirrorPhase: r()*Math.PI*2,
+    // Colors — random palette family
+    hueBase:    r()*360,
+    hueSpread:  60+r()*180,
+    satBase:    60+r()*40,
+    litBase:    45+r()*20,
+    // Gravitational / Schwarzschild
+    schwarzR:   0.08+r()*0.18,
+    gravStrength: 0.3+r()*1.2,
+    // Rotation
+    omega:      (0.0004+r()*0.001)*(r()<0.5?1:-1),
+    // Accretion disk
+    diskBands:  2+Math.floor(r()*5),
+    diskTilt:   r()*0.4,
+    // Particle system
+    particleCount: isMobile() ? 250 : 1000,
+    particleSpeed: 0.4+r()*1.2,
+    particleLife:  80+Math.floor(r()*160),
+    // Filaments
+    filamentCount: 6+Math.floor(r()*14),
+    filamentFreq:  1+r()*4,
+    // Wave interference
+    waveCount:  3+Math.floor(r()*5),
+    waveFreqs:  Array.from({length:8},()=>0.002+r()*0.012),
+    waveAmps:   Array.from({length:8},()=>0.3+r()*1.0),
+    // Fractal noise
+    noiseOctaves: 3+Math.floor(r()*3),
+    noiseScale: 0.003+r()*0.006,
+    // Vortex
+    vortexStrength: 0.5+r()*2,
+    vortexCount: 1+Math.floor(r()*3),
+    vortexPositions: Array.from({length:4},()=>({
+      x:(r()-0.5)*0.6, y:(r()-0.5)*0.6,
+      s:0.3+r()*0.7, d:r()<0.5?1:-1
+    })),
+    // Chromatic drift
+    chromaDrift: r()*0.5,
+    // Spectral morph speed
+    morphSpeed: 0.0002+r()*0.0006,
+    // Bloom
+    bloomRadius: 0.03+r()*0.06,
+    // Corridor depth
+    corridorLayers: 4+Math.floor(r()*6),
+  };
+
+  // Init particle pool
+  initParticles();
+  initFilaments();
+
+  // Update HUD
+  updateHUD();
+
+  // Fade out hint
+  setTimeout(()=>{ document.getElementById('hint').style.opacity='0'; }, 3000);
+
+  // Audio re-init if enabled
+  if(soundEnabled && audioCtx) initAudio();
+}
+
+function isMobile(){
+  return /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) ||
+    (window.innerWidth < 768);
+}
+
+// ── Particles ─────────────────────────────────────────────────────────────────
+let particles = [];
+
+function spawnParticle(i){
+  const u = universe;
+  const r = rng;
+  // Spawn in ring around center, or near vortex
+  const angle = r()*Math.PI*2;
+  const radius = (0.05+r()*0.45)*Math.min(W,H)*0.5;
+  const vx = r()*u.particleSpeed*(r()<0.5?1:-1);
+  const vy = r()*u.particleSpeed*(r()<0.5?1:-1);
+  const hue = (u.hueBase + r()*u.hueSpread) % 360;
+  return {
+    x: CX + Math.cos(angle)*radius,
+    y: CY + Math.sin(angle)*radius,
+    vx, vy,
+    life: Math.floor(r()*u.particleLife),
+    maxLife: u.particleLife,
+    hue,
+    size: 0.5+r()*2.5,
+    layer: Math.floor(r()*u.corridorLayers),
+    mass: 0.5+r()*1.5,
+  };
+}
+
+function initParticles(){
+  particles = [];
+  rng = mulberry32(seed^0xABCD);
+  for(let i=0;i<universe.particleCount;i++){
+    const p = spawnParticle(i);
+    p.life = Math.floor(rng()*p.maxLife); // stagger
+    particles.push(p);
+  }
+}
+
+// ── Filaments ──────────────────────────────────────────────────────────────────
+let filaments = [];
+
+function initFilaments(){
+  filaments = [];
+  const u = universe;
+  rng = mulberry32(seed^0x1234);
+  for(let i=0;i<u.filamentCount;i++){
+    const angle = (i/u.filamentCount)*Math.PI*2;
+    filaments.push({
+      angle,
+      freq: 0.5+rng()*u.filamentFreq,
+      amp: 0.1+rng()*0.3,
+      speed: 0.0003+rng()*0.001,
+      hue: (u.hueBase+i*(u.hueSpread/u.filamentCount))%360,
+      width: 0.5+rng()*1.5,
+      phase: rng()*Math.PI*2,
+    });
+  }
+}
+
+// ── Fractal / Value noise ─────────────────────────────────────────────────────
+// Simple smooth noise via sinusoidal basis
+function noise2(x,y,o){
+  let v=0, amp=1, freq=1, max=0;
+  for(let i=0;i<o;i++){
+    v += Math.sin(x*freq*7.3+y*freq*3.1+i*1.7) *
+         Math.cos(y*freq*5.9+x*freq*2.3+i*2.9) * amp;
+    max+=amp; amp*=0.5; freq*=2.1;
+  }
+  return v/max;
+}
+
+// ── Wave interference ─────────────────────────────────────────────────────────
+function waveField(x,y){
+  const u = universe;
+  let v = 0;
+  for(let i=0;i<u.waveCount;i++){
+    const cx = CX + Math.cos(t*0.0003+i)*CX*0.3;
+    const cy = CY + Math.sin(t*0.0002+i*1.3)*CY*0.3;
+    const d = Math.sqrt((x-cx)**2+(y-cy)**2);
+    v += Math.sin(d*u.waveFreqs[i]-t*0.002+i)*u.waveAmps[i];
+  }
+  return v/u.waveCount;
+}
+
+// ── Gravitational field (Schwarzschild-inspired) ──────────────────────────────
+function gravForce(px,py){
+  const u = universe;
+  let fx=0,fy=0;
+  const rs = u.schwarzR*Math.min(W,H)*0.5;
+  for(let v of u.vortexPositions){
+    const vx = CX+v.x*W*0.5;
+    const vy = CY+v.y*H*0.5;
+    const dx=vx-px, dy=vy-py;
+    const d2=dx*dx+dy*dy;
+    const d=Math.sqrt(d2)+1;
+    // Modified Schwarzschild: extra tangential term
+    const mag = u.gravStrength*v.s/(d2+rs*rs);
+    fx += dx*mag + (-dy/d)*mag*v.d*u.vortexStrength;
+    fy += dy*mag + ( dx/d)*mag*v.d*u.vortexStrength;
+  }
+  return {x:fx, y:fy};
+}
+
+// ── Tensor field (color-bearing vector) ──────────────────────────────────────
+function tensorHue(px,py){
+  const u = universe;
+  const nx = noise2((px-CX)*u.noiseScale,(py-CY)*u.noiseScale+t*u.morphSpeed,u.noiseOctaves);
+  const wv = waveField(px,py);
+  return (u.hueBase + nx*u.hueSpread + wv*30 + t*u.morphSpeed*360) % 360;
+}
+
+// ── Kaleidoscope transform ────────────────────────────────────────────────────
+function kaleidoPoints(px,py){
+  const u = universe;
+  const dx=px-CX, dy=py-CY;
+  const ang = Math.atan2(dy,dx);
+  const rad = Math.sqrt(dx*dx+dy*dy);
+  const slice = (Math.PI*2)/u.symmetry;
+  const pts = [];
+  for(let i=0;i<u.symmetry;i++){
+    let a = ang % slice;
+    if(Math.floor((ang+Math.PI*200)/slice)%2===1) a=slice-a;
+    const fa = a + i*slice + u.mirrorPhase + t*u.omega;
+    pts.push({
+      x: CX+Math.cos(fa)*rad,
+      y: CY+Math.sin(fa)*rad
+    });
+  }
+  return pts;
+}
+
+// ── Draw background gradient ──────────────────────────────────────────────────
+function drawBackground(){
+  const u = universe;
+  const hb = (u.hueBase+t*u.morphSpeed*200)%360;
+  const grad = ctx.createRadialGradient(CX,CY,0,CX,CY,Math.max(W,H)*0.7);
+  grad.addColorStop(0,   hsl(hb,      u.satBase, 8));
+  grad.addColorStop(0.3, hsl(hb+40,   u.satBase, 5));
+  grad.addColorStop(0.7, hsl(hb+100,  u.satBase, 3));
+  grad.addColorStop(1,   '#000');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0,0,W,H);
+}
+
+// ── Draw accretion disk ───────────────────────────────────────────────────────
+function drawAccretionDisk(){
+  const u = universe;
+  const hb = (u.hueBase+t*u.morphSpeed*180)%360;
+  const maxR = Math.min(W,H)*0.42;
+  const rot = t*u.omega*6;
+
+  ctx.save();
+  ctx.translate(CX,CY);
+  ctx.rotate(rot);
+
+  for(let b=0;b<u.diskBands;b++){
+    const r0 = maxR*(0.08+b*0.16/u.diskBands);
+    const r1 = r0+maxR*(0.12/u.diskBands);
+    const hue = (hb+b*(u.hueSpread/u.diskBands)+t*u.morphSpeed*60)%360;
+    const alpha = 0.04+0.03*Math.sin(t*0.001+b);
+
+    for(let s=0;s<u.symmetry;s++){
+      const a0 = (s/u.symmetry)*Math.PI*2;
+      const a1 = a0+Math.PI*2/u.symmetry;
+      const grad = ctx.createConicalGradientFallback
+        ? null
+        : null;
+
+      ctx.beginPath();
+      ctx.arc(0,0,r0,a0,a1);
+      ctx.arc(0,0,r1,a1,a0,true);
+      ctx.closePath();
+      ctx.fillStyle = hsl(hue,u.satBase,u.litBase,alpha);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+// ── Draw cosmic filaments ─────────────────────────────────────────────────────
+function drawFilaments(){
+  const u = universe;
+  const maxR = Math.min(W,H)*0.48;
+
+  ctx.save();
+  for(let fil of filaments){
+    const pts = [];
+    const steps = isMobile()?50:90;
+    for(let i=0;i<=steps;i++){
+      const frac = i/steps;
+      const r = frac*maxR;
+      const angle = fil.angle + t*fil.speed +
+        fil.amp*Math.sin(r*fil.freq*0.015+t*0.001+fil.phase) +
+        noise2(r*u.noiseScale, fil.angle*3+t*0.0002, u.noiseOctaves)*0.8;
+      pts.push({
+        x: CX+Math.cos(angle)*r,
+        y: CY+Math.sin(angle)*r,
+        r: frac
+      });
+    }
+
+    // Draw in all kaleidoscope mirrors
+    for(let mi=0;mi<u.symmetry;mi++){
+      const mirAngle = (mi/u.symmetry)*Math.PI*2;
+      ctx.save();
+      ctx.translate(CX,CY);
+      ctx.rotate(mirAngle + u.mirrorPhase);
+
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x-CX, pts[0].y-CY);
+      for(let i=1;i<pts.length;i++){
+        ctx.lineTo(pts[i].x-CX, pts[i].y-CY);
+      }
+      const alpha = 0.15+0.1*Math.sin(t*0.001+fil.phase);
+      const hue = (fil.hue+t*u.morphSpeed*120)%360;
+      ctx.strokeStyle = hsl(hue,90,70,alpha);
+      ctx.lineWidth = fil.width;
+      ctx.shadowBlur = 8;
+      ctx.shadowColor = hsl(hue,100,80,0.5);
+      ctx.stroke();
+
+      // Mirror reflection
+      ctx.scale(1,-1);
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x-CX, pts[0].y-CY);
+      for(let i=1;i<pts.length;i++){
+        ctx.lineTo(pts[i].x-CX, pts[i].y-CY);
+      }
+      ctx.stroke();
+
+      ctx.restore();
+    }
+  }
+  ctx.shadowBlur = 0;
+  ctx.restore();
+}
+
+// ── Draw tensor field lines ───────────────────────────────────────────────────
+function drawTensorField(){
+  const u = universe;
+  const step = isMobile() ? 60 : 45;
+  ctx.save();
+  ctx.globalAlpha = 0.18;
+  for(let gx=0;gx<W;gx+=step){
+    for(let gy=0;gy<H;gy+=step){
+      const nx = noise2(gx*u.noiseScale,gy*u.noiseScale+t*u.morphSpeed,u.noiseOctaves);
+      const ny = noise2(gx*u.noiseScale+100,gy*u.noiseScale+t*u.morphSpeed,u.noiseOctaves);
+      const angle = Math.atan2(ny,nx)+t*u.omega*0.2;
+      const len = 10+Math.abs(nx)*12;
+      const hue = tensorHue(gx,gy);
+      ctx.strokeStyle = hsl(hue,80,65,0.25);
+      ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      ctx.moveTo(gx,gy);
+      ctx.lineTo(gx+Math.cos(angle)*len, gy+Math.sin(angle)*len);
+      ctx.stroke();
+    }
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+// ── Draw corridor / galaxy lattice ────────────────────────────────────────────
+function drawCorridorLattice(){
+  const u = universe;
+  const hb = (u.hueBase+t*u.morphSpeed*160)%360;
+  ctx.save();
+  for(let layer=u.corridorLayers-1;layer>=0;layer--){
+    const scale = 1 - layer*0.12;
+    const alpha = 0.04 + layer*0.015;
+    const rot = t*u.omega*(1+layer*0.3) + layer*Math.PI/u.symmetry;
+    const ringR = Math.min(W,H)*0.45*scale;
+
+    ctx.save();
+    ctx.translate(CX,CY);
+    ctx.rotate(rot);
+    ctx.beginPath();
+    for(let s=0;s<u.symmetry;s++){
+      const a = (s/u.symmetry)*Math.PI*2;
+      const x = Math.cos(a)*ringR;
+      const y = Math.sin(a)*ringR;
+      if(s===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    }
+    ctx.closePath();
+    const hue = (hb+layer*30)%360;
+    ctx.strokeStyle = hsl(hue,70,65,alpha*3);
+    ctx.lineWidth = 0.5;
+    ctx.shadowBlur = 12;
+    ctx.shadowColor = hsl(hue,90,80,alpha);
+    ctx.stroke();
+    ctx.restore();
+  }
+  ctx.shadowBlur = 0;
+  ctx.restore();
+}
+
+// ── Update + draw particles ───────────────────────────────────────────────────
+function updateParticles(dt){
+  const u = universe;
+  ctx.save();
+  for(let p of particles){
+    // Gravity
+    const g = gravForce(p.x,p.y);
+    p.vx += g.x*dt*0.016;
+    p.vy += g.y*dt*0.016;
+
+    // Noise field influence
+    const nx = noise2(p.x*u.noiseScale, p.y*u.noiseScale+t*u.morphSpeed, 2);
+    const ny = noise2(p.x*u.noiseScale+50, p.y*u.noiseScale+t*u.morphSpeed, 2);
+    p.vx += nx*0.08*dt*0.016;
+    p.vy += ny*0.08*dt*0.016;
+
+    // Damping
+    p.vx *= 0.992;
+    p.vy *= 0.992;
+
+    p.x += p.vx*dt*0.5;
+    p.y += p.vy*dt*0.5;
+    p.life++;
+
+    // Respawn
+    if(p.life>p.maxLife || p.x<-50 || p.x>W+50 || p.y<-50 || p.y>H+50){
+      const np = spawnParticle(0);
+      p.x=np.x; p.y=np.y; p.vx=np.vx; p.vy=np.vy;
+      p.life=0; p.hue=np.hue; p.size=np.size; p.mass=np.mass;
+      continue;
+    }
+
+    const lifeRatio = p.life/p.maxLife;
+    const alpha = Math.sin(lifeRatio*Math.PI)*0.8;
+    const hue = (p.hue + t*u.morphSpeed*180 + waveField(p.x,p.y)*20)%360;
+    const brightness = 55+lifeRatio*30;
+
+    // Kaleidoscope all mirrors
+    const kpts = kaleidoPoints(p.x,p.y);
+    for(const kp of kpts){
+      ctx.beginPath();
+      ctx.arc(kp.x, kp.y, p.size, 0, Math.PI*2);
+      ctx.fillStyle = hsl(hue, u.satBase+10, brightness, alpha);
+      ctx.fill();
+
+      // Bloom glow
+      if(alpha>0.4){
+        ctx.beginPath();
+        ctx.arc(kp.x, kp.y, p.size*3, 0, Math.PI*2);
+        ctx.fillStyle = hsl(hue, 100, 80, alpha*0.06);
+        ctx.fill();
+      }
+    }
+  }
+  ctx.restore();
+}
+
+// ── Draw central singularity ──────────────────────────────────────────────────
+function drawSingularity(){
+  const u = universe;
+  const rs = u.schwarzR*Math.min(W,H)*0.5;
+  const hb = (u.hueBase+t*u.morphSpeed*360)%360;
+
+  // Event horizon
+  let g = ctx.createRadialGradient(CX,CY,0,CX,CY,rs*2.5);
+  g.addColorStop(0,   hsl(hb,100,95,0.95));
+  g.addColorStop(0.15,hsl(hb+30,100,70,0.6));
+  g.addColorStop(0.4, hsl(hb+60,90,40,0.25));
+  g.addColorStop(1,   hsl(hb+90,80,10,0));
+  ctx.save();
+  ctx.shadowBlur = rs*4;
+  ctx.shadowColor = hsl(hb,100,80,0.8);
+  ctx.beginPath();
+  ctx.arc(CX,CY,rs*2.5,0,Math.PI*2);
+  ctx.fillStyle = g;
+  ctx.fill();
+
+  // Inner jet
+  for(let i=0;i<u.symmetry;i++){
+    const ang = (i/u.symmetry)*Math.PI*2+t*u.omega*3;
+    const jlen = rs*4+rs*2*Math.sin(t*0.003+i);
+    ctx.beginPath();
+    ctx.moveTo(CX,CY);
+    ctx.lineTo(CX+Math.cos(ang)*jlen, CY+Math.sin(ang)*jlen);
+    ctx.strokeStyle = hsl((hb+i*30)%360,100,85,0.3);
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+  ctx.shadowBlur=0;
+  ctx.restore();
+}
+
+// ── Draw plasma streams ───────────────────────────────────────────────────────
+function drawPlasmaStreams(){
+  const u = universe;
+  const streams = u.symmetry;
+  const maxR = Math.min(W,H)*0.5;
+  ctx.save();
+  ctx.globalCompositeOperation = 'screen';
+
+  for(let s=0;s<streams;s++){
+    const baseAng = (s/streams)*Math.PI*2 + t*u.omega*2;
+    const hue = (u.hueBase + s*(u.hueSpread/streams) + t*u.morphSpeed*100)%360;
+
+    ctx.beginPath();
+    let first = true;
+    const steps = 80;
+    for(let i=0;i<steps;i++){
+      const frac = i/steps;
+      const r = frac*maxR;
+      const spiralAng = baseAng + frac*Math.PI*3*u.vortexStrength +
+        Math.sin(frac*Math.PI*u.filamentFreq+t*0.002)*0.4 +
+        noise2(r*u.noiseScale+s*10, t*u.morphSpeed*0.5, 2)*0.5;
+      const x = CX+Math.cos(spiralAng)*r;
+      const y = CY+Math.sin(spiralAng)*r;
+      if(first){ ctx.moveTo(x,y); first=false; }
+      else ctx.lineTo(x,y);
+    }
+    const alpha = 0.12+0.06*Math.sin(t*0.002+s);
+    ctx.strokeStyle = hsl(hue,90,70,alpha);
+    ctx.lineWidth = 1.2;
+    ctx.shadowBlur = 10;
+    ctx.shadowColor = hsl(hue,100,80,0.3);
+    ctx.stroke();
+  }
+  ctx.shadowBlur=0;
+  ctx.globalCompositeOperation='source-over';
+  ctx.restore();
+}
+
+// ── Motion blur / trail ───────────────────────────────────────────────────────
+function motionBlur(){
+  ctx.fillStyle = 'rgba(0,0,0,0.18)';
+  ctx.fillRect(0,0,W,H);
+}
+
+// ── Audio ─────────────────────────────────────────────────────────────────────
+let audioNodes = [];
+
+function initAudio(){
+  if(!audioCtx){
+    audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+  }
+  // Tear down old
+  for(const n of audioNodes){ try{n.stop&&n.stop();n.disconnect&&n.disconnect();}catch(e){} }
+  audioNodes=[];
+
+  if(!soundEnabled) return;
+  const u = universe;
+  const master = audioCtx.createGain();
+  master.gain.value = 0.08;
+  master.connect(audioCtx.destination);
+  audioNodes.push(master);
+
+  // Drone oscillators based on Schwarzschild radius
+  const baseFreq = 30 + u.schwarzR*80;
+  const harmonics = [1, u.symmetry/4, u.symmetry/2, u.symmetry];
+
+  for(let h of harmonics){
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    const filter = audioCtx.createBiquadFilter();
+
+    osc.type = ['sine','triangle','sawtooth'][Math.floor(rng()%3)];
+    osc.frequency.value = baseFreq*h;
+
+    // Slow LFO
+    const lfo = audioCtx.createOscillator();
+    const lfoGain = audioCtx.createGain();
+    lfo.frequency.value = 0.05+rng()*0.2;
+    lfoGain.gain.value = baseFreq*h*0.02;
+    lfo.connect(lfoGain);
+    lfoGain.connect(osc.frequency);
+    lfo.start();
+
+    filter.type = 'bandpass';
+    filter.frequency.value = baseFreq*h*2;
+    filter.Q.value = 5;
+
+    gain.gain.value = 0.3/harmonics.length;
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(master);
+    osc.start();
+    audioNodes.push(osc,gain,filter,lfo,lfoGain);
+  }
+
+  // Spectral noise
+  const bufLen = audioCtx.sampleRate*2;
+  const buf = audioCtx.createBuffer(1,bufLen,audioCtx.sampleRate);
+  const data = buf.getChannelData(0);
+  for(let i=0;i<bufLen;i++){
+    data[i]=(Math.random()*2-1)*Math.pow(i/bufLen,0.3);
+  }
+  const noise = audioCtx.createBufferSource();
+  noise.buffer=buf; noise.loop=true;
+  const noiseGain=audioCtx.createGain();
+  const noiseFilter=audioCtx.createBiquadFilter();
+  noiseFilter.type='bandpass';
+  noiseFilter.frequency.value=200+u.gravStrength*300;
+  noiseFilter.Q.value=0.8;
+  noiseGain.gain.value=0.15;
+  noise.connect(noiseFilter);
+  noiseFilter.connect(noiseGain);
+  noiseGain.connect(master);
+  noise.start();
+  audioNodes.push(noise,noiseGain,noiseFilter);
+}
+
+function tickAudio(){
+  if(!soundEnabled||!audioCtx) return;
+  const u = universe;
+  // Modulate filter frequency with spectral shift
+  const hb = u.hueBase+t*u.morphSpeed*360;
+  // (subtle automatic modulation via LFOs above)
+}
+
+// ── HUD update ────────────────────────────────────────────────────────────────
+function updateHUD(){
+  if(!hudVisible) return;
+  const u = universe;
+  document.getElementById('h-seed').textContent  = u.seed.toString(16).toUpperCase();
+  document.getElementById('h-sym').textContent   = u.symmetry+'× mirror';
+  document.getElementById('h-part').textContent  = u.particleCount.toLocaleString();
+  document.getElementById('h-sch').textContent   = (u.schwarzR*100).toFixed(1)+'%';
+  document.getElementById('h-rot').textContent   = (u.omega*1000).toFixed(3)+' mΩ';
+  document.getElementById('h-spec').textContent  = (u.hueBase).toFixed(0)+'°';
+  document.getElementById('h-fil').textContent   = u.filamentCount;
+  document.getElementById('h-fps').textContent   = fps.toFixed(0);
+}
+
+// ── Main render loop ──────────────────────────────────────────────────────────
+function render(now){
+  animId = requestAnimationFrame(render);
+  const dt = Math.min(now-lastTime, 50);
+  lastTime = now;
+  t += dt;
+
+  fpsAcc += dt; fpsFrames++;
+  if(fpsAcc>500){ fps=1000/(fpsAcc/fpsFrames); fpsAcc=0; fpsFrames=0; }
+
+  // Trail / persistence
+  motionBlur();
+
+  // Layers
+  drawBackground();
+  drawCorridorLattice();
+  drawAccretionDisk();
+  drawTensorField();
+  drawPlasmaStreams();
+  drawFilaments();
+  updateParticles(dt);
+  drawSingularity();
+
+  // Rotate mirror phase slightly
+  universe.mirrorPhase += universe.omega*0.3*dt*0.016;
+
+  tickAudio();
+  frame++;
+
+  if(frame%30===0) updateHUD();
+}
+
+// ── Input ─────────────────────────────────────────────────────────────────────
+function newUniverse(){
+  cancelAnimationFrame(animId);
+  t=0; frame=0; lastTime=performance.now();
+  initUniverse();
+  lastTime=performance.now();
+  render(lastTime);
+}
+
+document.addEventListener('keydown', e=>{
+  const k = e.key.toLowerCase();
+  if(k===' '||k==='spacebar'){
+    e.preventDefault();
+    newUniverse();
+  } else if(k==='h'){
+    hudVisible=!hudVisible;
+    document.getElementById('hud').classList.toggle('visible',hudVisible);
+    updateHUD();
+  } else if(k==='s'){
+    soundEnabled=!soundEnabled;
+    if(soundEnabled){
+      if(!audioCtx){
+        audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+      }
+      if(audioCtx.state==='suspended') audioCtx.resume();
+      initAudio();
+    } else {
+      for(const n of audioNodes){try{n.stop&&n.stop();n.disconnect&&n.disconnect();}catch(e){}}
+      audioNodes=[];
+    }
+  }
+});
+
+let touchMoved=false;
+canvas.addEventListener('touchstart',()=>{touchMoved=false;},{passive:true});
+canvas.addEventListener('touchmove',()=>{touchMoved=true;},{passive:true});
+canvas.addEventListener('touchend',e=>{
+  if(!touchMoved){ e.preventDefault(); newUniverse(); }
+},{passive:false});
+canvas.addEventListener('click', newUniverse);
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+initUniverse();
+lastTime = performance.now();
+render(lastTime);
+
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Eigenspace Chromatic Storm</title>
+<meta name="description" content="A hypnotic real-time visualization of eigenvalue decomposition dynamics, conformal mappings, and icosahedral kaleidoscope rendering.">
+<meta name="keywords" content="eigenvalue, complex matrix, visualization, conformal map, kaleidoscope, generative art, WebGL, mathematics">
+<meta property="og:title" content="Eigenspace Chromatic Storm">
+<meta property="og:description" content="Hypnotic real-time eigenvalue trajectories mapped through conformal transforms and icosahedral kaleidoscope.">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#000000">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; background: #000; overflow: hidden; font-family: 'Courier New', monospace; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  #hud {
+    display: none;
+    position: fixed; top: 0; left: 0; padding: 14px 18px;
+    color: rgba(180,255,220,0.85); font-size: 11px; line-height: 1.7;
+    background: rgba(0,0,0,0.45); backdrop-filter: blur(6px);
+    border-right: 1px solid rgba(100,255,180,0.15);
+    border-bottom: 1px solid rgba(100,255,180,0.15);
+    border-radius: 0 0 8px 0; pointer-events: none; z-index: 10;
+    text-shadow: 0 0 8px rgba(100,255,180,0.6);
+  }
+  #hud.visible { display: block; }
+  #hud .val { color: rgba(100,255,180,1); }
+  #hint {
+    position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+    color: rgba(180,255,220,0.35); font-size: 10px; letter-spacing: 2px;
+    pointer-events: none; z-index: 10; transition: opacity 2s;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div>EIGENSPACE CHROMATIC STORM</div>
+  <div>─────────────────────────</div>
+  <div>Matrix: <span class="val" id="h-mat">64×64 complex</span></div>
+  <div>α (GL): <span class="val" id="h-alpha">—</span></div>
+  <div>β (GL): <span class="val" id="h-beta">—</span></div>
+  <div>Diffusion: <span class="val" id="h-diff">—</span></div>
+  <div>Lorenz σ: <span class="val" id="h-ls">—</span></div>
+  <div>Lorenz ρ: <span class="val" id="h-lr">—</span></div>
+  <div>FPS: <span class="val" id="h-fps">—</span></div>
+  <div>Sound: <span class="val" id="h-snd">OFF</span></div>
+  <div>─────────────────────────</div>
+  <div>[SPACE/CLICK] Randomize</div>
+  <div>[H] Toggle HUD</div>
+  <div>[S] Toggle Sound</div>
+</div>
+<div id="hint">SPACE · CLICK · H · S</div>
+<script>
+'use strict';
+// ─── Utility ───────────────────────────────────────────────────────────────
+const TWO_PI = Math.PI * 2;
+const rnd = () => Math.random();
+const rndRange = (a, b) => a + rnd() * (b - a);
+const rndSign = () => rnd() < 0.5 ? -1 : 1;
+
+// ─── Canvas setup ──────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d', { alpha: false });
+let W, H, DPR;
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  // Adaptive quality for mobile
+  const isMobile = window.innerWidth < 768;
+  if (isMobile) DPR = Math.min(DPR, 1);
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width = Math.floor(W * DPR);
+  canvas.height = Math.floor(H * DPR);
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.scale(DPR, DPR);
+  offInit();
+}
+window.addEventListener('resize', resize);
+
+// Offscreen canvases for compositing
+let offEigen, offConformal, offKaleid;
+let octxE, octxC, octxK;
+function offInit() {
+  offEigen = new OffscreenCanvas(W, H);
+  octxE = offEigen.getContext('2d', { alpha: false });
+  offConformal = new OffscreenCanvas(W, H);
+  octxC = offConformal.getContext('2d');
+  offKaleid = new OffscreenCanvas(W, H);
+  octxK = offKaleid.getContext('2d');
+}
+
+// ─── Perlin Noise (simplex-ish, fast) ─────────────────────────────────────
+const PERM = new Uint8Array(512);
+function seedPerlin(s) {
+  let p = new Uint8Array(256);
+  for (let i = 0; i < 256; i++) p[i] = i;
+  for (let i = 255; i > 0; i--) {
+    s = (s * 1664525 + 1013904223) & 0xffffffff;
+    let j = (s >>> 0) % (i + 1);
+    [p[i], p[j]] = [p[j], p[i]];
+  }
+  for (let i = 0; i < 512; i++) PERM[i] = p[i & 255];
+}
+function fade(t) { return t * t * t * (t * (t * 6 - 15) + 10); }
+function lerp(a, b, t) { return a + t * (b - a); }
+function grad(h, x, y) {
+  h &= 3;
+  const u = h < 2 ? x : y, v = h < 2 ? y : x;
+  return ((h & 1) ? -u : u) + ((h & 2) ? -v : v);
+}
+function perlin2(x, y) {
+  const X = Math.floor(x) & 255, Y = Math.floor(y) & 255;
+  x -= Math.floor(x); y -= Math.floor(y);
+  const u = fade(x), v = fade(y);
+  const a = PERM[X] + Y, b = PERM[X + 1] + Y;
+  return lerp(
+    lerp(grad(PERM[a], x, y), grad(PERM[b], x - 1, y), u),
+    lerp(grad(PERM[a + 1], x, y - 1), grad(PERM[b + 1], x - 1, y - 1), u), v
+  );
+}
+
+// ─── Complex arithmetic ────────────────────────────────────────────────────
+function cAdd(ar, ai, br, bi) { return [ar + br, ai + bi]; }
+function cMul(ar, ai, br, bi) { return [ar * br - ai * bi, ar * bi + ai * br]; }
+function cDiv(ar, ai, br, bi) {
+  const d = br * br + bi * bi + 1e-30;
+  return [(ar * br + ai * bi) / d, (ai * br - ar * bi) / d];
+}
+function cExp(ar, ai) {
+  const e = Math.exp(ar);
+  return [e * Math.cos(ai), e * Math.sin(ai)];
+}
+function cAbs(ar, ai) { return Math.sqrt(ar * ar + ai * ai); }
+function cArg(ar, ai) { return Math.atan2(ai, ar); }
+
+// ─── Global state ──────────────────────────────────────────────────────────
+const N = 64; // matrix dimension (for eigenvalue computation we use a smaller proxy)
+const NEIG = 16; // tracked eigenvalues
+const TRAIL = 256;
+let state = {};
+let frame = 0;
+let fpsTime = 0, fpsCount = 0, fps = 0;
+let hudVisible = false;
+let soundEnabled = false;
+let audioCtx = null;
+let voices = [];
+let eigenTrails = []; // [NEIG][TRAIL] each entry {x,y}
+let t = 0;
+
+// ─── Lorenz attractor ──────────────────────────────────────────────────────
+let lx, ly, lz, lsigma, lrho, lbeta;
+function lorenzInit() {
+  lsigma = rndRange(8, 14);
+  lrho = rndRange(24, 32);
+  lbeta = rndRange(2.2, 3.0);
+  lx = rndRange(-5, 5);
+  ly = rndRange(-5, 5);
+  lz = rndRange(20, 30);
+}
+function lorenzStep(dt) {
+  const dx = lsigma * (ly - lx);
+  const dy = lx * (lrho - lz) - ly;
+  const dz = lx * ly - lbeta * lz;
+  lx += dx * dt; ly += dy * dt; lz += dz * dt;
+}
+// Project Lorenz to rotation angle
+function lorenzAngle() {
+  return Math.atan2(ly, lx) + Math.atan2(lz, Math.sqrt(lx * lx + ly * ly));
+}
+
+// ─── Ginzburg-Landau field (small grid for performance) ────────────────────
+const GL_N = 32;
+let glReal = new Float32Array(GL_N * GL_N);
+let glImag = new Float32Array(GL_N * GL_N);
+let gl_alpha, gl_beta, gl_diff;
+function glInit() {
+  gl_alpha = rndRange(-0.5, 0.5);
+  gl_beta = rndRange(-0.5, 0.5);
+  gl_diff = rndRange(0.1, 0.4);
+  for (let i = 0; i < GL_N * GL_N; i++) {
+    const angle = rnd() * TWO_PI;
+    const r = rndRange(0.3, 1.0);
+    glReal[i] = r * Math.cos(angle);
+    glImag[i] = r * Math.sin(angle);
+  }
+}
+function glStep(dt) {
+  const newR = new Float32Array(GL_N * GL_N);
+  const newI = new Float32Array(GL_N * GL_N);
+  for (let y = 0; y < GL_N; y++) {
+    for (let x = 0; x < GL_N; x++) {
+      const idx = y * GL_N + x;
+      const xp = y * GL_N + (x + 1) % GL_N;
+      const xm = y * GL_N + (x - 1 + GL_N) % GL_N;
+      const yp = ((y + 1) % GL_N) * GL_N + x;
+      const ym = ((y - 1 + GL_N) % GL_N) * GL_N + x;
+      // Laplacian
+      const lapR = glReal[xp] + glReal[xm] + glReal[yp] + glReal[ym] - 4 * glReal[idx];
+      const lapI = glImag[xp] + glImag[xm] + glImag[yp] + glImag[ym] - 4 * glImag[idx];
+      const ar = glReal[idx], ai = glImag[idx];
+      const mod2 = ar * ar + ai * ai;
+      // dA/dt = A + (1+i*alpha)*lapA - (1+i*beta)*|A|^2*A
+      const [nr, ni] = cMul(mod2, 0, ar, ai); // |A|^2 * A
+      const [br, bi] = cMul(1, gl_beta, nr, ni);
+      const [lr, li] = cMul(1, gl_alpha, lapR, lapI);
+      newR[idx] = ar + dt * (ar + gl_diff * lr - br);
+      newI[idx] = ai + dt * (ai + gl_diff * li - bi);
+      // clamp to prevent explosion
+      const nm = Math.sqrt(newR[idx] * newR[idx] + newI[idx] * newI[idx]);
+      if (nm > 2) { newR[idx] /= nm / 2; newI[idx] /= nm / 2; }
+    }
+  }
+  glReal = newR; glImag = newI;
+}
+
+// ─── "Eigenvalue" simulation (QR iteration approximation for speed) ─────────
+// We simulate eigenvalue dynamics by building a companion-like tridiagonal
+// complex matrix from GL field + random unitary perturbation, then doing
+// a few steps of power iteration to get approximate spectral radii.
+// For visual richness we maintain NEIG pseudo-eigenvalues evolving smoothly.
+let eigenVals = []; // [{r,i}] length NEIG
+let eigenSeed = [];
+let glPhase = 0;
+
+function eigenInit() {
+  eigenVals = [];
+  eigenSeed = [];
+  for (let k = 0; k < NEIG; k++) {
+    const angle = (k / NEIG) * TWO_PI + rnd() * 0.5;
+    const rad = rndRange(0.3, 0.95);
+    eigenVals.push({ r: rad * Math.cos(angle), i: rad * Math.sin(angle) });
+    eigenSeed.push({
+      wr: rndRange(-1, 1), wi: rndRange(-1, 1),
+      fr: rndRange(0.5, 3), fi: rndRange(0.5, 3),
+      pr: rnd() * TWO_PI, pi: rnd() * TWO_PI,
+      gr: rndRange(0.02, 0.08), gi: rndRange(0.02, 0.08)
+    });
+    eigenTrails[k] = [];
+  }
+}
+
+function eigenUpdate(dt) {
+  // Sample GL field at NEIG points and use as complex drift
+  const glT = t * 0.5 + glPhase;
+  for (let k = 0; k < NEIG; k++) {
+    const seed = eigenSeed[k];
+    const gx = Math.floor((k / NEIG) * GL_N) % GL_N;
+    const gy = Math.floor(((k * 7) % NEIG / NEIG) * GL_N) % GL_N;
+    const gIdx = gy * GL_N + gx;
+    const gR = glReal[gIdx], gI = glImag[gIdx];
+
+    // Coupled eigenvalue dynamics: each eigenvalue drifts toward a GL-driven attractor
+    // with interaction from Lorenz rotation
+    const la = lorenzAngle() * 0.1;
+    const targR = 0.85 * Math.cos(seed.pr + t * seed.fr + la) + gR * 0.15;
+    const targI = 0.85 * Math.sin(seed.pi + t * seed.fi + la) + gI * 0.15;
+    const ev = eigenVals[k];
+    ev.r += (targR - ev.r) * seed.gr + gR * 0.002;
+    ev.i += (targI - ev.i) * seed.gi + gI * 0.002;
+    // Clamp to unit-ish disk
+    const mod = Math.sqrt(ev.r * ev.r + ev.i * ev.i);
+    if (mod > 1.2) { ev.r *= 1.2 / mod; ev.i *= 1.2 / mod; }
+
+    // Push to trail
+    const trail = eigenTrails[k];
+    trail.unshift({ r: ev.r, i: ev.i });
+    if (trail.length > TRAIL) trail.pop();
+  }
+}
+
+// ─── Rendering eigenvalue trails ────────────────────────────────────────────
+function drawEigenTrails(cx, t) {
+  cx.fillStyle = 'rgba(0,0,0,0.07)';
+  cx.fillRect(0, 0, W, H);
+
+  const cx0 = W * 0.5, cy0 = H * 0.5;
+  const scale = Math.min(W, H) * 0.32;
+
+  for (let k = 0; k < NEIG; k++) {
+    const trail = eigenTrails[k];
+    if (trail.length < 2) continue;
+    const baseHue = ((Math.atan2(eigenVals[k].i, eigenVals[k].r) / TWO_PI) + 1) % 1;
+    for (let j = 0; j < trail.length - 1; j++) {
+      const alpha = Math.exp(-j / 40) * 0.9;
+      if (alpha < 0.003) break;
+      const hue = (baseHue + j * 0.002) % 1;
+      const h = Math.floor(hue * 360);
+      const lum = 55 + 30 * Math.exp(-j / 20);
+      cx.strokeStyle = `hsla(${h},100%,${lum}%,${alpha.toFixed(3)})`;
+      cx.lineWidth = Math.max(0.3, (1 - j / TRAIL) * 2.5);
+      cx.beginPath();
+      cx.moveTo(cx0 + trail[j].r * scale, cy0 - trail[j].i * scale);
+      cx.lineTo(cx0 + trail[j + 1].r * scale, cy0 - trail[j + 1].i * scale);
+      cx.stroke();
+    }
+    // Bright dot at current position
+    const ev = eigenVals[k];
+    const h = Math.floor(baseHue * 360);
+    const grd = cx.createRadialGradient(
+      cx0 + ev.r * scale, cy0 - ev.i * scale, 0,
+      cx0 + ev.r * scale, cy0 - ev.i * scale, 6
+    );
+    grd.addColorStop(0, `hsla(${h},100%,95%,0.95)`);
+    grd.addColorStop(0.4, `hsla(${h},100%,65%,0.6)`);
+    grd.addColorStop(1, `hsla(${h},100%,50%,0)`);
+    cx.fillStyle = grd;
+    cx.beginPath();
+    cx.arc(cx0 + ev.r * scale, cy0 - ev.i * scale, 6, 0, TWO_PI);
+    cx.fill();
+  }
+}
+
+// ─── Conformal mappings ─────────────────────────────────────────────────────
+let joukowskiC, joukowskiA; // Joukowski params
+let mobiusA, mobiusB, mobiusC, mobiusD; // Möbius params
+let conformalScale;
+function conformalInit() {
+  joukowskiC = rndRange(0.05, 0.3);
+  joukowskiA = rndRange(0.8, 1.3);
+  mobiusA = [rndRange(-1, 1), rndRange(-1, 1)];
+  mobiusB = [rndRange(-0.5, 0.5), rndRange(-0.5, 0.5)];
+  mobiusC = [rndRange(-0.5, 0.5), rndRange(-0.5, 0.5)];
+  mobiusD = [rndRange(0.5, 1.5), rndRange(-0.5, 0.5)];
+  conformalScale = 0.0015 + rnd() * 0.001;
+}
+
+function applyConformalMappings(imgData, outCtx) {
+  // We sample the eigen canvas through conformal map UV coordinates
+  outCtx.clearRect(0, 0, W, H);
+  const src = octxE.getImageData(0, 0, W, H);
+  const dst = outCtx.createImageData(W, H);
+  const sd = src.data, dd = dst.data;
+  const cx0 = W * 0.5, cy0 = H * 0.5;
+  const invW = 1 / W, invH = 1 / H;
+  const t2 = t * 0.05;
+
+  for (let y = 0; y < H; y += 2) { // stride 2 for perf
+    for (let x = 0; x < W; x += 2) {
+      // Normalized complex coord
+      let zr = (x - cx0) * conformalScale * 60;
+      let zi = (y - cy0) * conformalScale * 60;
+
+      // 1. Complex exponential
+      const [er, ei] = cExp(zr * 0.2, zi * 0.2 + t2);
+      let ar = er * 0.5, ai = ei * 0.5;
+
+      // 2. Joukowski: z + c^2/z
+      const [jr, ji] = cDiv(joukowskiC * joukowskiC, 0, ar, ai);
+      let br = (ar + jr) * joukowskiA, bi = (ai + ji) * joukowskiA;
+
+      // 3. Inverse Möbius: (dz - b) / (-cz + a)
+      const [mr1, mi1] = cMul(mobiusD[0], mobiusD[1], br, bi);
+      const numR = mr1 - mobiusB[0], numI = mi1 - mobiusB[1];
+      const [mr2, mi2] = cMul(mobiusC[0], mobiusC[1], br, bi);
+      const denR = mobiusA[0] - mr2, denI = mobiusA[1] - mi2;
+      const [fr, fi] = cDiv(numR, numI, denR, denI);
+
+      // Map back to pixel space
+      const px = Math.floor(cx0 + fr * 80) % W;
+      const py = Math.floor(cy0 + fi * 80) % H;
+      const sx = ((px % W) + W) % W;
+      const sy = ((py % H) + H) % H;
+
+      const si = (sy * W + sx) * 4;
+      const di = (y * W + x) * 4;
+      if (di + 3 < dd.length && si + 3 < sd.length) {
+        dd[di] = sd[si]; dd[di + 1] = sd[si + 1];
+        dd[di + 2] = sd[si + 2]; dd[di + 3] = 200;
+        // Fill 2x2 block
+        if (x + 1 < W) {
+          dd[di + 4] = sd[si]; dd[di + 5] = sd[si + 1];
+          dd[di + 6] = sd[si + 2]; dd[di + 7] = 200;
+        }
+        if (y + 1 < H) {
+          const di2 = ((y + 1) * W + x) * 4;
+          if (di2 + 3 < dd.length) {
+            dd[di2] = sd[si]; dd[di2 + 1] = sd[si + 1];
+            dd[di2 + 2] = sd[si + 2]; dd[di2 + 3] = 200;
+          }
+        }
+      }
+    }
+  }
+  outCtx.putImageData(dst, 0, 0);
+}
+
+// ─── Kaleidoscope (icosahedral-inspired H3 reflection) ──────────────────────
+let kReflections;
+function kaleidoInit() {
+  kReflections = Math.floor(rndRange(5, 15));
+}
+
+function applyKaleidoscope(srcCanvas, dstCtx) {
+  dstCtx.clearRect(0, 0, W, H);
+  const angle = lorenzAngle();
+  const cx0 = W * 0.5, cy0 = H * 0.5;
+  const sectors = kReflections;
+  const sectorAngle = TWO_PI / sectors;
+
+  dstCtx.save();
+  dstCtx.translate(cx0, cy0);
+
+  for (let s = 0; s < sectors; s++) {
+    dstCtx.save();
+    dstCtx.rotate(s * sectorAngle + angle);
+    // Clip to sector
+    dstCtx.beginPath();
+    dstCtx.moveTo(0, 0);
+    const r = Math.max(W, H);
+    dstCtx.lineTo(r * Math.cos(-sectorAngle / 2), r * Math.sin(-sectorAngle / 2));
+    dstCtx.arc(0, 0, r, -sectorAngle / 2, sectorAngle / 2);
+    dstCtx.closePath();
+    dstCtx.clip();
+
+    dstCtx.globalAlpha = 0.7;
+    dstCtx.globalCompositeOperation = s % 2 === 0 ? 'lighter' : 'source-over';
+
+    // Flip every other sector for reflection
+    if (s % 2 === 1) dstCtx.scale(1, -1);
+
+    dstCtx.drawImage(srcCanvas, -cx0, -cy0, W, H);
+    dstCtx.restore();
+  }
+
+  dstCtx.restore();
+}
+
+// ─── ACES tone mapping + chromatic aberration ───────────────────────────────
+// Borosilicate glass dispersion approximation: n varies with wavelength
+// n_R ~ 1.507, n_G ~ 1.515, n_B ~ 1.530 (simplified Sellmeier)
+const DISP_R = 0.997, DISP_G = 1.000, DISP_B = 1.006; // relative
+
+function acesTonemap(x) {
+  // ACES approximation
+  const a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
+  return Math.max(0, Math.min(1, (x * (a * x + b)) / (x * (c * x + d) + e)));
+}
+
+function postProcess(srcCtx, dstCtx, exposure) {
+  const src = srcCtx.getImageData(0, 0, W, H);
+  const dst = dstCtx.createImageData(W, H);
+  const sd = src.data, dd = dst.data;
+  const cx0 = W * 0.5, cy0 = H * 0.5;
+  const aberr = 0.012 + Math.abs(Math.sin(t * 0.1)) * 0.008;
+
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const dx = x - cx0, dy = y - cy0;
+      const dist = Math.sqrt(dx * dx + dy * dy) / Math.max(W, H);
+
+      // Chromatic aberration via borosilicate dispersion
+      const aberrDist = aberr * dist * dist;
+      const xR = Math.round(x + dx * aberrDist * DISP_R);
+      const yR = Math.round(y + dy * aberrDist * DISP_R);
+      const xG = Math.round(x + dx * aberrDist * DISP_G);
+      const yG = Math.round(y + dy * aberrDist * DISP_G);
+      const xB = Math.round(x + dx * aberrDist * DISP_B);
+      const yB = Math.round(y + dy * aberrDist * DISP_B);
+
+      function samp(px, py, ch) {
+        const px2 = Math.max(0, Math.min(W - 1, px));
+        const py2 = Math.max(0, Math.min(H - 1, py));
+        return sd[(py2 * W + px2) * 4 + ch] / 255;
+      }
+
+      const r = samp(xR, yR, 0) * exposure;
+      const g = samp(xG, yG, 1) * exposure;
+      const b = samp(xB, yB, 2) * exposure;
+
+      const di = (y * W + x) * 4;
+      dd[di] = Math.round(acesTonemap(r) * 255);
+      dd[di + 1] = Math.round(acesTonemap(g) * 255);
+      dd[di + 2] = Math.round(acesTonemap(b) * 255);
+      dd[di + 3] = 255;
+    }
+  }
+  dstCtx.putImageData(dst, 0, 0);
+}
+
+// ─── Sound engine ───────────────────────────────────────────────────────────
+function initAudio() {
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  voices = [];
+  const masterGain = audioCtx.createGain();
+  masterGain.gain.value = 0.12;
+  masterGain.connect(audioCtx.destination);
+
+  for (let k = 0; k < NEIG; k++) {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    const panner = audioCtx.createStereoPanner();
+    osc.type = k % 3 === 0 ? 'sine' : k % 3 === 1 ? 'triangle' : 'sine';
+    osc.frequency.value = 220;
+    gain.gain.value = 0;
+    osc.connect(gain);
+    gain.connect(panner);
+    panner.connect(masterGain);
+    osc.start();
+    voices.push({ osc, gain, panner });
+  }
+}
+
+function updateAudio() {
+  if (!soundEnabled || !audioCtx) return;
+  const now = audioCtx.currentTime;
+  for (let k = 0; k < NEIG; k++) {
+    const ev = eigenVals[k];
+    const mod = Math.sqrt(ev.r * ev.r + ev.i * ev.i);
+    const arg = Math.atan2(ev.i, ev.r);
+    // Pitch: logarithmic map of modulus to 110-880 Hz
+    const freq = 110 * Math.pow(8, mod);
+    voices[k].osc.frequency.setTargetAtTime(Math.min(freq, 1400), now, 0.05);
+    voices[k].panner.pan.setTargetAtTime(arg / Math.PI, now, 0.05);
+    voices[k].gain.gain.setTargetAtTime(mod * 0.04, now, 0.05);
+  }
+}
+
+function toggleSound() {
+  soundEnabled = !soundEnabled;
+  if (soundEnabled) {
+    initAudio();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+  } else {
+    if (voices.length) {
+      voices.forEach(v => v.gain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.1));
+    }
+  }
+  document.getElementById('h-snd').textContent = soundEnabled ? 'ON' : 'OFF';
+}
+
+// ─── Randomize all parameters ───────────────────────────────────────────────
+function randomize() {
+  seedPerlin(Math.floor(rnd() * 10000));
+  glInit();
+  glPhase = rnd() * 100;
+  lorenzInit();
+  conformalInit();
+  kaleidoInit();
+  eigenInit();
+  // Clear eigen canvas
+  if (octxE) {
+    octxE.fillStyle = '#000';
+    octxE.fillRect(0, 0, W, H);
+  }
+  updateHUD();
+}
+
+// ─── HUD ────────────────────────────────────────────────────────────────────
+function updateHUD() {
+  document.getElementById('h-alpha').textContent = gl_alpha.toFixed(3);
+  document.getElementById('h-beta').textContent = gl_beta.toFixed(3);
+  document.getElementById('h-diff').textContent = gl_diff.toFixed(3);
+  document.getElementById('h-ls').textContent = lsigma.toFixed(2);
+  document.getElementById('h-lr').textContent = lrho.toFixed(2);
+}
+function toggleHUD() {
+  hudVisible = !hudVisible;
+  document.getElementById('hud').classList.toggle('visible', hudVisible);
+}
+
+// ─── Main loop ─────────────────────────────────────────────────────────────
+let lastTime = 0;
+let perfSkip = 1; // adaptive: skip conformal on slow frames
+let slowFrames = 0;
+
+function loop(ts) {
+  requestAnimationFrame(loop);
+  const dt = Math.min((ts - lastTime) / 1000, 0.05);
+  lastTime = ts;
+  t += dt;
+
+  // FPS tracking
+  fpsCount++;
+  if (ts - fpsTime > 1000) {
+    fps = fpsCount;
+    fpsCount = 0;
+    fpsTime = ts;
+    document.getElementById('h-fps').textContent = fps;
+    // Adaptive performance
+    if (fps < 25 && perfSkip < 4) { perfSkip++; slowFrames++; }
+    else if (fps > 45 && perfSkip > 1) perfSkip--;
+  }
+
+  // Update simulation
+  lorenzStep(dt * 0.5);
+  if (frame % 2 === 0) glStep(dt * 0.3);
+  eigenUpdate(dt);
+
+  // Draw eigen trails on offscreen canvas
+  drawEigenTrails(octxE, t);
+
+  if (frame % perfSkip === 0) {
+    // Apply conformal mappings
+    applyConformalMappings(null, octxC);
+  }
+
+  // Apply kaleidoscope
+  applyKaleidoscope(offConformal, octxK);
+
+  // Perlin-driven exposure
+  const exposure = 1.2 + perlin2(t * 0.1, 0.5) * 0.6;
+
+  // Post-process (ACES + chromatic aberration) — skip on mobile/slow
+  if (perfSkip <= 2) {
+    postProcess(octxK, ctx, exposure);
+  } else {
+    // Fast path: just draw kaleid with basic exposure
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+    ctx.drawImage(offKaleid, 0, 0, W, H);
+  }
+
+  // Additive blend eigen directly for extra brightness
+  ctx.globalCompositeOperation = 'screen';
+  ctx.globalAlpha = 0.3;
+  ctx.drawImage(offEigen, 0, 0, W, H);
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 1;
+
+  // Sound update every 4 frames
+  if (frame % 4 === 0) updateAudio();
+
+  frame++;
+
+  // Fade hint
+  if (frame === 180) {
+    document.getElementById('hint').style.opacity = '0';
+  }
+}
+
+// ─── Event handlers ─────────────────────────────────────────────────────────
+window.addEventListener('keydown', e => {
+  if (e.code === 'Space') { e.preventDefault(); randomize(); }
+  if (e.code === 'KeyH') toggleHUD();
+  if (e.code === 'KeyS') toggleSound();
+});
+canvas.addEventListener('click', randomize);
+
+// ─── Init ───────────────────────────────────────────────────────────────────
+resize();
+seedPerlin(42);
+glInit();
+lorenzInit();
+conformalInit();
+kaleidoInit();
+eigenInit();
+
+octxE.fillStyle = '#000';
+octxE.fillRect(0, 0, W, H);
+
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

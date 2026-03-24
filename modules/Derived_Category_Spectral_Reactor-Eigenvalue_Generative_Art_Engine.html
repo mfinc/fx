@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Derived Category Spectral Reactor — Eigenvalue Generative Art Engine</title>
+<meta name="description" content="A real-time generative art engine visualizing derived categories through spectral decomposition fields, eigenvalue-driven lattice transformations, Fourier morphisms, and holographic Coxeter symmetry explosions.">
+<meta name="keywords" content="derived categories, spectral mathematics visualization, generative audiovisual fractal systems, eigenvalue art, Fourier transform visualization, derived functors, holographic interference patterns, Coxeter reflection groups, quaternion rotations, spectral decomposition, homological algebra art, triangulated categories, spectral sequence visualization, wave equation simulation, vector field particle systems">
+<meta name="author" content="Derived Category Spectral Reactor">
+<meta property="og:title" content="Derived Category Spectral Reactor — Eigenvalue Generative Art Engine">
+<meta property="og:description" content="Real-time spectral decomposition fields, morphism energy channels, and derived functor phase shifts rendered through Fourier transforms and Coxeter symmetry groups.">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Derived Category Spectral Reactor">
+<meta name="twitter:description" content="Generative art engine for derived categories, spectral mathematics, and audiovisual fractal systems.">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+  canvas { display: block; position: fixed; top: 0; left: 0; }
+  #hud {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none; display: none; z-index: 10;
+    font-family: 'Courier New', monospace;
+  }
+  #hud.visible { display: block; }
+  .hud-panel {
+    position: absolute; top: 18px; left: 18px;
+    background: rgba(0,0,0,0.72); border: 1px solid rgba(255,255,255,0.12);
+    padding: 14px 18px; color: rgba(255,255,255,0.85);
+    font-size: 11px; line-height: 1.9; letter-spacing: 0.04em;
+    backdrop-filter: blur(8px); min-width: 240px;
+    border-radius: 2px;
+  }
+  .hud-panel span { color: rgba(180,220,255,0.9); }
+  .hud-title {
+    font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase;
+    color: rgba(255,255,255,0.4); margin-bottom: 10px;
+    border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 6px;
+  }
+  .hud-keys {
+    position: absolute; bottom: 18px; right: 18px;
+    background: rgba(0,0,0,0.72); border: 1px solid rgba(255,255,255,0.1);
+    padding: 12px 16px; color: rgba(255,255,255,0.5);
+    font-size: 10px; line-height: 2; letter-spacing: 0.05em;
+    backdrop-filter: blur(8px); text-align: right; border-radius: 2px;
+  }
+  .hud-keys b { color: rgba(255,255,255,0.85); }
+  .eigenbar {
+    position: absolute; bottom: 18px; left: 18px;
+    background: rgba(0,0,0,0.72); border: 1px solid rgba(255,255,255,0.1);
+    padding: 12px 16px; backdrop-filter: blur(8px); border-radius: 2px;
+    display: flex; gap: 3px; align-items: flex-end;
+  }
+  .eigenbar-col {
+    width: 8px; background: rgba(255,255,255,0.15);
+    border-radius: 1px; transition: height 0.08s;
+    min-height: 2px;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div class="hud-panel">
+    <div class="hud-title">Derived Category Spectral Reactor</div>
+    MODE: <span id="h-mode">LATTICE EIGENFLOW</span><br>
+    COMPLEXES: <span id="h-cx">0</span><br>
+    MORPHISMS: <span id="h-morph">0</span><br>
+    SPECTRAL RANK: <span id="h-rank">0</span><br>
+    EIGENVALUES: <span id="h-eig">—</span><br>
+    COXETER ORD: <span id="h-cox">0</span><br>
+    FUNCTOR PHASE: <span id="h-phase">0.000</span><br>
+    PALETTE SEED: <span id="h-pal">0</span><br>
+    PARTICLES: <span id="h-part">0</span><br>
+    SOUND: <span id="h-snd">OFF</span><br>
+    FPS: <span id="h-fps">0</span>
+  </div>
+  <div class="eigenbar" id="eigenbar"></div>
+  <div class="hud-keys">
+    <b>SPACE / CLICK / TAP</b> — Regenerate<br>
+    <b>H</b> — Toggle HUD<br>
+    <b>S</b> — Toggle Sound
+  </div>
+</div>
+
+<script>
+// ─── GLOBAL STATE ─────────────────────────────────────────────────────────────
+const C = document.getElementById('c');
+const ctx = C.getContext('2d');
+let W, H, CX, CY;
+let soundOn = false, hudOn = false;
+let animId, lastT = 0, fps = 0, frameCount = 0;
+let audioCtx = null, masterGain = null;
+let oscillators = [], spectralNodes = [];
+
+// ─── MATH UTILITIES ───────────────────────────────────────────────────────────
+const TAU = Math.PI * 2;
+const rnd = (a=1, b=0) => Math.random()*(a-b)+b;
+const rndI = (n) => Math.floor(Math.random()*n);
+const lerp = (a,b,t) => a+(b-a)*t;
+const clamp = (v,a,b) => Math.max(a,Math.min(b,v));
+const hsl = (h,s,l,a=1) => `hsla(${h|0},${s|0}%,${l|0}%,${a})`;
+
+// Quaternion multiply
+function qMul(a,b){
+  return [
+    a[0]*b[0]-a[1]*b[1]-a[2]*b[2]-a[3]*b[3],
+    a[0]*b[1]+a[1]*b[0]+a[2]*b[3]-a[3]*b[2],
+    a[0]*b[2]-a[1]*b[3]+a[2]*b[0]+a[3]*b[1],
+    a[0]*b[3]+a[1]*b[2]-a[2]*b[1]+a[3]*b[0]
+  ];
+}
+function qRotate(v, q){
+  const p = [0, v[0], v[1], v[2]];
+  const qc = [q[0], -q[1], -q[2], -q[3]];
+  const r = qMul(qMul(q, p), qc);
+  return [r[1], r[2], r[3]];
+}
+function qFromAxis(ax, ay, az, ang){
+  const s = Math.sin(ang/2);
+  return [Math.cos(ang/2), ax*s, ay*s, az*s];
+}
+
+// DFT-inspired spectral coefficients
+function spectralCoeffs(seed, n){
+  const c = [];
+  for(let k=0;k<n;k++){
+    const amp = Math.exp(-k*0.3) * (0.5 + 0.5*Math.sin(seed*1.7+k*2.3));
+    const phase = (seed*3.1+k*1.9) % TAU;
+    c.push({amp, phase, freq: (k+1)*0.5});
+  }
+  return c;
+}
+
+// Wave superposition at x,t
+function waveSum(coeffs, x, t){
+  let v = 0;
+  for(const c of coeffs) v += c.amp*Math.sin(c.freq*x + c.phase + t*c.freq*0.4);
+  return v;
+}
+
+// Eigenvalues (simulated as random positive reals with spectral gaps)
+function genEigenvalues(n, seed){
+  const eig = [];
+  let lam = 0.1 + Math.abs(Math.sin(seed));
+  for(let i=0;i<n;i++){
+    lam += 0.15 + 0.6*Math.abs(Math.sin(seed*1.3+i*2.1));
+    eig.push(lam);
+  }
+  return eig;
+}
+
+// Coxeter group generator (dihedral-like reflection angles)
+function coxeterAngles(order){
+  const angles = [];
+  for(let i=0;i<order;i++) angles.push(TAU*i/order);
+  return angles;
+}
+
+// Convolution kernel
+function gaussKernel(r, sigma){
+  const k = [];
+  let s = 0;
+  for(let i=-r;i<=r;i++){
+    const v = Math.exp(-i*i/(2*sigma*sigma));
+    k.push(v); s+=v;
+  }
+  return k.map(v=>v/s);
+}
+
+// ─── SPECTRAL PALETTE ─────────────────────────────────────────────────────────
+let PAL = {};
+function genPalette(seed){
+  const baseHue = rnd(360);
+  const spread = 80+rnd(120);
+  PAL = {
+    seed,
+    baseHue,
+    spread,
+    hues: Array.from({length:7}, (_,i) => (baseHue + i*spread/6 + rnd(30)-15 + 360) % 360),
+    sat: 60+rnd(35),
+    lit: 45+rnd(25),
+    bg: `hsl(${(baseHue+180)%360|0},${15+rnd(15)|0}%,${3+rnd(5)|0}%)`,
+    glowAlpha: 0.5+rnd(0.4),
+    chromaShift: rnd(TAU),
+    chromaSpeed: 0.3+rnd(0.7)
+  };
+}
+
+function palColor(t, layer=0, alpha=1){
+  const h = (PAL.hues[layer % PAL.hues.length] + t*40 + PAL.chromaShift*15) % 360;
+  return hsl(h, PAL.sat, PAL.lit, alpha);
+}
+function palGlow(t, layer=0){
+  return palColor(t, layer, PAL.glowAlpha);
+}
+
+// ─── SPECTRAL FIELDS (complex lattice nodes) ──────────────────────────────────
+let FIELDS = [];
+let MORPHISMS = [];
+let PARTICLES = [];
+let FUNCTOR_PHASE = 0;
+let COXETER_ORDER, COXETER_ANGLES;
+let EIGENVALUES, SPECTRAL_COEFFS;
+let LATTICE_NODES = [];
+let QUATERNION_BASE;
+let MODE_NAMES = ['LATTICE EIGENFLOW','HOLOGRAPHIC FUNCTOR','COXETER EXPLOSION','SPECTRAL CASCADE','MORPHIC RESONANCE','DERIVED INTERFERENCE'];
+let currentMode = 0;
+let seed = Math.random()*9999;
+
+function generateAll(){
+  seed = Math.random()*9999;
+  genPalette(seed);
+  FIELDS = [];
+  MORPHISMS = [];
+  PARTICLES = [];
+  FUNCTOR_PHASE = rnd(TAU);
+  COXETER_ORDER = 3+rndI(9);
+  COXETER_ANGLES = coxeterAngles(COXETER_ORDER);
+  EIGENVALUES = genEigenvalues(12, seed);
+  SPECTRAL_COEFFS = spectralCoeffs(seed, 8);
+  currentMode = rndI(MODE_NAMES.length);
+  QUATERNION_BASE = qFromAxis(
+    Math.sin(seed*0.7), Math.cos(seed*0.5), Math.sin(seed*1.1), rnd(TAU)
+  );
+
+  // Lattice nodes — complexes of objects
+  const nLayers = 3+rndI(4);
+  const nPerLayer = 4+rndI(6);
+  LATTICE_NODES = [];
+  for(let l=0;l<nLayers;l++){
+    for(let i=0;i<nPerLayer;i++){
+      const ang = (i/nPerLayer)*TAU + (l*0.4);
+      const r = 80 + l*95 + rnd(40);
+      LATTICE_NODES.push({
+        bx: Math.cos(ang)*r, by: Math.sin(ang)*r,
+        r, ang, layer:l,
+        eig: EIGENVALUES[(l*nPerLayer+i)%EIGENVALUES.length],
+        phase: rnd(TAU), freq: 0.3+rnd(0.8),
+        size: 6+l*3+rnd(10),
+        spectral: spectralCoeffs(seed+l*1.7+i*0.9, 5)
+      });
+    }
+  }
+
+  // Morphisms — edges between complexes
+  MORPHISMS = [];
+  for(let a=0;a<LATTICE_NODES.length;a++){
+    const nA = LATTICE_NODES[a];
+    const nConns = 1+rndI(3);
+    for(let c=0;c<nConns;c++){
+      const b = (a + 1 + rndI(LATTICE_NODES.length-1)) % LATTICE_NODES.length;
+      if(b===a) continue;
+      MORPHISMS.push({a, b,
+        phase: rnd(TAU), speed: 0.4+rnd(1.2),
+        energy: 0.4+rnd(0.6),
+        coeffs: spectralCoeffs(seed+a*0.7+b*1.3, 4)
+      });
+    }
+  }
+
+  // Particle system seeding
+  const nPart = 180+rndI(220);
+  for(let i=0;i<nPart;i++) spawnParticle();
+
+  // Sound rebuild
+  if(soundOn) rebuildSound();
+  updateEigenBar();
+}
+
+// ─── PARTICLES ────────────────────────────────────────────────────────────────
+function spawnParticle(x, y){
+  const ang = rnd(TAU);
+  const r = rnd(Math.min(W,H)*0.38);
+  PARTICLES.push({
+    x: x ?? (CX + Math.cos(ang)*r),
+    y: y ?? (CY + Math.sin(ang)*r),
+    vx: rnd(2)-1, vy: rnd(2)-1,
+    life: 0.6+rnd(0.4),
+    maxLife: 0.6+rnd(0.4),
+    layer: rndI(7),
+    size: 0.8+rnd(2.5),
+    phase: rnd(TAU),
+    eig: EIGENVALUES[rndI(EIGENVALUES.length)]
+  });
+}
+
+function updateParticles(t, dt){
+  for(let i=PARTICLES.length-1;i>=0;i--){
+    const p = PARTICLES[i];
+    p.life -= dt*0.15;
+    if(p.life <= 0){ PARTICLES.splice(i,1); spawnParticle(); continue; }
+
+    // Vector field from Fourier modes
+    const nx = (p.x - CX)/Math.max(W,H)*4;
+    const ny = (p.y - CY)/Math.max(W,H)*4;
+    const vfx = waveSum(SPECTRAL_COEFFS, nx+ny, t)*0.9;
+    const vfy = waveSum(SPECTRAL_COEFFS, nx-ny+1.3, t)*0.9;
+
+    // Attraction toward nearest node
+    let minD = 1e9, tnx=0, tny=0;
+    for(const nd of LATTICE_NODES){
+      const dx=CX+nd.bx*oscillatingScale(t)+rnd(2)-p.x;
+      const dy=CY+nd.by*oscillatingScale(t)+rnd(2)-p.y;
+      const d=dx*dx+dy*dy;
+      if(d<minD){minD=d;tnx=dx;tny=dy;}
+    }
+    const tl = Math.sqrt(minD)+0.001;
+    const attract = 0.015/tl;
+
+    p.vx = p.vx*0.94 + vfx*0.04 + tnx*attract;
+    p.vy = p.vy*0.94 + vfy*0.04 + tny*attract;
+
+    // Clamp speed
+    const sp = Math.sqrt(p.vx*p.vx+p.vy*p.vy);
+    if(sp>3){p.vx*=3/sp;p.vy*=3/sp;}
+
+    p.x += p.vx; p.y += p.vy;
+    p.phase += 0.04*p.eig*0.3;
+
+    // Wrap
+    if(p.x<0)p.x=W; if(p.x>W)p.x=0;
+    if(p.y<0)p.y=H; if(p.y>H)p.y=0;
+  }
+}
+
+// ─── DYNAMIC SCALE ────────────────────────────────────────────────────────────
+function oscillatingScale(t){
+  return 0.75 + 0.22*Math.sin(t*0.18 + FUNCTOR_PHASE) + 0.07*Math.sin(t*0.41+1.2);
+}
+
+// ─── DRAW ROUTINES ────────────────────────────────────────────────────────────
+function drawBackground(t){
+  // Gradient sweep
+  const angle = t*0.04 + PAL.chromaShift;
+  const grd = ctx.createRadialGradient(CX,CY,10,CX,CY,Math.max(W,H)*0.75);
+  const h0 = (PAL.baseHue + t*PAL.chromaSpeed*3) % 360;
+  const h1 = (h0 + PAL.spread) % 360;
+  grd.addColorStop(0, hsl(h0, 20, 7, 1));
+  grd.addColorStop(1, hsl(h1, 10, 2, 1));
+  ctx.fillStyle = grd;
+  ctx.fillRect(0,0,W,H);
+}
+
+function drawSpectralField(t){
+  // Interference pattern across canvas
+  const step = 14;
+  for(let x=0; x<W; x+=step){
+    for(let y=0; y<H; y+=step){
+      const nx = (x-CX)/W*6;
+      const ny = (y-CY)/H*6;
+      let v = 0;
+      for(let k=0;k<SPECTRAL_COEFFS.length;k++){
+        const sc = SPECTRAL_COEFFS[k];
+        v += sc.amp * Math.sin(sc.freq*(nx+ny) + sc.phase + t*0.3 + k*0.7);
+      }
+      // Coxeter symmetry: reflect
+      let sym = v;
+      for(const ang of COXETER_ANGLES){
+        const rx = nx*Math.cos(ang)-ny*Math.sin(ang);
+        const ry = nx*Math.sin(ang)+ny*Math.cos(ang);
+        sym += 0.3*Math.sin(rx*3+t*0.2+ang)*Math.cos(ry*3+t*0.15);
+      }
+      const norm = (sym/COXETER_ORDER+1)/2;
+      const hue = (PAL.baseHue + norm*PAL.spread*2 + t*PAL.chromaSpeed*8) % 360;
+      const alpha = clamp(0.05+norm*0.12, 0, 0.18);
+      ctx.fillStyle = hsl(hue, PAL.sat, PAL.lit, alpha);
+      ctx.fillRect(x-step/2, y-step/2, step, step);
+    }
+  }
+}
+
+function drawLatticeNodes(t){
+  const sc = oscillatingScale(t);
+  for(let i=0;i<LATTICE_NODES.length;i++){
+    const nd = LATTICE_NODES[i];
+
+    // Quaternion rotation on 2D projection
+    const q = qFromAxis(0,0,1, t*0.05*nd.eig*0.15 + nd.phase);
+    const qFull = qMul(QUATERNION_BASE, q);
+    const rotated = qRotate([nd.bx, nd.by, nd.layer*30], qFull);
+
+    const px = CX + rotated[0]*sc;
+    const py = CY + rotated[1]*sc;
+    const depth = (rotated[2]+200)/400; // 0-1 depth
+
+    // Spectral oscillation size
+    const osz = nd.size*(1 + 0.4*Math.sin(t*nd.freq + nd.phase));
+    const hue = (PAL.hues[nd.layer % PAL.hues.length] + t*PAL.chromaSpeed*5) % 360;
+
+    // Outer glow rings (eigenvalue-driven)
+    const nRings = Math.min(4, Math.ceil(nd.eig));
+    for(let r=nRings;r>=1;r--){
+      const rSize = osz*(1+r*0.6+0.2*Math.sin(t*0.5+nd.phase+r));
+      const grd = ctx.createRadialGradient(px,py,0,px,py,rSize);
+      grd.addColorStop(0, hsl(hue, PAL.sat, PAL.lit+10, 0.22*depth/r));
+      grd.addColorStop(1, hsl((hue+40)%360, PAL.sat, PAL.lit, 0));
+      ctx.beginPath(); ctx.arc(px, py, rSize, 0, TAU);
+      ctx.fillStyle = grd; ctx.fill();
+    }
+
+    // Core lattice node
+    const grd = ctx.createRadialGradient(px,py,0,px,py,osz);
+    grd.addColorStop(0, hsl(hue, PAL.sat+10, PAL.lit+25, depth*0.95));
+    grd.addColorStop(0.5, hsl((hue+60)%360, PAL.sat, PAL.lit, depth*0.7));
+    grd.addColorStop(1, hsl(hue, PAL.sat, PAL.lit-10, 0));
+    ctx.beginPath(); ctx.arc(px, py, osz, 0, TAU);
+    ctx.fillStyle = grd; ctx.fill();
+
+    // Spectral petals (Fourier modes)
+    ctx.save(); ctx.translate(px,py); ctx.rotate(t*nd.freq*0.15+nd.phase);
+    for(let k=0;k<nd.spectral.length;k++){
+      const sc2 = nd.spectral[k];
+      const petAng = (k/nd.spectral.length)*TAU;
+      const petR = osz*(1 + sc2.amp*0.8*Math.sin(t*sc2.freq+sc2.phase));
+      const px2 = Math.cos(petAng)*petR*1.4;
+      const py2 = Math.sin(petAng)*petR*1.4;
+      ctx.beginPath();
+      ctx.moveTo(0,0);
+      ctx.quadraticCurveTo(px2*0.6+py2*0.3, py2*0.6-px2*0.3, px2, py2);
+      ctx.strokeStyle = hsl((hue+k*30)%360, PAL.sat, PAL.lit+15, 0.4*depth);
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // Layer label
+    nd._px = px; nd._py = py; nd._depth = depth; nd._hue = hue; nd._osz = osz;
+  }
+}
+
+function drawMorphisms(t){
+  for(const m of MORPHISMS){
+    const nA = LATTICE_NODES[m.a], nB = LATTICE_NODES[m.b];
+    if(!nA._px || !nB._px) continue;
+    const ax=nA._px, ay=nA._py, bx=nB._px, by=nB._py;
+    const hue = (PAL.hues[m.a%7] + t*PAL.chromaSpeed*6) % 360;
+
+    // Flowing energy channel — Bezier with Fourier-warped control points
+    const mx = (ax+bx)/2, my = (ay+by)/2;
+    const warp = 30*m.energy*Math.sin(t*m.speed + m.phase);
+    const perp_x = -(by-ay), perp_y = (bx-ax);
+    const pl = Math.sqrt(perp_x*perp_x+perp_y*perp_y)+0.001;
+    const cpx = mx + (perp_x/pl)*warp;
+    const cpy = my + (perp_y/pl)*warp;
+
+    // Main channel
+    ctx.beginPath();
+    ctx.moveTo(ax,ay); ctx.quadraticCurveTo(cpx,cpy,bx,by);
+    ctx.strokeStyle = hsl(hue, PAL.sat, PAL.lit+10, 0.22*m.energy);
+    ctx.lineWidth = 1+m.energy*1.5;
+    ctx.stroke();
+
+    // Flowing energy packets along morphism
+    const nPkts = 3;
+    for(let p=0;p<nPkts;p++){
+      const phase2 = ((t*m.speed*0.4 + m.phase + p/nPkts) % 1 + 1) % 1;
+      const u = phase2;
+      const ex = (1-u)*(1-u)*ax + 2*(1-u)*u*cpx + u*u*bx;
+      const ey = (1-u)*(1-u)*ay + 2*(1-u)*u*cpy + u*u*by;
+      const grd = ctx.createRadialGradient(ex,ey,0,ex,ey,5+m.energy*6);
+      grd.addColorStop(0, hsl((hue+60)%360, PAL.sat+10, 80, 0.85*m.energy));
+      grd.addColorStop(1, hsl(hue, PAL.sat, PAL.lit, 0));
+      ctx.beginPath(); ctx.arc(ex,ey,5+m.energy*6,0,TAU);
+      ctx.fillStyle = grd; ctx.fill();
+    }
+  }
+}
+
+function drawParticles(t){
+  for(const p of PARTICLES){
+    const alpha = clamp(p.life/p.maxLife, 0, 1);
+    const hue = (PAL.hues[p.layer%7] + p.phase*20 + t*PAL.chromaSpeed*4) % 360;
+    const grd = ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,p.size*2.5);
+    grd.addColorStop(0, hsl(hue, PAL.sat+10, 80, alpha*0.9));
+    grd.addColorStop(1, hsl(hue, PAL.sat, PAL.lit, 0));
+    ctx.beginPath(); ctx.arc(p.x,p.y,p.size*2.5,0,TAU);
+    ctx.fillStyle = grd; ctx.fill();
+  }
+}
+
+function drawCoxeterExplosion(t){
+  ctx.save(); ctx.translate(CX, CY);
+  const ph = FUNCTOR_PHASE + t*0.08;
+  const arms = COXETER_ORDER;
+  const maxR = Math.min(W,H)*0.44;
+
+  for(let arm=0;arm<arms;arm++){
+    const baseAng = COXETER_ANGLES[arm] + t*0.05;
+    ctx.save(); ctx.rotate(baseAng);
+
+    // Spectral arm shape
+    const pts = 60;
+    ctx.beginPath();
+    for(let i=0;i<=pts;i++){
+      const ri = i/pts;
+      const r = maxR * ri * (0.7+0.3*Math.sin(ri*12+ph+arm));
+      const wobble = 0.12*r*Math.sin(ri*8+t*0.7+arm*1.3);
+      const x = r + wobble;
+      const y = wobble * Math.cos(ri*5+ph);
+      if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    }
+    const hue = (PAL.hues[arm%7] + t*PAL.chromaSpeed*5) % 360;
+    ctx.strokeStyle = hsl(hue, PAL.sat, PAL.lit+15, 0.18);
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+
+    // Reflection line (dashed)
+    ctx.beginPath();
+    ctx.setLineDash([4,8]);
+    ctx.moveTo(0,0); ctx.lineTo(maxR,0);
+    ctx.strokeStyle = hsl(hue, 30, 70, 0.07);
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+function drawDerivedFunctorPhaseShift(t){
+  // Holographic interference rings
+  const nRings = 6+Math.floor(COXETER_ORDER/2);
+  for(let r=0;r<nRings;r++){
+    const rad = (50 + r*65) * oscillatingScale(t);
+    const phase3 = FUNCTOR_PHASE + r*0.7 + t*0.12;
+    const hue = (PAL.baseHue + r*PAL.spread/nRings + t*PAL.chromaSpeed*4 + 180) % 360;
+
+    // Non-circular ring with eigenvalue warping
+    ctx.beginPath();
+    const pts = 120;
+    for(let i=0;i<=pts;i++){
+      const ang = (i/pts)*TAU;
+      const warp = 1 + 0.18*waveSum(SPECTRAL_COEFFS, ang*2+phase3, t*0.2)
+                    + 0.08*Math.sin(COXETER_ORDER*ang + phase3);
+      const rx = CX + Math.cos(ang)*rad*warp;
+      const ry = CY + Math.sin(ang)*rad*warp;
+      if(i===0) ctx.moveTo(rx,ry); else ctx.lineTo(rx,ry);
+    }
+    ctx.closePath();
+    ctx.strokeStyle = hsl(hue, PAL.sat, PAL.lit, 0.15 - r*0.015);
+    ctx.lineWidth = 1+r*0.3;
+    ctx.stroke();
+
+    // Phase glow fill
+    const grd = ctx.createRadialGradient(CX,CY,rad*0.7,CX,CY,rad);
+    grd.addColorStop(0, hsl(hue, PAL.sat, PAL.lit, 0.025));
+    grd.addColorStop(1, hsl((hue+90)%360, PAL.sat, PAL.lit, 0));
+    ctx.fillStyle = grd; ctx.fill();
+  }
+}
+
+// ─── HUD UPDATE ───────────────────────────────────────────────────────────────
+function updateHUD(t){
+  if(!hudOn) return;
+  document.getElementById('h-mode').textContent = MODE_NAMES[currentMode];
+  document.getElementById('h-cx').textContent = LATTICE_NODES.length;
+  document.getElementById('h-morph').textContent = MORPHISMS.length;
+  document.getElementById('h-rank').textContent = EIGENVALUES.length;
+  document.getElementById('h-eig').textContent = EIGENVALUES.slice(0,4).map(v=>v.toFixed(2)).join(', ')+'…';
+  document.getElementById('h-cox').textContent = COXETER_ORDER;
+  document.getElementById('h-phase').textContent = ((FUNCTOR_PHASE + t*0.05)%(TAU)).toFixed(3);
+  document.getElementById('h-pal').textContent = PAL.seed.toFixed(0);
+  document.getElementById('h-part').textContent = PARTICLES.length;
+  document.getElementById('h-snd').textContent = soundOn ? 'ON' : 'OFF';
+  document.getElementById('h-fps').textContent = fps.toFixed(1);
+}
+
+function updateEigenBar(){
+  if(!hudOn) return;
+  const bar = document.getElementById('eigenbar');
+  bar.innerHTML = '';
+  const maxE = Math.max(...EIGENVALUES);
+  for(const e of EIGENVALUES){
+    const col = document.createElement('div');
+    col.className = 'eigenbar-col';
+    const h = Math.round((e/maxE)*56);
+    col.style.height = h+'px';
+    const hue = (PAL.baseHue + e*20) % 360;
+    col.style.background = `hsl(${hue|0},${PAL.sat|0}%,${PAL.lit|0}%)`;
+    bar.appendChild(col);
+  }
+}
+
+// ─── SOUND ENGINE ─────────────────────────────────────────────────────────────
+function initAudio(){
+  if(audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  masterGain = audioCtx.createGain();
+  masterGain.gain.setValueAtTime(0, audioCtx.currentTime);
+  masterGain.connect(audioCtx.destination);
+}
+
+function rebuildSound(){
+  if(!audioCtx) initAudio();
+  // Tear down old
+  oscillators.forEach(o=>{ try{o.stop();}catch(e){} });
+  spectralNodes.forEach(n=>{ try{n.disconnect();}catch(e){} });
+  oscillators=[]; spectralNodes=[];
+
+  const now = audioCtx.currentTime;
+  masterGain.gain.cancelScheduledValues(now);
+  masterGain.gain.setValueAtTime(soundOn?0.12:0, now);
+
+  if(!soundOn) return;
+
+  // Map eigenvalues to harmonic oscillators
+  const baseFreq = 55 + (PAL.baseHue/360)*110;
+  for(let i=0;i<Math.min(EIGENVALUES.length,8);i++){
+    const eig = EIGENVALUES[i];
+    const freq = baseFreq * eig * (0.5 + 0.5*(i%3===0?1:i%3===1?1.5:2));
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    const filter = audioCtx.createBiquadFilter();
+
+    osc.type = ['sine','triangle','sawtooth','square'][i%4];
+    osc.frequency.setValueAtTime(clamp(freq, 40, 2000), now);
+
+    // LFO mod
+    const lfo = audioCtx.createOscillator();
+    const lfoGain = audioCtx.createGain();
+    lfo.frequency.setValueAtTime(SPECTRAL_COEFFS[i%SPECTRAL_COEFFS.length].freq*0.3, now);
+    lfoGain.gain.setValueAtTime(freq*0.015, now);
+    lfo.connect(lfoGain); lfoGain.connect(osc.frequency);
+    lfo.start();
+
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(clamp(freq*2, 100, 8000), now);
+    filter.Q.setValueAtTime(3+eig, now);
+
+    gain.gain.setValueAtTime(0.018/Math.max(1,i*0.7), now);
+
+    osc.connect(filter); filter.connect(gain); gain.connect(masterGain);
+    osc.start();
+    oscillators.push(osc, lfo);
+    spectralNodes.push(gain, filter, lfoGain);
+  }
+
+  // Probabilistic spectral synthesis — noise layer
+  const bufSz = audioCtx.sampleRate*2;
+  const buf = audioCtx.createBuffer(1, bufSz, audioCtx.sampleRate);
+  const data = buf.getChannelData(0);
+  for(let i=0;i<bufSz;i++) data[i] = (Math.random()*2-1)*0.012;
+  const src = audioCtx.createBufferSource();
+  src.buffer = buf; src.loop = true;
+  const noiseFilter = audioCtx.createBiquadFilter();
+  noiseFilter.type = 'bandpass';
+  noiseFilter.frequency.setValueAtTime(baseFreq*3, now);
+  noiseFilter.Q.setValueAtTime(0.5, now);
+  const noiseGain = audioCtx.createGain();
+  noiseGain.gain.setValueAtTime(0.04, now);
+  src.connect(noiseFilter); noiseFilter.connect(noiseGain); noiseGain.connect(masterGain);
+  src.start();
+  oscillators.push(src);
+  spectralNodes.push(noiseFilter, noiseGain);
+}
+
+function setSound(on){
+  soundOn = on;
+  if(!audioCtx && on) initAudio();
+  if(audioCtx){
+    const now = audioCtx.currentTime;
+    masterGain.gain.cancelScheduledValues(now);
+    masterGain.gain.linearRampToValueAtTime(on?0.12:0, now+0.3);
+    if(on) rebuildSound();
+  }
+}
+
+// ─── MAIN LOOP ────────────────────────────────────────────────────────────────
+function loop(ts){
+  animId = requestAnimationFrame(loop);
+  const dt = Math.min((ts - lastT)/16.67, 3);
+  lastT = ts;
+  const t = ts*0.001;
+
+  // FPS
+  frameCount++;
+  if(frameCount%30===0) fps = 1000/(ts-lastT+0.001)*dt;
+
+  ctx.clearRect(0,0,W,H);
+
+  drawBackground(t);
+  drawSpectralField(t);
+  drawDerivedFunctorPhaseShift(t);
+  drawCoxeterExplosion(t);
+  drawMorphisms(t);
+  updateParticles(t, dt);
+  drawParticles(t);
+  drawLatticeNodes(t);
+
+  // PAL chromaShift evolve
+  PAL.chromaShift += 0.003*dt;
+
+  updateHUD(t);
+}
+
+// ─── RESIZE ───────────────────────────────────────────────────────────────────
+function resize(){
+  W = C.width = window.innerWidth;
+  H = C.height = window.innerHeight;
+  CX = W/2; CY = H/2;
+}
+
+// ─── INPUT ────────────────────────────────────────────────────────────────────
+window.addEventListener('keydown', e=>{
+  if(e.shiftKey) return; // SHIFT prohibited
+  if(e.code==='Space'){ e.preventDefault(); generateAll(); }
+  if(e.key==='h'||e.key==='H'){
+    hudOn = !hudOn;
+    document.getElementById('hud').classList.toggle('visible', hudOn);
+    if(hudOn) updateEigenBar();
+  }
+  if(e.key==='s'||e.key==='S'){
+    setSound(!soundOn);
+    if(hudOn) document.getElementById('h-snd').textContent = soundOn?'ON':'OFF';
+  }
+});
+
+window.addEventListener('click', e=>{ generateAll(); });
+window.addEventListener('touchend', e=>{ e.preventDefault(); generateAll(); }, {passive:false});
+window.addEventListener('resize', ()=>{ resize(); });
+
+// ─── BOOT ─────────────────────────────────────────────────────────────────────
+resize();
+generateAll();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

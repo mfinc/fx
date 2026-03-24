@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>E8 Eigenlattice Projection – Multidimensional Spectral WebGL2 Visualization</title>
+<meta name="description" content="Interactive WebGL2 visualization of a multidimensional eigenlattice inspired by E8 root lattice projections, stereographic mapping, quaternion camera rotation, spherical harmonic modulation, spectral interference fields, randomized color palettes, and optional additive synthesis.">
+<meta name="keywords" content="E8 lattice, eigenlattice, WebGL2, spherical harmonics, stereographic projection, quaternion rotation, FFT noise, spectral gradient, generative math art">
+<style>
+html, body { margin:0; padding:0; background:black; overflow:hidden; }
+canvas { width:100vw; height:100vh; display:block; }
+#hud {
+position:fixed;
+top:10px;
+left:10px;
+color:#0ff;
+font-family:monospace;
+font-size:13px;
+background:rgba(0,0,0,0.5);
+padding:8px;
+display:none;
+}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="hud">
+E8 Eigenlattice<br>
+SPACE / Click → Randomize<br>
+H → Toggle HUD<br>
+S → Toggle Sound (off by default)
+</div>
+
+<script type="module">
+const canvas = document.getElementById("gl");
+const gl = canvas.getContext("webgl2");
+if(!gl){ alert("WebGL2 required"); }
+
+let DPR = Math.min(2, window.devicePixelRatio || 1);
+function resize(){
+canvas.width = innerWidth * DPR;
+canvas.height = innerHeight * DPR;
+gl.viewport(0,0,canvas.width,canvas.height);
+}
+window.addEventListener("resize", resize);
+resize();
+
+const vs = `#version 300 es
+precision highp float;
+layout(location=0) in vec2 position;
+out vec2 vUv;
+void main(){
+vUv = position*0.5+0.5;
+gl_Position = vec4(position,0.0,1.0);
+}`;
+
+const fs = `#version 300 es
+precision highp float;
+out vec4 fragColor;
+in vec2 vUv;
+
+uniform float uTime;
+uniform vec2 uRes;
+uniform float uSeed;
+uniform vec4 uQuat;
+uniform vec3 uColorPhase;
+uniform float uSymmetry;
+
+#define PI 3.14159265359
+
+vec3 quatRotate(vec4 q, vec3 v){
+return v + 2.0*cross(q.xyz, cross(q.xyz, v) + q.w*v);
+}
+
+float hash(vec3 p){
+return fract(sin(dot(p,vec3(127.1,311.7,74.7)))*43758.5453+uSeed);
+}
+
+float noise(vec3 p){
+vec3 i=floor(p);
+vec3 f=fract(p);
+float n= mix(mix(mix(hash(i+vec3(0,0,0)),hash(i+vec3(1,0,0)),f.x),
+mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),f.x),f.y),
+mix(mix(hash(i+vec3(0,0,1)),hash(i+vec3(1,0,1)),f.x),
+mix(hash(i+vec3(0,1,1)),hash(i+vec3(1,1,1)),f.x),f.y),f.z);
+return n;
+}
+
+float sphericalHarmonic(vec3 p){
+float r=length(p);
+float theta=acos(p.z/r);
+float phi=atan(p.y,p.x);
+return sin(3.0*theta+uTime)*cos(uSymmetry*phi);
+}
+
+vec3 randomPalette(float t){
+return vec3(
+0.5+0.5*cos(6.2831*(t+uColorPhase.x)),
+0.5+0.5*cos(6.2831*(t+uColorPhase.y)),
+0.5+0.5*cos(6.2831*(t+uColorPhase.z))
+);
+}
+
+void main(){
+vec2 uv=(vUv-0.5)*2.0;
+uv.x*=uRes.x/uRes.y;
+
+float d=dot(uv,uv);
+vec3 p=vec3(2.0*uv,1.0-d)/(1.0+d);
+
+p = quatRotate(uQuat,p);
+
+float lattice = sin(10.0*p.x)*sin(10.0*p.y)*sin(10.0*p.z);
+float harmonic = sphericalHarmonic(p);
+float flow = exp(-length(p))*sin(uTime+length(p)*5.0);
+
+float n = noise(p*3.0+uTime);
+float interference = sin((lattice+harmonic+flow+n)*10.0);
+
+float colorIndex = lattice + harmonic + flow + interference;
+vec3 col = randomPalette(colorIndex);
+
+fragColor = vec4(col,1.0);
+}`;
+
+function compile(type,src){
+let s=gl.createShader(type);
+gl.shaderSource(s,src);
+gl.compileShader(s);
+return s;
+}
+
+let prog=gl.createProgram();
+gl.attachShader(prog,compile(gl.VERTEX_SHADER,vs));
+gl.attachShader(prog,compile(gl.FRAGMENT_SHADER,fs));
+gl.linkProgram(prog);
+gl.useProgram(prog);
+
+let quad=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,quad);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([
+-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+
+gl.enableVertexAttribArray(0);
+gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
+
+let uTime=gl.getUniformLocation(prog,"uTime");
+let uRes=gl.getUniformLocation(prog,"uRes");
+let uSeed=gl.getUniformLocation(prog,"uSeed");
+let uQuat=gl.getUniformLocation(prog,"uQuat");
+let uColorPhase=gl.getUniformLocation(prog,"uColorPhase");
+let uSymmetry=gl.getUniformLocation(prog,"uSymmetry");
+
+let seed, symmetry, quat, colorPhase;
+
+function randomize(){
+seed=Math.random()*1000;
+symmetry=2.0+Math.floor(Math.random()*8.0);
+quat=[
+Math.random()*2-1,
+Math.random()*2-1,
+Math.random()*2-1,
+Math.random()*2-1
+];
+colorPhase=[
+Math.random(),
+Math.random(),
+Math.random()
+];
+}
+
+randomize();
+
+window.addEventListener("keydown",e=>{
+if(e.code==="Space") randomize();
+if(e.key==="h"||e.key==="H"){
+let hud=document.getElementById("hud");
+hud.style.display=hud.style.display==="none"?"block":"none";
+}
+if(e.key==="s"||e.key==="S") toggleSound();
+});
+
+canvas.addEventListener("click",randomize);
+
+let audioCtx=null;
+let osc=[];
+function toggleSound(){
+if(audioCtx==null){
+audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+for(let i=0;i<5;i++){
+let o=audioCtx.createOscillator();
+let g=audioCtx.createGain();
+o.frequency.value=200+Math.random()*400;
+g.gain.value=0.02;
+o.connect(g).connect(audioCtx.destination);
+o.start();
+osc.push(o);
+}
+}else{
+osc.forEach(o=>o.stop());
+audioCtx.close();
+audioCtx=null;
+osc=[];
+}
+}
+
+let start=performance.now();
+function render(){
+let t=(performance.now()-start)/1000;
+gl.uniform1f(uTime,t);
+gl.uniform2f(uRes,canvas.width,canvas.height);
+gl.uniform1f(uSeed,seed);
+gl.uniform4f(uQuat,...quat);
+gl.uniform3f(uColorPhase,...colorPhase);
+gl.uniform1f(uSymmetry,symmetry);
+
+gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+requestAnimationFrame(render);
+}
+render();
+</script>
+</body>
+</html>

@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>E8 Transhumanoid Reaction-Diffusion HyperEngine</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000}
+canvas{display:block;width:100vw;height:100vh}
+#hud{position:fixed;top:16px;left:16px;font-family:'Courier New',monospace;font-size:11px;color:rgba(180,255,220,0.75);pointer-events:none;line-height:1.6;text-shadow:0 0 8px rgba(100,255,180,0.5);display:none}
+#hud.visible{display:block}
+#hint{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);font-family:'Courier New',monospace;font-size:10px;color:rgba(180,255,220,0.4);pointer-events:none;letter-spacing:2px;text-align:center}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<div id="hint">SPACE/TAP · RESEED &nbsp;|&nbsp; H · HUD &nbsp;|&nbsp; S · SOUND</div>
+<script>
+'use strict';
+// ─── Canvas setup ─────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const gl = canvas.getContext('webgl', {antialias:false,alpha:false,preserveDrawingBuffer:false});
+if(!gl){alert('WebGL required');throw 0;}
+const hud = document.getElementById('hud');
+
+let W,H,seed={},soundOn=false,hudOn=false,audioCtx=null,frame=0,lastFPS=0,fpsCount=0,fpsTime=0;
+
+function resize(){
+  W=canvas.width=window.innerWidth;
+  H=canvas.height=window.innerHeight;
+  gl.viewport(0,0,W,H);
+}
+window.addEventListener('resize',resize);
+resize();
+
+// ─── RNG ──────────────────────────────────────────────────────
+function sfc32(a,b,c,d){
+  return function(){
+    a|=0;b|=0;c|=0;d|=0;
+    let t=(a+b|0)+d|0;d=d+1|0;a=b^b>>>9;b=c+(c<<3)|0;c=c<<21|c>>>11;c=c+t|0;
+    return(t>>>0)/4294967296;
+  }
+}
+let rng=sfc32(0,0,0,0);
+
+function newSeed(){
+  const s=[Math.random()*2**32,Math.random()*2**32,Math.random()*2**32,Math.random()*2**32];
+  rng=sfc32(s[0],s[1],s[2],s[3]);
+  generateSeedParams();
+  frame=0;
+  if(soundOn) rebuildSound();
+}
+
+function rv(a,b){return a+rng()*(b-a);}
+function ri(a,b){return Math.floor(rv(a,b));}
+function rc(){return[rv(0,1),rv(0,1),rv(0,1)];}
+
+function generateSeedParams(){
+  seed={
+    // Palette / color
+    palMode: ri(0,3),           // 0=CIELAB, 1=HSV, 2=spectral, 3=mixed
+    palOffset: rv(0,6.28),
+    palSpeed: rv(0.2,2.0),
+    palFreq: rv(1,5),
+    palContrast: rv(0.5,1.5),
+    palSat: rv(0.5,1.0),
+
+    // Geometry
+    e8Order: ri(1,5),
+    coxK: ri(2,7),
+    coxL: ri(2,7),
+    coxM: ri(2,7),
+    projAngle: rv(0,6.28),
+    projSpeed: rv(0.01,0.08),
+    quatSpin: [rv(-1,1),rv(-1,1),rv(-1,1),rv(-1,1)],
+
+    // RD morphogenesis
+    rdFeed: rv(0.01,0.07),
+    rdKill: rv(0.04,0.065),
+    rdDu: rv(0.14,0.21),
+    rdDv: rv(0.04,0.09),
+
+    // Flow
+    nsViscosity: rv(0.01,0.3),
+    nsForce: rv(0.5,3.0),
+
+    // Fractal / phase
+    juliaC: [rv(-1,1),rv(-1,1)],
+    feigA: rv(2.8,3.99),
+    feigSpeed: rv(0.001,0.005),
+    escapePow: rv(1.5,4.0),
+
+    // RBF / geodesic
+    rbfCenters: Array.from({length:ri(3,8)},()=>[rv(-1,1),rv(-1,1)]),
+    rbfShapes: Array.from({length:8},()=>rv(0.5,4.0)),
+    curveK: rv(0.1,2.0),
+
+    // Minkowski / conformal
+    minkP: rv(1.0,4.0),
+    scaleMap: rv(0.5,2.0),
+    schwarzN: ri(3,8),
+
+    // Harmonic
+    numOscillators: ri(3,9),
+    oscFreqs: Array.from({length:9},()=>rv(0.3,7.0)),
+    oscAmps: Array.from({length:9},()=>rv(0.1,1.0)),
+    oscPhases: Array.from({length:9},()=>rv(0,6.28)),
+
+    // Domain coloring exponent
+    domainExp: rv(0.3,1.5),
+
+    // Tensor field warp strength
+    tensorStr: rv(0.2,2.0),
+    tensorFreq: rv(1,5),
+
+    // Sound eigenvalues (6 partials)
+    eigenvals: Array.from({length:6},()=>rv(80,2000)),
+    eigenAmps: Array.from({length:6},()=>rv(0.0,0.3)),
+    fmRatio: rv(1,8),
+    fmDepth: rv(10,400),
+    stochRate: rv(0.5,8),
+  };
+}
+
+// ─── Shader source ────────────────────────────────────────────
+const VS=`
+attribute vec2 a;
+varying vec2 v;
+void main(){v=a*0.5+0.5;gl_Position=vec4(a,0,1);}
+`;
+
+// Fragment shader: all math lives here
+const FS=`
+precision highp float;
+varying vec2 v;
+uniform float t,W,H;
+uniform vec3 pal0,pal1,pal2;
+uniform float palOff,palSpd,palFreq,palCont,palSat;
+uniform int palMode;
+uniform float e8N,coxK,coxL,coxM,projAng,projSpd;
+uniform vec4 quat0;
+uniform float rdFeed,rdKill,rdDu,rdDv;
+uniform float nsVisc,nsForce;
+uniform vec2 juliaC;
+uniform float feigA,escapePow;
+uniform float rbf0x,rbf0y,rbf1x,rbf1y,rbf2x,rbf2y,rbf3x,rbf3y;
+uniform float rbfS0,rbfS1,rbfS2,rbfS3;
+uniform float curveK,minkP,scaleMap;
+uniform int schwarzN;
+uniform float oF0,oF1,oF2,oF3,oF4,oA0,oA1,oA2,oA3,oA4;
+uniform float oP0,oP1,oP2,oP3,oP4;
+uniform float domExp,tensorStr,tensorFreq;
+
+#define PI 3.14159265358979
+#define TAU 6.28318530717959
+
+// ── Utils ──
+float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+vec2 cmul(vec2 a,vec2 b){return vec2(a.x*b.x-a.y*b.y,a.x*b.y+a.y*b.x);}
+vec2 cdiv(vec2 a,vec2 b){float d=dot(b,b)+1e-9;return vec2(dot(a,b),a.y*b.x-a.x*b.y)/d;}
+vec2 cpow(vec2 z,float n){float r=pow(length(z)+1e-9,n);float a=atan(z.y,z.x)*n;return r*vec2(cos(a),sin(a));}
+vec2 cexp(vec2 z){return exp(z.x)*vec2(cos(z.y),sin(z.y));}
+vec2 clog(vec2 z){return vec2(log(length(z)+1e-9),atan(z.y,z.x));}
+
+// ── Quaternion rotation of 3D point ──
+vec3 qrot(vec4 q,vec3 v){
+  vec3 u=q.xyz;float s=q.w;
+  return 2.0*dot(u,v)*u+(s*s-dot(u,u))*v+2.0*s*cross(u,v);
+}
+
+// ── Coxeter kaleidoscope mirrors ──
+vec2 coxeter(vec2 p,float k,float l){
+  float a=PI/k;float b=PI/l;
+  for(int i=0;i<24;i++){
+    p=abs(p);
+    float d=dot(p,vec2(cos(a),sin(a)));
+    if(d<0.0)p-=2.0*d*vec2(cos(a),sin(a));
+    d=dot(p,vec2(cos(b),-sin(b)));
+    if(d<0.0)p-=2.0*d*vec2(cos(b),-sin(b));
+  }
+  return p;
+}
+
+// ── E8 root system (2D projection of 8 roots) ──
+float e8Field(vec2 p,float angle){
+  float v=0.0;
+  for(int i=0;i<8;i++){
+    float a=float(i)*TAU/8.0+angle;
+    vec2 root=vec2(cos(a),sin(a));
+    float d=dot(p-root*0.6,normalize(root));
+    v+=exp(-d*d*4.0)*cos(d*12.0);
+    vec2 root2=vec2(cos(a+PI*0.25),sin(a+PI*0.25))*0.85;
+    d=dot(p-root2*0.6,normalize(root2));
+    v+=exp(-d*d*6.0)*0.5;
+  }
+  return v/8.0;
+}
+
+// ── RBF interference ──
+float rbfField(vec2 p){
+  vec2 centers[4];
+  centers[0]=vec2(rbf0x,rbf0y);
+  centers[1]=vec2(rbf1x,rbf1y);
+  centers[2]=vec2(rbf2x,rbf2y);
+  centers[3]=vec2(rbf3x,rbf3y);
+  float s[4];s[0]=rbfS0;s[1]=rbfS1;s[2]=rbfS2;s[3]=rbfS3;
+  float v=0.0;
+  for(int i=0;i<4;i++){
+    float r=length(p-centers[i]);
+    v+=exp(-r*r*s[i])*cos(r*6.0-s[i]*t);
+  }
+  return v*0.25;
+}
+
+// ── Reaction diffusion approximation ──
+float rdPattern(vec2 p){
+  float u=0.5+0.3*sin(p.x*3.1+t*rdFeed*50.0)*cos(p.y*2.7-t*rdKill*40.0);
+  float wave=sin(p.x*rdDu*20.0+t)*sin(p.y*rdDv*20.0-t*0.7);
+  float kill=rdKill*30.0;
+  float feed=rdFeed*50.0;
+  float react=u*(1.0-u)*wave*kill+feed*(1.0-u);
+  return fract(u+react*0.3+t*0.01);
+}
+
+// ── Harmonic oscillator superposition ──
+float harmonics(vec2 p){
+  float v=0.0;
+  float norms=oA0+oA1+oA2+oA3+oA4+1e-5;
+  v+=oA0*sin(oF0*p.x+oP0+t*oF0*0.1)*cos(oF0*p.y+oP0);
+  v+=oA1*sin(oF1*p.x+oP1-t*oF1*0.08)*sin(oF1*p.y+oP1);
+  v+=oA2*cos(oF2*p.x+oP2+t*oF2*0.12)*cos(oF2*p.y+oP2*0.5);
+  v+=oA3*sin(oF3*(p.x+p.y)+oP3+t*0.15)*cos(oF3*(p.x-p.y));
+  v+=oA4*cos(oF4*length(p)+oP4-t*oF4*0.05);
+  return v/norms;
+}
+
+// ── Tensor field warp ──
+vec2 tensorWarp(vec2 p){
+  float tx=tensorStr*sin(p.x*tensorFreq+t*0.3)*cos(p.y*tensorFreq*0.7);
+  float ty=tensorStr*cos(p.x*tensorFreq*0.6-t*0.2)*sin(p.y*tensorFreq);
+  return p+vec2(tx,ty)*0.15;
+}
+
+// ── Minkowski metric distortion ──
+vec2 minkDist(vec2 p){
+  float norm=pow(pow(abs(p.x),minkP)+pow(abs(p.y),minkP)+1e-9,1.0/minkP);
+  float eucl=length(p)+1e-9;
+  return p*(norm/eucl)*scaleMap;
+}
+
+// ── Schwarz-Christoffel conformal map ──
+vec2 schwarzMap(vec2 p){
+  int n=schwarzN;
+  vec2 z=p;
+  float scale=1.0/float(n);
+  for(int i=0;i<6;i++){
+    float a=float(i)*TAU/float(n);
+    vec2 zi=vec2(cos(a),sin(a))*0.9;
+    vec2 diff=z-zi;
+    float arg=atan(diff.y,diff.x)*(1.0-scale);
+    float r=pow(length(diff)+1e-9,1.0-scale);
+    z=r*vec2(cos(arg),sin(arg));
+  }
+  return z*0.3;
+}
+
+// ── Domain coloring / complex exponential ──
+vec2 domainColor(vec2 p){
+  vec2 z=cexp(p*domExp);
+  z=cmul(z,vec2(cos(t*0.1),sin(t*0.1)));
+  return z;
+}
+
+// ── Julia escape time ──
+float juliaEscape(vec2 p){
+  vec2 z=p*1.5;
+  vec2 c=juliaC;
+  float v=0.0;
+  for(int i=0;i<48;i++){
+    z=cpow(z,escapePow)+c;
+    if(dot(z,z)>16.0){v=float(i)/48.0;break;}
+  }
+  return v;
+}
+
+// ── Feigenbaum cascade ──
+float feigenbaum(vec2 p){
+  float x=fract(p.x*0.5+0.5);
+  float r=feigA+0.3*sin(p.y*2.0+t*0.2);
+  for(int i=0;i<32;i++) x=r*x*(1.0-x);
+  return x;
+}
+
+// ── Navier-Stokes curl field ──
+vec2 nsFlow(vec2 p){
+  float psi=sin(p.x*2.0+t*nsForce*0.2)*cos(p.y*1.7-t*nsForce*0.15)
+            *exp(-nsVisc*dot(p,p)*0.2);
+  float dx=cos(p.x*2.0+t*nsForce*0.2)*cos(p.y*1.7-t*nsForce*0.15)*2.0;
+  float dy=-sin(p.x*2.0+t*nsForce*0.2)*(-sin(p.y*1.7-t*nsForce*0.15)*1.7);
+  return vec2(-dy,dx)*0.15;
+}
+
+// ── Geodesic curvature flow ──
+float geodesicFlow(vec2 p){
+  float r=length(p);
+  float theta=atan(p.y,p.x);
+  float kappa=curveK*sin(theta*3.0+t*0.3)/(r+0.5);
+  return sin(r*6.0-t+kappa)*exp(-r*0.5);
+}
+
+// ── CIELAB-inspired colormap ──
+vec3 labPalette(float h){
+  // simplified perceptual gradient
+  h=fract(h);
+  vec3 a=vec3(0.5,0.5,0.5);
+  vec3 b=vec3(0.5,0.5,0.5);
+  vec3 c2=vec3(palFreq,palFreq*0.9,palFreq*0.8);
+  vec3 d=vec3(palOff,palOff+0.33,palOff+0.67);
+  return a+b*cos(TAU*(c2*h+d));
+}
+
+vec3 hsvToRgb(float h,float s,float v){
+  vec3 c=vec3(h,s,v);
+  vec4 K=vec4(1.,2./3.,1./3.,3.);
+  vec3 p=abs(fract(c.xxx+K.xyz)*6.-K.www);
+  return c.z*mix(K.xxx,clamp(p-K.xxx,0.,1.),c.y);
+}
+
+vec3 spectralPal(float h){
+  h=fract(h*palFreq+palOff);
+  float r=smoothstep(0.0,0.5,h)-smoothstep(0.5,1.0,h);
+  float g=smoothstep(0.25,0.75,h);
+  float b=1.0-smoothstep(0.0,0.5,h);
+  return vec3(r,g,b)*palCont;
+}
+
+// ── Main ──────────────────────────────────────────────────────
+void main(){
+  vec2 uv=(v*2.0-1.0)*vec2(W/H,1.0);
+
+  // Tensor warp
+  vec2 p=tensorWarp(uv);
+
+  // Minkowski distortion
+  p=minkDist(p);
+
+  // Quaternion rotation (applied as 2D projection of 3D rotation)
+  vec4 q=normalize(quat0+vec4(sin(t*projSpd),cos(t*projSpd*0.7),sin(t*projSpd*0.3),cos(t*projSpd*0.5)));
+  vec3 p3=qrot(q,vec3(p,0.2));
+  p=p3.xy;
+
+  // Coxeter kaleidoscope
+  vec2 cp=coxeter(p*1.5,coxK,coxL)*0.67;
+
+  // Schwarz-Christoffel conformal
+  vec2 sp=schwarzMap(p*0.8);
+
+  // Domain coloring
+  vec2 dp=domainColor(sp);
+
+  // E8 field
+  float e8v=e8Field(cp+dp*0.1,projAng+t*projSpd);
+
+  // RBF
+  float rbfv=rbfField(p+vec2(sin(t*0.1),cos(t*0.13))*0.2);
+
+  // Reaction-diffusion
+  float rdv=rdPattern(cp*2.0);
+
+  // Harmonics
+  float hv=harmonics(p*1.5);
+
+  // Julia
+  float jv=juliaEscape(sp+vec2(cos(t*0.05),sin(t*0.07))*0.3);
+
+  // Feigenbaum
+  float fv=feigenbaum(cp);
+
+  // Geodesic
+  float gv=geodesicFlow(p*1.2);
+
+  // NS flow warp
+  vec2 ns=nsFlow(p);
+  float nsv=length(ns)*3.0;
+
+  // Combine signals
+  float val=e8v*0.25+rbfv*0.2+rdv*0.15+hv*0.15+jv*0.1+fv*0.05+gv*0.05+nsv*0.05;
+  val=fract(val*palCont+t*palSpd*0.05+palOff);
+
+  // Coloring
+  vec3 col;
+  if(palMode==0){
+    col=labPalette(val);
+  } else if(palMode==1){
+    col=hsvToRgb(val,palSat,clamp(abs(hv)+0.3,0.2,1.0));
+  } else if(palMode==2){
+    col=spectralPal(val);
+  } else {
+    col=mix(labPalette(val),spectralPal(val+0.3),0.5+0.5*sin(t*0.07));
+  }
+
+  // Spectral cycling
+  col=mix(col,col.gbr,0.5+0.5*sin(t*palSpd*0.3+palOff));
+  col=mix(col,col.brg,0.5+0.5*cos(t*palSpd*0.17+palOff*1.3));
+
+  // Edge glow from E8
+  col+=vec3(e8v*0.3)*vec3(0.2,1.0,0.6);
+
+  // Contrast boost
+  col=pow(clamp(col,0.0,1.0),vec3(palCont*0.8));
+
+  gl_FragColor=vec4(col,1.0);
+}
+`;
+
+// ─── WebGL boilerplate ────────────────────────────────────────
+function compileShader(src,type){
+  const s=gl.createShader(type);
+  gl.shaderSource(s,src);
+  gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw gl.getShaderInfoLog(s);
+  return s;
+}
+function createProgram(vs,fs){
+  const p=gl.createProgram();
+  gl.attachShader(p,compileShader(vs,gl.VERTEX_SHADER));
+  gl.attachShader(p,compileShader(fs,gl.FRAGMENT_SHADER));
+  gl.linkProgram(p);
+  if(!gl.getProgramParameter(p,gl.LINK_STATUS))throw gl.getProgramInfoLog(p);
+  return p;
+}
+
+const prog=createProgram(VS,FS);
+gl.useProgram(prog);
+
+// Fullscreen quad
+const buf=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+const aLoc=gl.getAttribLocation(prog,'a');
+gl.enableVertexAttribArray(aLoc);
+gl.vertexAttribPointer(aLoc,2,gl.FLOAT,false,0,0);
+
+// Uniform locations
+function ul(n){return gl.getUniformLocation(prog,n);}
+const U={
+  t:ul('t'),W:ul('W'),H:ul('H'),
+  pal0:ul('pal0'),pal1:ul('pal1'),pal2:ul('pal2'),
+  palOff:ul('palOff'),palSpd:ul('palSpd'),palFreq:ul('palFreq'),palCont:ul('palCont'),palSat:ul('palSat'),
+  palMode:ul('palMode'),
+  e8N:ul('e8N'),coxK:ul('coxK'),coxL:ul('coxL'),coxM:ul('coxM'),
+  projAng:ul('projAng'),projSpd:ul('projSpd'),
+  quat0:ul('quat0'),
+  rdFeed:ul('rdFeed'),rdKill:ul('rdKill'),rdDu:ul('rdDu'),rdDv:ul('rdDv'),
+  nsVisc:ul('nsVisc'),nsForce:ul('nsForce'),
+  juliaC:ul('juliaC'),feigA:ul('feigA'),escapePow:ul('escapePow'),
+  rbf0x:ul('rbf0x'),rbf0y:ul('rbf0y'),rbf1x:ul('rbf1x'),rbf1y:ul('rbf1y'),
+  rbf2x:ul('rbf2x'),rbf2y:ul('rbf2y'),rbf3x:ul('rbf3x'),rbf3y:ul('rbf3y'),
+  rbfS0:ul('rbfS0'),rbfS1:ul('rbfS1'),rbfS2:ul('rbfS2'),rbfS3:ul('rbfS3'),
+  curveK:ul('curveK'),minkP:ul('minkP'),scaleMap:ul('scaleMap'),
+  schwarzN:ul('schwarzN'),
+  oF0:ul('oF0'),oF1:ul('oF1'),oF2:ul('oF2'),oF3:ul('oF3'),oF4:ul('oF4'),
+  oA0:ul('oA0'),oA1:ul('oA1'),oA2:ul('oA2'),oA3:ul('oA3'),oA4:ul('oA4'),
+  oP0:ul('oP0'),oP1:ul('oP1'),oP2:ul('oP2'),oP3:ul('oP3'),oP4:ul('oP4'),
+  domExp:ul('domExp'),tensorStr:ul('tensorStr'),tensorFreq:ul('tensorFreq'),
+};
+
+function setUniforms(){
+  const s=seed;
+  gl.uniform1f(U.t, frame*0.016);
+  gl.uniform1f(U.W, W);
+  gl.uniform1f(U.H, H);
+  gl.uniform1f(U.palOff, s.palOffset);
+  gl.uniform1f(U.palSpd, s.palSpeed);
+  gl.uniform1f(U.palFreq, s.palFreq);
+  gl.uniform1f(U.palCont, s.palContrast);
+  gl.uniform1f(U.palSat, s.palSat);
+  gl.uniform1i(U.palMode, s.palMode);
+  gl.uniform1f(U.e8N, s.e8Order);
+  gl.uniform1f(U.coxK, s.coxK);
+  gl.uniform1f(U.coxL, s.coxL);
+  gl.uniform1f(U.coxM, s.coxM);
+  gl.uniform1f(U.projAng, s.projAngle);
+  gl.uniform1f(U.projSpd, s.projSpeed);
+  const q=s.quatSpin;
+  const ql=Math.sqrt(q[0]*q[0]+q[1]*q[1]+q[2]*q[2]+q[3]*q[3]);
+  gl.uniform4f(U.quat0, q[0]/ql,q[1]/ql,q[2]/ql,q[3]/ql);
+  gl.uniform1f(U.rdFeed, s.rdFeed);
+  gl.uniform1f(U.rdKill, s.rdKill);
+  gl.uniform1f(U.rdDu, s.rdDu);
+  gl.uniform1f(U.rdDv, s.rdDv);
+  gl.uniform1f(U.nsVisc, s.nsViscosity);
+  gl.uniform1f(U.nsForce, s.nsForce);
+  gl.uniform2f(U.juliaC, s.juliaC[0], s.juliaC[1]);
+  gl.uniform1f(U.feigA, s.feigA);
+  gl.uniform1f(U.escapePow, s.escapePow);
+  const rc=s.rbfCenters;
+  gl.uniform1f(U.rbf0x,rc[0][0]);gl.uniform1f(U.rbf0y,rc[0][1]);
+  gl.uniform1f(U.rbf1x,rc[1%rc.length][0]);gl.uniform1f(U.rbf1y,rc[1%rc.length][1]);
+  gl.uniform1f(U.rbf2x,rc[2%rc.length][0]);gl.uniform1f(U.rbf2y,rc[2%rc.length][1]);
+  gl.uniform1f(U.rbf3x,rc[3%rc.length][0]);gl.uniform1f(U.rbf3y,rc[3%rc.length][1]);
+  const rs=s.rbfShapes;
+  gl.uniform1f(U.rbfS0,rs[0]);gl.uniform1f(U.rbfS1,rs[1]);gl.uniform1f(U.rbfS2,rs[2]);gl.uniform1f(U.rbfS3,rs[3]);
+  gl.uniform1f(U.curveK, s.curveK);
+  gl.uniform1f(U.minkP, s.minkP);
+  gl.uniform1f(U.scaleMap, s.scaleMap);
+  gl.uniform1i(U.schwarzN, s.schwarzN);
+  const of=s.oscFreqs,oa=s.oscAmps,op=s.oscPhases;
+  gl.uniform1f(U.oF0,of[0]);gl.uniform1f(U.oF1,of[1]);gl.uniform1f(U.oF2,of[2]);gl.uniform1f(U.oF3,of[3]);gl.uniform1f(U.oF4,of[4]);
+  gl.uniform1f(U.oA0,oa[0]);gl.uniform1f(U.oA1,oa[1]);gl.uniform1f(U.oA2,oa[2]);gl.uniform1f(U.oA3,oa[3]);gl.uniform1f(U.oA4,oa[4]);
+  gl.uniform1f(U.oP0,op[0]);gl.uniform1f(U.oP1,op[1]);gl.uniform1f(U.oP2,op[2]);gl.uniform1f(U.oP3,op[3]);gl.uniform1f(U.oP4,op[4]);
+  gl.uniform1f(U.domExp, s.domainExp);
+  gl.uniform1f(U.tensorStr, s.tensorStr);
+  gl.uniform1f(U.tensorFreq, s.tensorFreq);
+}
+
+// ─── Sound ────────────────────────────────────────────────────
+let soundNodes=[];
+function teardownSound(){
+  soundNodes.forEach(n=>{try{n.stop&&n.stop();n.disconnect();}catch(e){}});
+  soundNodes=[];
+}
+function rebuildSound(){
+  teardownSound();
+  if(!soundOn) return;
+  if(!audioCtx) audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+  if(audioCtx.state==='suspended') audioCtx.resume();
+  const s=seed;
+  const master=audioCtx.createGain();
+  master.gain.value=0.08;
+  master.connect(audioCtx.destination);
+  soundNodes.push(master);
+
+  // Eigenvalue partials
+  s.eigenvals.slice(0,4).forEach((freq,i)=>{
+    const osc=audioCtx.createOscillator();
+    const g=audioCtx.createGain();
+    osc.type=['sine','triangle','sine','sawtooth'][i%4];
+    osc.frequency.value=freq;
+    g.gain.value=s.eigenAmps[i]*0.5;
+    osc.connect(g);g.connect(master);
+    osc.start();
+    soundNodes.push(osc,g);
+  });
+
+  // FM operator
+  const fmMod=audioCtx.createOscillator();
+  const fmModGain=audioCtx.createGain();
+  const fmCarrier=audioCtx.createOscillator();
+  const fmCarrierGain=audioCtx.createGain();
+  fmMod.frequency.value=s.eigenvals[0]*s.fmRatio;
+  fmModGain.gain.value=s.fmDepth;
+  fmCarrier.frequency.value=s.eigenvals[0];
+  fmCarrierGain.gain.value=0.12;
+  fmMod.connect(fmModGain);
+  fmModGain.connect(fmCarrier.frequency);
+  fmCarrier.connect(fmCarrierGain);
+  fmCarrierGain.connect(master);
+  fmMod.start();fmCarrier.start();
+  soundNodes.push(fmMod,fmModGain,fmCarrier,fmCarrierGain);
+
+  // Stochastic noise band
+  const bufLen=audioCtx.sampleRate*2;
+  const nbuf=audioCtx.createBuffer(1,bufLen,audioCtx.sampleRate);
+  const data=nbuf.getChannelData(0);
+  for(let i=0;i<bufLen;i++) data[i]=(Math.random()*2-1)*0.3;
+  const ns=audioCtx.createBufferSource();
+  ns.buffer=nbuf;ns.loop=true;
+  const bf=audioCtx.createBiquadFilter();
+  bf.type='bandpass';bf.frequency.value=s.eigenvals[2];bf.Q.value=s.stochRate;
+  const ng=audioCtx.createGain();ng.gain.value=0.04;
+  ns.connect(bf);bf.connect(ng);ng.connect(master);
+  ns.start();
+  soundNodes.push(ns,bf,ng);
+}
+
+// ─── HUD update ───────────────────────────────────────────────
+function updateHUD(){
+  if(!hudOn) return;
+  const s=seed;
+  hud.innerHTML=
+    `<span style="color:rgba(100,255,180,0.9);font-size:13px">E8 TRANSHUMANOID REACTION-DIFFUSION HYPERENGINE</span><br>`+
+    `FPS: ${lastFPS.toFixed(0)} | Frame: ${frame}<br>`+
+    `Palette: ${['CIELAB','HSV','Spectral','Hybrid'][s.palMode]} | Freq: ${s.palFreq.toFixed(2)}<br>`+
+    `E8 Order: ${s.e8Order} | Coxeter: ${s.coxK}/${s.coxL}/${s.coxM}<br>`+
+    `RD Feed: ${s.rdFeed.toFixed(4)} | Kill: ${s.rdKill.toFixed(4)}<br>`+
+    `Julia: ${s.juliaC[0].toFixed(3)},${s.juliaC[1].toFixed(3)} | Feig: ${s.feigA.toFixed(3)}<br>`+
+    `Mink-p: ${s.minkP.toFixed(2)} | Schwarz-N: ${s.schwarzN}<br>`+
+    `Oscillators: ${s.numOscillators} | domExp: ${s.domainExp.toFixed(2)}<br>`+
+    `Sound: ${soundOn?'ON':'OFF'} | ${W}×${H}`;
+}
+
+// ─── Render loop ──────────────────────────────────────────────
+let startTime=performance.now();
+function loop(now){
+  requestAnimationFrame(loop);
+  frame++;
+  const t=(now-startTime)/1000;
+  
+  // FPS
+  fpsCount++;
+  if(now-fpsTime>500){lastFPS=fpsCount/((now-fpsTime)/1000);fpsCount=0;fpsTime=now;}
+
+  setUniforms();
+  gl.uniform1f(U.t, t);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+  updateHUD();
+}
+
+// ─── Input ────────────────────────────────────────────────────
+function reseed(){newSeed();}
+
+document.addEventListener('keydown',e=>{
+  if(e.key===' '){e.preventDefault();reseed();}
+  else if(e.key==='h'||e.key==='H'){
+    hudOn=!hudOn;
+    hud.classList.toggle('visible',hudOn);
+  }
+  else if(e.key==='s'||e.key==='S'){
+    soundOn=!soundOn;
+    if(soundOn) rebuildSound();
+    else teardownSound();
+  }
+});
+
+canvas.addEventListener('click',reseed);
+canvas.addEventListener('touchend',e=>{e.preventDefault();reseed();},{passive:false});
+
+// ─── Init ─────────────────────────────────────────────────────
+newSeed();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

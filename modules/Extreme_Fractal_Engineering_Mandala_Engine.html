@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+
+<meta charset="utf-8">
+
+<title>Extreme Fractal Engineering Mandala Engine</title>
+
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<meta name="description" content="Extreme generative fractal engineering mandala engine combining quasicrystal tilings, Voronoi networks, Apollonian fractals, Hilbert distortions and vortex physics in a GPU accelerated WebGL universe.">
+
+<meta name="keywords" content="generative art, fractal mandala, Penrose tiling, Voronoi diagram, Apollonian circles, Hilbert curve, sacred geometry, algorithmic art, WebGL generative engine">
+
+<style>
+
+html,body{
+margin:0;
+overflow:hidden;
+background:black;
+}
+
+canvas{
+display:block;
+}
+
+#hud{
+position:fixed;
+top:10px;
+left:10px;
+font-family:monospace;
+font-size:12px;
+color:#00ffff;
+}
+
+</style>
+</head>
+
+<body>
+
+<canvas id="c"></canvas>
+<div id="hud" style="display:none"></div>
+
+<script>
+
+const canvas=document.getElementById("c")
+const hud=document.getElementById("hud")
+
+const gl=canvas.getContext("webgl")
+
+let W,H
+
+function resize(){
+W=canvas.width=window.innerWidth
+H=canvas.height=window.innerHeight
+gl.viewport(0,0,W,H)
+}
+
+window.addEventListener("resize",resize)
+resize()
+
+function compile(type,src){
+let s=gl.createShader(type)
+gl.shaderSource(s,src)
+gl.compileShader(s)
+return s
+}
+
+const vertex=`
+attribute vec2 p;
+void main(){
+gl_Position=vec4(p,0.0,1.0);
+}
+`
+
+const fragment=`
+
+precision mediump float;
+
+uniform vec2 res;
+uniform float time;
+
+uniform float symmetry;
+uniform float scale;
+uniform float vortex;
+uniform float turbulence;
+uniform float recursion;
+
+uniform vec3 colA;
+uniform vec3 colB;
+uniform vec3 colC;
+
+float hash(vec2 p){
+return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453123);
+}
+
+float noise(vec2 p){
+
+vec2 i=floor(p);
+vec2 f=fract(p);
+
+float a=hash(i);
+float b=hash(i+vec2(1,0));
+float c=hash(i+vec2(0,1));
+float d=hash(i+vec2(1,1));
+
+vec2 u=f*f*(3.0-2.0*f);
+
+return mix(a,b,u.x)+(c-a)*u.y*(1.0-u.x)+(d-b)*u.x*u.y;
+
+}
+
+float voronoi(vec2 p){
+
+vec2 g=floor(p);
+vec2 f=fract(p);
+
+float r=1.0;
+
+for(int y=-1;y<=1;y++){
+for(int x=-1;x<=1;x++){
+
+vec2 b=vec2(float(x),float(y));
+vec2 d=b+vec2(hash(g+b),hash(g+b+1.2))-f;
+
+float dist=dot(d,d);
+
+r=min(r,dist);
+
+}}
+
+return r;
+
+}
+
+float quasicrystal(vec2 p){
+
+float v=0.0;
+
+for(int i=0;i<12;i++){
+
+float a=float(i)*3.14159/12.0;
+
+vec2 d=vec2(cos(a),sin(a));
+
+v+=cos(dot(p,d)*scale);
+
+}
+
+return v/12.0;
+
+}
+
+float apollonian(vec2 p){
+
+float r=1.0;
+
+for(int i=0;i<6;i++){
+
+p=abs(p)/dot(p,p)-0.7;
+
+r=min(r,length(p));
+
+}
+
+return r;
+
+}
+
+float hilbertWarp(vec2 p){
+
+float h=0.0;
+
+for(int i=0;i<5;i++){
+
+p=abs(p);
+p=p*1.7-vec2(0.5);
+
+h+=sin(p.x*10.0)+cos(p.y*10.0);
+
+}
+
+return h*0.1;
+
+}
+
+float fractal(vec2 p){
+
+float f=0.0;
+float s=1.0;
+
+for(int i=0;i<6;i++){
+
+f+=noise(p*s)/s;
+
+s*=recursion;
+
+}
+
+return f;
+
+}
+
+void main(){
+
+vec2 uv=(gl_FragCoord.xy-res*0.5)/res.y;
+
+float t=time*0.35;
+
+float r=length(uv);
+float a=atan(uv.y,uv.x);
+
+a=mod(a,6.28318/symmetry);
+
+uv=vec2(cos(a),sin(a))*r;
+
+uv+=vec2(
+sin(uv.y*vortex+t),
+cos(uv.x*vortex+t)
+)*0.25;
+
+uv+=hilbertWarp(uv);
+
+float q=quasicrystal(uv);
+
+float v=voronoi(uv*scale);
+
+float f=fractal(uv*2.0+turbulence*t);
+
+float a2=apollonian(uv*1.5);
+
+float energy=abs(q)+v+f+a2;
+
+vec3 col=
+colA*sin(energy*2.0)+
+colB*cos(energy*3.0)+
+colC*sin(energy*5.0);
+
+col=abs(col);
+
+gl_FragColor=vec4(col,1.0);
+
+}
+
+`
+
+const program=gl.createProgram()
+
+gl.attachShader(program,compile(gl.VERTEX_SHADER,vertex))
+gl.attachShader(program,compile(gl.FRAGMENT_SHADER,fragment))
+
+gl.linkProgram(program)
+
+gl.useProgram(program)
+
+const buf=gl.createBuffer()
+
+gl.bindBuffer(gl.ARRAY_BUFFER,buf)
+
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([
+-1,-1,
+1,-1,
+-1,1,
+1,1
+]),gl.STATIC_DRAW)
+
+const loc=gl.getAttribLocation(program,"p")
+
+gl.enableVertexAttribArray(loc)
+
+gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0)
+
+const U={
+
+time:gl.getUniformLocation(program,"time"),
+res:gl.getUniformLocation(program,"res"),
+sym:gl.getUniformLocation(program,"symmetry"),
+scale:gl.getUniformLocation(program,"scale"),
+vortex:gl.getUniformLocation(program,"vortex"),
+turb:gl.getUniformLocation(program,"turbulence"),
+rec:gl.getUniformLocation(program,"recursion"),
+colA:gl.getUniformLocation(program,"colA"),
+colB:gl.getUniformLocation(program,"colB"),
+colC:gl.getUniformLocation(program,"colC")
+
+}
+
+function rand(a,b){
+return a+Math.random()*(b-a)
+}
+
+let params
+let start
+
+function regenerate(){
+
+params={
+
+sym:Math.floor(rand(5,32)),
+scale:rand(2,12),
+vortex:rand(0.2,6),
+turb:rand(0.2,4),
+rec:rand(1.5,2.6),
+
+colA:[Math.random(),Math.random(),Math.random()],
+colB:[Math.random(),Math.random(),Math.random()],
+colC:[Math.random(),Math.random(),Math.random()]
+
+}
+
+start=performance.now()
+
+}
+
+regenerate()
+
+let hudOn=false
+
+document.addEventListener("keydown",e=>{
+
+if(e.code==="Space") regenerate()
+
+if(e.key==="h"||e.key==="H"){
+hudOn=!hudOn
+hud.style.display=hudOn?"block":"none"
+}
+
+})
+
+canvas.addEventListener("click",regenerate)
+canvas.addEventListener("touchstart",regenerate)
+
+function frame(){
+
+let t=(performance.now()-start)/1000
+
+gl.uniform1f(U.time,t)
+gl.uniform2f(U.res,W,H)
+
+gl.uniform1f(U.sym,params.sym)
+gl.uniform1f(U.scale,params.scale)
+gl.uniform1f(U.vortex,params.vortex)
+gl.uniform1f(U.turb,params.turb)
+gl.uniform1f(U.rec,params.rec)
+
+gl.uniform3fv(U.colA,params.colA)
+gl.uniform3fv(U.colB,params.colB)
+gl.uniform3fv(U.colC,params.colC)
+
+gl.drawArrays(gl.TRIANGLE_STRIP,0,4)
+
+if(hudOn){
+
+hud.innerHTML=
+"Fractal Engineering Mandala Engine<br>"+
+"SPACE / Click / Tap : regenerate<br>"+
+"H : toggle HUD<br>"+
+"symmetry: "+params.sym
+
+}
+
+requestAnimationFrame(frame)
+
+}
+
+frame()
+
+</script>
+
+</body>
+</html>

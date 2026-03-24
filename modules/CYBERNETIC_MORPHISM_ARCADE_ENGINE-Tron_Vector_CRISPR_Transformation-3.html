@@ -1,0 +1,1334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>CYBERNETIC MORPHISM ARCADE ENGINE | Tron Vector CRISPR Transformation — Generative Art v3</title>
+<!-- v3.0 -->
+<meta name="description" content="CYBERNETIC MORPHISM ARCADE ENGINE: A fully randomized procedural audiovisual art installation merging Tron light-cycle vector aesthetics, CRISPR genomic transformation networks, Atari vector arcade minimalism, and category-theory morphism graph topologies. Every universe regenerates with fully randomized colors, physics, audio synthesis, and visual parameters. Audio is synthesized from and synchronized with visual evolution in real time. Press SPACE or click/tap to generate a new universe.">
+<meta name="keywords" content="generative art engine, tron vector graphics, CRISPR cybernetic transformation, procedural audiovisual, category theory morphism, cyberpunk generative art, algorithmic art, randomized generative art, atari vector arcade, neon grid art, particle swarm simulation, fractal L-system art, cellular automata visualization, vector field flow, light ribbon simulation, morphogenesis visualization, transhumanist digital art, interactive generative art, web canvas art, procedural music synthesis, synchronized audiovisual, cyberpunk neon, chromatic aberration art, holographic grid simulation, quantum topology visualization, digital organism art, bioluminescent network, recursive fractal geometry">
+<meta name="author" content="Cybernetic Morphism Arcade Engine v3">
+<meta name="robots" content="index, follow">
+<meta name="theme-color" content="#000000">
+<meta property="og:title" content="CYBERNETIC MORPHISM ARCADE ENGINE — Generative Audiovisual Universe">
+<meta property="og:description" content="Fully randomized procedural audiovisual: CRISPR networks rewire digital matter into machine organisms via animated category-theory morphisms across multidimensional neon lattices. Every regeneration is a unique universe. Audio derived from and synchronized with visual evolution.">
+<meta property="og:type" content="website">
+<meta property="og:image:alt" content="Neon cyberpunk generative art with glowing nodes, Tron ribbons, and CRISPR transformation networks">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="CYBERNETIC MORPHISM ARCADE ENGINE">
+<meta name="twitter:description" content="Fully randomized procedural audiovisual generative art. Every universe is unique. SPACE or tap to regenerate.">
+<meta name="canonical" content="">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Courier New',monospace;cursor:crosshair}
+canvas{display:block;position:fixed;top:0;left:0;width:100%;height:100%}
+#hud{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;display:none;z-index:10}
+#hud-tl{position:absolute;top:18px;left:18px;font-size:10.5px;line-height:1.9;letter-spacing:0.09em}
+#hud-tr{position:absolute;top:18px;right:18px;font-size:10.5px;line-height:1.9;letter-spacing:0.09em;text-align:right}
+#hud-bl{position:absolute;bottom:18px;left:18px;font-size:9.5px;letter-spacing:0.14em;opacity:0.65}
+#hud-br{position:absolute;bottom:18px;right:18px;font-size:9.5px;letter-spacing:0.14em;opacity:0.65;text-align:right}
+.scan{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:5;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.025) 2px,rgba(0,0,0,0.025) 4px)}
+#flash{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:20;opacity:0;background:#fff}
+#boot{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:30;text-align:center;pointer-events:none;transition:opacity 1.2s}
+#boot-text{font-family:'Courier New',monospace;font-size:11px;letter-spacing:0.2em;color:rgba(255,255,255,0.4);margin-top:8px}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="scan"></div>
+<div id="hud">
+  <div id="hud-tl"></div>
+  <div id="hud-tr"></div>
+  <div id="hud-bl">SPACE · CLICK · TAP : NEW UNIVERSE &nbsp;|&nbsp; H : HUD &nbsp;|&nbsp; S : SOUND</div>
+  <div id="hud-br"></div>
+</div>
+<div id="flash"></div>
+<div id="boot"><div id="boot-text">INITIALIZING UNIVERSE Ω-001</div></div>
+<script>
+(function(){'use strict';
+
+// ══════════════════════════════════════════════════════════════════════════════
+// GLOBALS
+// ══════════════════════════════════════════════════════════════════════════════
+const canvas=document.getElementById('c');
+const ctx=canvas.getContext('2d');
+const hud=document.getElementById('hud');
+const hudTL=document.getElementById('hud-tl');
+const hudTR=document.getElementById('hud-tr');
+const hudBR=document.getElementById('hud-br');
+const flash=document.getElementById('flash');
+const bootEl=document.getElementById('boot');
+
+let W,H,CX,CY;
+let hudVisible=false;
+let soundOn=false;
+let universeID=0;
+let frame=0;
+let lastTime=0;
+
+// Audio
+let audioCtx=null;
+let masterGain=null;
+let compressor=null;
+let reverb=null;
+let reverbGain=null;
+let dryGain=null;
+let audioNodes=[];
+let audioState={energy:0,complexity:0,flux:0,chromaShift:0,pulseRate:0};
+
+// Universe
+let U={};
+
+// ══════════════════════════════════════════════════════════════════════════════
+// MATH UTILS
+// ══════════════════════════════════════════════════════════════════════════════
+const TWO_PI=Math.PI*2;
+function rng(a,b){return a+Math.random()*(b-a);}
+function rni(a,b){return Math.floor(rng(a,b+0.999));}
+function pick(a){return a[Math.floor(Math.random()*a.length)];}
+function lerp(a,b,t){return a+(b-a)*t;}
+function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
+function mod(a,b){return((a%b)+b)%b;}
+function smoothstep(a,b,t){t=clamp((t-a)/(b-a),0,1);return t*t*(3-2*t);}
+function easeInOut(t){return t<0.5?2*t*t:1-2*(1-t)*(1-t);}
+function hash(n){n=(n^61)^(n>>>16);n+=n<<3;n^=n>>>4;n*=0x27d4eb2d;n^=n>>>15;return(n>>>0)/4294967296;}
+function noise2(x,y){const ix=x|0,iy=y|0,fx=x-ix,fy=y-iy;const u=fx*fx*(3-2*fx),v=fy*fy*(3-2*fy);return lerp(lerp(hash(ix+iy*57),hash(ix+1+iy*57),u),lerp(hash(ix+(iy+1)*57),hash(ix+1+(iy+1)*57),u),v);}
+function fbm(x,y,oct=4){let v=0,a=0.5,f=1;for(let i=0;i<oct;i++){v+=a*noise2(x*f,y*f);a*=0.5;f*=2.13;}return v;}
+function curlX(x,y,t){return noise2(x+0.1,y)-noise2(x-0.1,y);}
+function curlY(x,y,t){return noise2(x,y+0.1)-noise2(x,y-0.1);}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PALETTE ENGINE — fully randomized per universe
+// ══════════════════════════════════════════════════════════════════════════════
+function buildPalette(){
+  // Pick completely random base hue — no bias
+  const h0=rng(0,360);
+  // Pick harmony type
+  const harmonyType=rni(0,5);
+  let harmonics;
+  switch(harmonyType){
+    case 0: harmonics=[h0,mod(h0+180,360)]; break;                            // complementary
+    case 1: harmonics=[h0,mod(h0+120,360),mod(h0+240,360)]; break;           // triadic
+    case 2: harmonics=[h0,mod(h0+90,360),mod(h0+180,360),mod(h0+270,360)]; break; // tetradic
+    case 3: harmonics=[h0,mod(h0+30,360),mod(h0+210,360),mod(h0+240,360)]; break; // split-comp
+    default: harmonics=[h0,mod(h0+150,360),mod(h0+210,360)]; break;          // analogous-wide
+  }
+  // Random saturation and lightness profiles
+  const satBase=rng(75,100);
+  const lightBase=rng(45,75);
+  const darkBg=Math.random()<0.8; // mostly dark bg
+  const bgHue=rng(0,360);
+  const bgLightness=darkBg?rng(2,8):rng(85,95);
+  const bgSat=darkBg?rng(0,30):rng(10,40);
+  return {
+    h0, harmonics, harmonyType,
+    satBase, lightBase,
+    bgHue, bgLightness, bgSat, darkBg,
+    cycleSpeed:rng(0.08,0.7),
+    hueShift:rng(0.3,2.5),    // how fast hue cycles with time
+    contrast:rng(0.5,1.0),
+    glowBoost:rng(0.5,1.5),
+    ribbonHues: Array.from({length:rni(4,10)},()=>rng(0,360)),
+    nodeHues:   Array.from({length:rni(3,8)}, ()=>rng(0,360)),
+    particleHues:Array.from({length:rni(4,12)},()=>rng(0,360)),
+    edgeHues:   Array.from({length:rni(3,7)}, ()=>rng(0,360)),
+    caHues:     Array.from({length:rni(2,6)}, ()=>rng(0,360)),
+    spectralHues:Array.from({length:rni(3,8)},()=>rng(0,360)),
+    latticeHues:Array.from({length:rni(2,5)}, ()=>rng(0,360)),
+    crisprHues: Array.from({length:rni(3,7)}, ()=>rng(0,360)),
+    warpHues:   Array.from({length:rni(2,6)}, ()=>rng(0,360)),
+    nebulaHues: Array.from({length:rni(3,8)}, ()=>rng(0,360)),
+  };
+}
+
+// Dynamic hue accessor — time-varying, indexed from palette arrays
+function ph(arr,idx,t,speedMul=1){
+  return mod(arr[mod(idx,arr.length)|0]+t*U.palette.cycleSpeed*360*speedMul,360);
+}
+
+function palCol(hue,sat,light,alpha=1){
+  return `hsla(${hue|0},${sat|0}%,${light|0}%,${alpha})`;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CELLULAR AUTOMATA
+// ══════════════════════════════════════════════════════════════════════════════
+const CA_SIZE=72;
+let caGrid=new Uint8Array(CA_SIZE*CA_SIZE);
+let caNext=new Uint8Array(CA_SIZE*CA_SIZE);
+
+function initCA(){
+  const density=rng(0.2,0.55);
+  for(let i=0;i<caGrid.length;i++) caGrid[i]=Math.random()<density?1:0;
+}
+
+function stepCA(){
+  for(let y=0;y<CA_SIZE;y++)
+    for(let x=0;x<CA_SIZE;x++){
+      const nx=mod(x+1,CA_SIZE),px=mod(x-1,CA_SIZE);
+      const ny=mod(y+1,CA_SIZE),py=mod(y-1,CA_SIZE);
+      const n=caGrid[py*CA_SIZE+px]+caGrid[py*CA_SIZE+x]+caGrid[py*CA_SIZE+nx]
+             +caGrid[y*CA_SIZE+px]                      +caGrid[y*CA_SIZE+nx]
+             +caGrid[ny*CA_SIZE+px]+caGrid[ny*CA_SIZE+x]+caGrid[ny*CA_SIZE+nx];
+      const c=caGrid[y*CA_SIZE+x];
+      caNext[y*CA_SIZE+x]=(c&&(n===2||n===3))||(!c&&(n===3||n===U.caBirth))?1:0;
+    }
+  let tmp=caGrid;caGrid=caNext;caNext=tmp;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// MORPHISM GRAPH
+// ══════════════════════════════════════════════════════════════════════════════
+let nodes=[],edges=[],morphisms=[];
+const GREEK=['α','β','γ','δ','η','μ','φ','ψ','Ω','λ','σ','τ','ρ','ξ','ζ','θ','ι','κ','ν','π'];
+const MORPHLABELS=['F','G','H','η','ε','μ','∘','⊗','⊕','→','⇒','⟹','∇','∂','Δ','∫','⊂','⊃','≅','≃'];
+
+function mkNode(id){
+  const angle=rng(0,TWO_PI);
+  const r=rng(0.08,0.42)*Math.min(W,H)*0.5;
+  const orbitPossible=Math.random()<0.25;
+  return{
+    id,x:CX+r*Math.cos(angle),y:CY+r*Math.sin(angle),
+    vx:rng(-0.5,0.5),vy:rng(-0.5,0.5),
+    radius:rng(2.5,10),type:rni(0,6),
+    phase:rng(0,TWO_PI),freq:rng(0.3,3.0),
+    energy:rng(0.4,1.0),transforming:false,tPhase:0,tDuration:rng(0.02,0.05),
+    orbit:orbitPossible,orbitR:rng(40,200),orbitSpeed:rng(0.001,0.012)*pick([-1,1]),
+    orbitAngle:rng(0,TWO_PI),orbitParent:-1,
+    morphLabel:pick(GREEK),
+    mass:rng(0.5,4),hueIdx:rni(0,20),
+    trail:[],trailLen:rni(8,30),
+    sparkling:Math.random()<0.3,
+    sparkPhase:rng(0,TWO_PI),
+  };
+}
+
+function initGraph(){
+  nodes=[];edges=[];morphisms=[];
+  const n=rni(14,45);
+  for(let i=0;i<n;i++) nodes.push(mkNode(i));
+  // assign orbit parents
+  for(const nd of nodes){
+    if(nd.orbit){
+      const candidates=nodes.filter(o=>o.id!==nd.id&&!o.orbit);
+      if(candidates.length) nd.orbitParent=pick(candidates).id;
+      else nd.orbit=false;
+    }
+  }
+  // edges
+  const eMax=Math.min(110,rni(n,n*3));
+  const edgeSet=new Set();
+  for(let i=0;i<eMax*3;i++){
+    if(edges.length>=eMax) break;
+    const a=rni(0,n-1),b=rni(0,n-1);
+    if(a===b) continue;
+    const key=`${Math.min(a,b)}_${Math.max(a,b)}`;
+    if(edgeSet.has(key)) continue;
+    edgeSet.add(key);
+    edges.push({a,b,weight:rng(0.1,1.2),phase:rng(0,TWO_PI),
+      type:rni(0,4),active:true,pulsePos:rng(0,1),
+      pulseSpeed:rng(0.004,0.030)*pick([-1,1]),
+      hueIdx:rni(0,20),curved:Math.random()<0.6,
+      curveOffset:rng(-120,120),
+    });
+  }
+  // morphisms (2-cells traversing edge pairs)
+  const mCount=rni(8,20);
+  for(let i=0;i<mCount;i++){
+    morphisms.push({
+      edgeA:rni(0,Math.max(0,edges.length-1)),
+      edgeB:rni(0,Math.max(0,edges.length-1)),
+      t:rng(0,1),speed:rng(0.002,0.018)*pick([-1,1]),
+      hueIdx:rni(0,20),
+      label:pick(MORPHLABELS),
+      width:rng(0.8,2.2),
+    });
+  }
+}
+
+function updateGraph(){
+  const t=frame*0.01;
+  for(let i=0;i<nodes.length;i++){
+    const nd=nodes[i];
+    if(nd.orbit&&nd.orbitParent>=0&&nd.orbitParent<nodes.length){
+      nd.orbitAngle+=nd.orbitSpeed*(1+audioState.energy*0.5);
+      const p=nodes[nd.orbitParent];
+      nd.x=p.x+nd.orbitR*Math.cos(nd.orbitAngle);
+      nd.y=p.y+nd.orbitR*Math.sin(nd.orbitAngle);
+    } else {
+      const nx=nd.x/W*4+t*0.09,ny=nd.y/H*4+t*0.09;
+      const curl_x=curlX(nx,ny,t)*Math.PI*4+t*U.fieldTwist;
+      const curl_y=curlY(nx,ny,t)*Math.PI*4+t*U.fieldTwist;
+      nd.vx+=curl_x*0.025*U.fieldStrength;
+      nd.vy+=curl_y*0.025*U.fieldStrength;
+      // audio-reactive push
+      nd.vx+=Math.cos(nd.phase+frame*0.01)*audioState.flux*0.4;
+      nd.vy+=Math.sin(nd.phase+frame*0.01)*audioState.flux*0.4;
+      // repulsion
+      for(let j=i+1;j<nodes.length;j++){
+        const nb=nodes[j];
+        const dx=nd.x-nb.x,dy=nd.y-nb.y;
+        const d2=dx*dx+dy*dy+1;
+        if(d2>90000) continue;
+        const f=U.repelStr/d2;
+        nd.vx+=dx*f;nd.vy+=dy*f;
+        nb.vx-=dx*f;nb.vy-=dy*f;
+      }
+      nd.vx+=(CX-nd.x)*U.attractStr;
+      nd.vy+=(CY-nd.y)*U.attractStr;
+      const drag=0.955-audioState.energy*0.01;
+      nd.vx*=drag;nd.vy*=drag;
+      nd.x+=nd.vx;nd.y+=nd.vy;
+    }
+    if(nd.x<30){nd.x=30;nd.vx=Math.abs(nd.vx)*0.7;}
+    if(nd.x>W-30){nd.x=W-30;nd.vx=-Math.abs(nd.vx)*0.7;}
+    if(nd.y<30){nd.y=30;nd.vy=Math.abs(nd.vy)*0.7;}
+    if(nd.y>H-30){nd.y=H-30;nd.vy=-Math.abs(nd.vy)*0.7;}
+    // transform pulse
+    if(nd.transforming){nd.tPhase+=nd.tDuration;if(nd.tPhase>1){nd.transforming=false;nd.tPhase=0;nd.type=rni(0,6);nd.hueIdx=rni(0,20);}}
+    if(Math.random()<0.0008+audioState.energy*0.002) nd.transforming=true;
+    // trail
+    nd.trail.push({x:nd.x,y:nd.y});
+    if(nd.trail.length>nd.trailLen) nd.trail.shift();
+  }
+  for(const e of edges){
+    e.pulsePos=mod(e.pulsePos+e.pulseSpeed*(1+audioState.pulseRate*0.8),1);
+  }
+  for(const m of morphisms){
+    m.t=mod(m.t+m.speed*(1+audioState.chromaShift*0.3),1);
+  }
+  if(frame%200===0&&nodes.length>2){
+    if(Math.random()<0.55&&edges.length<110){
+      const a=rni(0,nodes.length-1),b=rni(0,nodes.length-1);
+      if(a!==b) edges.push({a,b,weight:rng(0.1,1.2),phase:rng(0,TWO_PI),type:rni(0,4),active:true,pulsePos:0,pulseSpeed:rng(0.004,0.025)*pick([-1,1]),hueIdx:rni(0,20),curved:Math.random()<0.6,curveOffset:rng(-120,120)});
+    } else if(edges.length>8){
+      edges.splice(rni(0,edges.length-1),1);
+    }
+  }
+}
+
+function drawGraph(pal,t){
+  if(!nodes.length) return;
+  // node trails
+  for(const nd of nodes){
+    if(nd.trail.length<3) continue;
+    const h=ph(pal.nodeHues,nd.hueIdx,t,0.4);
+    ctx.beginPath();
+    ctx.moveTo(nd.trail[0].x,nd.trail[0].y);
+    for(let i=1;i<nd.trail.length;i++) ctx.lineTo(nd.trail[i].x,nd.trail[i].y);
+    ctx.strokeStyle=palCol(h,pal.satBase,pal.lightBase*0.7,0.12);
+    ctx.lineWidth=0.6;ctx.stroke();
+  }
+  // edges
+  for(const e of edges){
+    if(!e.active||e.a>=nodes.length||e.b>=nodes.length) continue;
+    const na=nodes[e.a],nb=nodes[e.b];
+    const h=ph(pal.edgeHues,e.hueIdx,t,0.6);
+    const alpha=(0.25+0.3*Math.sin(t*2.1+e.phase))*(1+audioState.energy*0.4);
+    ctx.lineWidth=0.7+e.weight*(1+audioState.complexity*0.3);
+    ctx.strokeStyle=palCol(h,pal.satBase,pal.lightBase,clamp(alpha,0,0.95));
+    ctx.beginPath();
+    if(e.curved&&e.type!==3){
+      const mx=(na.x+nb.x)/2+e.curveOffset*Math.sin(t*0.7+e.phase);
+      const my=(na.y+nb.y)/2+e.curveOffset*Math.cos(t*0.7+e.phase);
+      ctx.moveTo(na.x,na.y);ctx.quadraticCurveTo(mx,my,nb.x,nb.y);
+    } else if(e.type===3){
+      const cx=(na.x+nb.x)/2,cy=(na.y+nb.y)/2;
+      const r=Math.hypot(nb.x-na.x,nb.y-na.y)*0.55;
+      const a1=Math.atan2(na.y-cy,na.x-cx),a2=Math.atan2(nb.y-cy,nb.x-cx);
+      ctx.arc(cx,cy,r,a1,a2,e.phase>Math.PI);
+    } else {
+      ctx.moveTo(na.x,na.y);ctx.lineTo(nb.x,nb.y);
+    }
+    ctx.stroke();
+    // pulse dot
+    const ppx=lerp(na.x,nb.x,mod(e.pulsePos,1)),ppy=lerp(na.y,nb.y,mod(e.pulsePos,1));
+    const psize=2+audioState.pulseRate*1.5;
+    ctx.beginPath();ctx.arc(ppx,ppy,psize,0,TWO_PI);
+    ctx.fillStyle=palCol(h,100,95,0.95);ctx.fill();
+    // glow around pulse
+    const pg=ctx.createRadialGradient(ppx,ppy,0,ppx,ppy,psize*4);
+    pg.addColorStop(0,palCol(h,100,90,0.4));
+    pg.addColorStop(1,palCol(h,100,70,0));
+    ctx.beginPath();ctx.arc(ppx,ppy,psize*4,0,TWO_PI);
+    ctx.fillStyle=pg;ctx.fill();
+  }
+  // morphisms
+  for(const m of morphisms){
+    if(m.edgeA>=edges.length||m.edgeB>=edges.length) continue;
+    const ea=edges[m.edgeA],eb=edges[m.edgeB];
+    if(ea.a>=nodes.length||eb.a>=nodes.length) continue;
+    const enaA=nodes[ea.a],enaB=nodes[Math.min(ea.b,nodes.length-1)];
+    const enbA=nodes[eb.a],enbB=nodes[Math.min(eb.b,nodes.length-1)];
+    const mx1=lerp(enaA.x,enaB.x,m.t),my1=lerp(enaA.y,enaB.y,m.t);
+    const mx2=lerp(enbA.x,enbB.x,m.t),my2=lerp(enbA.y,enbB.y,m.t);
+    const h=ph(pal.edgeHues,m.hueIdx,t,1.2);
+    ctx.beginPath();ctx.moveTo(mx1,my1);ctx.lineTo(mx2,my2);
+    ctx.strokeStyle=palCol(h,100,78,0.5*(1+audioState.complexity*0.5));
+    ctx.lineWidth=m.width;
+    ctx.setLineDash([5,5]);ctx.stroke();ctx.setLineDash([]);
+    const ang=Math.atan2(my2-my1,mx2-mx1);
+    const al=9;
+    ctx.beginPath();ctx.moveTo(mx2,my2);
+    ctx.lineTo(mx2-al*Math.cos(ang-0.45),my2-al*Math.sin(ang-0.45));
+    ctx.lineTo(mx2-al*Math.cos(ang+0.45),my2-al*Math.sin(ang+0.45));
+    ctx.closePath();
+    ctx.fillStyle=palCol(h,100,78,0.8);ctx.fill();
+    ctx.font='10px Courier New';
+    ctx.fillStyle=palCol(h,100,90,0.9);
+    ctx.fillText(m.label,(mx1+mx2)/2-4,(my1+my2)/2-6);
+  }
+  // nodes
+  for(const nd of nodes){
+    const pulse=0.65+0.35*Math.sin(t*nd.freq+nd.phase)+audioState.energy*0.2;
+    const r=nd.radius*pulse*(nd.transforming?1+nd.tPhase*1.2:1);
+    const h=ph(pal.nodeHues,nd.hueIdx+nd.type*2,t,0.5);
+    // outer glow (multi-layer)
+    for(let gl=3;gl>0;gl--){
+      const grad=ctx.createRadialGradient(nd.x,nd.y,0,nd.x,nd.y,r*(3+gl));
+      grad.addColorStop(0,palCol(h,100,80,0.15*nd.energy*(4-gl)/3));
+      grad.addColorStop(1,palCol(h,100,50,0));
+      ctx.beginPath();ctx.arc(nd.x,nd.y,r*(3+gl),0,TWO_PI);
+      ctx.fillStyle=grad;ctx.fill();
+    }
+    // core shape
+    ctx.beginPath();
+    const s=nd.type%6;
+    if(s===0){ctx.arc(nd.x,nd.y,r,0,TWO_PI);}
+    else if(s===1){// pentagon
+      for(let k=0;k<5;k++) k===0?ctx.moveTo(nd.x+r*1.1*Math.cos(k*TWO_PI/5-Math.PI/2),nd.y+r*1.1*Math.sin(k*TWO_PI/5-Math.PI/2)):ctx.lineTo(nd.x+r*1.1*Math.cos(k*TWO_PI/5-Math.PI/2),nd.y+r*1.1*Math.sin(k*TWO_PI/5-Math.PI/2));
+      ctx.closePath();
+    } else if(s===2){ctx.rect(nd.x-r,nd.y-r,r*2,r*2);}
+    else if(s===3){// triangle
+      ctx.moveTo(nd.x,nd.y-r*1.3);ctx.lineTo(nd.x+r*1.15,nd.y+r*0.75);ctx.lineTo(nd.x-r*1.15,nd.y+r*0.75);ctx.closePath();
+    } else if(s===4){// diamond
+      ctx.moveTo(nd.x,nd.y-r*1.4);ctx.lineTo(nd.x+r,nd.y);ctx.lineTo(nd.x,nd.y+r*1.4);ctx.lineTo(nd.x-r,nd.y);ctx.closePath();
+    } else {// star
+      for(let k=0;k<10;k++){const rk=k%2===0?r*1.2:r*0.5;k===0?ctx.moveTo(nd.x+rk*Math.cos(k*Math.PI/5-Math.PI/2),nd.y+rk*Math.sin(k*Math.PI/5-Math.PI/2)):ctx.lineTo(nd.x+rk*Math.cos(k*Math.PI/5-Math.PI/2),nd.y+rk*Math.sin(k*Math.PI/5-Math.PI/2));}
+      ctx.closePath();
+    }
+    ctx.fillStyle=palCol(h,pal.satBase,pal.lightBase,0.85*nd.energy);
+    ctx.fill();
+    ctx.strokeStyle=palCol(h,100,95,0.95);
+    ctx.lineWidth=nd.transforming?1.5+nd.tPhase:1;
+    ctx.stroke();
+    // label
+    ctx.font=`${8+r*0.4|0}px Courier New`;
+    ctx.fillStyle=palCol(h,100,97,0.75);
+    ctx.fillText(nd.morphLabel,nd.x+r+3,nd.y-r+3);
+    // sparkling
+    if(nd.sparkling){
+      const sp=0.5+0.5*Math.sin(t*8+nd.sparkPhase+audioState.chromaShift*3);
+      ctx.beginPath();
+      for(let k=0;k<4;k++){
+        const ra=k*Math.PI/2+t*2;
+        ctx.moveTo(nd.x,nd.y);
+        ctx.lineTo(nd.x+Math.cos(ra)*r*2.5*sp,nd.y+Math.sin(ra)*r*2.5*sp);
+      }
+      ctx.strokeStyle=palCol(mod(h+60,360),100,95,sp*0.7);
+      ctx.lineWidth=0.6;ctx.stroke();
+    }
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PARTICLE SWARM — enhanced with more types and audio reactivity
+// ══════════════════════════════════════════════════════════════════════════════
+const MAX_PARTICLES=420;
+let particles=[];
+
+function spawnParticle(){
+  const angle=rng(0,TWO_PI),speed=rng(0.2,3.5);
+  const type=rni(0,5);
+  particles.push({
+    x:rng(0,W),y:rng(0,H),
+    vx:Math.cos(angle)*speed,vy:Math.sin(angle)*speed,
+    age:0,maxLife:rni(60,400),
+    size:rng(0.8,5),
+    type, // 0=dot,1=cross,2=square,3=diamond,4=ring
+    hueIdx:rni(0,20),
+    trail:[],trailLen:rni(5,20),
+    targetNode:rni(0,Math.max(1,nodes.length-1)),
+    flocking:Math.random()<0.65,
+    spin:rng(-0.15,0.15),
+    spinAngle:rng(0,TWO_PI),
+    bright:Math.random()<0.4,
+  });
+}
+
+function initParticles(){
+  particles=[];
+  const n=rni(160,MAX_PARTICLES);
+  for(let i=0;i<n;i++) spawnParticle();
+}
+
+function updateParticles(){
+  const t=frame*0.01;
+  const audioBoost=1+audioState.energy*0.6;
+  for(let i=particles.length-1;i>=0;i--){
+    const p=particles[i];
+    p.age++;
+    if(p.age>p.maxLife){particles.splice(i,1);spawnParticle();continue;}
+    p.spinAngle+=p.spin*(1+audioState.pulseRate*0.5);
+    if(p.flocking&&nodes.length>0){
+      const tn=nodes[p.targetNode%nodes.length];
+      const dx=tn.x-p.x,dy=tn.y-p.y;
+      const d=Math.sqrt(dx*dx+dy*dy)+1;
+      p.vx+=dx/d*0.09*U.swarmStr*audioBoost;
+      p.vy+=dy/d*0.09*U.swarmStr*audioBoost;
+      if(d<12){p.targetNode=rni(0,nodes.length-1);}
+    }
+    const fx=p.x/W*3.5+t*0.04,fy=p.y/H*3.5+t*0.04;
+    const fieldAngle=fbm(fx,fy,2)*Math.PI*6+t*U.fieldTwist*0.4;
+    p.vx+=Math.cos(fieldAngle)*0.025*(1+audioState.flux*0.4);
+    p.vy+=Math.sin(fieldAngle)*0.025*(1+audioState.flux*0.4);
+    p.vx*=0.968;p.vy*=0.968;
+    p.trail.push({x:p.x,y:p.y});
+    if(p.trail.length>p.trailLen) p.trail.shift();
+    p.x+=p.vx;p.y+=p.vy;
+    if(p.x<0)p.x=W;if(p.x>W)p.x=0;
+    if(p.y<0)p.y=H;if(p.y>H)p.y=0;
+  }
+}
+
+function drawParticles(pal,t){
+  for(const p of particles){
+    const life=1-p.age/p.maxLife;
+    if(life<=0) continue;
+    const h=ph(pal.particleHues,p.hueIdx,t,0.8);
+    const alpha=life*(p.bright?0.95:0.6)*(1+audioState.energy*0.3);
+    const sz=p.size*(0.5+0.5*life);
+    // trail
+    if(p.trail.length>2){
+      ctx.beginPath();
+      ctx.moveTo(p.trail[0].x,p.trail[0].y);
+      for(let j=1;j<p.trail.length;j++) ctx.lineTo(p.trail[j].x,p.trail[j].y);
+      ctx.strokeStyle=palCol(h,pal.satBase,pal.lightBase,alpha*0.3);
+      ctx.lineWidth=sz*0.5;ctx.stroke();
+    }
+    ctx.save();ctx.translate(p.x,p.y);ctx.rotate(p.spinAngle);
+    ctx.beginPath();
+    switch(p.type%5){
+      case 0:ctx.arc(0,0,sz,0,TWO_PI);break;
+      case 1:ctx.moveTo(-sz,0);ctx.lineTo(sz,0);ctx.moveTo(0,-sz);ctx.lineTo(0,sz);break;
+      case 2:ctx.rect(-sz/2,-sz/2,sz,sz);break;
+      case 3:ctx.moveTo(0,-sz*1.3);ctx.lineTo(sz,0);ctx.lineTo(0,sz*1.3);ctx.lineTo(-sz,0);ctx.closePath();break;
+      case 4:ctx.arc(0,0,sz,0,TWO_PI);ctx.arc(0,0,sz*0.5,0,TWO_PI);break;
+    }
+    const fc=palCol(h,100,75,alpha);
+    p.type===1?
+      (ctx.strokeStyle=fc,ctx.lineWidth=sz*0.5,ctx.stroke()):
+      (ctx.fillStyle=fc,ctx.fill());
+    ctx.restore();
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// L-SYSTEM FRACTAL STRUCTURES
+// ══════════════════════════════════════════════════════════════════════════════
+let lStructures=[];
+const LSYS_RULES=[
+  {axiom:'F',rules:{F:'F+F−F−F+F'},angle:90,depth:3},
+  {axiom:'X',rules:{X:'F+[[X]−X]−F[−FX]+X',F:'FF'},angle:25,depth:4},
+  {axiom:'F−F−F−F',rules:{F:'F−F+F+FF−F−F+F'},angle:90,depth:3},
+  {axiom:'F',rules:{F:'F[+F]F[−F]F'},angle:26,depth:5},
+  {axiom:'X',rules:{X:'F[+X][−X]FX',F:'FF'},angle:20,depth:5},
+  {axiom:'F',rules:{F:'FF+[+F−F−F]−[−F+F+F]'},angle:22.5,depth:4},
+  {axiom:'X',rules:{X:'−F+X+F−',F:'FF'},angle:60,depth:5},
+  {axiom:'F+F+F+F',rules:{F:'F+F−F−FFF+F+F−F'},angle:90,depth:3},
+];
+
+function genLStructure(){
+  const r=pick(LSYS_RULES);
+  let str=r.axiom;
+  for(let i=0;i<r.depth;i++){
+    let ns='';
+    for(const c of str) ns+=(r.rules[c]||c);
+    str=ns;if(str.length>12000) break;
+  }
+  return{str,angle:r.angle,cx:rng(W*0.1,W*0.9),cy:rng(H*0.1,H*0.9),
+    rot:rng(0,TWO_PI),rotSpeed:rng(-0.002,0.002),
+    hueIdx:rni(0,20),alpha:rng(0.08,0.35),len:rng(4,20),
+    scale:rng(0.5,1.5)};
+}
+
+function initLStructures(){
+  lStructures=[];
+  const n=rni(2,6);
+  for(let i=0;i<n;i++) lStructures.push(genLStructure());
+}
+
+function drawLStructure(ls,pal,t){
+  ctx.save();
+  ctx.translate(ls.cx,ls.cy);
+  ls.rot+=ls.rotSpeed*(1+audioState.energy*0.3);
+  ctx.rotate(ls.rot);
+  const stack=[];
+  let x=0,y=0,a=-Math.PI/2;
+  const step=ls.len*ls.scale;
+  const ang=ls.angle*Math.PI/180;
+  ctx.beginPath();ctx.lineWidth=0.7;
+  const h=ph(pal.nodeHues,ls.hueIdx,t,0.3);
+  ctx.strokeStyle=palCol(h,90,65,ls.alpha*(1+audioState.complexity*0.3));
+  let drawn=0;
+  for(const c of ls.str){
+    if(drawn>4000) break;
+    if(c==='F'||c==='G'){
+      const nx=x+step*Math.cos(a),ny=y+step*Math.sin(a);
+      ctx.moveTo(x,y);ctx.lineTo(nx,ny);drawn++;x=nx;y=ny;
+    } else if(c==='+')a+=ang;
+    else if(c==='-')a-=ang;
+    else if(c==='[')stack.push({x,y,a});
+    else if(c===']'&&stack.length){const s=stack.pop();x=s.x;y=s.y;a=s.a;}
+  }
+  ctx.stroke();ctx.restore();
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CRISPR TRANSFORMATION NETWORKS — enhanced
+// ══════════════════════════════════════════════════════════════════════════════
+let crisprStrands=[];
+
+function initCRISPR(){
+  crisprStrands=[];
+  const n=rni(4,10);
+  for(let i=0;i<n;i++){
+    const seg=rni(8,20);
+    const cx=rng(W*0.05,W*0.95),cy=rng(H*0.05,H*0.95);
+    const pts=[];
+    for(let j=0;j<seg;j++) pts.push({x:cx+rng(-200,200),y:cy+rng(-130,130),phase:rng(0,TWO_PI)});
+    crisprStrands.push({
+      pts,hueIdx:rni(0,20),width:rng(0.8,3),
+      speed:rng(0.003,0.025),
+      cutSite:rni(1,seg-2),splicing:false,spliceT:0,
+      type:rni(0,3), // 0=helix,1=zip,2=wave
+      amplitude:rng(10,30),
+    });
+  }
+}
+
+function drawCRISPR(pal,t){
+  for(const s of crisprStrands){
+    if(!s.pts.length) continue;
+    if(Math.random()<0.001+audioState.energy*0.002&&!s.splicing) s.splicing=true;
+    if(s.splicing){s.spliceT+=0.025*(1+audioState.flux);if(s.spliceT>1){s.splicing=false;s.spliceT=0;s.cutSite=rni(1,s.pts.length-1);}}
+    ctx.save();
+    const h=ph(pal.crisprHues,s.hueIdx,t,0.5);
+    // draw both strands
+    for(let strand=0;strand<2;strand++){
+      ctx.beginPath();
+      for(let i=0;i<s.pts.length;i++){
+        const p=s.pts[i];
+        const wv=s.amplitude*(1+audioState.energy*0.4)*Math.sin(i*0.7+t*s.speed*80+p.phase+(strand?Math.PI:0));
+        const nx=p.x+wv*Math.sin(t*0.4+i*0.25);
+        const ny=p.y+wv*Math.cos(t*0.4+i*0.25);
+        i===0?ctx.moveTo(nx,ny):ctx.lineTo(nx,ny);
+      }
+      const sh=mod(h+strand*140,360);
+      ctx.strokeStyle=palCol(sh,90,65,0.55*(1+audioState.complexity*0.3));
+      ctx.lineWidth=s.width;ctx.stroke();
+    }
+    // crossbars
+    for(let i=0;i<s.pts.length-1;i+=2){
+      const p=s.pts[i];
+      const wv=s.amplitude*Math.sin(i*0.7+t*s.speed*80+p.phase);
+      const nx=p.x+wv*Math.sin(t*0.4+i*0.25),ny=p.y+wv*Math.cos(t*0.4+i*0.25);
+      ctx.beginPath();ctx.moveTo(nx,ny);
+      ctx.lineTo(p.x-wv*Math.sin(t*0.4+i*0.25),p.y-wv*Math.cos(t*0.4+i*0.25));
+      ctx.strokeStyle=palCol(mod(h+180,360),70,75,0.3);
+      ctx.lineWidth=0.7;ctx.stroke();
+    }
+    // cut site glow
+    if(s.cutSite<s.pts.length){
+      const p=s.pts[s.cutSite];
+      const glow=s.splicing?easeInOut(s.spliceT):(0.3+0.2*Math.sin(t*4));
+      const gr=ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,20+glow*25);
+      gr.addColorStop(0,palCol(mod(h+60,360),100,90,glow*0.9));
+      gr.addColorStop(1,palCol(mod(h+60,360),100,70,0));
+      ctx.beginPath();ctx.arc(p.x,p.y,20+glow*25,0,TWO_PI);
+      ctx.fillStyle=gr;ctx.fill();
+      if(s.splicing){
+        ctx.font=`${9+s.spliceT*7|0}px Courier New`;
+        ctx.fillStyle=palCol(mod(h+60,360),100,95,s.spliceT);
+        ctx.fillText('CUT',p.x+14,p.y-10);
+        // scissor burst
+        for(let k=0;k<6;k++){
+          const ba=k*Math.PI/3+s.spliceT*4;
+          const bl=15+s.spliceT*30;
+          ctx.beginPath();ctx.moveTo(p.x,p.y);
+          ctx.lineTo(p.x+Math.cos(ba)*bl,p.y+Math.sin(ba)*bl);
+          ctx.strokeStyle=palCol(mod(h+90,360),100,90,s.spliceT*(1-k/6)*0.8);
+          ctx.lineWidth=1;ctx.stroke();
+        }
+      }
+    }
+    ctx.restore();
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// VECTOR LATTICE — warping, stressed mesh
+// ══════════════════════════════════════════════════════════════════════════════
+let latticePoints=[];
+let LATTICE_W=24,LATTICE_H=16;
+
+function initLattice(){
+  latticePoints=[];
+  LATTICE_W=rni(14,30);LATTICE_H=rni(9,20);
+  for(let y=0;y<LATTICE_H;y++)
+    for(let x=0;x<LATTICE_W;x++)
+      latticePoints.push({
+        gx:x,gy:y,
+        ox:W/(LATTICE_W+1)*(x+1),oy:H/(LATTICE_H+1)*(y+1),
+        px:0,py:0,phase:rng(0,TWO_PI),freq:rng(0.3,2.5),energy:rng(0.2,1.0),
+        hueIdx:rni(0,20),
+      });
+}
+
+function drawLattice(pal,t){
+  if(!latticePoints.length||latticePoints.length<LATTICE_W*LATTICE_H) return;
+  const amp=U.latticeAmp*(1+audioState.energy*0.4);
+  const gw=W/(LATTICE_W+1),gh=H/(LATTICE_H+1);
+  for(const lp of latticePoints){
+    const nx=lp.ox/W*4+t*0.06,ny=lp.oy/H*4+t*0.06;
+    const n1=fbm(nx,ny,3),n2=fbm(nx+6.1,ny+2.7,3);
+    lp.px=lp.ox+n1*amp*Math.sin(t*lp.freq+lp.phase);
+    lp.py=lp.oy+n2*amp*Math.cos(t*lp.freq+lp.phase*1.3);
+  }
+  ctx.lineWidth=0.55;
+  for(let y=0;y<LATTICE_H;y++)
+    for(let x=0;x<LATTICE_W;x++){
+      const i=y*LATTICE_W+x,p=latticePoints[i];
+      if(x<LATTICE_W-1){
+        const q=latticePoints[i+1];
+        const stress=clamp((Math.hypot(q.px-p.px,q.py-p.py)-gw)/gw,0,1);
+        const h=ph(pal.latticeHues,p.hueIdx,t,0.4);
+        ctx.strokeStyle=palCol(h,pal.satBase,50+stress*35,0.2+stress*0.45);
+        ctx.beginPath();ctx.moveTo(p.px,p.py);ctx.lineTo(q.px,q.py);ctx.stroke();
+      }
+      if(y<LATTICE_H-1){
+        const q=latticePoints[i+LATTICE_W];
+        const stress=clamp((Math.hypot(q.px-p.px,q.py-p.py)-gh)/gh,0,1);
+        const h=ph(pal.latticeHues,(p.hueIdx+2)%20,t,0.4);
+        ctx.strokeStyle=palCol(h,pal.satBase,45+stress*35,0.18+stress*0.4);
+        ctx.beginPath();ctx.moveTo(p.px,p.py);ctx.lineTo(q.px,q.py);ctx.stroke();
+      }
+    }
+  // lattice nodes
+  for(const lp of latticePoints){
+    const en=lp.energy*(0.6+0.4*Math.sin(t*lp.freq+lp.phase));
+    if(en<0.35) continue;
+    const h=ph(pal.latticeHues,lp.hueIdx,t,0.6);
+    ctx.beginPath();ctx.arc(lp.px,lp.py,1.8,0,TWO_PI);
+    ctx.fillStyle=palCol(h,90,75,en*0.7);ctx.fill();
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// TRON LIGHT RIBBONS — more complex paths, audio-reactive glow
+// ══════════════════════════════════════════════════════════════════════════════
+let lightRibbons=[];
+
+function initRibbons(){
+  lightRibbons=[];
+  const n=rni(5,14);
+  for(let i=0;i<n;i++){
+    const pts=[];
+    let x=rng(W*0.05,W*0.95),y=rng(H*0.05,H*0.95),a=rng(0,TWO_PI);
+    const turns=rni(10,30);
+    for(let j=0;j<turns;j++){
+      const dist=rng(30,220);
+      x+=Math.cos(a)*dist;y+=Math.sin(a)*dist;
+      pts.push({x,y});
+      a+=pick([-Math.PI/2,Math.PI/2,Math.PI,0,Math.PI/4,-Math.PI/4])*(0.4+Math.random()*0.6);
+    }
+    lightRibbons.push({
+      pts,hueIdx:rni(0,20),
+      width:rng(0.8,5),glow:rng(5,20),
+      speed:rng(0.002,0.014)*pick([-1,1]),
+      headPos:rng(0,1),tailLen:rng(0.15,0.75),
+      alpha:rng(0.4,1.0),
+      segmented:Math.random()<0.4, // Tron square-corner effect
+    });
+  }
+}
+
+function drawRibbons(pal,t){
+  for(const r of lightRibbons){
+    r.headPos=mod(r.headPos+r.speed*(1+audioState.pulseRate*0.4),1);
+    if(r.pts.length<2) continue;
+    const total=r.pts.length-1;
+    const head=r.headPos*total;
+    const tail=Math.max(0,head-r.tailLen*total);
+    const h=ph(pal.ribbonHues,r.hueIdx,t,0.7);
+    const glowBoost=Math.max(0.1, 1+audioState.energy*0.6);
+    if(r.glow*glowBoost <= 0) continue;
+    // draw glow layers
+    for(let w=r.glow*glowBoost;w>0;w-=1.8){
+      ctx.beginPath();
+      let started=false;
+      let alpha=0;
+      for(let i=Math.floor(tail);i<=Math.ceil(head)&&i<r.pts.length;i++){
+        const prog=clamp((i-tail)/(head-tail+0.001),0,1);
+        alpha=prog*r.alpha*(1-w/(r.glow*glowBoost))*0.5;
+        const p=r.pts[i];
+        if(!started){ctx.moveTo(p.x,p.y);started=true;}else ctx.lineTo(p.x,p.y);
+      }
+      ctx.strokeStyle=palCol(h,100,75,alpha);
+      ctx.lineWidth=w*0.35+r.width;
+      ctx.lineJoin='round';ctx.stroke();
+    }
+    // bright core
+    ctx.beginPath();
+    let started=false;
+    for(let i=Math.floor(tail);i<=Math.ceil(head)&&i<r.pts.length;i++){
+      const p=r.pts[i];
+      if(!started){ctx.moveTo(p.x,p.y);started=true;}else ctx.lineTo(p.x,p.y);
+    }
+    ctx.strokeStyle=palCol(h,100,97,r.alpha);
+    ctx.lineWidth=r.width;ctx.stroke();
+    // head spark
+    const hi=Math.min(Math.floor(head),r.pts.length-1);
+    const p=r.pts[hi];
+    const sparkR=r.glow*0.5*glowBoost;
+    const sg=ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,sparkR);
+    sg.addColorStop(0,palCol(h,100,98,0.9));
+    sg.addColorStop(1,palCol(h,100,70,0));
+    ctx.beginPath();ctx.arc(p.x,p.y,sparkR,0,TWO_PI);
+    ctx.fillStyle=sg;ctx.fill();
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SPECTRAL RIBBONS — flowing aurora bands
+// ══════════════════════════════════════════════════════════════════════════════
+let spectralRibbons=[];
+
+function initSpectral(){
+  spectralRibbons=[];
+  const n=rni(3,9);
+  for(let i=0;i<n;i++)
+    spectralRibbons.push({
+      y:rng(0,H),width:rng(15,110),speed:rng(-0.5,0.5),
+      hueIdx:rni(0,20),alpha:rng(0.02,0.10),
+      freq:rng(0.5,4),waveAmp:rng(8,70),waveFreq:rng(0.003,0.025),
+    });
+}
+
+function drawSpectral(pal,t){
+  for(const r of spectralRibbons){
+    r.y+=r.speed*(1+audioState.flux*0.3);
+    if(r.y<-r.width) r.y=H+r.width;
+    if(r.y>H+r.width) r.y=-r.width;
+    const steps=Math.ceil(W/7);
+    const a=r.alpha*(1+audioState.energy*0.5);
+    for(let i=0;i<steps;i++){
+      const x=i*7;
+      const wave=r.waveAmp*(1+audioState.energy*0.3)*Math.sin(x*r.waveFreq+t*r.freq);
+      const cy=r.y+wave;
+      const h=ph(pal.spectralHues,(r.hueIdx+i)%20,t,0.6);
+      ctx.fillStyle=palCol(h,pal.satBase,pal.lightBase,a);
+      ctx.fillRect(x,cy-r.width/2,8,r.width);
+    }
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// BACKGROUND GRID
+// ══════════════════════════════════════════════════════════════════════════════
+function drawGrid(pal,t){
+  const sp=U.gridSpacing;
+  const pulse=(0.03+0.015*Math.sin(t*0.4))*(1+audioState.energy*0.3);
+  ctx.lineWidth=0.4;
+  // perspective-warped grid
+  for(let x=0;x<W;x+=sp){
+    const h=ph(pal.latticeHues,Math.floor(x/sp),t,0.2);
+    ctx.strokeStyle=palCol(h,65,35,pulse);
+    ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();
+  }
+  for(let y=0;y<H;y+=sp){
+    const h=ph(pal.latticeHues,Math.floor(y/sp)+3,t,0.2);
+    ctx.strokeStyle=palCol(h,65,35,pulse);
+    ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();
+  }
+  // horizon point highlight
+  if(U.perspGrid){
+    const vx=CX+Math.sin(t*0.08)*CX*0.3,vy=CY+Math.cos(t*0.06)*CY*0.25;
+    const hg=ctx.createRadialGradient(vx,vy,0,vx,vy,Math.max(W,H)*0.6);
+    const h=ph(pal.latticeHues,0,t,0.1);
+    hg.addColorStop(0,palCol(h,80,50,0.06));
+    hg.addColorStop(1,palCol(h,50,20,0));
+    ctx.fillStyle=hg;ctx.fillRect(0,0,W,H);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CA OVERLAY
+// ══════════════════════════════════════════════════════════════════════════════
+function drawCA(pal,t){
+  if(!U.showCA) return;
+  const cw=W/CA_SIZE,ch=H/CA_SIZE;
+  for(let y=0;y<CA_SIZE;y++)
+    for(let x=0;x<CA_SIZE;x++){
+      if(!caGrid[y*CA_SIZE+x]) continue;
+      const h=ph(pal.caHues,(x+y)%20,t,0.3);
+      ctx.fillStyle=palCol(h,75,55,0.1*(1+audioState.complexity*0.5));
+      ctx.fillRect(x*cw,y*ch,cw,ch);
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// NEBULA / PLASMA BACKGROUND LAYER — new module
+// ══════════════════════════════════════════════════════════════════════════════
+let nebulaPoints=[];
+
+function initNebula(){
+  nebulaPoints=[];
+  const n=rni(20,60);
+  for(let i=0;i<n;i++)
+    nebulaPoints.push({
+      x:rng(0,W),y:rng(0,H),
+      r:rng(50,350),hueIdx:rni(0,20),
+      alpha:rng(0.015,0.06),
+      vx:rng(-0.1,0.1),vy:rng(-0.1,0.1),
+      pulseFreq:rng(0.003,0.015),
+      pulsePhase:rng(0,TWO_PI),
+    });
+}
+
+function drawNebula(pal,t){
+  for(const n of nebulaPoints){
+    n.x+=n.vx*(1+audioState.energy*0.2);
+    n.y+=n.vy*(1+audioState.energy*0.2);
+    if(n.x<-n.r)n.x=W+n.r;if(n.x>W+n.r)n.x=-n.r;
+    if(n.y<-n.r)n.y=H+n.r;if(n.y>H+n.r)n.y=-n.r;
+    const pulsed=n.r*(1+0.15*Math.sin(frame*n.pulseFreq+n.pulsePhase)+audioState.energy*0.1);
+    const h=ph(pal.nebulaHues,n.hueIdx,t,0.15);
+    const g=ctx.createRadialGradient(n.x,n.y,0,n.x,n.y,pulsed);
+    g.addColorStop(0,palCol(h,80,60,n.alpha*(1+audioState.energy*0.5)));
+    g.addColorStop(0.5,palCol(mod(h+40,360),75,45,n.alpha*0.4));
+    g.addColorStop(1,palCol(h,60,30,0));
+    ctx.beginPath();ctx.arc(n.x,n.y,pulsed,0,TWO_PI);
+    ctx.fillStyle=g;ctx.fill();
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WARP FIELD — new module: distorted flow lines
+// ══════════════════════════════════════════════════════════════════════════════
+let warpLines=[];
+
+function initWarp(){
+  warpLines=[];
+  const n=rni(8,22);
+  for(let i=0;i<n;i++){
+    const pts=[];
+    let x=rng(0,W),y=rng(0,H);
+    const steps=rni(40,120);
+    for(let j=0;j<steps;j++){
+      pts.push({x,y});
+      const nx=x/W*5+frame*0.0001,ny=y/H*5+frame*0.0001;
+      const angle=fbm(nx+i*1.7,ny+i*0.9,3)*TWO_PI*3;
+      x+=Math.cos(angle)*rng(4,12);
+      y+=Math.sin(angle)*rng(4,12);
+    }
+    warpLines.push({pts,hueIdx:rni(0,20),alpha:rng(0.06,0.22),width:rng(0.4,1.8)});
+  }
+}
+
+function drawWarp(pal,t){
+  for(const wl of warpLines){
+    if(wl.pts.length<3) continue;
+    const h=ph(pal.warpHues,wl.hueIdx,t,0.5);
+    ctx.beginPath();
+    ctx.moveTo(wl.pts[0].x,wl.pts[0].y);
+    for(let i=1;i<wl.pts.length;i++) ctx.lineTo(wl.pts[i].x,wl.pts[i].y);
+    ctx.strokeStyle=palCol(h,pal.satBase,pal.lightBase*0.8,wl.alpha*(1+audioState.flux*0.3));
+    ctx.lineWidth=wl.width;ctx.stroke();
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// AUDIO ENGINE — fully synchronized with visual state
+// ══════════════════════════════════════════════════════════════════════════════
+function initAudio(){
+  if(audioCtx) return;
+  try{
+    audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+    compressor=audioCtx.createDynamicsCompressor();
+    compressor.threshold.value=-24;
+    compressor.knee.value=30;
+    compressor.ratio.value=4;
+    compressor.attack.value=0.003;
+    compressor.release.value=0.25;
+    masterGain=audioCtx.createGain();
+    masterGain.gain.value=0;
+    // reverb via convolver
+    reverb=audioCtx.createConvolver();
+    const rLen=audioCtx.sampleRate*2.5;
+    const rBuf=audioCtx.createBuffer(2,rLen,audioCtx.sampleRate);
+    for(let ch=0;ch<2;ch++){
+      const d=rBuf.getChannelData(ch);
+      for(let i=0;i<rLen;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/rLen,3);
+    }
+    reverb.buffer=rBuf;
+    reverbGain=audioCtx.createGain();reverbGain.gain.value=0.35;
+    dryGain=audioCtx.createGain();dryGain.gain.value=0.75;
+    compressor.connect(dryGain);dryGain.connect(masterGain);
+    compressor.connect(reverb);reverb.connect(reverbGain);reverbGain.connect(masterGain);
+    masterGain.connect(audioCtx.destination);
+  }catch(e){console.warn('Audio init failed',e);}
+}
+
+function buildAudio(){
+  if(!audioCtx||!soundOn) return;
+  stopAudio();
+  const pal=U.palette;
+  // Derive all frequencies from visual parameters — fully synchronized
+  const baseFreq=55+pal.h0*0.8+U.fieldStrength*30;
+  const scale=U.audioScale; // randomized musical scale per universe
+  const t=audioCtx.currentTime;
+
+  // Drone oscillators — derived from palette hue harmonics
+  for(let i=0;i<pal.harmonics.length;i++){
+    const hRatio=pal.harmonics[i]/360;
+    const freq=baseFreq*(1+hRatio*2)*scale[i%scale.length];
+    const osc=audioCtx.createOscillator();
+    const g=audioCtx.createGain();
+    const filt=audioCtx.createBiquadFilter();
+    filt.type=pick(['lowpass','bandpass','highpass']);
+    filt.frequency.value=freq*(2+i);
+    filt.Q.value=3+i*2;
+    osc.type=pick(['sine','triangle','sawtooth','square']);
+    osc.frequency.value=freq;
+    // gentle vibrato
+    const lfo=audioCtx.createOscillator();
+    const lfoGain=audioCtx.createGain();
+    lfo.frequency.value=0.1+i*0.07+Math.random()*0.2;
+    lfoGain.gain.value=freq*0.008;
+    lfo.connect(lfoGain);lfoGain.connect(osc.frequency);
+    lfo.start();
+    g.gain.value=0.012*(1/(i+1));
+    osc.connect(filt);filt.connect(g);g.connect(compressor);
+    osc.start();
+    audioNodes.push(osc,lfo);
+  }
+
+  // Sub bass derived from node count
+  const subFreq=baseFreq*0.5*(1+nodes.length/60);
+  const subOsc=audioCtx.createOscillator();
+  const subGain=audioCtx.createGain();
+  subOsc.type='sine';subOsc.frequency.value=subFreq;
+  subGain.gain.value=0.04;
+  subOsc.connect(subGain);subGain.connect(compressor);
+  subOsc.start();audioNodes.push(subOsc);
+
+  // Texture noise — filtered by complexity
+  const noise=audioCtx.createBufferSource();
+  const nBuf=audioCtx.createBuffer(1,audioCtx.sampleRate*2,audioCtx.sampleRate);
+  const nd=nBuf.getChannelData(0);for(let i=0;i<nd.length;i++) nd[i]=Math.random()*2-1;
+  noise.buffer=nBuf;noise.loop=true;
+  const nFilt=audioCtx.createBiquadFilter();
+  nFilt.type='bandpass';
+  nFilt.frequency.value=400+edges.length*8;
+  nFilt.Q.value=2+particles.length/100;
+  const nGain=audioCtx.createGain();nGain.gain.value=0.006;
+  noise.connect(nFilt);nFilt.connect(nGain);nGain.connect(compressor);
+  noise.start();audioNodes.push(noise);
+
+  // High shimmer — derived from lattice amplitude
+  const shimmerFreq=baseFreq*8+U.latticeAmp*3;
+  const shimmer=audioCtx.createOscillator();
+  const shimmerG=audioCtx.createGain();
+  shimmer.type='sine';shimmer.frequency.value=shimmerFreq;
+  shimmerG.gain.value=0.003;
+  shimmer.connect(shimmerG);shimmerG.connect(compressor);
+  shimmer.start();audioNodes.push(shimmer);
+}
+
+function stopAudio(){
+  for(const n of audioNodes){try{n.stop();}catch(e){}}
+  audioNodes=[];
+}
+
+function updateAudio(){
+  if(!audioCtx||!soundOn) return;
+  const t=audioCtx.currentTime;
+  const pal=U.palette;
+
+  // Compute visual state metrics for audio modulation
+  const nodeEnergy=nodes.length>0?nodes.reduce((s,n)=>s+n.energy,0)/nodes.length:0.5;
+  const edgePulse=edges.length>0?edges.reduce((s,e)=>s+e.pulsePos,0)/edges.length:0.5;
+  const particleFlux=particles.length>0?particles.reduce((s,p)=>s+Math.hypot(p.vx,p.vy),0)/particles.length:1;
+  const morphComplexity=morphisms.length/20;
+  const chromaVar=mod(pal.h0+frame*pal.cycleSpeed*2,360)/360;
+
+  // Write audio state for use by visual modules
+  audioState.energy=nodeEnergy;
+  audioState.complexity=morphComplexity;
+  audioState.flux=clamp(particleFlux/3,0,1);
+  audioState.chromaShift=chromaVar;
+  audioState.pulseRate=edgePulse;
+
+  // Modulate oscillators from visual state
+  if(audioNodes.length>0&&audioNodes[0].frequency){
+    const baseFreq=55+pal.h0*0.8+U.fieldStrength*30;
+    for(let i=0;i<Math.min(pal.harmonics.length,audioNodes.length);i++){
+      const node=audioNodes[i];
+      if(!node.frequency) continue;
+      const hRatio=pal.harmonics[i%pal.harmonics.length]/360;
+      const freqMod=baseFreq*(1+hRatio*2)*U.audioScale[i%U.audioScale.length];
+      const target=freqMod*(0.97+nodeEnergy*0.06+0.015*Math.sin(t*0.4+i));
+      node.frequency.linearRampToValueAtTime(target,t+0.4);
+    }
+  }
+
+  // Master gain response to energy
+  if(masterGain){
+    const targetGain=soundOn?0.14+nodeEnergy*0.06:0;
+    masterGain.gain.linearRampToValueAtTime(targetGain,t+0.2);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// UNIVERSE INIT
+// ══════════════════════════════════════════════════════════════════════════════
+const SYLLABLES=['MORPH','CYB','NEO','TRON','CRIS','NEXUS','VECT','LATT','GRAPH','MUTA','ALGO','BIO','SYNTH','XENO','QUANT','FLUX','VOID','HELIX','ZETA','NULL'];
+function genName(){return pick(SYLLABLES)+'-'+pick(SYLLABLES)+' Ω'+rni(100,999);}
+
+// Musical scales — randomized per universe
+const SCALES=[
+  [1,2,3,4,5,6,7,8],           // overtone series
+  [1,1.25,1.5,2,2.5,3,4],      // pentatonic-ish
+  [1,1.189,1.414,1.587,2],     // equal tempered
+  [1,1.333,1.5,1.778,2],       // pythagorean
+  [1,1.2,1.44,1.728,2.074],    // geometric
+  [1,1.5,2.25,3.375,5.0625],   // power of 3/2
+  [1,1.1,1.3,1.6,2.0,2.4],     // custom exotic
+];
+
+function newUniverse(){
+  universeID++;
+  frame=0;
+  // Reset audio state
+  audioState={energy:0.5,complexity:0.5,flux:0.3,chromaShift:0,pulseRate:0.5};
+  U={
+    palette:buildPalette(),
+    // Physics — fully randomized
+    repelStr:rng(150,1800),
+    attractStr:rng(0.00003,0.0005),
+    swarmStr:rng(0.3,2.5),
+    fieldStrength:rng(0.2,1.5),
+    fieldTwist:rng(0.3,4.0),
+    latticeAmp:rng(20,120),
+    gridSpacing:rni(25,90),
+    perspGrid:Math.random()<0.5,
+    showCA:Math.random()<0.65,
+    caBirth:rni(3,4),
+    bgAlpha:rng(0.08,0.22),
+    universeID,
+    name:genName(),
+    // Audio — derived from visual params
+    audioScale:pick(SCALES),
+    // Visual toggles
+    showWarp:Math.random()<0.6,
+    showNebula:Math.random()<0.7,
+    showCRISPR:Math.random()<0.8,
+    showLattice:Math.random()<0.75,
+    showRibbons:Math.random()<0.9,
+    showSpectral:Math.random()<0.85,
+    showLSys:Math.random()<0.7,
+    showCA:Math.random()<0.65,
+  };
+  resize();
+  initCA();
+  initGraph();
+  initParticles();
+  initLStructures();
+  initCRISPR();
+  initRibbons();
+  initLattice();
+  initSpectral();
+  initNebula();
+  initWarp();
+  if(soundOn) buildAudio();
+  flashScreen();
+  updateBootText();
+}
+
+function updateBootText(){
+  const el=document.getElementById('boot-text');
+  if(el) el.textContent=`UNIVERSE ${U.name}`;
+}
+
+function flashScreen(){
+  const pal=U.palette;
+  const fh=pal.h0;
+  flash.style.background=`hsl(${fh|0},80%,70%)`;
+  flash.style.transition='none';flash.style.opacity='0.5';
+  setTimeout(()=>{flash.style.transition='opacity 0.5s ease-out';flash.style.opacity='0';},40);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// RESIZE
+// ══════════════════════════════════════════════════════════════════════════════
+function resize(){
+  W=canvas.width=window.innerWidth;
+  H=canvas.height=window.innerHeight;
+  CX=W/2;CY=H/2;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// HUD
+// ══════════════════════════════════════════════════════════════════════════════
+function updateHUD(){
+  if(!hudVisible) return;
+  const pal=U.palette;
+  const t=frame*0.016;
+  const h0=ph(pal.nodeHues,0,t,0.2);
+  const h1=ph(pal.nodeHues,3,t,0.2);
+  const h2=ph(pal.nodeHues,6,t,0.2);
+  const h3=ph(pal.nodeHues,9,t,0.2);
+  hudTL.innerHTML=`
+    <span style="color:hsl(${h0|0},90%,75%)">◈ ${U.name}</span><br>
+    <span style="color:hsl(${h1|0},85%,70%)">NODES: ${nodes.length} &nbsp;EDGES: ${edges.length}</span><br>
+    <span style="color:hsl(${h2|0},80%,65%)">MORPHISMS: ${morphisms.length} &nbsp;PARTICLES: ${particles.length}</span><br>
+    <span style="color:hsl(${h3|0},75%,60%)">FRAME: ${frame} &nbsp;UNIVERSE: ${universeID}</span><br>
+    <span style="color:hsl(${h0|0},70%,55%)">ENERGY: ${audioState.energy.toFixed(2)} &nbsp;FLUX: ${audioState.flux.toFixed(2)}</span>
+  `;
+  hudTR.innerHTML=`
+    <span style="color:hsl(${h1|0},90%,75%)">HARMONY: ${['COMP','TRIAD','TETRA','SPLIT','ANALOG'][U.palette.harmonyType]}</span><br>
+    <span style="color:hsl(${h2|0},85%,70%)">H₀: ${U.palette.h0|0}° &nbsp;SAT: ${U.palette.satBase|0}%</span><br>
+    <span style="color:hsl(${h3|0},80%,65%)">FIELD: ${U.fieldStrength.toFixed(2)} &nbsp;TWIST: ${U.fieldTwist.toFixed(2)}</span><br>
+    <span style="color:hsl(${h0|0},75%,60%)">SOUND: ${soundOn?'◉ ON':'○ OFF'}</span>
+  `;
+  hudBR.innerHTML=`<span style="color:hsl(${h2|0},70%,55%)">H·HUD &nbsp; S·SOUND &nbsp; SPACE/TAP·NEW UNIVERSE</span>`;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// MAIN RENDER LOOP
+// ══════════════════════════════════════════════════════════════════════════════
+function render(ts){
+  requestAnimationFrame(render);
+  const dt=Math.min(ts-lastTime,50);lastTime=ts;
+  frame++;
+  const t=frame*0.016;
+  const pal=U.palette;
+
+  // ── BACKGROUND ──
+  const bgCol=palCol(pal.bgHue,pal.bgSat,pal.bgLightness,U.bgAlpha);
+  ctx.fillStyle=bgCol;ctx.fillRect(0,0,W,H);
+
+  // ── NEBULA LAYER ──
+  if(U.showNebula) drawNebula(pal,t);
+
+  // ── WARP FIELD ──
+  if(U.showWarp) drawWarp(pal,t);
+
+  // ── SPECTRAL RIBBONS ──
+  if(U.showSpectral) drawSpectral(pal,t);
+
+  // ── GRID ──
+  drawGrid(pal,t);
+
+  // ── CA OVERLAY ──
+  if(frame%4===0) stepCA();
+  if(U.showCA) drawCA(pal,t);
+
+  // ── LATTICE ──
+  if(U.showLattice) drawLattice(pal,t);
+
+  // ── L-STRUCTURES ──
+  if(U.showLSys) for(const ls of lStructures) drawLStructure(ls,pal,t);
+
+  // ── TRON RIBBONS ──
+  if(U.showRibbons) drawRibbons(pal,t);
+
+  // ── CRISPR NETWORKS ──
+  if(U.showCRISPR) drawCRISPR(pal,t);
+
+  // ── MORPHISM GRAPH ──
+  updateGraph();
+  drawGraph(pal,t);
+
+  // ── PARTICLES ──
+  updateParticles();
+  drawParticles(pal,t);
+
+  // ── VIGNETTE ──
+  const vg=ctx.createRadialGradient(CX,CY,Math.min(W,H)*0.15,CX,CY,Math.max(W,H)*0.9);
+  vg.addColorStop(0,'rgba(0,0,0,0)');
+  vg.addColorStop(1,'rgba(0,0,0,0.62)');
+  ctx.fillStyle=vg;ctx.fillRect(0,0,W,H);
+
+  // ── CHROMATIC ABERRATION HINT ──
+  if(audioState.energy>0.7){
+    ctx.save();
+    ctx.globalCompositeOperation='screen';
+    ctx.globalAlpha=(audioState.energy-0.7)*0.08;
+    ctx.drawImage(canvas,2,0,W,H,0,0,W,H);
+    ctx.restore();
+  }
+
+  // ── PERIODIC REFRESHES ──
+  if(frame%700===0) initLStructures();
+  if(frame%1000===0) initRibbons();
+  if(frame%500===0) initWarp();
+  if(frame%800===0) initNebula();
+
+  // ── AUDIO SYNC ──
+  if(frame%15===0) updateAudio();
+
+  // ── HUD ──
+  if(hudVisible&&frame%8===0) updateHUD();
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// INPUT
+// ══════════════════════════════════════════════════════════════════════════════
+function triggerNewUniverse(){
+  initAudio();
+  if(audioCtx&&audioCtx.state==='suspended') audioCtx.resume();
+  newUniverse();
+}
+
+function toggleSound(){
+  soundOn=!soundOn;
+  initAudio();
+  if(audioCtx&&audioCtx.state==='suspended') audioCtx.resume();
+  if(masterGain){
+    const tv=soundOn?0.14:0;
+    masterGain.gain.setTargetAtTime(tv,audioCtx.currentTime,0.12);
+  }
+  if(soundOn) buildAudio(); else stopAudio();
+}
+
+function onKey(e){
+  if(e.key===' '||e.key==='Enter'){e.preventDefault();triggerNewUniverse();}
+  if(e.key.toLowerCase()==='h'){hudVisible=!hudVisible;hud.style.display=hudVisible?'block':'none';if(hudVisible)updateHUD();}
+  if(e.key.toLowerCase()==='s') toggleSound();
+}
+
+let touchStart={x:0,y:0,t:0};
+canvas.addEventListener('touchstart',e=>{touchStart={x:e.touches[0].clientX,y:e.touches[0].clientY,t:Date.now()};},{passive:true});
+canvas.addEventListener('touchend',e=>{
+  const dx=e.changedTouches[0].clientX-touchStart.x,dy=e.changedTouches[0].clientY-touchStart.y;
+  if(Math.hypot(dx,dy)<25&&Date.now()-touchStart.t<500) triggerNewUniverse();
+},{passive:true});
+canvas.addEventListener('click',triggerNewUniverse);
+window.addEventListener('keydown',onKey);
+window.addEventListener('resize',()=>{resize();initLattice();});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// BOOT
+// ══════════════════════════════════════════════════════════════════════════════
+resize();
+newUniverse();
+// Fade out boot text
+setTimeout(()=>{bootEl.style.opacity='0';setTimeout(()=>{bootEl.style.display='none';},1500);},2200);
+requestAnimationFrame(render);
+
+})();
+</script>
+</body>
+</html>

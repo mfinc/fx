@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Eigenspace Kaleidoscope Cathedral — a mesmerizing real-time WebGL ray-marching experience through a spectral cathedral of Coxeter group reflections, eigenvector symmetry axes, and morphing mathematical surfaces including Boy's surface, Steiner surfaces, and Dupin cyclides in vivid color harmonics.">
+<meta name="keywords" content="eigenspace, kaleidoscope, ray marching, SDF, Coxeter group, WebGL, generative art, mathematical visualization, spectral, cathedral, Boy surface, Steiner surface, quaternion">
+<meta name="author" content="Eigenspace Kaleidoscope Cathedral">
+<meta property="og:title" content="Eigenspace Kaleidoscope Cathedral">
+<meta property="og:description" content="Ray-march through an infinite Coxeter kaleidoscope cathedral of morphing mathematical surfaces in vibrant spectral color harmonics.">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Eigenspace Kaleidoscope Cathedral">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"CreativeWork","name":"Eigenspace Kaleidoscope Cathedral","description":"Real-time WebGL ray-marching through Coxeter kaleidoscopes","genre":"Generative Art","keywords":"eigenspace, kaleidoscope, ray marching, Coxeter, WebGL"}</script>
+<title>Eigenspace Kaleidoscope Cathedral</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;background:#000;overflow:hidden}
+  canvas{display:block;width:100%;height:100%}
+  #hud{display:none;position:fixed;top:16px;left:16px;color:#af0;font-family:monospace;font-size:12px;background:rgba(0,0,0,0.65);padding:10px 14px;border:1px solid #af04;border-radius:4px;pointer-events:none;z-index:10;line-height:1.8}
+  #hud.visible{display:block}
+  #hint{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,0.3);font-family:monospace;font-size:11px;pointer-events:none;z-index:10;transition:opacity 2s}
+  #hint.fade{opacity:0}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<div id="hint">SPACE/CLICK — new cathedral &nbsp;|&nbsp; H — HUD &nbsp;|&nbsp; S — sound</div>
+<script>
+(function(){
+'use strict';
+const canvas=document.getElementById('c');
+const gl=canvas.getContext('webgl',{antialias:false,alpha:false,powerPreference:'high-performance'});
+if(!gl){document.body.innerHTML='<p style="color:#fff;padding:40px">WebGL not supported</p>';return;}
+let W,H,seed,params={},hudVisible=false,soundOn=false,audioCtx,masterGain,audioNodes=[],fps=60,lastTime=0,frameCount=0;
+
+const VS=`attribute vec2 pos;void main(){gl_Position=vec4(pos,0,1);}`;
+const FS=`
+precision mediump float;
+uniform vec2 res;
+uniform float time;
+uniform float seed;
+uniform float symN;    // kaleidoscope fold 4,6,8,12
+uniform float surfBlend; // morph between surfaces
+uniform float camSpeed;
+uniform float colorScheme; // 0=analogous,0.5=triadic,1=tetradic
+uniform float hueBase;
+uniform float glowStrength;
+uniform float eigenScale;
+uniform float coxeterAng; // transition angle between symmetry groups
+
+#define PI 3.14159265358979
+#define TAU 6.28318530717959
+#define PHI 1.61803398874989
+#define MAX_STEPS 64
+#define MAX_DIST 12.
+#define SURF_DIST 0.003
+
+vec3 hsv2rgb(vec3 c){vec4 K=vec4(1.,2./3.,1./3.,3.);vec3 p=abs(fract(c.xxx+K.xyz)*6.-K.www);return c.z*mix(K.xxx,clamp(p-K.xxx,0.,1.),c.y);}
+mat2 rot2(float a){return mat2(cos(a),-sin(a),sin(a),cos(a));}
+
+// Kaleidoscope fold 3D
+vec3 kaleido3D(vec3 p,float n){
+  float seg=TAU/n;
+  float a=atan(p.y,p.x);
+  a=mod(a,seg);
+  if(a>seg*0.5)a=seg-a;
+  float r=length(p.xy);
+  p.xy=r*vec2(cos(a),sin(a));
+  return p;
+}
+
+// Boy's surface SDF approximation
+float boySurf(vec3 p,float t){
+  float x=p.x,y=p.y,z=p.z;
+  float r2=x*x+y*y+z*z;
+  // implicit approximation via Apery
+  float g1=x*x*(x*x-3.*y*y)+2.*z*(x*x*z+z*z*z-3.*x*y);
+  float g2=y*(2.*x*x*z-2.*y*y*z+x*(x*x-y*y));
+  float v=g1*g1+g2*g2;
+  return (v/(r2*r2+0.1)-0.3+sin(t*0.2)*0.05)*0.4;
+}
+
+// Steiner surface SDF approximation
+float steinerSurf(vec3 p){
+  float x=p.x,y=p.y,z=p.z;
+  float v=x*x*y*y+y*y*z*z+z*z*x*x-x*y*z;
+  return (abs(v)-0.15)*0.5;
+}
+
+// Dupin cyclide approximation
+float cyclide(vec3 p,float a,float b){
+  float r2=dot(p,p);
+  float v=r2*r2-2.*(a*a+b*b)*r2+4.*a*a*p.z*p.z+((a*a-b*b)*(a*a-b*b));
+  return (abs(v)-0.05*a*a)*0.3;
+}
+
+// Hyperbolic paraboloid SDF
+float hyperboloid(vec3 p,float t){
+  return abs(p.z-p.x*p.y*1.5+sin(t*0.3)*0.1)-0.04;
+}
+
+// Blend SDFs
+float sceneSDF(vec3 p,float t){
+  p=kaleido3D(p,symN);
+  p.xy*=rot2(t*coxeterAng*0.05);
+  p.yz*=rot2(t*coxeterAng*0.04);
+  float b=fract(surfBlend);
+  float d;
+  float d1=boySurf(p,t);
+  float d2=steinerSurf(p*1.3);
+  float d3=cyclide(p,0.8,0.5);
+  float d4=hyperboloid(p,t);
+  d=mix(d1,d2,smoothstep(0.,.33,b));
+  d=mix(d,d3,smoothstep(.33,.66,b));
+  d=mix(d,d4,smoothstep(.66,1.,b));
+  return d*eigenScale;
+}
+
+vec3 calcNormal(vec3 p,float t){
+  float e=0.002;
+  return normalize(vec3(
+    sceneSDF(p+vec3(e,0,0),t)-sceneSDF(p-vec3(e,0,0),t),
+    sceneSDF(p+vec3(0,e,0),t)-sceneSDF(p-vec3(0,e,0),t),
+    sceneSDF(p+vec3(0,0,e),t)-sceneSDF(p-vec3(0,0,e),t)
+  ));
+}
+
+void main(){
+  vec2 uv=(gl_FragCoord.xy-res*0.5)/min(res.x,res.y);
+  float t=time+seed*0.001;
+
+  // camera orbit
+  float ca=t*camSpeed*0.25;
+  float ce=sin(t*camSpeed*0.13)*0.4;
+  vec3 ro=vec3(cos(ca)*cos(ce)*2.5,sin(ce)*2.,sin(ca)*cos(ce)*2.5);
+  vec3 target=vec3(0.);
+  vec3 fw=normalize(target-ro);
+  vec3 ri=normalize(cross(fw,vec3(0,1,0)));
+  vec3 up=cross(ri,fw);
+  vec3 rd=normalize(uv.x*ri+uv.y*up+1.5*fw);
+
+  // ray march
+  float dTotal=0.;
+  float steps=0.;
+  for(int i=0;i<MAX_STEPS;i++){
+    vec3 p=ro+rd*dTotal;
+    float d=sceneSDF(p,t);
+    dTotal+=d;
+    steps+=1.;
+    if(abs(d)<SURF_DIST||dTotal>MAX_DIST)break;
+  }
+
+  vec3 col=vec3(0.);
+  if(dTotal<MAX_DIST){
+    vec3 p=ro+rd*dTotal;
+    vec3 n=calcNormal(p,t);
+
+    // Gaussian curvature heuristic via normal variation
+    float curv=length(n-calcNormal(p+vec3(0.02),t))*15.;
+
+    // diffuse + specular
+    vec3 light=normalize(vec3(cos(t*0.3),sin(t*0.2)*0.5+1.,sin(t*0.3)));
+    float diff=max(dot(n,light),0.)*0.8+0.2;
+    float spec=pow(max(dot(reflect(-light,n),-rd),0.),32.)*0.6;
+
+    // color harmony
+    float hue1=fract(hueBase+curv*0.4+t*0.015);
+    float hue2=fract(hue1+0.33*colorScheme+0.5*(1.-colorScheme));
+    float hue3=fract(hue1+0.667);
+    float hBlend=fract(curv+steps/float(MAX_STEPS));
+    float hue=hBlend<0.33?hue1:(hBlend<0.66?hue2:hue3);
+    float sat=0.85;
+    float bri=diff;
+    col=hsv2rgb(vec3(hue,sat,bri));
+    col+=spec;
+
+    // edge glow
+    float edge=exp(-dot(n,-rd)*8.)*glowStrength;
+    col+=edge*hsv2rgb(vec3(hue+0.5,0.9,1.))*0.5;
+
+    // volumetric god-ray (step count proxy)
+    float godr=(1.-steps/float(MAX_STEPS))*0.2;
+    col+=godr*vec3(0.8,0.9,1.)*glowStrength;
+  } else {
+    // background spectral gradient
+    float bg=length(uv)*0.5;
+    col=hsv2rgb(vec3(fract(hueBase+bg+t*0.01),0.7,0.05+bg*0.1));
+  }
+
+  // chromatic interference fringes
+  float fringe=sin(dot(uv,uv)*80.+t*2.)*0.03+0.03;
+  col+=fringe*vec3(0.5,0.3,1.);
+
+  gl_FragColor=vec4(clamp(col,0.,1.),1.);
+}
+`;
+
+function cs(t,s){const sh=gl.createShader(t);gl.shaderSource(sh,s);gl.compileShader(sh);if(!gl.getShaderParameter(sh,gl.COMPILE_STATUS))console.error(gl.getShaderInfoLog(sh));return sh;}
+function bp(v,f){const p=gl.createProgram();gl.attachShader(p,cs(gl.VERTEX_SHADER,v));gl.attachShader(p,cs(gl.FRAGMENT_SHADER,f));gl.linkProgram(p);return p;}
+const prog=bp(VS,FS);
+gl.useProgram(prog);
+const buf=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+const pl=gl.getAttribLocation(prog,'pos');
+gl.enableVertexAttribArray(pl);gl.vertexAttribPointer(pl,2,gl.FLOAT,false,0,0);
+
+function u(n){return gl.getUniformLocation(prog,n);}
+const uRes=u('res'),uTime=u('time'),uSeed=u('seed'),uSN=u('symN'),uSB=u('surfBlend');
+const uCS2=u('camSpeed'),uCOL=u('colorScheme'),uHB=u('hueBase'),uGS=u('glowStrength');
+const uES=u('eigenScale'),uCA=u('coxeterAng');
+
+function rng(a,b){return a+(b-a)*Math.random();}
+function randomize(){
+  seed=Math.random()*9999;
+  params={
+    symN:[4,6,8,12][Math.floor(Math.random()*4)],
+    surfBlend:Math.random()*3,
+    camSpeed:rng(0.3,1.2),
+    colorScheme:Math.random(),
+    hueBase:Math.random(),
+    glowStrength:rng(0.3,1.2),
+    eigenScale:rng(0.4,1.0),
+    coxeterAng:rng(0.3,1.5)
+  };
+  updateHUD();
+}
+function resize(){W=canvas.width=window.innerWidth;H=canvas.height=window.innerHeight;gl.viewport(0,0,W,H);}
+
+function startAudio(){
+  if(audioCtx)return;
+  audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+  masterGain=audioCtx.createGain();
+  masterGain.gain.value=0.14;
+  masterGain.connect(audioCtx.destination);
+  // pipe organ harmonics = eigenvalues
+  const eigenVals=[1,2,3,5,8].map(v=>v*params.symN*8);
+  eigenVals.forEach((f,i)=>{
+    const o=audioCtx.createOscillator();
+    const g=audioCtx.createGain();
+    o.type='sine';o.frequency.value=f;
+    g.gain.value=0.05/eigenVals.length;
+    const conv=audioCtx.createBiquadFilter();
+    conv.type='highpass';conv.frequency.value=f*0.8;conv.Q.value=12;
+    o.connect(conv);conv.connect(g);g.connect(masterGain);
+    o.start();audioNodes.push(o,g,conv);
+  });
+}
+function stopAudio(){audioNodes.forEach(n=>{try{n.stop?n.stop():n.disconnect();}catch(e){}});audioNodes=[];if(audioCtx){audioCtx.close();audioCtx=null;}}
+
+const hudEl=document.getElementById('hud');
+const surfNames=['Boy Surface','Steiner Surface','Dupin Cyclide','Hyperboloid'];
+function updateHUD(){
+  if(!hudVisible)return;
+  const si=Math.floor(params.surfBlend||0)%surfNames.length;
+  hudEl.innerHTML=`FPS: ${fps.toFixed(1)}<br>Symmetry: ${params.symN}-fold<br>Surface: ${surfNames[si]}<br>Coxeter Ang: ${params.coxeterAng?.toFixed(2)}<br>Glow: ${params.glowStrength?.toFixed(2)}<br>Eigen Scale: ${params.eigenScale?.toFixed(2)}<br>Sound: ${soundOn?'ON':'OFF'}`;
+}
+
+let startTime=performance.now();
+function render(now){
+  requestAnimationFrame(render);
+  const dt=(now-lastTime)/1000;lastTime=now;
+  if(dt>0)fps=fps*0.95+0.05/dt;
+  frameCount++;if(frameCount%60===0)updateHUD();
+  const t=(now-startTime)/1000;
+  gl.uniform2f(uRes,W,H);gl.uniform1f(uTime,t);gl.uniform1f(uSeed,seed);
+  gl.uniform1f(uSN,params.symN);gl.uniform1f(uSB,params.surfBlend);
+  gl.uniform1f(uCS2,params.camSpeed);gl.uniform1f(uCOL,params.colorScheme);
+  gl.uniform1f(uHB,params.hueBase);gl.uniform1f(uGS,params.glowStrength);
+  gl.uniform1f(uES,params.eigenScale);gl.uniform1f(uCA,params.coxeterAng);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+}
+
+function restart(){randomize();startTime=performance.now();if(soundOn){stopAudio();startAudio();}}
+window.addEventListener('resize',resize);
+document.addEventListener('keydown',e=>{
+  if(e.code==='Space'){e.preventDefault();restart();}
+  if(e.code==='KeyH'){hudVisible=!hudVisible;hudEl.classList.toggle('visible',hudVisible);updateHUD();}
+  if(e.code==='KeyS'){soundOn=!soundOn;if(soundOn)startAudio();else stopAudio();updateHUD();}
+});
+canvas.addEventListener('click',restart);
+setTimeout(()=>document.getElementById('hint').classList.add('fade'),4000);
+resize();randomize();requestAnimationFrame(render);
+})();
+</script>
+</body>
+</html>

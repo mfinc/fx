@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Cybernetic Morphism Arcade Engine</title>
+
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+
+<meta name="description" content="Cybernetic Morphism Arcade Engine — a generative Tron-style vector graphics simulation combining Atari arcade minimalism, CRISPR cybernetic transformation networks, category theory morphism visualization, fractal vector lattices, and procedural audiovisual synthesis.">
+
+<meta name="keywords" content="generative tron art, atari vector graphics, cybernetic transformation, crispr visualisation, category theory morphisms, procedural audiovisual engine, neon grid generative art, particle swarm simulation">
+
+<meta name="author" content="Generative Engine">
+
+<style>
+html,body{
+margin:0;
+background:black;
+overflow:hidden;
+font-family:monospace;
+}
+
+canvas{
+display:block;
+}
+
+#hud{
+position:fixed;
+top:10px;
+left:10px;
+color:#0ff;
+font-size:12px;
+pointer-events:none;
+white-space:pre;
+}
+</style>
+</head>
+
+<body>
+
+<canvas id="c"></canvas>
+<div id="hud"></div>
+
+<script>
+
+const canvas = document.getElementById("c")
+const ctx = canvas.getContext("2d")
+const hud = document.getElementById("hud")
+
+let W,H
+function resize(){
+W=canvas.width=window.innerWidth
+H=canvas.height=window.innerHeight
+}
+window.addEventListener("resize",resize)
+resize()
+
+let time=0
+let hueBase
+let nodes=[]
+let edges=[]
+let particles=[]
+let gridPhase=0
+let automata=[]
+let soundOn=false
+let hudOn=false
+
+const rand = (a=1)=>Math.random()*a
+
+function resetUniverse(){
+
+hueBase = rand(360)
+
+nodes=[]
+edges=[]
+particles=[]
+automata=[]
+
+let n=30+rand(40)
+
+for(let i=0;i<n;i++){
+nodes.push({
+x:rand(W),
+y:rand(H),
+vx:(rand()-0.5)*2,
+vy:(rand()-0.5)*2,
+phase:rand(10)
+})
+}
+
+for(let i=0;i<n*2;i++){
+edges.push([
+Math.floor(rand(nodes.length)),
+Math.floor(rand(nodes.length))
+])
+}
+
+for(let i=0;i<200;i++){
+particles.push({
+x:rand(W),
+y:rand(H),
+vx:(rand()-0.5)*2,
+vy:(rand()-0.5)*2
+})
+}
+
+let gw=60
+let gh=40
+for(let y=0;y<gh;y++){
+automata[y]=[]
+for(let x=0;x<gw;x++){
+automata[y][x]=Math.random()>0.7?1:0
+}
+}
+
+}
+
+resetUniverse()
+
+/* AUDIO */
+
+let audioCtx=null
+let osc
+let gain
+
+function initAudio(){
+
+if(audioCtx) return
+
+audioCtx = new (window.AudioContext||window.webkitAudioContext)()
+
+osc = audioCtx.createOscillator()
+gain = audioCtx.createGain()
+
+osc.type="sawtooth"
+
+osc.connect(gain)
+gain.connect(audioCtx.destination)
+
+gain.gain.value=0.03
+
+osc.start()
+
+}
+
+function updateAudio(){
+
+if(!soundOn||!audioCtx) return
+
+let f=120+nodes.length*3+Math.sin(time*0.4)*60
+osc.frequency.setTargetAtTime(f,audioCtx.currentTime,0.1)
+
+}
+
+/* VECTOR FIELD */
+
+function field(x,y){
+
+let s=0.002
+return Math.sin(x*s+time)+Math.cos(y*s-time)
+
+}
+
+/* AUTOMATA STEP */
+
+function stepAutomata(){
+
+let gh=automata.length
+let gw=automata[0].length
+
+let next=[]
+
+for(let y=0;y<gh;y++){
+next[y]=[]
+for(let x=0;x<gw;x++){
+
+let sum=0
+
+for(let j=-1;j<=1;j++)
+for(let i=-1;i<=1;i++){
+
+if(i==0&&j==0) continue
+
+let xx=(x+i+gw)%gw
+let yy=(y+j+gh)%gh
+
+sum+=automata[yy][xx]
+
+}
+
+let v=automata[y][x]
+
+if(v==1&&(sum<2||sum>3)) v=0
+else if(v==0&&sum==3) v=1
+
+next[y][x]=v
+
+}
+}
+
+automata=next
+
+}
+
+/* DRAW GRID */
+
+function drawGrid(){
+
+let size=40
+
+ctx.lineWidth=1
+
+for(let x=0;x<W;x+=size){
+
+let h=(hueBase + x*0.1 + time*30)%360
+
+ctx.strokeStyle=`hsla(${h},100%,60%,0.15)`
+
+ctx.beginPath()
+ctx.moveTo(x,0)
+ctx.lineTo(x,H)
+ctx.stroke()
+
+}
+
+for(let y=0;y<H;y+=size){
+
+let h=(hueBase + y*0.1 + time*30)%360
+
+ctx.strokeStyle=`hsla(${h},100%,60%,0.15)`
+
+ctx.beginPath()
+ctx.moveTo(0,y)
+ctx.lineTo(W,y)
+ctx.stroke()
+
+}
+
+}
+
+/* DRAW AUTOMATA */
+
+function drawAutomata(){
+
+let gh=automata.length
+let gw=automata[0].length
+
+let cw=W/gw
+let ch=H/gh
+
+for(let y=0;y<gh;y++)
+for(let x=0;x<gw;x++){
+
+if(automata[y][x]){
+
+let h=(hueBase + x*3 + y*5 + time*60)%360
+
+ctx.fillStyle=`hsla(${h},100%,60%,0.25)`
+
+ctx.fillRect(x*cw,y*ch,cw,ch)
+
+}
+
+}
+
+}
+
+/* UPDATE NODES */
+
+function updateNodes(){
+
+nodes.forEach(n=>{
+
+let f=field(n.x,n.y)
+
+n.vx+=Math.cos(f)*0.05
+n.vy+=Math.sin(f)*0.05
+
+n.x+=n.vx
+n.y+=n.vy
+
+n.vx*=0.98
+n.vy*=0.98
+
+if(n.x<0) n.x+=W
+if(n.x>W) n.x-=W
+if(n.y<0) n.y+=H
+if(n.y>H) n.y-=H
+
+})
+
+}
+
+/* DRAW MORPHISMS */
+
+function drawEdges(){
+
+ctx.lineWidth=1.2
+
+edges.forEach(e=>{
+
+let a=nodes[e[0]]
+let b=nodes[e[1]]
+
+let h=(hueBase + (a.x+b.x)*0.05 + time*40)%360
+
+ctx.strokeStyle=`hsla(${h},100%,70%,0.6)`
+
+ctx.beginPath()
+ctx.moveTo(a.x,a.y)
+ctx.lineTo(b.x,b.y)
+ctx.stroke()
+
+})
+
+}
+
+/* PARTICLES */
+
+function updateParticles(){
+
+particles.forEach(p=>{
+
+let f=field(p.x,p.y)
+
+p.vx+=Math.cos(f)*0.2
+p.vy+=Math.sin(f)*0.2
+
+p.x+=p.vx
+p.y+=p.vy
+
+p.vx*=0.96
+p.vy*=0.96
+
+if(p.x<0) p.x+=W
+if(p.x>W) p.x-=W
+if(p.y<0) p.y+=H
+if(p.y>H) p.y-=H
+
+})
+
+}
+
+function drawParticles(){
+
+particles.forEach(p=>{
+
+let h=(hueBase + p.x*0.05 + p.y*0.05 + time*50)%360
+
+ctx.fillStyle=`hsla(${h},100%,70%,0.8)`
+
+ctx.fillRect(p.x,p.y,2,2)
+
+})
+
+}
+
+/* DRAW NODES */
+
+function drawNodes(){
+
+nodes.forEach(n=>{
+
+let h=(hueBase + n.x*0.1 + n.y*0.1 + time*80)%360
+
+ctx.fillStyle=`hsla(${h},100%,70%,1)`
+
+ctx.beginPath()
+ctx.arc(n.x,n.y,3,0,Math.PI*2)
+ctx.fill()
+
+})
+
+}
+
+/* HUD */
+
+function updateHUD(){
+
+if(!hudOn){
+hud.textContent=""
+return
+}
+
+hud.textContent =
+`CYBERNETIC MORPHISM ARCADE
+
+nodes: ${nodes.length}
+edges: ${edges.length}
+particles: ${particles.length}
+
+SPACE / click : regenerate
+H : HUD
+S : sound (${soundOn?"ON":"OFF"})`
+
+}
+
+/* MAIN LOOP */
+
+function loop(){
+
+time+=0.016
+
+ctx.fillStyle="rgba(0,0,0,0.15)"
+ctx.fillRect(0,0,W,H)
+
+drawGrid()
+
+if(Math.floor(time*10)%10==0)
+stepAutomata()
+
+drawAutomata()
+
+updateNodes()
+drawEdges()
+drawNodes()
+
+updateParticles()
+drawParticles()
+
+updateAudio()
+
+updateHUD()
+
+requestAnimationFrame(loop)
+
+}
+
+loop()
+
+/* CONTROLS */
+
+window.addEventListener("keydown",e=>{
+
+if(e.code==="Space") resetUniverse()
+
+if(e.key==="h"||e.key==="H") hudOn=!hudOn
+
+if(e.key==="s"||e.key==="S"){
+
+soundOn=!soundOn
+
+if(soundOn){
+initAudio()
+audioCtx.resume()
+}
+
+}
+
+})
+
+canvas.addEventListener("click",resetUniverse)
+canvas.addEventListener("touchstart",resetUniverse)
+
+</script>
+
+</body>
+</html>

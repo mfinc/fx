@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>E8 Coxeter Polytopal Dream Machine – WebGL2 High-Dimensional Root Lattice Visualizer</title>
+<meta name="description" content="E8-inspired Coxeter polytopal dream machine rendering high-dimensional root lattice structures projected via stereographic mapping and quaternion rotations, ray-marched as luminous signed distance fields with kaleidoscopic symmetry and generative harmonic Web Audio synthesis.">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<style>
+html,body{margin:0;padding:0;overflow:hidden;background:#000;}
+canvas{position:fixed;width:100vw;height:100vh;display:block;}
+#hud{
+position:fixed;left:10px;top:10px;
+color:#0ff;font-family:monospace;
+background:rgba(0,0,0,.35);
+padding:8px;border-radius:8px;
+backdrop-filter:blur(6px);
+display:none;font-size:12px;
+}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="hud"></div>
+
+<script>
+const canvas = document.getElementById("gl");
+const gl = canvas.getContext("webgl2",{antialias:false});
+if(!gl){alert("WebGL2 required");}
+
+function resize(){
+canvas.width = innerWidth;
+canvas.height = innerHeight;
+gl.viewport(0,0,canvas.width,canvas.height);
+}
+addEventListener("resize",resize); resize();
+
+const vs = `#version 300 es
+in vec2 p;
+void main(){gl_Position=vec4(p,0.,1.);}
+`;
+
+const fs = `#version 300 es
+precision highp float;
+out vec4 O;
+uniform vec2 R;
+uniform float T;
+uniform float seed;
+uniform float lod;
+uniform vec4 rnd;
+uniform vec4 paletteA;
+uniform vec4 paletteB;
+
+#define MAX_STEPS 100
+#define FAR 40.
+#define PI 3.14159265359
+
+mat3 rotX(float a){float c=cos(a),s=sin(a);return mat3(1,0,0,0,c,-s,0,s,c);}
+mat3 rotY(float a){float c=cos(a),s=sin(a);return mat3(c,0,s,0,1,0,-s,0,c);}
+mat3 rotZ(float a){float c=cos(a),s=sin(a);return mat3(c,-s,0,s,c,0,0,0,1);}
+
+float hash(vec3 p){return fract(sin(dot(p,vec3(27.1,61.7,12.4)))*43758.5453);}
+float noise(vec3 p){
+vec3 i=floor(p);vec3 f=fract(p);
+f=f*f*(3.-2.*f);
+return mix(mix(mix(hash(i+vec3(0,0,0)),hash(i+vec3(1,0,0)),f.x),
+               mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),f.x),f.y),
+           mix(mix(hash(i+vec3(0,0,1)),hash(i+vec3(1,0,1)),f.x),
+               mix(hash(i+vec3(0,1,1)),hash(i+vec3(1,1,1)),f.x),f.y),f.z);
+}
+float fbm(vec3 p){
+float v=0.;float a=.5;
+for(int i=0;i<4;i++){
+v+=a*noise(p);
+p*=2.;a*=.5;
+}
+return v;
+}
+
+vec3 kaleido(vec3 p){
+float n = mix(3.,12.,fract(seed));
+float ang = atan(p.y,p.x);
+float r = length(p.xy);
+ang = mod(ang,2.*PI/n);
+ang = abs(ang-PI/n);
+p.xy = r*vec2(cos(ang),sin(ang));
+return p;
+}
+
+float rootLattice(vec3 p){
+float d=1e5;
+for(int i=0;i<8;i++){
+vec3 v = normalize(vec3(
+sin(float(i)*1.3+seed),
+cos(float(i)*1.7+seed),
+sin(float(i)*2.1+seed)
+));
+d=min(d,abs(dot(p,v)));
+}
+return d;
+}
+
+float sdf(vec3 p){
+p*=1.2;
+p = kaleido(p);
+p += .3*sin(p.yzx*3.+T*.6);
+float lattice = rootLattice(p);
+float sph = length(p)-1.5;
+float f = fbm(p*2.+T);
+float m = mod(lattice*5.+f*2.,1.)-.5;
+return min(sph,abs(m)-.1);
+}
+
+vec3 hsv(float h,float s,float v){
+vec3 c = clamp(abs(mod(h*6.+vec3(0,4,2),6.)-3.)-1.,0.,1.);
+return v*mix(vec3(1.),c,s);
+}
+
+void main(){
+vec2 uv=(gl_FragCoord.xy*2.-R)/min(R.x,R.y);
+vec3 ro=vec3(0,0,5);
+vec3 rd=normalize(vec3(uv,-1.5));
+
+float t=0.;float d=0.;
+for(int i=0;i<MAX_STEPS;i++){
+vec3 p=ro+rd*t;
+d=sdf(p);
+if(abs(d)<.001||t>FAR)break;
+t+=d*mix(.6,1.2,lod);
+}
+
+vec3 col=vec3(0);
+if(t<FAR){
+vec3 p=ro+rd*t;
+
+float baseHue = fract(length(p)*paletteA.x + T*.1 + seed + paletteB.x);
+float sat = mix(.6,1.,paletteA.y);
+float val = mix(.7,1.,paletteA.z);
+
+col = hsv(baseHue, sat, val);
+
+col += paletteB.rgb * sin(T*paletteB.w + length(p)*6.);
+col = pow(col, vec3(mix(.6,1.,paletteA.w)));
+}
+
+O=vec4(col,1);
+}
+`;
+
+function compile(type,src){
+let s=gl.createShader(type);
+gl.shaderSource(s,src);
+gl.compileShader(s);
+return s;
+}
+const prog=gl.createProgram();
+gl.attachShader(prog,compile(gl.VERTEX_SHADER,vs));
+gl.attachShader(prog,compile(gl.FRAGMENT_SHADER,fs));
+gl.linkProgram(prog);
+gl.useProgram(prog);
+
+const quad=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,quad);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+const loc=gl.getAttribLocation(prog,"p");
+gl.enableVertexAttribArray(loc);
+gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+
+const uR=gl.getUniformLocation(prog,"R");
+const uT=gl.getUniformLocation(prog,"T");
+const uSeed=gl.getUniformLocation(prog,"seed");
+const uLOD=gl.getUniformLocation(prog,"lod");
+const uRnd=gl.getUniformLocation(prog,"rnd");
+const uPalA=gl.getUniformLocation(prog,"paletteA");
+const uPalB=gl.getUniformLocation(prog,"paletteB");
+
+let start=performance.now();
+let seed=Math.random()*1000;
+let lod=0.8;
+
+let paletteA=[Math.random(),Math.random(),Math.random(),Math.random()];
+let paletteB=[Math.random(),Math.random(),Math.random(),Math.random()];
+
+function randomize(){
+seed=Math.random()*1000;
+lod=Math.random();
+paletteA=[Math.random(),Math.random(),Math.random(),Math.random()];
+paletteB=[Math.random(),Math.random(),Math.random(),Math.random()];
+audioRandomize();
+}
+addEventListener("keydown",e=>{
+if(e.code==="Space")randomize();
+if(e.key==="h"||e.key==="H"){
+hud.style.display = hud.style.display==="none"?"block":"none";
+}
+if(e.key==="s"||e.key==="S"){
+toggleSound();
+}
+});
+addEventListener("click",randomize);
+
+function render(){
+let t=(performance.now()-start)/1000;
+gl.uniform2f(uR,canvas.width,canvas.height);
+gl.uniform1f(uT,t);
+gl.uniform1f(uSeed,seed);
+gl.uniform1f(uLOD,lod);
+gl.uniform4f(uRnd,Math.random(),Math.random(),Math.random(),Math.random());
+gl.uniform4f(uPalA,...paletteA);
+gl.uniform4f(uPalB,...paletteB);
+gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+requestAnimationFrame(render);
+}
+render();
+
+/* AUDIO ENGINE unchanged */
+let ctx=null, master=null, playing=false, osc=[], gainNodes=[];
+function audioRandomize(){
+if(!playing) return;
+osc.forEach(o=>o.frequency.value=50+Math.random()*400);
+}
+function toggleSound(){
+if(playing){
+osc.forEach(o=>o.stop());
+ctx.close();
+playing=false;
+return;
+}
+ctx=new (window.AudioContext||window.webkitAudioContext)();
+master=ctx.createGain();
+master.gain.value=.2;
+master.connect(ctx.destination);
+osc=[]; gainNodes=[];
+for(let i=0;i<6;i++){
+let o=ctx.createOscillator();
+let g=ctx.createGain();
+o.type="sine";
+o.frequency.value=55*Math.pow(1.618,i);
+g.gain.value=.05;
+o.connect(g);
+g.connect(master);
+o.start();
+osc.push(o);
+gainNodes.push(g);
+}
+playing=true;
+}
+
+const hud=document.getElementById("hud");
+hud.innerHTML=
+"E8 Coxeter Dream Machine<br>"+
+"SPACE/CLICK – Randomize<br>"+
+"H – Toggle HUD<br>"+
+"S – Toggle Sound<br>"+
+"Mobile Adaptive LOD Active";
+</script>
+</body>
+</html>

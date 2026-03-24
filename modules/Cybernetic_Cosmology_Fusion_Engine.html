@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cybernetic Cosmology Fusion Engine</title>
+
+<!-- SEO -->
+<meta name="description" content="A cybernetic fusion engine blending color harmony wheels, polytopes, Atari palettes, PCB circuitry, Tron grids, robotics, category theory physics, and evolving maze cosmology.">
+<meta name="keywords" content="cybernetic, cosmology, generative art, tron, pcb, maze, polytopes, color harmony, atari, 6502, simulation">
+<meta name="author" content="Fusion Engine">
+
+<style>
+html, body {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    background: black;
+    font-family: monospace;
+}
+canvas {
+    display: block;
+}
+#hud {
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    color: #00ffff;
+    font-size: 12px;
+    display: none;
+    pointer-events: none;
+}
+</style>
+</head>
+<body>
+
+<canvas id="c"></canvas>
+<div id="hud"></div>
+
+<script>
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+const hud = document.getElementById("hud");
+
+let W, H;
+function resize() {
+    W = canvas.width = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+}
+window.addEventListener("resize", resize);
+resize();
+
+/* =======================
+   GLOBAL STATE
+======================= */
+let seed = Math.random() * 999999;
+let time = 0;
+let showHUD = false;
+let soundEnabled = false;
+
+/* =======================
+   RANDOM UTILS
+======================= */
+function rnd() {
+    seed = (seed * 9301 + 49297) % 233280;
+    return seed / 233280;
+}
+
+/* =======================
+   ATARI-STYLE PALETTE
+======================= */
+function atariColor(i) {
+    const hues = [
+        "#00ffff","#ff00ff","#ffff00","#00ff00","#ff5500",
+        "#0088ff","#ffffff","#ff0088","#88ff00","#00ffaa"
+    ];
+    return hues[i % hues.length];
+}
+
+/* =======================
+   COLOR HARMONY WHEELS
+======================= */
+class ColorWheel {
+    constructor() {
+        this.cx = rnd() * W;
+        this.cy = rnd() * H;
+        this.r = 80 + rnd() * 200;
+        this.speed = (rnd() - 0.5) * 0.02;
+        this.angle = rnd() * Math.PI * 2;
+    }
+    draw() {
+        ctx.save();
+        ctx.translate(this.cx, this.cy);
+        ctx.rotate(this.angle);
+
+        for (let i = 0; i < 12; i++) {
+            ctx.beginPath();
+            ctx.moveTo(0,0);
+            ctx.arc(0,0,this.r, i*Math.PI/6, (i+1)*Math.PI/6);
+            ctx.fillStyle = atariColor(i);
+            ctx.globalAlpha = 0.1;
+            ctx.fill();
+        }
+
+        ctx.restore();
+        this.angle += this.speed;
+    }
+}
+
+/* =======================
+   POLYTOPE WIREFRAMES
+======================= */
+class Polytope {
+    constructor() {
+        this.x = rnd()*W;
+        this.y = rnd()*H;
+        this.size = 40 + rnd()*120;
+        this.rot = rnd()*Math.PI;
+        this.speed = (rnd()-0.5)*0.01;
+    }
+    draw() {
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.rotate(this.rot);
+
+        ctx.strokeStyle = atariColor(~~(time*10)%10);
+        ctx.globalAlpha = 0.5;
+
+        for (let i=0;i<6;i++){
+            ctx.beginPath();
+            for (let j=0;j<6;j++){
+                let a = j/6*Math.PI*2;
+                let r = this.size*(0.5+Math.sin(i+a+time)*0.5);
+                let px = Math.cos(a)*r;
+                let py = Math.sin(a)*r;
+                if(j===0) ctx.moveTo(px,py);
+                else ctx.lineTo(px,py);
+            }
+            ctx.closePath();
+            ctx.stroke();
+        }
+
+        ctx.restore();
+        this.rot += this.speed;
+    }
+}
+
+/* =======================
+   TRON GRID + MAZE
+======================= */
+function drawGrid() {
+    let size = 40;
+    ctx.strokeStyle = "#003333";
+    ctx.globalAlpha = 0.3;
+
+    for (let x=0;x<W;x+=size){
+        ctx.beginPath();
+        ctx.moveTo(x,0);
+        ctx.lineTo(x,H);
+        ctx.stroke();
+    }
+    for (let y=0;y<H;y+=size){
+        ctx.beginPath();
+        ctx.moveTo(0,y);
+        ctx.lineTo(W,y);
+        ctx.stroke();
+    }
+}
+
+/* =======================
+   PCB CIRCUITS
+======================= */
+class Circuit {
+    constructor(){
+        this.x = rnd()*W;
+        this.y = rnd()*H;
+        this.len = 50 + rnd()*150;
+        this.dir = Math.floor(rnd()*4);
+    }
+    draw(){
+        ctx.strokeStyle = "#00ff88";
+        ctx.globalAlpha = 0.6;
+
+        ctx.beginPath();
+        ctx.moveTo(this.x, this.y);
+
+        let x = this.x;
+        let y = this.y;
+
+        for(let i=0;i<5;i++){
+            let d = Math.floor(rnd()*4);
+            if(d===0) x += this.len;
+            if(d===1) x -= this.len;
+            if(d===2) y += this.len;
+            if(d===3) y -= this.len;
+            ctx.lineTo(x,y);
+        }
+        ctx.stroke();
+    }
+}
+
+/* =======================
+   6502 STYLE TEXT STREAM
+======================= */
+const asmLines = [
+"LDA #$FF","STA $2000","JMP LOOP","ADC $02","BEQ SKIP",
+"LDX #$00","INY","DEX","BNE LOOP","RTS"
+];
+
+function drawASM() {
+    ctx.fillStyle = "#00ffaa";
+    ctx.globalAlpha = 0.5;
+    for(let i=0;i<asmLines.length;i++){
+        ctx.fillText(
+            asmLines[i],
+            20,
+            20 + i*14 + Math.sin(time+i)*5
+        );
+    }
+}
+
+/* =======================
+   TRON RECOGNIZER STYLE
+======================= */
+class Recognizer {
+    constructor(){
+        this.x = rnd()*W;
+        this.y = rnd()*H;
+        this.vx = rnd()*2-1;
+        this.vy = rnd()*2-1;
+    }
+    update(){
+        this.x += this.vx*2;
+        this.y += this.vy*2;
+
+        if(this.x<0||this.x>W) this.vx*=-1;
+        if(this.y<0||this.y>H) this.vy*=-1;
+    }
+    draw(){
+        ctx.fillStyle = "#00ffff";
+        ctx.globalAlpha = 0.8;
+        ctx.fillRect(this.x-2,this.y-2,4,4);
+
+        ctx.beginPath();
+        ctx.moveTo(this.x,this.y);
+        ctx.lineTo(this.x-this.vx*20,this.y-this.vy*20);
+        ctx.strokeStyle="#00ffff";
+        ctx.stroke();
+    }
+}
+
+/* =======================
+   SYSTEM INIT
+======================= */
+let wheels = [];
+let polys = [];
+let circuits = [];
+let bots = [];
+
+function init() {
+    wheels = Array.from({length:5}, ()=> new ColorWheel());
+    polys = Array.from({length:6}, ()=> new Polytope());
+    circuits = Array.from({length:12}, ()=> new Circuit());
+    bots = Array.from({length:8}, ()=> new Recognizer());
+}
+init();
+
+/* =======================
+   CONTROLS
+======================= */
+window.addEventListener("keydown", e=>{
+    if(e.code==="Space") init();
+    if(e.key==="h"||e.key==="H"){
+        showHUD = !showHUD;
+        hud.style.display = showHUD ? "block":"none";
+    }
+    if(e.key==="s"||e.key==="S"){
+        soundEnabled = !soundEnabled;
+    }
+});
+
+window.addEventListener("click", init);
+window.addEventListener("touchstart", init);
+
+/* =======================
+   MAIN LOOP
+======================= */
+function loop(){
+    time += 0.01;
+
+    ctx.fillStyle = "rgba(0,0,0,0.15)";
+    ctx.fillRect(0,0,W,H);
+
+    drawGrid();
+
+    wheels.forEach(w=>w.draw());
+    polys.forEach(p=>p.draw());
+    circuits.forEach(c=>c.draw());
+
+    bots.forEach(b=>{
+        b.update();
+        b.draw();
+    });
+
+//    drawASM();
+
+    if(showHUD){
+        hud.innerHTML = `
+        CYBERNETIC FUSION ENGINE<br>
+        cosmology / maze / tiling / robotics<br>
+        objects: ${wheels.length + polys.length + circuits.length + bots.length}<br>
+        sound: ${soundEnabled ? "ON":"OFF"}<br>
+        time: ${time.toFixed(2)}
+        `;
+    }
+
+    requestAnimationFrame(loop);
+}
+
+loop();
+</script>
+
+</body>
+</html>

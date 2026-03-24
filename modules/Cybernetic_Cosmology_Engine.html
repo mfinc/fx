@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cybernetic Cosmology Engine | Color Wheels, 6502, Atari, PCB, Category Physics</title>
+<meta name="description" content="A cybernetic audiovisual engine blending rotating color harmony wheels, 6502 assembly aesthetics, Atari 2600 palette graphics, PCB circuitry, Tron grids, and category-theoretic cosmology. Interactive generative art.">
+<meta name="keywords" content="generative art, cybernetic, atari 2600 palette, 6502 assembly, tron grid, pcb circuit, cosmology, category theory, audiovisual engine">
+<style>
+html, body {
+  margin:0; padding:0;
+  background:black;
+  overflow:hidden;
+  font-family:monospace;
+}
+canvas { display:block; }
+#hud {
+  position:fixed;
+  top:10px; left:10px;
+  color:#0f0;
+  font-size:12px;
+  pointer-events:none;
+  display:none;
+  white-space:pre;
+}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+
+<script>
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+const hud = document.getElementById("hud");
+
+let W, H, t = 0;
+let showHUD = false;
+let soundOn = false;
+
+function resize(){
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+window.addEventListener("resize", resize);
+resize();
+
+/* =======================
+   Atari 2600 palette
+======================= */
+const palette = [
+"#000000","#4A4A4A","#6F6F6F","#909090","#B0B0B0","#CFCFCF",
+"#FF0000","#FF6A00","#FFD800","#00FF00","#00FFFF","#0000FF","#8A2BE2","#FF00FF"
+];
+
+/* =======================
+   Random state
+======================= */
+let state;
+function randomize(){
+  state = {
+    wheels: Math.floor(Math.random()*5)+3,
+    gridSize: Math.random()*128+64,
+    pcbDensity: Math.random()*80+40,
+    asmDensity: Math.random()*2+2,
+    hueShift: Math.random()*Math.PI*.666667,
+    rotationSpeed: Math.random()*1.23 + 0.123
+  };
+}
+randomize();
+
+/* =======================
+   INPUT
+======================= */
+window.addEventListener("keydown", e=>{
+  if(e.code==="Space") randomize();
+  if(e.key==="h"||e.key==="H"){ showHUD=!showHUD; hud.style.display=showHUD?"block":"none"; }
+  if(e.key==="s"||e.key==="S"){ soundOn=!soundOn; }
+});
+canvas.addEventListener("click", randomize);
+canvas.addEventListener("touchstart", randomize);
+
+/* =======================
+   SOUND (minimal synth)
+======================= */
+let audioCtx;
+function playTone(freq){
+  if(!soundOn) return;
+  if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+  let o = audioCtx.createOscillator();
+  let g = audioCtx.createGain();
+  o.connect(g); g.connect(audioCtx.destination);
+  o.frequency.value = freq;
+  g.gain.value = 0.02;
+  o.start();
+  o.stop(audioCtx.currentTime + 0.1);
+}
+
+/* =======================
+   COLOR WHEELS
+======================= */
+function drawWheels(){
+  for(let i=0;i<state.wheels;i++){
+    let r = Math.min(W,H)/4 + i*30;
+    let rot = t*state.rotationSpeed*(i+1);
+    ctx.save();
+    ctx.translate(W/2, H/2);
+    ctx.rotate(rot);
+
+    for(let a=0;a<Math.PI*2;a+=Math.PI/12){
+      ctx.beginPath();
+      ctx.moveTo(0,0);
+      ctx.arc(0,0,r,a,a+Math.PI/12);
+      ctx.closePath();
+      ctx.fillStyle = palette[(i+Math.floor(a*10))%palette.length];
+      ctx.globalAlpha = 0.15;
+      ctx.fill();
+    }
+
+    ctx.restore();
+  }
+  ctx.globalAlpha = 1;
+}
+
+/* =======================
+   TRON GRID
+======================= */
+function drawGrid(){
+  let s = state.gridSize;
+  ctx.strokeStyle = "#0ff";
+  ctx.globalAlpha = 0.123;
+
+  for(let x=0;x<W;x+=s){
+    ctx.beginPath();
+    ctx.moveTo(x,0);
+    ctx.lineTo(x,H);
+    ctx.stroke();
+  }
+  for(let y=0;y<H;y+=s){
+    ctx.beginPath();
+    ctx.moveTo(0,y);
+    ctx.lineTo(W,y);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+}
+
+/* =======================
+   PCB CIRCUITS
+======================= */
+function drawPCB(){
+  ctx.strokeStyle="#0a0";
+  ctx.globalAlpha=0.333;
+
+  for(let i=0;i<state.pcbDensity;i++){
+    let x=Math.random()*W;
+    let y=Math.random()*H;
+
+    ctx.beginPath();
+    ctx.moveTo(x,y);
+
+    for(let j=0;j<5;j++){
+      x += (Math.random()-0.5)*50;
+      y += (Math.random()-0.5)*50;
+      ctx.lineTo(x,y);
+    }
+    ctx.stroke();
+  }
+
+  ctx.globalAlpha=1;
+}
+
+/* =======================
+   6502 ASSEMBLY TEXT
+======================= */
+const asmOps = ["LDA","STA","ADC","SBC","JMP","JSR","RTS","NOP","LDX","LDY"];
+
+function drawASM(){
+  ctx.fillStyle="#0f0";
+  ctx.font="22px monospace";
+  ctx.globalAlpha=0.22;
+
+  for(let i=0;i<state.asmDensity;i++){
+    let line = asmOps[Math.floor(Math.random()*asmOps.length)] +
+               " $" + Math.floor(Math.random()*65535).toString(16).toUpperCase();
+    ctx.fillText(line, Math.random()*W, Math.random()*H);
+  }
+
+  ctx.globalAlpha=1;
+}
+
+/* =======================
+   CATEGORY PHYSICS GRAPH
+======================= */
+function drawCategory(){
+  ctx.strokeStyle="#ff0";
+  ctx.globalAlpha=0.123;
+
+  for(let i=0;i<30;i++){
+    let x1=Math.random()*W, y1=Math.random()*H;
+    let x2=Math.random()*W, y2=Math.random()*H;
+
+    ctx.beginPath();
+    ctx.moveTo(x1,y1);
+    ctx.lineTo(x2,y2);
+    ctx.stroke();
+  }
+
+  ctx.globalAlpha=1;
+}
+
+/* =======================
+   LOOP
+======================= */
+function loop(){
+  t+=0.01;
+
+  ctx.fillStyle="rgba(0,0,0,0.15)";
+  ctx.fillRect(0,0,W,H);
+
+  drawGrid();
+  drawPCB();
+  drawWheels();
+  drawCategory();
+  drawASM();
+
+  if(showHUD){
+    hud.textContent =
+`CYBERNETIC COSMOLOGY ENGINE
+Wheels: ${state.wheels}
+Grid: ${state.gridSize.toFixed(1)}
+PCB: ${state.pcbDensity}
+ASM: ${state.asmDensity}
+Sound: ${soundOn}
+[SPACE/click] randomize
+[H] toggle HUD
+[S] sound`;
+  }
+
+  if(Math.random()<0.02) playTone(200+Math.random()*800);
+
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>

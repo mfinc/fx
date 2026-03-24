@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>CRISPR Modular Humanity Arcade Generator</title>
+<meta name="description" content="Generative audiovisual engine fusing retro Atari 2600 arcade geometry with Tron cyber-landscapes: digital human silhouettes undergo CRISPR genomic editing, dissolving into modular cybernetic components visualized as category-theory morphism graphs traversing Voronoi tessellations, fractal attractors, Fourier spectral synthesis, reaction-diffusion morphogenesis, Möbius kaleidoscopes, tensor field dynamics, and vector particle storms — all synchronized to procedural retro-arcade audio with FFT oscillator banks and noise modulation.">
+<meta name="keywords" content="CRISPR generative art,procedural audiovisual,Atari 2600 arcade geometry,Tron cyber landscape,fractal attractor,Lorenz Clifford attractor,Fourier spectral synthesis,reaction diffusion morphogenesis,Voronoi tessellation,Möbius transform,kaleidoscope symmetry,category theory graph,morphism network,tensor field dynamics,neon gradient animation,vector particle storm,retro arcade soundscape,WebAudio API,canvas generative art,human silhouette deconstruction,cybernetic modular,mathematical generative art,genomic visualization,FFT audio sync,oscillator bank,perceptual color harmony,spectral interference">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;background:#000;overflow:hidden}
+canvas{display:block;position:fixed;inset:0}
+#hud{position:fixed;top:0;left:0;right:0;pointer-events:none;z-index:9;opacity:0;transition:opacity .22s;padding:10px 14px;background:linear-gradient(180deg,rgba(0,0,0,.78) 0%,transparent 100%);font:11px/1.7 'Courier New',monospace;color:#0ff}
+#hud.on{opacity:1}
+.hr{display:flex;flex-wrap:wrap;gap:10px 20px}
+.kv .k{color:#f0f;opacity:.55;margin-right:4px}
+.kv .v{color:#0ff}
+#hint{position:fixed;bottom:11px;left:50%;transform:translateX(-50%);color:rgba(0,255,255,.25);font:10px/1 'Courier New',monospace;letter-spacing:2.5px;pointer-events:none;z-index:9;white-space:nowrap}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"><div class="hr" id="hr"></div></div>
+<div id="hint">SPACE · TAP = NEW UNIVERSE &nbsp;|&nbsp; H = HUD &nbsp;|&nbsp; S = SOUND</div>
+<script>
+// ╔═══════════════════════════════════════════════════════════════════════════╗
+// ║  CRISPR MODULAR HUMANITY ARCADE GENERATOR                                 ║
+// ║  Single-file · dependency-free · generative audiovisual engine            ║
+// ╚═══════════════════════════════════════════════════════════════════════════╝
+'use strict';
+const CV=document.getElementById('c');
+const CX=CV.getContext('2d');
+const HUD=document.getElementById('hud');
+const HR=document.getElementById('hr');
+
+// ─── Global state ─────────────────────────────────────────────────────────────
+let W,H,cx,cy;
+let T=0, frame=0, seed=0;
+let RNG;
+let hudOn=false, soundOn=false;
+let P={};
+const perf={t0:performance.now(), dt:16};
+let decCache=0;
+
+// ─── Seeded PRNG (xorshift32) ────────────────────────────────────────────────
+function mkRNG(s){
+  let x=(s|0)||1337;
+  return ()=>{x^=x<<13;x^=x>>17;x^=x<<5;return(x>>>0)/0xFFFFFFFF;};
+}
+
+// ─── Canvas resize ────────────────────────────────────────────────────────────
+function resize(){
+  W=CV.width=innerWidth; H=CV.height=innerHeight;
+  cx=W*.5; cy=H*.5;
+}
+addEventListener('resize',resize); resize();
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  PARAMETER RANDOMIZATION
+// ═══════════════════════════════════════════════════════════════════════════════
+function randomize(){
+  RNG=mkRNG(seed);
+  const r=RNG;
+  P={
+    // Color
+    hueBase:r()*360, hueSpeed:(r()-.5)*.55, satBase:68+r()*28, lBase:45+r()*20,
+    colorMode:(r()*4)|0,
+    // Timing
+    tScale:.3+r()*.95, phSh:r()*Math.PI*2, trail:.032+r()*.1,
+    // Attractor
+    attType:(r()*4)|0,
+    attA:-2+r()*4, attB:-2+r()*4, attC:-2+r()*4, attD:-2+r()*4,
+    attScale:.25+r()*.65,
+    // Fourier
+    fTerms:3+(r()*9|0),
+    fAmps:Array.from({length:12},()=>r()),
+    fPhs:Array.from({length:12},()=>r()*Math.PI*2),
+    fFreqs:Array.from({length:12},()=>.5+r()*7),
+    // Particles
+    pCount:160+(r()*200|0), pSpeed:.45+r()*.85, storm:r(),
+    // Reaction-diffusion
+    rdOn:r()>.2, rdSpeed:.16+r()*.7, rdBlobs:3+(r()*6|0),
+    // Voronoi
+    vCount:6+(r()*20|0), vPulse:r()>.35,
+    // Möbius / Kaleidoscope
+    kOn:r()>.2, kSym:[3,4,5,6,8,12][(r()*6)|0],
+    mA:{re:r()*2-1,im:r()*2-1}, mB:{re:r()*2-1,im:r()*2-1},
+    mC:{re:r()*2-1,im:r()*2-1}, mD:{re:r()*.8-.4,im:r()*.8-.4},
+    // Tensor field
+    tFreq:.4+r()*2, tAmp:.4+r()*1.4, tType:(r()*3)|0,
+    // Human / CRISPR
+    hCount:1+(r()*3|0), crisprSpd:.00022+r()*.00042,
+    // Morphism graph
+    nCount:4+(r()*12|0), morphSpd:.22+r()*.7,
+    // Visuals
+    gridStyle:(r()*3)|0, flicker:r()>.5, glowI:.5+r()*1.4,
+    // Fireworks
+    fwInt:20+(r()*65|0),
+    // Audio
+    baseFreq:55+r()*290, oscN:2+(r()*5|0), detune:r()*55,
+    fltFreq:450+r()*2200, revWet:.18+r()*.52,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  COLOR ENGINE
+// ═══════════════════════════════════════════════════════════════════════════════
+function col(off=0,a=1,ph=0){
+  const tt=T*P.hueSpeed+off+ph;
+  let h,s=P.satBase,l=P.lBase;
+  switch(P.colorMode){
+    case 0: h=(P.hueBase+tt*68+off*155)%360; s+=Math.sin(tt*3.1)*13; l+=Math.sin(tt*2.3+off)*18; break;
+    case 1: h=(P.hueBase+tt*125+off*52)%360; s=88+Math.sin(tt*5.1)*9; l=55+Math.sin(tt*3.7+off)*15; break;
+    case 2: h=(P.hueBase+Math.sin(tt*7.2+off)*128+180)%360; s+=Math.cos(tt*4.1)*17; l+=Math.cos(tt*5.2+off*.7)*21; break;
+    case 3: h=(P.hueBase+off*137.508)%360; s=76+Math.sin(tt*2.1+off)*17; l=50+Math.sin(tt+off*.5)*19; break;
+  }
+  return `hsla(${((h%360)+360)%360},${Math.max(0,Math.min(100,s))|0}%,${Math.max(8,Math.min(92,l))|0}%,${Math.max(0,Math.min(1,a)).toFixed(3)})`;
+}
+function glow(c,b){CX.shadowColor=c;CX.shadowBlur=b*P.glowI;}
+function noGlow(){CX.shadowBlur=0;}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  TENSOR FIELD
+// ═══════════════════════════════════════════════════════════════════════════════
+function tfx(x,y){
+  const nx=(x-cx)/W,ny=(y-cy)/H,tt=T*P.tFreq;
+  switch(P.tType){
+    case 0:return Math.sin(ny*Math.PI*2+tt)*P.tAmp;
+    case 1:return Math.cos(nx*Math.PI*3-ny*Math.PI+tt*.7)*P.tAmp;
+    case 2:return(Math.sin(nx*4.1+tt)+Math.cos(ny*3.3-tt*.6))*P.tAmp*.5;
+  }return 0;
+}
+function tfy(x,y){
+  const nx=(x-cx)/W,ny=(y-cy)/H,tt=T*P.tFreq;
+  switch(P.tType){
+    case 0:return Math.cos(nx*Math.PI*2+tt*.85)*P.tAmp;
+    case 1:return Math.sin(ny*Math.PI*2.5+nx*Math.PI+tt)*P.tAmp;
+    case 2:return(Math.cos(ny*4.2-tt)+Math.sin(nx*3.1+tt*.55))*P.tAmp*.5;
+  }return 0;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  PARTICLES
+// ═══════════════════════════════════════════════════════════════════════════════
+class Particle{
+  constructor(){this.reset();}
+  reset(){
+    this.x=cx+(Math.random()-.5)*W*.96;
+    this.y=cy+(Math.random()-.5)*H*.96;
+    this.vx=(Math.random()-.5)*P.pSpeed*2.4;
+    this.vy=(Math.random()-.5)*P.pSpeed*2.4;
+    this.life=.4+Math.random()*.6;
+    this.decay=.003+Math.random()*.009;
+    this.sz=.4+Math.random()*2.8;
+    this.coff=Math.random()*7;
+    this.sh=(Math.random()*5)|0;
+    this.dna=Math.random()>.64;
+    this.ang=Math.random()*Math.PI*2;
+    this.spn=(Math.random()-.5)*.13;
+  }
+  tick(){
+    this.vx+=tfx(this.x,this.y)*.009;
+    this.vy+=tfy(this.x,this.y)*.009;
+    this.vx*=.983; this.vy*=.983;
+    const dx=cx-this.x,dy=cy-this.y,d=Math.sqrt(dx*dx+dy*dy)+1;
+    const st=P.storm*.0019;
+    this.vx+=dx/d*st; this.vy+=dy/d*st;
+    this.x+=this.vx; this.y+=this.vy;
+    this.ang+=this.spn;
+    this.life-=this.decay;
+    if(this.x<-65||this.x>W+65||this.y<-65||this.y>H+65||this.life<=0) this.reset();
+  }
+  draw(){
+    const a=Math.max(0,this.life)*.85;
+    CX.save(); CX.translate(this.x,this.y); CX.rotate(this.ang);
+    const c=col(this.coff,a),s=this.sz;
+    CX.strokeStyle=c; CX.fillStyle=c; CX.lineWidth=.8;
+    if(this.dna){
+      CX.beginPath();
+      CX.moveTo(-s*2,-s);CX.lineTo(s*2,s);
+      CX.moveTo(-s*2,s);CX.lineTo(s*2,-s);
+      CX.moveTo(-s,-.5*s);CX.lineTo(-s,.5*s);
+      CX.moveTo(0,-.5*s);CX.lineTo(0,.5*s);
+      CX.moveTo(s,-.5*s);CX.lineTo(s,.5*s);
+      CX.stroke();
+    } else {
+      switch(this.sh){
+        case 0:CX.beginPath();CX.arc(0,0,s,0,Math.PI*2);CX.fill();break;
+        case 1:CX.fillRect(-s,-s,s*2,s*2);break;
+        case 2:CX.beginPath();CX.moveTo(0,-s);CX.lineTo(s,0);CX.lineTo(0,s);CX.lineTo(-s,0);CX.closePath();CX.fill();break;
+        case 3:CX.beginPath();CX.moveTo(-s,0);CX.lineTo(s,0);CX.moveTo(0,-s);CX.lineTo(0,s);CX.stroke();break;
+        case 4:
+          CX.beginPath();
+          for(let k=0;k<5;k++){const a2=k/5*Math.PI*2-Math.PI/2;k===0?CX.moveTo(Math.cos(a2)*s,Math.sin(a2)*s):CX.lineTo(Math.cos(a2)*s,Math.sin(a2)*s);}
+          CX.closePath();CX.fill();break;
+      }
+    }
+    CX.restore();
+  }
+}
+let parts=[];
+function initParts(){parts=Array.from({length:P.pCount},()=>new Particle());}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  FRACTAL ATTRACTOR
+// ═══════════════════════════════════════════════════════════════════════════════
+let att={x:.1,y:.01,z:0,trail:[]};
+const ATT_MAX=750, ATT_SKIP=3;
+
+function stepAtt(){
+  let {x,y,z}=att;
+  const a=P.attA,b=P.attB,c=P.attC,d=P.attD;
+  let nx,ny,nz=z;
+  switch(P.attType){
+    case 0:{const dt=.006;nx=x+dt*10*(y-x);ny=y+dt*(x*(28-z)-y);nz=z+dt*(x*y-8/3*z);break;}
+    case 1:{nx=Math.sin(a*y)+c*Math.cos(a*x);ny=Math.sin(b*x)+d*Math.cos(b*y);break;}
+    case 2:{nx=Math.sin(a*y)-Math.cos(b*x);ny=Math.sin(c*x)-Math.cos(d*y);break;}
+    case 3:{const dt=.025;nx=x+dt*y;ny=y+dt*(x-x*x*x-.32*y+a*Math.cos(T));break;}
+  }
+  att.x=isFinite(nx)?nx:.1; att.y=isFinite(ny)?ny:.01; att.z=isFinite(nz)?nz:0;
+  if(frame%ATT_SKIP===0){att.trail.push({x:att.x,y:att.y});if(att.trail.length>ATT_MAX)att.trail.shift();}
+}
+
+function drawAtt(){
+  const tr=att.trail; if(tr.length<4)return;
+  let x0=Infinity,x1=-Infinity,y0=Infinity,y1=-Infinity;
+  for(const p of tr){if(p.x<x0)x0=p.x;if(p.x>x1)x1=p.x;if(p.y<y0)y0=p.y;if(p.y>y1)y1=p.y;}
+  const sc=Math.min(W*.38/(x1-x0+.001),H*.38/(y1-y0+.001))*P.attScale;
+  const ox=cx-(x0+x1)*.5*sc, oy=cy-(y0+y1)*.5*sc;
+  const n=tr.length, seg=Math.max(1,n/90|0);
+  for(let i=0;i<n-1;i+=seg){
+    const j=Math.min(i+seg,n-1);
+    CX.beginPath(); CX.moveTo(ox+tr[i].x*sc,oy+tr[i].y*sc);
+    for(let k=i+1;k<=j;k++) CX.lineTo(ox+tr[k].x*sc,oy+tr[k].y*sc);
+    CX.strokeStyle=col(i/n*5,.21,1.5); CX.lineWidth=.7; CX.stroke();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  FOURIER WAVEFORMS
+// ═══════════════════════════════════════════════════════════════════════════════
+function drawFourier(){
+  const n=P.fTerms, pts=260;
+  // Primary wave
+  CX.beginPath();
+  for(let i=0;i<=pts;i++){
+    const u=i/pts; let py=cy;
+    for(let k=0;k<n;k++) py+=P.fAmps[k]*H*.065*Math.sin(P.fFreqs[k]*u*Math.PI*2+T*(.38+k*.17)+P.fPhs[k]);
+    i===0?CX.moveTo(W*.07+u*W*.86,py):CX.lineTo(W*.07+u*W*.86,py);
+  }
+  CX.strokeStyle=col(1,.33,.65); CX.lineWidth=1.2; CX.stroke();
+  // Second wave
+  CX.beginPath();
+  for(let i=0;i<=pts;i++){
+    const u=i/pts; let py=cy;
+    for(let k=0;k<n;k++) py+=P.fAmps[k]*H*.038*Math.cos(P.fFreqs[k]*u*Math.PI*2-T*(.33+k*.13)+P.fPhs[k]+1.3);
+    i===0?CX.moveTo(W*.07+u*W*.86,py):CX.lineTo(W*.07+u*W*.86,py);
+  }
+  CX.strokeStyle=col(3,.18,.65); CX.lineWidth=.8; CX.stroke();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  VORONOI
+// ═══════════════════════════════════════════════════════════════════════════════
+let vSeeds=[];
+function initVoro(){
+  vSeeds=[];
+  for(let i=0;i<P.vCount;i++) vSeeds.push({x:RNG()*W,y:RNG()*H,vx:(RNG()-.5)*1.1,vy:(RNG()-.5)*1.1,c:i});
+}
+function tickVoro(){
+  for(const s of vSeeds){
+    s.x+=s.vx+Math.sin(T*.27+s.c)*.5; s.y+=s.vy+Math.cos(T*.21+s.c*.68)*.5;
+    if(s.x<0)s.vx=Math.abs(s.vx); if(s.x>W)s.vx=-Math.abs(s.vx);
+    if(s.y<0)s.vy=Math.abs(s.vy); if(s.y>H)s.vy=-Math.abs(s.vy);
+  }
+}
+function drawVoro(){
+  const maxD=W*.27;
+  for(let i=0;i<vSeeds.length;i++){
+    const a=vSeeds[i];
+    for(let j=i+1;j<vSeeds.length;j++){
+      const b=vSeeds[j];
+      const dx=a.x-b.x,dy=a.y-b.y,d=Math.sqrt(dx*dx+dy*dy);
+      if(d>maxD)continue;
+      const al=(1-d/maxD)*.27;
+      CX.beginPath();CX.moveTo(a.x,a.y);CX.lineTo(b.x,b.y);
+      CX.strokeStyle=col(i*.88,al,2.1);CX.lineWidth=.8;CX.stroke();
+    }
+    const pulse=P.vPulse?(Math.sin(T*2.1+a.c)*.5+.5):1;
+    CX.beginPath();CX.arc(a.x,a.y,2+pulse*3.5,0,Math.PI*2);
+    CX.fillStyle=col(i,.5+pulse*.3,2.1);CX.fill();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  MÖBIUS TRANSFORM + KALEIDOSCOPE
+// ═══════════════════════════════════════════════════════════════════════════════
+function mobius(x,y){
+  const{mA:a,mB:b,mC:c,mD:d}=P;
+  const nr=a.re*x-a.im*y+b.re, ni=a.re*y+a.im*x+b.im;
+  const dr=c.re*x-c.im*y+d.re, di=c.re*y+c.im*x+d.im;
+  const dn=dr*dr+di*di+.0001;
+  return{x:(nr*dr+ni*di)/dn, y:(ni*dr-nr*di)/dn};
+}
+function drawKaleido(){
+  if(!P.kOn)return;
+  const sym=P.kSym, R=Math.min(W,H)*.32, slices=52;
+  for(let s=0;s<sym;s++){
+    CX.save();CX.translate(cx,cy);CX.rotate(s/sym*Math.PI*2+T*.04+P.phSh);
+    CX.beginPath();let first=true;
+    for(let i=0;i<=slices;i++){
+      const ang=i/slices*(Math.PI/sym);
+      const r2=R*(.22+.78*Math.abs(Math.sin(i*.18+T*.52)));
+      const m=mobius(Math.cos(ang)*r2/(R*.5),Math.sin(ang)*r2/(R*.5));
+      const px=m.x*R*.38,py=m.y*R*.38;
+      first?(CX.moveTo(px,py),first=false):CX.lineTo(px,py);
+    }
+    CX.strokeStyle=col(s*(360/sym),.27,3.5);CX.lineWidth=1;CX.stroke();CX.restore();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  HUMAN SILHOUETTE + CRISPR DECONSTRUCTION
+// ═══════════════════════════════════════════════════════════════════════════════
+function drawHuman(ox,oy,sc,dec){
+  const j=dec>0.02?()=>(Math.random()-.5)*dec*34:()=>0;
+  const al=Math.max(.07,1-dec*.76);
+  CX.lineWidth=1.5+dec*.9;
+
+  // Head
+  glow(col(0,.9),20);
+  CX.strokeStyle=col(0,al,0);
+  CX.beginPath();CX.arc(ox+j(),oy-sc*1.58+j(),sc*.38,0,Math.PI*2);CX.stroke();
+
+  // Torso
+  CX.beginPath();CX.moveTo(ox+j(),oy-sc*1.2+j());CX.lineTo(ox+j(),oy+sc*.42+j());CX.stroke();
+
+  // Shoulders
+  CX.beginPath();CX.moveTo(ox-sc*.56+j(),oy-sc*.75+j());CX.lineTo(ox+sc*.56+j(),oy-sc*.75+j());CX.stroke();
+
+  // Arms
+  CX.beginPath();CX.moveTo(ox-sc*.56+j(),oy-sc*.75+j());CX.lineTo(ox-sc*.4+j(),oy+sc*.22+j());CX.stroke();
+  CX.beginPath();CX.moveTo(ox+sc*.56+j(),oy-sc*.75+j());CX.lineTo(ox+sc*.4+j(),oy+sc*.22+j());CX.stroke();
+
+  // Legs
+  CX.beginPath();CX.moveTo(ox+j(),oy+sc*.42+j());CX.lineTo(ox-sc*.33+j(),oy+sc*1.12+j());CX.stroke();
+  CX.beginPath();CX.moveTo(ox+j(),oy+sc*.42+j());CX.lineTo(ox+sc*.33+j(),oy+sc*1.12+j());CX.stroke();
+  noGlow();
+
+  // CRISPR cut lines
+  if(dec>.06){
+    const cuts=Math.max(1,dec*10|0);
+    CX.setLineDash([3,7]);
+    for(let i=0;i<cuts;i++){
+      const cy2=oy-sc*1.22+(i/Math.max(1,cuts-1))*sc*2.4;
+      CX.beginPath();CX.moveTo(ox-sc*.92+j(),cy2+j());CX.lineTo(ox+sc*.92+j(),cy2+j());
+      CX.strokeStyle=col(3,dec*.62,4.5);CX.lineWidth=.7;CX.stroke();
+    }
+    CX.setLineDash([]);
+  }
+
+  // Cybernetic circuit overlay
+  if(dec>.26){
+    const al2=(dec-.26)/.74;
+    const pts=[[ox-sc*.3,oy-sc*.5],[ox+sc*.3,oy-sc*.5],[ox-sc*.42,oy+sc*.1],[ox+sc*.42,oy+sc*.1],[ox,oy-sc*.92],[ox,oy+sc*.82]];
+    for(let i=0;i<pts.length;i++){
+      const[px,py]=pts[i];
+      CX.beginPath();CX.rect(px-sc*.085,py-sc*.085,sc*.17,sc*.17);
+      CX.strokeStyle=col(1+i,al2*.78,5.5);CX.lineWidth=.9;CX.stroke();
+      CX.beginPath();CX.arc(px,py,2.8,0,Math.PI*2);
+      CX.fillStyle=col(1+i,al2,5.5);CX.fill();
+      if(i>0){const[qx,qy]=pts[i-1];CX.beginPath();CX.moveTo(px,py);CX.lineTo(qx,qy);CX.strokeStyle=col(i,al2*.38,5.5);CX.lineWidth=.5;CX.stroke();}
+    }
+  }
+
+  // Genome sequence text
+  if(dec>.52){
+    const al2=(dec-.52)/.48;
+    CX.font=`${7+sc*.035}px 'Courier New'`;
+    CX.textAlign='center'; CX.textBaseline='middle';
+    const bases=['ATG','CGT','ACC','GCA','TTA','CGG','ATC'];
+    for(let i=0;i<6;i++){
+      CX.fillStyle=col(5+i*.3,al2*.58,6.5);
+      CX.fillText(bases[i%bases.length],ox+j(),oy-sc*.95+i*sc*.38+j());
+    }
+  }
+}
+
+function drawHumans(){
+  const dec=Math.abs(Math.sin(T*P.crisprSpd*1180+P.phSh))
+           *(.5+.5*Math.abs(Math.sin(T*P.crisprSpd*310)));
+  const spc=W/(P.hCount+1);
+  const sc=Math.min(W,H)*.11;
+  for(let i=0;i<P.hCount;i++) drawHuman(spc*(i+1),cy,sc,dec);
+  return dec;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  CATEGORY THEORY MORPHISM GRAPH
+// ═══════════════════════════════════════════════════════════════════════════════
+let nodes=[];
+const LBLS='ABCDEFGHΩΣΛΔΦΨΘΞℝℂ∞∂';
+function initGraph(){
+  nodes=[];
+  for(let i=0;i<P.nCount;i++)
+    nodes.push({x:cx+(RNG()-.5)*W*.72,y:cy+(RNG()-.5)*H*.72,vx:(RNG()-.5)*.62,vy:(RNG()-.5)*.62,c:i,lbl:LBLS[i%LBLS.length]});
+}
+function tickGraph(){
+  for(const n of nodes){
+    n.x+=n.vx*P.morphSpd; n.y+=n.vy*P.morphSpd;
+    n.vx+=(cx-n.x)*.00018; n.vy+=(cy-n.y)*.00018;
+    n.vx*=.992; n.vy*=.992;
+  }
+}
+function drawGraph(dec){
+  if(dec<.07)return;
+  const maxD=W*.44;
+  for(let i=0;i<nodes.length;i++){
+    const a=nodes[i];
+    for(let j2=i+1;j2<nodes.length;j2++){
+      const b=nodes[j2];
+      const dx=b.x-a.x,dy=b.y-a.y,d=Math.sqrt(dx*dx+dy*dy);
+      if(d>maxD)continue;
+      const ea=(1-d/maxD)*dec*.45;
+      if(ea<.014)continue;
+      const mx=(a.x+b.x)*.5+Math.sin(T*.55+i*j2*.22)*40;
+      const my=(a.y+b.y)*.5+Math.cos(T*.45+i+j2)*40;
+      CX.beginPath();CX.moveTo(a.x,a.y);CX.quadraticCurveTo(mx,my,b.x,b.y);
+      CX.strokeStyle=col(i*j2*.24,ea,6.5);CX.lineWidth=.85;CX.stroke();
+      // Arrowhead
+      const ang=Math.atan2(b.y-my,b.x-mx);
+      CX.beginPath();CX.moveTo(b.x,b.y);
+      CX.lineTo(b.x-10*Math.cos(ang-.42),b.y-10*Math.sin(ang-.42));
+      CX.lineTo(b.x-10*Math.cos(ang+.42),b.y-10*Math.sin(ang+.42));
+      CX.closePath();CX.fillStyle=col(i*j2*.24,ea,6.5);CX.fill();
+    }
+  }
+  for(let i=0;i<nodes.length;i++){
+    const n=nodes[i],r=5+Math.sin(T*2.1+i)*2.2;
+    CX.beginPath();CX.arc(n.x,n.y,r,0,Math.PI*2);CX.fillStyle=col(i,dec*.55,7.2);CX.fill();
+    CX.beginPath();CX.arc(n.x,n.y,r+4,0,Math.PI*2);CX.strokeStyle=col(i,dec*.28,7.2);CX.lineWidth=.7;CX.stroke();
+    CX.fillStyle=col(i,dec*.9,7.2);CX.font=`bold 9px 'Courier New'`;
+    CX.textAlign='center';CX.textBaseline='middle';CX.fillText(n.lbl,n.x,n.y);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  REACTION–DIFFUSION MORPHOGENESIS
+// ═══════════════════════════════════════════════════════════════════════════════
+function drawRD(){
+  if(!P.rdOn)return;
+  for(let b=0;b<P.rdBlobs;b++){
+    const bx=cx+Math.cos(T*P.rdSpeed*.27+b*1.28)*W*.32;
+    const by=cy+Math.sin(T*P.rdSpeed*.21+b*.92)*H*.28;
+    const br=36+Math.sin(T*.53+b)*18;
+    CX.beginPath();const segs=38;
+    for(let i=0;i<=segs;i++){
+      const a=i/segs*Math.PI*2;
+      const r=br+Math.sin(a*3.8+T*P.rdSpeed+b)*14+Math.cos(a*6.2-T*P.rdSpeed*.62+b)*7;
+      i===0?CX.moveTo(bx+Math.cos(a)*r,by+Math.sin(a)*r):CX.lineTo(bx+Math.cos(a)*r,by+Math.sin(a)*r);
+    }
+    CX.strokeStyle=col(b*1.45,.11,9.5);CX.lineWidth=1.5;CX.stroke();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  GRID (Tron / Atari)
+// ═══════════════════════════════════════════════════════════════════════════════
+function drawGrid(){
+  if(P.gridStyle===2)return;
+  const tron=P.gridStyle===0, step=tron?52:40;
+  const baseA=tron?.07:.055;
+  const flickA=(P.flicker&&Math.random()>.97)?baseA*3.5:baseA;
+  CX.lineWidth=.5;
+  CX.strokeStyle=col(4,flickA,.22);
+  for(let y=0;y<H;y+=step){const w=tron?Math.sin(y*.019+T*.18)*7:0;CX.beginPath();CX.moveTo(0,y+w);CX.lineTo(W,y+w);CX.stroke();}
+  for(let x=0;x<W;x+=step){const w=tron?Math.cos(x*.019+T*.14)*7:0;CX.beginPath();CX.moveTo(x+w,0);CX.lineTo(x+w,H);CX.stroke();}
+  if(tron){
+    for(let i=1;i<=9;i++){
+      const rat=i/10,hy=cy+(H*.5-cy)*rat;
+      CX.beginPath();CX.moveTo(0,hy);CX.lineTo(W,hy);CX.strokeStyle=col(4,baseA*(1-rat)*1.8,.45);CX.stroke();
+      CX.beginPath();CX.moveTo(cx,cy*.68);CX.lineTo(i*W/10,H);CX.strokeStyle=col(4,baseA*.55,.45);CX.stroke();
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  VECTOR FIREWORKS
+// ═══════════════════════════════════════════════════════════════════════════════
+class FW{
+  constructor(){this.reset();}
+  reset(){
+    this.x=cx+(Math.random()-.5)*W*.88; this.y=cy+(Math.random()-.5)*H*.88;
+    this.rays=4+(Math.random()*14|0);
+    this.r=0; this.maxR=28+Math.random()*88;
+    this.spd=1.35+Math.random()*2.3; this.al=.78;
+    this.c=Math.random()*5; this.twist=Math.random()>.5?1:-1; this.on=true;
+  }
+  tick(){this.r+=this.spd;this.al=(1-this.r/this.maxR)*.74;if(this.r>=this.maxR)this.on=false;}
+  draw(){
+    const c2=col(this.c,this.al,8.5);
+    CX.strokeStyle=c2;CX.lineWidth=1.1;
+    for(let i=0;i<this.rays;i++){
+      const a=i/this.rays*Math.PI*2+this.r*.015*this.twist;
+      CX.beginPath();CX.moveTo(this.x+Math.cos(a)*this.r*.22,this.y+Math.sin(a)*this.r*.22);
+      CX.lineTo(this.x+Math.cos(a)*this.r,this.y+Math.sin(a)*this.r);CX.stroke();
+    }
+    CX.beginPath();CX.arc(this.x,this.y,this.r,0,Math.PI*2);
+    CX.strokeStyle=col(this.c,this.al*.22,8.5);CX.lineWidth=.5;CX.stroke();
+  }
+}
+let fws=[],fwTick=0;
+function tickFWs(){
+  if(++fwTick>P.fwInt){fws.push(new FW());fwTick=0;}
+  fws=fws.filter(f=>f.on);
+  fws.forEach(f=>f.tick());
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  AUDIO ENGINE (zero computation when disabled)
+// ═══════════════════════════════════════════════════════════════════════════════
+let AC=null,masterG=null,oscs=[],noiseS=null,analyser=null,fftBuf=null;
+
+function startAudio(){
+  if(AC)stopAudio();
+  AC=new(window.AudioContext||window.webkitAudioContext)();
+  masterG=AC.createGain();masterG.gain.value=.11;
+  analyser=AC.createAnalyser();analyser.fftSize=64;
+  fftBuf=new Uint8Array(analyser.frequencyBinCount);
+  const comp=AC.createDynamicsCompressor();
+  masterG.connect(comp);comp.connect(analyser);analyser.connect(AC.destination);
+  // Reverb
+  const conv=AC.createConvolver();
+  const rl=AC.sampleRate*1.8,rb=AC.createBuffer(2,rl,AC.sampleRate);
+  for(let ch=0;ch<2;ch++){const d=rb.getChannelData(ch);for(let i=0;i<rl;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/rl,2.2);}
+  conv.buffer=rb;
+  const rg=AC.createGain();rg.gain.value=P.revWet*.24;
+  masterG.connect(conv);conv.connect(rg);rg.connect(AC.destination);
+  // Oscillator bank
+  const waves=['sawtooth','square','triangle','sine','sawtooth'];
+  const ratios=[1,1.5,2,3,.5,.25,4,.75];
+  oscs=[];
+  for(let i=0;i<P.oscN;i++){
+    const o=AC.createOscillator(),g=AC.createGain(),f=AC.createBiquadFilter();
+    o.type=waves[i%waves.length];
+    o.frequency.value=P.baseFreq*ratios[i%ratios.length];
+    o.detune.value=(i-P.oscN/2)*P.detune;
+    f.type='lowpass';f.frequency.value=P.fltFreq;f.Q.value=4.5;
+    g.gain.value=.07/P.oscN;
+    o.connect(f);f.connect(g);g.connect(masterG);o.start();
+    oscs.push({o,g,f,bf:P.baseFreq*ratios[i%ratios.length],i});
+  }
+  // Looping noise
+  const nbl=AC.sampleRate*.08,nbuf=AC.createBuffer(1,nbl,AC.sampleRate);
+  const nd=nbuf.getChannelData(0);for(let i=0;i<nbl;i++)nd[i]=(Math.random()*2-1)*.28;
+  noiseS=AC.createBufferSource();noiseS.buffer=nbuf;noiseS.loop=true;
+  const ng=AC.createGain();ng.gain.value=.013;
+  const nf=AC.createBiquadFilter();nf.type='bandpass';nf.frequency.value=720;nf.Q.value=.58;
+  noiseS.connect(nf);nf.connect(ng);ng.connect(masterG);noiseS.start();
+}
+
+function tickAudio(){
+  if(!soundOn||!AC)return;
+  for(const{o,g,f,bf,i}of oscs){
+    const m=Math.sin(T*(1+i*.32)+P.phSh)*.5+.5;
+    o.frequency.value=bf*(1+m*.022);
+    g.gain.value=(.055+m*.04)/oscs.length;
+    f.frequency.value=P.fltFreq*(.44+m*.56);
+  }
+  if(analyser)analyser.getByteFrequencyData(fftBuf);
+}
+
+function stopAudio(){
+  if(!AC)return;
+  oscs.forEach(({o})=>{try{o.stop();}catch(e){}});
+  oscs=[];
+  if(noiseS){try{noiseS.stop();}catch(e){}noiseS=null;}
+  AC.close().catch(()=>{});AC=null;fftBuf=null;
+}
+
+// FFT bars
+function drawFFT(){
+  if(!fftBuf||!soundOn)return;
+  const n=fftBuf.length,bw=W/n;
+  for(let i=0;i<n;i++){
+    const v=fftBuf[i]/255,bh=v*H*.16;
+    CX.fillStyle=col(i*(360/n),v*.45,10);
+    CX.fillRect(i*bw,H-bh,bw-1,bh);
+    CX.fillStyle=col(i*(360/n),v*.2,10);
+    CX.fillRect(i*bw,0,bw-1,bh*.45);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  HUD
+// ═══════════════════════════════════════════════════════════════════════════════
+function updateHUD(){
+  if(!hudOn){HUD.classList.remove('on');return;}
+  HUD.classList.add('on');
+  const pairs=[
+    ['SEED',seed],['FPS',(1000/(perf.dt||16)).toFixed(0)],
+    ['ATTRACTOR',['LORENZ','CLIFFORD','PETER','DUFFING'][P.attType]],
+    ['COLOR',['NEON','RAINBOW','SPECTRAL','GOLDEN'][P.colorMode]],
+    ['PARTICLES',P.pCount],['KALEIDO',P.kOn?P.kSym+'×':'OFF'],
+    ['DECOMP',(decCache*100|0)+'%'],['GRID',['TRON','ATARI','NONE'][P.gridStyle]],
+    ['SOUND',soundOn?'ON':'OFF'],['RD',P.rdOn?'ON':'OFF'],
+  ];
+  HR.innerHTML=pairs.map(([k,v])=>`<div class="kv"><span class="k">${k}</span><span class="v">${v}</span></div>`).join('');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  INIT / RESTART
+// ═══════════════════════════════════════════════════════════════════════════════
+function init(){
+  T=0;frame=0;
+  randomize();
+  initParts();
+  initVoro();
+  initGraph();
+  att={x:.1,y:.01,z:0,trail:[]};
+  fws=[];fwTick=0;
+  if(soundOn)startAudio();
+}
+function restart(){
+  seed=(Math.random()*99999)|0;
+  CX.fillStyle='#000';CX.fillRect(0,0,W,H);
+  if(soundOn)stopAudio();
+  init();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  MAIN LOOP
+// ═══════════════════════════════════════════════════════════════════════════════
+function loop(ts){
+  perf.dt=ts-perf.t0;perf.t0=ts;
+  const dt=Math.min(perf.dt,50)/1000;
+  T+=dt*P.tScale;frame++;
+
+  // Trail fade
+  CX.globalAlpha=1;
+  CX.fillStyle=`rgba(0,0,0,${P.trail})`;
+  CX.fillRect(0,0,W,H);
+  if(frame%220===0){CX.fillStyle='#000';CX.fillRect(0,0,W,H);}
+  CX.globalAlpha=1;
+
+  // ── DRAW STACK ─────────────────────────────────────────────────────────────
+  drawGrid();
+  drawRD();
+  drawAtt();
+  for(let s=0;s<4;s++)stepAtt();
+
+  glow(col(2,.42),10);
+  drawFourier();
+  noGlow();
+
+  drawVoro();tickVoro();
+  drawKaleido();
+
+  for(const p of parts){p.tick();p.draw();}
+
+  decCache=drawHumans();
+  drawGraph(decCache);tickGraph();
+
+  glow(col(1,.48),20);
+  fws.forEach(f=>f.draw());
+  noGlow();
+  tickFWs();
+
+  drawFFT();
+  tickAudio();
+  updateHUD();
+  requestAnimationFrame(loop);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  INPUT
+// ═══════════════════════════════════════════════════════════════════════════════
+addEventListener('keydown',e=>{
+  if(e.key===' '||e.key==='Spacebar'){e.preventDefault();restart();return;}
+  const k=e.key.toLowerCase();
+  if(k==='h'){hudOn=!hudOn;updateHUD();}
+  if(k==='s'){soundOn=!soundOn;if(soundOn)startAudio();else stopAudio();}
+});
+CV.addEventListener('click',restart);
+CV.addEventListener('touchend',e=>{e.preventDefault();restart();},{passive:false});
+
+// ─── BOOT ────────────────────────────────────────────────────────────────────
+seed=(Math.random()*99999)|0;
+CX.fillStyle='#000';CX.fillRect(0,0,W,H);
+init();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

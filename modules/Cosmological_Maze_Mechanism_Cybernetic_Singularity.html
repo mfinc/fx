@@ -1,0 +1,900 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Cosmological Maze–Mechanism Cybernetic Singularity</title>
+<meta name="description" content="An immersive full-canvas cosmological simulation fusing n-body gravity, galaxy particle swarms, maze tessellations, mechanical linkages, Persian/Greek/Thai decorative arts, neon spectral gradients, Rubik puzzle transformations, and CRISPR cybernetic evolution into a profound interconnected singularity.">
+<meta name="keywords" content="cosmological simulation, n-body gravity, maze tessellation, cybernetic evolution, CRISPR transformation, mechanical linkages, Persian art, neon visualization, particle swarm, singularity">
+<meta property="og:title" content="Cosmological Maze–Mechanism Cybernetic Singularity">
+<meta property="og:description" content="A profound fusion of cosmology, mazes, tilings, puzzles, mechanics, and cybernetic evolution in real-time canvas simulation.">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Courier New',monospace}
+  #c{display:block;width:100vw;height:100vh}
+  #hud{position:fixed;top:0;left:0;width:100%;padding:10px 14px;display:none;pointer-events:none;z-index:10}
+  #hud.on{display:block}
+  .hline{color:#0ff;font-size:11px;opacity:.8;text-shadow:0 0 8px #0ff;letter-spacing:1px;margin-bottom:2px}
+  #ctrl{display:none}
+  #title-flash{display:none}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div class="hline" id="h1">● COSMOLOGICAL SINGULARITY v∞</div>
+  <div class="hline" id="h2">BODIES: — | PARTICLES: —</div>
+  <div class="hline" id="h3">PHASE: — | T: —</div>
+  <div class="hline" id="h4">PENDULUMS: — | GEARS: —</div>
+  <div class="hline" id="h5">MAZE: — | PUZZLE: —</div>
+</div>
+<div id="ctrl">SPACE/TAP · RANDOMIZE &nbsp;|&nbsp; H · HUD &nbsp;|&nbsp; S · SOUND</div>
+<div id="title-flash">✦ CYBERNETIC SINGULARITY ✦</div>
+<script>
+(function(){
+"use strict";
+
+// ─── CANVAS SETUP ───────────────────────────────────────────────────────────
+const cv=document.getElementById('c');
+const cx=cv.getContext('2d');
+const hud=document.getElementById('hud');
+const tf=document.getElementById('title-flash');
+let W,H,cx2=cx,isMobile=false;
+
+function resize(){
+  W=cv.width=window.innerWidth;
+  H=cv.height=window.innerHeight;
+  isMobile=W<700;
+}
+resize();
+window.addEventListener('resize',resize);
+
+// ─── STATE ──────────────────────────────────────────────────────────────────
+let T=0, hudOn=false, soundOn=false, phase=0;
+let randomizeCount=0, puzzleActive=false, swarmActive=false;
+const PHASES=['GENESIS','INFLATION','GALAXY','MAZE','PUZZLE','CYBORG','SINGULARITY'];
+let phaseT=0, phaseDur=600;
+
+// ─── AUDIO ──────────────────────────────────────────────────────────────────
+let actx=null;
+function initAudio(){
+  if(actx)return;
+  actx=new(window.AudioContext||window.webkitAudioContext)();
+}
+function playTone(freq,dur,vol=0.08,type='sine'){
+  if(!soundOn||!actx)return;
+  try{
+    const o=actx.createOscillator();
+    const g=actx.createGain();
+    o.connect(g);g.connect(actx.destination);
+    o.type=type;o.frequency.value=freq;
+    g.gain.setValueAtTime(0,actx.currentTime);
+    g.gain.linearRampToValueAtTime(vol,actx.currentTime+0.05);
+    g.gain.exponentialRampToValueAtTime(0.001,actx.currentTime+dur);
+    o.start();o.stop(actx.currentTime+dur);
+  }catch(e){}
+}
+function gravityBeep(force){
+  if(!soundOn||!actx||Math.random()>0.005)return;
+  playTone(80+force*200,0.3,0.04,'sawtooth');
+}
+
+// ─── COLOR UTILS ────────────────────────────────────────────────────────────
+function hsl(h,s,l,a=1){return`hsla(${h%360},${s}%,${l}%,${a})`}
+function spectral(t,a=1){return hsl((t*360)%360,100,60,a)}
+function persian(t){
+  const p=[[340,80,55],[200,90,50],[40,90,55],[160,70,45],[280,75,50]];
+  const i=Math.floor(t*p.length)%p.length;
+  const n=(i+1)%p.length;
+  const f=t*p.length-Math.floor(t*p.length);
+  return hsl(p[i][0]+(p[n][0]-p[i][0])*f,
+             p[i][1]+(p[n][1]-p[i][1])*f,
+             p[i][2]+(p[n][2]-p[i][2])*f,1);
+}
+function neonGrad(ctx,x1,y1,x2,y2,t){
+  const g=ctx.createLinearGradient(x1,y1,x2,y2);
+  g.addColorStop(0,hsl((t*360)%360,100,50,0.9));
+  g.addColorStop(0.5,hsl((t*360+120)%360,100,60,0.9));
+  g.addColorStop(1,hsl((t*360+240)%360,100,50,0.9));
+  return g;
+}
+
+// ─── MATH HELPERS ───────────────────────────────────────────────────────────
+const TAU=Math.PI*2;
+const rnd=()=>Math.random();
+const rng=(a,b)=>a+(b-a)*rnd();
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const lerp=(a,b,t)=>a+(b-a)*t;
+function v2(x,y){return{x,y}}
+function vadd(a,b){return{x:a.x+b.x,y:a.y+b.y}}
+function vsub(a,b){return{x:a.x-b.x,y:a.y-b.y}}
+function vmul(a,s){return{x:a.x*s,y:a.y*s}}
+function vlen(a){return Math.sqrt(a.x*a.x+a.y*a.y)}
+function vnorm(a){const l=vlen(a)||1;return{x:a.x/l,y:a.y/l}}
+
+// ─── N-BODY GRAVITATIONAL SYSTEM ─────────────────────────────────────────────
+const MAX_BODIES=isMobile?6:10;
+let bodies=[];
+function initBodies(){
+  bodies=[];
+  const n=isMobile?5:8;
+  for(let i=0;i<n;i++){
+    const a=rng(0,TAU), r=rng(80,Math.min(W,H)*0.35);
+    bodies.push({
+      x:W/2+Math.cos(a)*r, y:H/2+Math.sin(a)*r,
+      vx:rng(-1.5,1.5), vy:rng(-1.5,1.5),
+      mass:rng(50,200),
+      r:rng(6,18),
+      hue:rng(0,360),
+      trail:[],
+      trailMax:isMobile?30:60
+    });
+  }
+  // Central attractor
+  bodies.push({x:W/2,y:H/2,vx:0,vy:0,mass:800,r:22,hue:60,trail:[],trailMax:80,opacity:0.13});
+}
+function stepBodies(){
+  const G=0.4, softening=30, dt=0.5;
+  for(let i=0;i<bodies.length;i++){
+    let fx=0,fy=0;
+    const b=bodies[i];
+    for(let j=0;j<bodies.length;j++){
+      if(i===j)continue;
+      const o=bodies[j];
+      const dx=o.x-b.x, dy=o.y-b.y;
+      const dist=Math.sqrt(dx*dx+dy*dy+softening*softening);
+      const force=G*b.mass*o.mass/(dist*dist*dist);
+      fx+=force*dx; fy+=force*dy;
+    }
+    b.vx+=fx/b.mass*dt; b.vy+=fy/b.mass*dt;
+    b.vx*=0.998; b.vy*=0.998;
+    const spd=Math.sqrt(b.vx*b.vx+b.vy*b.vy);
+    if(spd>4){b.vx=b.vx/spd*4;b.vy=b.vy/spd*4;}
+    b.x+=b.vx*dt; b.y+=b.vy*dt;
+    // Wrap
+    if(b.x<-200)b.x=W+200; if(b.x>W+200)b.x=-200;
+    if(b.y<-200)b.y=H+200; if(b.y>H+200)b.y=-200;
+    b.trail.push({x:b.x,y:b.y});
+    if(b.trail.length>b.trailMax)b.trail.shift();
+    gravityBeep(Math.sqrt(fx*fx+fy*fy)/b.mass);
+  }
+}
+function drawBodies(){
+  bodies.forEach(b=>{
+    const op=b.opacity!==undefined?b.opacity:1;
+    // Trail
+    if(b.trail.length>2){
+      cx.beginPath();
+      cx.moveTo(b.trail[0].x,b.trail[0].y);
+      for(let i=1;i<b.trail.length;i++) cx.lineTo(b.trail[i].x,b.trail[i].y);
+      cx.strokeStyle=hsl(b.hue,90,55,0.15*op);
+      cx.lineWidth=1.5; cx.stroke();
+    }
+    // Glow
+    const g=cx.createRadialGradient(b.x,b.y,0,b.x,b.y,b.r*3);
+    g.addColorStop(0,hsl(b.hue,100,80,0.9*op));
+    g.addColorStop(0.3,hsl(b.hue,100,60,0.5*op));
+    g.addColorStop(1,hsl(b.hue,100,40,0));
+    cx.beginPath();cx.arc(b.x,b.y,b.r*3,0,TAU);
+    cx.fillStyle=g;cx.fill();
+    // Core
+    cx.beginPath();cx.arc(b.x,b.y,b.r,0,TAU);
+    cx.fillStyle=hsl(b.hue,100,85,op);cx.fill();
+    // Persian ring
+    cx.beginPath();cx.arc(b.x,b.y,b.r+4,0,TAU);
+    cx.strokeStyle=persian((b.hue/360+T*0.001)%1);
+    cx.lineWidth=1.5;cx.stroke();
+  });
+}
+
+// ─── GALAXY PARTICLE SWARM ───────────────────────────────────────────────────
+const MAX_PARTICLES=isMobile?600:1400;
+let particles=[];
+function initParticles(){
+  particles=[];
+  const arms=4;
+  for(let i=0;i<MAX_PARTICLES;i++){
+    const arm=Math.floor(rnd()*arms);
+    const armAngle=(TAU/arms)*arm;
+    const dist=rng(20,Math.min(W,H)*0.45)*Math.pow(rnd(),0.7);
+    const spread=rng(-0.4,0.4);
+    const a=armAngle+dist*0.018+spread;
+    particles.push({
+      x:W/2+Math.cos(a)*dist,
+      y:H/2+Math.sin(a)*dist,
+      vx:rng(-0.3,0.3),vy:rng(-0.3,0.3),
+      base_a:a, base_r:dist,
+      hue:rng(160,320),
+      life:rng(0.4,1),
+      size:rng(0.5,2.5),
+      arm, speed:rng(0.002,0.006)
+    });
+  }
+}
+function stepParticles(){
+  const t01=T*0.0005;
+  particles.forEach(p=>{
+    // Orbital drift
+    p.base_a+=p.speed*(1-p.base_r/(Math.min(W,H)*0.5)*0.6);
+    const tx=W/2+Math.cos(p.base_a)*p.base_r;
+    const ty=H/2+Math.sin(p.base_a)*p.base_r;
+    p.x+=(tx-p.x)*0.04+p.vx;
+    p.y+=(ty-p.y)*0.04+p.vy;
+    // Body gravity pull
+    bodies.forEach(b=>{
+      const dx=b.x-p.x,dy=b.y-p.y;
+      const d2=dx*dx+dy*dy+200;
+      const f=b.mass*0.15/d2;
+      p.vx+=f*dx; p.vy+=f*dy;
+    });
+    p.vx*=0.96; p.vy*=0.96;
+    p.life=0.6+Math.sin(T*0.02+p.base_a)*0.4;
+    p.hue=(p.hue+0.1)%360;
+  });
+}
+function drawParticles(){
+  particles.forEach(p=>{
+    cx.beginPath();
+    cx.arc(p.x,p.y,p.size,0,TAU);
+    cx.fillStyle=hsl(p.hue,90,70,p.life*0.8);
+    cx.fill();
+  });
+}
+
+// ─── MAZE TILING SYSTEM ──────────────────────────────────────────────────────
+let mazeGrid=[], mazeW=0, mazeH=0, mazeCell=0;
+let mazeTimer=0, mazeMorphing=false;
+function initMaze(){
+  mazeCell=isMobile?32:40;
+  mazeW=Math.ceil(W/mazeCell)+1;
+  mazeH=Math.ceil(H/mazeCell)+1;
+  mazeGrid=[];
+  for(let y=0;y<mazeH;y++){
+    mazeGrid[y]=[];
+    for(let x=0;x<mazeW;x++){
+      mazeGrid[y][x]={walls:[true,true,true,true],visited:false};
+    }
+  }
+  // Recursive backtracker
+  function carve(x,y){
+    mazeGrid[y][x].visited=true;
+    const dirs=[[0,-1,0,2],[1,0,3,1],[0,1,2,0],[-1,0,1,3]].sort(()=>rnd()-0.5);
+    dirs.forEach(([dx,dy,w,bw])=>{
+      const nx=x+dx,ny=y+dy;
+      if(nx>=0&&ny>=0&&nx<mazeW&&ny<mazeH&&!mazeGrid[ny][nx].visited){
+        mazeGrid[y][x].walls[w]=false;
+        mazeGrid[ny][nx].walls[bw]=false;
+        carve(nx,ny);
+      }
+    });
+  }
+  carve(Math.floor(mazeW/2),Math.floor(mazeH/2));
+}
+function drawMaze(){
+  const alpha=0.12+Math.sin(T*0.01)*0.06;
+  cx.save();
+  const hueBase=(T*0.3)%360;
+  mazeGrid.forEach((row,y)=>{
+    row.forEach((cell,x)=>{
+      const px=x*mazeCell, py=y*mazeCell;
+      const h=(hueBase+x*3+y*2)%360;
+      cx.strokeStyle=hsl(h,80,60,alpha);
+      cx.lineWidth=1;
+      if(cell.walls[0]){cx.beginPath();cx.moveTo(px,py);cx.lineTo(px+mazeCell,py);cx.stroke();}
+      if(cell.walls[1]){cx.beginPath();cx.moveTo(px+mazeCell,py);cx.lineTo(px+mazeCell,py+mazeCell);cx.stroke();}
+      if(cell.walls[2]){cx.beginPath();cx.moveTo(px,py+mazeCell);cx.lineTo(px+mazeCell,py+mazeCell);cx.stroke();}
+      if(cell.walls[3]){cx.beginPath();cx.moveTo(px,py);cx.lineTo(px,py+mazeCell);cx.stroke();}
+    });
+  });
+  cx.restore();
+}
+
+// ─── TESSELLATION OVERLAYS (Persian / Greek / Thai) ─────────────────────────
+function drawTessellation(){
+  cx.save();
+  cx.globalAlpha=0.06+Math.sin(T*0.007)*0.04;
+  const s=isMobile?50:70;
+  const t01=(T*0.001)%1;
+  // Hexagonal grid
+  const hh=s*Math.sqrt(3)/2;
+  for(let row=-2;row<H/hh+2;row++){
+    for(let col=-2;col<W/s+2;col++){
+      const ox=(row%2)*s/2;
+      const cx2=col*s+ox+Math.sin(T*0.003+row*0.3)*8;
+      const cy2=row*hh+Math.cos(T*0.004+col*0.3)*6;
+      const hue=(t01*360+col*10+row*7)%360;
+      drawHexPersian(cx2,cy2,s*0.48,hue);
+    }
+  }
+  // Greek key border bands
+  drawGreekBands();
+  cx.restore();
+}
+function drawHexPersian(x,y,r,hue){
+  // Outer hex
+  cx.beginPath();
+  for(let i=0;i<6;i++){
+    const a=TAU/6*i-Math.PI/6;
+    i===0?cx.moveTo(x+r*Math.cos(a),y+r*Math.sin(a)):cx.lineTo(x+r*Math.cos(a),y+r*Math.sin(a));
+  }
+  cx.closePath();
+  cx.strokeStyle=hsl(hue,80,60,0.6);cx.lineWidth=0.5;cx.stroke();
+  // Inner star (Persian)
+  cx.beginPath();
+  for(let i=0;i<6;i++){
+    const a=TAU/6*i;
+    const b=a+TAU/12;
+    const or=r*0.55, ir=r*0.22;
+    i===0?cx.moveTo(x+or*Math.cos(a),y+or*Math.sin(a)):cx.lineTo(x+or*Math.cos(a),y+or*Math.sin(a));
+    cx.lineTo(x+ir*Math.cos(b),y+ir*Math.sin(b));
+  }
+  cx.closePath();
+  cx.strokeStyle=hsl((hue+60)%360,90,70,0.5);cx.stroke();
+}
+function drawGreekBands(){
+  const bands=4, bh=H/(bands+1);
+  for(let b=1;b<=bands;b++){
+    const by=b*bh;
+    const hue=(T*0.5+b*80)%360;
+    cx.strokeStyle=hsl(hue,80,65,0.3);
+    cx.lineWidth=1;
+    // Greek key pattern
+    const step=20, y0=by-6, y1=by+6;
+    for(let x=0;x<W;x+=step*2){
+      cx.beginPath();
+      cx.moveTo(x,y0);cx.lineTo(x+step,y0);cx.lineTo(x+step,y1);
+      cx.lineTo(x+step*2,y1);
+      cx.stroke();
+    }
+  }
+}
+
+// ─── PENDULUM SYSTEM ─────────────────────────────────────────────────────────
+let pendulums=[];
+function initPendulums(){
+  pendulums=[];
+  const n=isMobile?3:5;
+  for(let i=0;i<n;i++){
+    pendulums.push({
+      x:rng(W*0.15,W*0.85), y:rng(H*0.05,H*0.2),
+      angle:rng(-0.8,0.8), omega:rng(-0.05,0.05),
+      L:rng(80,160), mass:rng(10,25),
+      hue:rng(0,360),
+      sub:{
+        angle:rng(-0.5,0.5), omega:rng(-0.04,0.04),
+        L:rng(50,100), hue:rng(0,360)
+      },
+      trace:[],traceMax:isMobile?60:120
+    });
+  }
+}
+function stepPendulums(){
+  const g=0.3;
+  pendulums.forEach(p=>{
+    // Double pendulum (chaotic)
+    const a=p.angle, b=p.sub.angle;
+    const wa=p.omega, wb=p.sub.omega;
+    const L1=p.L/100, L2=p.sub.L/100;
+    const m1=p.mass, m2=10;
+    // Simplified double pendulum
+    const da=wb*wb*L2*(m2/(m1+m2))*Math.sin(a-b)-g*Math.sin(a);
+    const db=-wa*wa*L1*Math.sin(a-b)-g*Math.sin(b);
+    p.omega+=(da/L1)*0.5; p.omega*=0.999;
+    p.angle+=p.omega;
+    p.sub.omega+=(db/L2)*0.5; p.sub.omega*=0.999;
+    p.sub.angle+=p.sub.omega;
+    // Tip position
+    const x1=p.x+Math.sin(p.angle)*p.L;
+    const y1=p.y+Math.cos(p.angle)*p.L;
+    const x2=x1+Math.sin(p.sub.angle)*p.sub.L;
+    const y2=y1+Math.cos(p.sub.angle)*p.sub.L;
+    p.trace.push({x:x2,y:y2});
+    if(p.trace.length>p.traceMax)p.trace.shift();
+    // Influence nearby particles
+    if(T%3===0){
+      const strength=0.8;
+      particles.forEach(pt=>{
+        const dx=pt.x-x2,dy=pt.y-y2;
+        const d=Math.sqrt(dx*dx+dy*dy);
+        if(d<60){
+          pt.vx-=dx/d*strength*0.3;
+          pt.vy-=dy/d*strength*0.3;
+        }
+      });
+    }
+  });
+}
+function drawPendulums(){
+  pendulums.forEach(p=>{
+    // Trace
+    if(p.trace.length>2){
+      cx.beginPath();cx.moveTo(p.trace[0].x,p.trace[0].y);
+      p.trace.forEach((pt,i)=>{if(i>0)cx.lineTo(pt.x,pt.y);});
+      cx.strokeStyle=hsl(p.hue,80,60,0.25);
+      cx.lineWidth=1;cx.stroke();
+    }
+    const x1=p.x+Math.sin(p.angle)*p.L;
+    const y1=p.y+Math.cos(p.angle)*p.L;
+    const x2=x1+Math.sin(p.sub.angle)*p.sub.L;
+    const y2=y1+Math.cos(p.sub.angle)*p.sub.L;
+    // Rods
+    cx.strokeStyle=hsl(p.hue,70,50,0.7);cx.lineWidth=1.5;
+    cx.beginPath();cx.moveTo(p.x,p.y);cx.lineTo(x1,y1);cx.stroke();
+    cx.beginPath();cx.moveTo(x1,y1);cx.lineTo(x2,y2);cx.stroke();
+    // Bobs
+    [
+      {x:p.x,y:p.y,r:4,h:p.hue},
+      {x:x1,y:y1,r:7,h:p.hue},
+      {x:x2,y:y2,r:5,h:p.sub.hue}
+    ].forEach(({x,y,r,h})=>{
+      const g=cx.createRadialGradient(x,y,0,x,y,r*2);
+      g.addColorStop(0,hsl(h,100,90,0.9));
+      g.addColorStop(1,hsl(h,100,40,0));
+      cx.beginPath();cx.arc(x,y,r*2,0,TAU);
+      cx.fillStyle=g;cx.fill();
+      cx.beginPath();cx.arc(x,y,r,0,TAU);
+      cx.fillStyle=hsl(h,100,80);cx.fill();
+    });
+  });
+}
+
+// ─── GEAR TRAIN ──────────────────────────────────────────────────────────────
+let gears=[];
+function initGears(){
+  gears=[];
+  const n=isMobile?4:6;
+  const cx0=W*0.85, cy0=H*0.85;
+  let prevR=30, prevAngle=0, prevX=cx0, prevY=cy0;
+  for(let i=0;i<n;i++){
+    const r=rng(15,35);
+    const angle=prevAngle+(i%2?1:-1)*0.012*(prevR+r)/r;
+    const dist=prevR+r+4;
+    const a=TAU/n*i+T*0.001;
+    const x=i===0?cx0:prevX+Math.cos(a)*dist;
+    const y=i===0?cy0:prevY+Math.sin(a)*dist;
+    gears.push({
+      x,y,r,
+      teeth:Math.round(r*1.5),
+      angle:prevAngle*(prevR/r)*( i%2?-1:1),
+      speed:(i%2?-1:1)*(0.01+i*0.003)*(prevR/r),
+      hue:rng(0,360),
+      connected:i>0?i-1:-1
+    });
+    prevR=r; prevAngle=gears[gears.length-1].angle;
+    prevX=x; prevY=y;
+  }
+}
+function stepGears(){
+  gears.forEach(g=>{g.angle+=g.speed;});
+}
+function drawGear(x,y,r,teeth,angle,hue){
+  const ti=r*0.15, to=r*0.25;
+  cx.save();cx.translate(x,y);cx.rotate(angle);
+  cx.beginPath();
+  for(let i=0;i<teeth;i++){
+    const a0=TAU/teeth*i, a1=a0+TAU/(teeth*2);
+    const a2=a1+TAU/(teeth*2)*0.6, a3=a2+TAU/(teeth*2)*0.4;
+    cx.moveTo(Math.cos(a0)*(r-ti),Math.sin(a0)*(r-ti));
+    cx.lineTo(Math.cos(a0)*(r+to),Math.sin(a0)*(r+to));
+    cx.lineTo(Math.cos(a2)*(r+to),Math.sin(a2)*(r+to));
+    cx.lineTo(Math.cos(a2)*(r-ti),Math.sin(a2)*(r-ti));
+  }
+  cx.closePath();
+  cx.strokeStyle=hsl(hue,80,60,0.6);cx.lineWidth=1;cx.stroke();
+  // Hub
+  cx.beginPath();cx.arc(0,0,r*0.3,0,TAU);
+  cx.strokeStyle=hsl(hue,70,70,0.7);cx.stroke();
+  cx.beginPath();cx.arc(0,0,r*0.1,0,TAU);
+  cx.fillStyle=hsl(hue,100,80,0.9);cx.fill();
+  // Spokes
+  for(let i=0;i<4;i++){
+    const a=TAU/4*i;
+    cx.beginPath();
+    cx.moveTo(Math.cos(a)*r*0.15,Math.sin(a)*r*0.15);
+    cx.lineTo(Math.cos(a)*(r-ti),Math.sin(a)*(r-ti));
+    cx.strokeStyle=hsl(hue,60,50,0.5);cx.stroke();
+  }
+  cx.restore();
+}
+function drawGears(){
+  gears.forEach(g=>drawGear(g.x,g.y,g.r,g.teeth,g.angle,g.hue));
+}
+
+// ─── RUBIK / PUZZLE TILES ────────────────────────────────────────────────────
+let puzzle={cells:[],size:5,x:0,y:0,w:0,rotating:false,rotAngle:0,rotTarget:0};
+function initPuzzle(){
+  const ps=isMobile?80:110;
+  puzzle.size=3;
+  puzzle.w=ps*puzzle.size;
+  puzzle.x=W*0.05; puzzle.y=H*0.5-puzzle.w/2;
+  puzzle.cells=[];
+  const colors=['#ff2288','#00ffcc','#ffdd00','#ff6600','#4488ff','#aa00ff','#00ff44','#ff0044','#ffffff'];
+  for(let i=0;i<9;i++){
+    puzzle.cells.push({
+      col:colors[i],
+      tx:(i%3)*ps+puzzle.x,
+      ty:Math.floor(i/3)*ps+puzzle.y,
+      size:ps-3,
+      rot:0,
+      hue:rng(0,360)
+    });
+  }
+}
+function stepPuzzle(){
+  if(T%180===0){
+    // Shuffle a row or column
+    const row=Math.floor(rnd()*3);
+    for(let i=0;i<3;i++){
+      const tmp=puzzle.cells[row*3].col;
+      puzzle.cells[row*3].col=puzzle.cells[row*3+1].col;
+      puzzle.cells[row*3+1].col=puzzle.cells[row*3+2].col;
+      puzzle.cells[row*3+2].col=tmp;
+    }
+    playTone(440+row*110,0.2,0.06,'square');
+  }
+  puzzle.cells.forEach((c,i)=>{
+    c.rot+=0.008*Math.sin(T*0.01+i);
+    c.hue=(c.hue+0.3)%360;
+  });
+}
+function drawPuzzle(){
+  cx.save();
+  cx.globalAlpha=0.55;
+  puzzle.cells.forEach((c,i)=>{
+    const x=c.tx+c.size/2, y=c.ty+c.size/2;
+    cx.save();cx.translate(x,y);cx.rotate(c.rot);
+    // Tile
+    cx.fillStyle=hsl(c.hue,80,40,0.7);
+    cx.fillRect(-c.size/2,-c.size/2,c.size,c.size);
+    // Decorative inner (Thai-inspired)
+    const hw=c.size*0.35;
+    cx.strokeStyle=hsl((c.hue+120)%360,90,70,0.8);
+    cx.lineWidth=1.5;
+    cx.beginPath();
+    for(let j=0;j<8;j++){
+      const a=TAU/8*j, r1=hw*0.5, r2=hw;
+      j===0?cx.moveTo(Math.cos(a)*r2,Math.sin(a)*r2):cx.lineTo(Math.cos(a)*r2,Math.sin(a)*r2);
+      cx.lineTo(Math.cos(a+TAU/16)*r1,Math.sin(a+TAU/16)*r1);
+    }
+    cx.closePath();cx.stroke();
+    cx.restore();
+  });
+  cx.restore();
+}
+
+// ─── CYBERNETIC HUMAN FIGURE ─────────────────────────────────────────────────
+let cyborgs=[];
+function initCyborgs(){
+  cyborgs=[];
+  const n=isMobile?2:3;
+  for(let i=0;i<n;i++){
+    cyborgs.push({
+      x:rng(W*0.25,W*0.75), y:rng(H*0.2,H*0.7),
+      phase:rnd(), speed:rng(0.003,0.008),
+      hue:rng(100,240),
+      nodes:[],circuits:[],
+      dissolve:rng(0,1)
+    });
+    rebuildCyborg(cyborgs[cyborgs.length-1]);
+  }
+}
+function rebuildCyborg(c){
+  c.nodes=[];
+  // Human skeleton nodes (simplified)
+  const sc=isMobile?0.6:0.9;
+  const joints=[
+    {name:'head',rx:0,ry:-100*sc},
+    {name:'neck',rx:0,ry:-75*sc},
+    {name:'lsh',rx:-30*sc,ry:-55*sc},{name:'rsh',rx:30*sc,ry:-55*sc},
+    {name:'hip',rx:0,ry:0},
+    {name:'lel',rx:-50*sc,ry:-30*sc},{name:'rel',rx:50*sc,ry:-30*sc},
+    {name:'lwr',rx:-65*sc,ry:-5*sc},{name:'rwr',rx:65*sc,ry:-5*sc},
+    {name:'lkn',rx:-20*sc,ry:40*sc},{name:'rkn',rx:20*sc,ry:40*sc},
+    {name:'lft',rx:-22*sc,ry:80*sc},{name:'rft',rx:22*sc,ry:80*sc}
+  ];
+  joints.forEach(j=>{
+    c.nodes.push({
+      x:c.x+j.rx, y:c.y+j.ry,
+      bx:j.rx, by:j.ry, name:j.name,
+      active:Math.random()>0.3
+    });
+  });
+  // Circuit connections
+  c.circuits=[];
+  const links=[[0,1],[1,2],[1,3],[2,4],[3,4],[2,5],[5,6],[6,7],[3,7],[4,8],[4,9],[8,10],[9,11]];
+  links.forEach(([a,b])=>{
+    if(c.nodes[a]&&c.nodes[b]){
+      c.circuits.push({from:a,to:b,hue:rng(100,260),pulse:rnd()});
+    }
+  });
+}
+function stepCyborgs(){
+  cyborgs.forEach(c=>{
+    c.phase+=c.speed;
+    c.dissolve=(Math.sin(c.phase)+1)/2;
+    // Drift
+    c.x+=Math.sin(c.phase*1.3+1)*0.3;
+    c.y+=Math.cos(c.phase*0.9+2)*0.2;
+    // Update node positions with robotic jitter
+    c.nodes.forEach((n,i)=>{
+      const jitter=c.dissolve*6;
+      n.x=c.x+n.bx+Math.sin(T*0.05+i*0.7)*jitter*(1-c.dissolve*0.5);
+      n.y=c.y+n.by+Math.cos(T*0.04+i*0.9)*jitter*(1-c.dissolve*0.5);
+      n.active=Math.sin(T*0.08+i*1.2)>0;
+    });
+    c.circuits.forEach(ci=>{
+      ci.pulse=(ci.pulse+0.03)%1;
+    });
+  });
+}
+function drawCyborgs(){
+  cyborgs.forEach(c=>{
+    const alpha=0.5+c.dissolve*0.4;
+    cx.save();
+    // Circuit lines
+    c.circuits.forEach(ci=>{
+      const a=c.nodes[ci.from], b=c.nodes[ci.to];
+      if(!a||!b)return;
+      cx.beginPath();cx.moveTo(a.x,a.y);
+      // Elbow routing (cyberpunk)
+      const mx=(a.x+b.x)/2;
+      cx.lineTo(mx,a.y);cx.lineTo(mx,b.y);cx.lineTo(b.x,b.y);
+      cx.strokeStyle=hsl(ci.hue,90,55+ci.pulse*30,alpha*0.6);
+      cx.lineWidth=1+c.dissolve;cx.stroke();
+      // Pulse dot
+      const pt={x:lerp(a.x,b.x,ci.pulse),y:lerp(a.y,b.y,ci.pulse)};
+      cx.beginPath();cx.arc(pt.x,pt.y,2.5,0,TAU);
+      cx.fillStyle=hsl(ci.hue,100,85,alpha);cx.fill();
+    });
+    // Node circles
+    c.nodes.forEach((n,i)=>{
+      const r=4+c.dissolve*3;
+      const g2=cx.createRadialGradient(n.x,n.y,0,n.x,n.y,r*2.5);
+      g2.addColorStop(0,hsl(c.hue+i*10,100,80,alpha));
+      g2.addColorStop(1,hsl(c.hue+i*10,100,40,0));
+      cx.beginPath();cx.arc(n.x,n.y,r*2.5,0,TAU);
+      cx.fillStyle=g2;cx.fill();
+      if(n.active){
+        cx.beginPath();cx.arc(n.x,n.y,r,0,TAU);
+        cx.fillStyle=hsl(c.hue,100,85);cx.fill();
+      }
+    });
+    // Head: CRISPR helix ring
+    const head=c.nodes[0];
+    if(head){
+      for(let i=0;i<16;i++){
+        const a=TAU/16*i+T*0.03;
+        const r=12+c.dissolve*8;
+        const px2=head.x+Math.cos(a)*r;
+        const py2=head.y+Math.sin(a)*r;
+        cx.beginPath();cx.arc(px2,py2,1.5,0,TAU);
+        cx.fillStyle=hsl((c.hue+i*22)%360,100,75,alpha*Math.abs(Math.sin(a+T*0.05)));
+        cx.fill();
+      }
+    }
+    cx.restore();
+  });
+}
+
+// ─── CRISPR DNA STRANDS ───────────────────────────────────────────────────────
+function drawDNAStrands(){
+  const n=isMobile?2:3;
+  for(let s=0;s<n;s++){
+    const ox=W*(0.15+s*0.35), oy=H*0.1;
+    const len=H*0.8, twist=TAU*3;
+    const segments=80;
+    cx.save();cx.globalAlpha=0.22;
+    const hue=(T*0.2+s*120)%360;
+    for(let i=0;i<segments;i++){
+      const t=i/segments;
+      const y=oy+len*t;
+      const a=twist*t+T*0.02+s*TAU/n;
+      const r=18+Math.sin(t*Math.PI)*12;
+      const x1=ox+Math.cos(a)*r;
+      const x2=ox+Math.cos(a+Math.PI)*r;
+      // Backbone
+      if(i>0){
+        const pt=((i-1)/segments);
+        const py=oy+len*pt;
+        const pa=twist*pt+T*0.02+s*TAU/n;
+        cx.strokeStyle=hsl(hue,80,60,0.7);cx.lineWidth=1.5;
+        cx.beginPath();cx.moveTo(ox+Math.cos(pa)*r,py);cx.lineTo(x1,y);cx.stroke();
+        cx.strokeStyle=hsl((hue+180)%360,80,60,0.7);
+        cx.beginPath();cx.moveTo(ox+Math.cos(pa+Math.PI)*r,py);cx.lineTo(x2,y);cx.stroke();
+      }
+      // Base pairs
+      if(i%4===0){
+        cx.strokeStyle=hsl((hue+90)%360,90,70,0.8);cx.lineWidth=1;
+        cx.beginPath();cx.moveTo(x1,y);cx.lineTo(x2,y);cx.stroke();
+        cx.beginPath();cx.arc(x1,y,2,0,TAU);cx.fillStyle=hsl(hue,100,80);cx.fill();
+        cx.beginPath();cx.arc(x2,y,2,0,TAU);cx.fillStyle=hsl((hue+180)%360,100,80);cx.fill();
+      }
+    }
+    cx.restore();
+  }
+}
+
+// ─── COSMIC WEB / LARGE SCALE STRUCTURE ──────────────────────────────────────
+let webNodes=[], webEdges=[];
+function initCosmicWeb(){
+  webNodes=[];webEdges=[];
+  const n=isMobile?30:55;
+  for(let i=0;i<n;i++){
+    webNodes.push({
+      x:rng(0,W),y:rng(0,H),
+      vx:rng(-0.15,0.15),vy:rng(-0.15,0.15),
+      r:rng(1,4),hue:rng(180,300),
+      mass:rng(1,5)
+    });
+  }
+  // Connect nearby nodes
+  for(let i=0;i<webNodes.length;i++){
+    for(let j=i+1;j<webNodes.length;j++){
+      const dx=webNodes[i].x-webNodes[j].x;
+      const dy=webNodes[i].y-webNodes[j].y;
+      const d=Math.sqrt(dx*dx+dy*dy);
+      if(d<W*0.18){webEdges.push({i,j,d});}
+    }
+  }
+}
+function stepCosmicWeb(){
+  webNodes.forEach(n=>{
+    n.x+=n.vx;n.y+=n.vy;
+    if(n.x<0||n.x>W)n.vx*=-1;
+    if(n.y<0||n.y>H)n.vy*=-1;
+  });
+}
+function drawCosmicWeb(){
+  cx.save();cx.globalAlpha=0.08;
+  const t01=(T*0.0003)%1;
+  webEdges.forEach(e=>{
+    const a=webNodes[e.i], b=webNodes[e.j];
+    const dist=Math.sqrt((a.x-b.x)**2+(a.y-b.y)**2);
+    const alpha=1-dist/(W*0.18);
+    cx.strokeStyle=hsl((t01*360+e.i*7)%360,80,60,alpha*0.6);
+    cx.lineWidth=0.5+alpha;
+    cx.beginPath();cx.moveTo(a.x,a.y);cx.lineTo(b.x,b.y);cx.stroke();
+  });
+  cx.restore();
+  cx.save();cx.globalAlpha=0.3;
+  webNodes.forEach(n=>{
+    cx.beginPath();cx.arc(n.x,n.y,n.r,0,TAU);
+    cx.fillStyle=hsl(n.hue,80,70);cx.fill();
+  });
+  cx.restore();
+}
+
+// ─── INITIALIZE ALL SYSTEMS ──────────────────────────────────────────────────
+function initAll(){
+  initBodies(); initMaze();
+  initPendulums(); initGears();
+  puzzleActive=false;
+  swarmActive=false;
+  initCyborgs(); initCosmicWeb();
+  phaseT=0;
+  playTone(220,0.5,0.1,'sine');
+  showTitleFlash();
+}
+
+function showTitleFlash(){
+  tf.classList.add('show');
+  setTimeout(()=>tf.classList.remove('show'),2500);
+}
+
+// ─── BACKGROUND ──────────────────────────────────────────────────────────────
+function drawBackground(){
+  cx.fillStyle='rgba(2,3,8,0.18)';
+  cx.fillRect(0,0,W,H);
+  // Subtle radial nebula
+  const t=(T*0.001)%1;
+  const g=cx.createRadialGradient(W/2,H/2,0,W/2,H/2,Math.max(W,H)*0.7);
+  g.addColorStop(0,hsl((t*360)%360,60,8,0.12));
+  g.addColorStop(0.5,hsl((t*360+90)%360,40,4,0.06));
+  g.addColorStop(1,'rgba(0,0,0,0)');
+  cx.fillStyle=g;cx.fillRect(0,0,W,H);
+}
+
+// ─── HUD UPDATE ──────────────────────────────────────────────────────────────
+function updateHUD(){
+  if(!hudOn)return;
+  document.getElementById('h2').textContent=`BODIES: ${bodies.length} | PARTICLES: ${particles.length}`;
+  document.getElementById('h3').textContent=`PHASE: ${PHASES[phase%PHASES.length]} | T: ${T}`;
+  document.getElementById('h4').textContent=`PENDULUMS: ${pendulums.length} | GEARS: ${gears.length}`;
+  document.getElementById('h5').textContent=`MAZE: ${mazeW}×${mazeH} | PUZZLE: ${puzzleActive?'ACTIVE':'DORMANT'}`;
+}
+
+// ─── AUDIO AMBIENCE ──────────────────────────────────────────────────────────
+let lastBeep=0;
+function ambientAudio(){
+  if(!soundOn||!actx)return;
+  if(T-lastBeep>90){
+    lastBeep=T;
+    const baseFreq=80+Math.sin(T*0.005)*40;
+    playTone(baseFreq,1.2,0.05,'sine');
+    playTone(baseFreq*1.5,0.8,0.03,'sine');
+    if(T%300===0) playTone(440+Math.random()*200,0.4,0.07,'square');
+  }
+}
+
+// ─── MAIN LOOP ───────────────────────────────────────────────────────────────
+function loop(){
+  requestAnimationFrame(loop);
+  T++;
+  phaseT++;
+  if(phaseT>phaseDur){phaseT=0;phase=(phase+1)%PHASES.length;}
+
+  drawBackground();
+  drawCosmicWeb();
+  drawTessellation();
+  drawMaze();
+
+  stepBodies(); drawBodies();
+  if(swarmActive){stepParticles(); drawParticles();}
+  stepPendulums(); drawPendulums();
+  stepGears(); drawGears();
+  if(puzzleActive){stepPuzzle(); drawPuzzle();}
+  stepCyborgs(); drawCyborgs();
+  drawDNAStrands();
+  stepCosmicWeb();
+
+  ambientAudio();
+  updateHUD();
+
+  // Phase-specific overlays
+  drawPhaseOverlay();
+}
+
+function drawPhaseOverlay(){
+  const p=PHASES[phase%PHASES.length];
+  const a=Math.sin(phaseT/phaseDur*Math.PI)*0.06;
+  if(a<0.01)return;
+  cx.save();cx.globalAlpha=a;
+  cx.fillStyle=spectral(T*0.001);
+  cx.font=`${isMobile?14:22}px 'Courier New'`;
+  cx.textAlign='center';
+  cx.fillText(`◈ ${p} ◈`,W/2,H*0.92);
+  cx.restore();
+}
+
+// ─── RANDOMIZE ───────────────────────────────────────────────────────────────
+function randomize(){
+  initAudio();
+  randomizeCount++;
+  initBodies();
+  if(!swarmActive) particles=[];
+  initPendulums(); initGears();
+  puzzleActive=(randomizeCount%17===0);
+  if(puzzleActive) initPuzzle();
+  swarmActive=(randomizeCount%13===0);
+  if(swarmActive) initParticles();
+  initCyborgs();
+  initMaze(); initCosmicWeb();
+  phase=Math.floor(rnd()*PHASES.length);
+  phaseT=0;
+  showTitleFlash();
+  playTone(330,0.3,0.1,'triangle');
+}
+
+// ─── INPUT ───────────────────────────────────────────────────────────────────
+document.addEventListener('keydown',e=>{
+  const k=e.key.toLowerCase();
+  if(k===' '||k==='enter'){e.preventDefault();randomize();}
+  if(k==='h'){hudOn=!hudOn;hud.classList.toggle('on',hudOn);}
+  if(k==='s'){
+    initAudio();
+    soundOn=!soundOn;
+    if(soundOn&&actx&&actx.state==='suspended') actx.resume();
+    playTone(880,0.15,0.08,'sine');
+  }
+});
+cv.addEventListener('click',()=>randomize());
+cv.addEventListener('touchstart',e=>{e.preventDefault();randomize();},{passive:false});
+
+// ─── START ───────────────────────────────────────────────────────────────────
+initAll();
+loop();
+
+})();
+</script>
+</body>
+</html>

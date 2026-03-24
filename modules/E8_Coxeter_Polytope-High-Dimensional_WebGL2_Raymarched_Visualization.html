@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>E8 Coxeter Polytope | High-Dimensional WebGL2 Raymarched Visualization</title>
+<meta name="description" content="Interactive WebGL2 visualization of rotating high-dimensional polytopes derived from Coxeter reflections and E8 root lattice projections using stereographic mapping, quaternion rotations, eigenmode oscillations, fractal turbulence, spectral halos and harmonic synthesis.">
+<meta name="keywords" content="WebGL2, E8, Coxeter group, high dimensional polytope, ray marching, SDF, fractal Brownian motion, quaternion rotation, spectral gradient, Fourier Legendre, Clifford algebra, interactive shader art">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+html,body{margin:0;padding:0;overflow:hidden;background:#000;}
+canvas{width:100vw;height:100vh;display:block;}
+#hud{
+position:fixed;top:10px;left:10px;
+font-family:monospace;
+color:white;
+background:rgba(0,0,0,.4);
+padding:8px;
+font-size:12px;
+display:none;
+}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="hud">
+E8 Coxeter Polytope Visualizer<br>
+SPACE / Click – Randomize<br>
+H – Toggle HUD<br>
+S – Toggle Sound<br>
+Sound: OFF
+</div>
+
+<script>
+const canvas=document.getElementById("gl");
+const gl=canvas.getContext("webgl2",{antialias:false});
+if(!gl){alert("WebGL2 required");}
+
+function resize(){
+canvas.width=innerWidth;
+canvas.height=innerHeight;
+gl.viewport(0,0,canvas.width,canvas.height);
+}
+addEventListener("resize",resize);
+resize();
+
+const vertex=`#version 300 es
+precision highp float;
+in vec2 aPos;
+void main(){
+gl_Position=vec4(aPos,0.0,1.0);
+}`;
+
+const fragment=`#version 300 es
+precision highp float;
+out vec4 fragColor;
+
+uniform vec2 iResolution;
+uniform float iTime;
+uniform vec4 seed;
+uniform float paletteShift;
+
+#define MAX_STEPS 100
+#define MAX_DIST 40.
+#define SURF_DIST .001
+
+// hash
+float hash(vec3 p){
+p=fract(p*.3183099+seed.x);
+p*=17.;
+return fract(p.x*p.y*p.z*(p.x+p.y+p.z));
+}
+
+// noise
+float noise(vec3 p){
+vec3 i=floor(p);
+vec3 f=fract(p);
+f=f*f*(3.-2.*f);
+return mix(
+mix(
+mix(hash(i+vec3(0,0,0)),hash(i+vec3(1,0,0)),f.x),
+mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),f.x),f.y),
+mix(
+mix(hash(i+vec3(0,0,1)),hash(i+vec3(1,0,1)),f.x),
+mix(hash(i+vec3(0,1,1)),hash(i+vec3(1,1,1)),f.x),f.y),
+f.z);
+}
+
+float fbm(vec3 p){
+float v=0.;
+float a=.5;
+for(int i=0;i<5;i++){
+v+=a*noise(p);
+p*=2.;
+a*=.5;
+}
+return v;
+}
+
+// quaternion rotate
+vec3 qrot(vec4 q,vec3 p){
+return p+2.*cross(q.xyz,cross(q.xyz,p)+q.w*p);
+}
+
+// Bessel approx
+float bessel(float x){
+return sin(x)/x;
+}
+
+// Voronoi
+float voronoi(vec3 p){
+vec3 g=floor(p);
+vec3 f=fract(p);
+float res=1.;
+for(int x=-1;x<=1;x++)
+for(int y=-1;y<=1;y++)
+for(int z=-1;z<=1;z++){
+vec3 b=vec3(x,y,z);
+vec3 r=b-f+hash(g+b);
+res=min(res,dot(r,r));
+}
+return sqrt(res);
+}
+
+// polytope SDF (Coxeter inspired symmetry folding)
+float polySDF(vec3 p){
+p=abs(p);
+p=max(p.yzx,p);
+p=abs(p);
+float d=length(p)-1.2;
+d+=0.3*fbm(p*3.+iTime);
+d+=0.2*bessel(length(p)*8.);
+d+=0.2*voronoi(p*4.);
+return d;
+}
+
+float map(vec3 p){
+return polySDF(p);
+}
+
+vec3 getNormal(vec3 p){
+vec2 e=vec2(.001,0);
+return normalize(vec3(
+map(p+e.xyy)-map(p-e.xyy),
+map(p+e.yxy)-map(p-e.yxy),
+map(p+e.yyx)-map(p-e.yyx)
+));
+}
+
+// spectral palette
+vec3 palette(float t){
+return .5+.5*cos(6.28318*(t+vec3(0,.33,.67)+paletteShift));
+}
+
+// Fourier–Legendre halo
+float legendre(float x){
+return .5*(3.*x*x-1.);
+}
+
+void main(){
+vec2 uv=(gl_FragCoord.xy-.5*iResolution.xy)/iResolution.y;
+vec3 ro=vec3(0,0,4.);
+vec3 rd=normalize(vec3(uv,-1.5));
+
+vec4 q=normalize(vec4(
+sin(iTime*.3+seed.x),
+sin(iTime*.2+seed.y),
+sin(iTime*.4+seed.z),
+cos(iTime*.5)
+));
+
+rd=qrot(q,rd);
+ro=qrot(q,ro);
+
+float dO=0.;
+float dS;
+
+for(int i=0;i<MAX_STEPS;i++){
+vec3 p=ro+rd*dO;
+dS=map(p);
+dO+=dS;
+if(dO>MAX_DIST||abs(dS)<SURF_DIST)break;
+}
+
+vec3 col=vec3(0);
+
+if(dO<MAX_DIST){
+vec3 p=ro+rd*dO;
+vec3 n=getNormal(p);
+float diff=max(dot(n,vec3(.5,.8,.3)),0.);
+float eig=sin(length(p)*5.+iTime);
+col=palette(eig*.2+seed.w);
+col*=diff+0.3;
+}
+
+// halo
+float r=length(uv);
+float halo=exp(-r*2.);
+float leg=legendre(dot(normalize(vec3(uv,1.)),vec3(0,0,1.)));
+vec3 haloCol=palette(leg*.3+iTime*.05);
+col+=halo*haloCol*0.6;
+
+// gamma smoothstep
+col=smoothstep(0.,1.,col);
+
+fragColor=vec4(col,1.);
+}
+`;
+
+function compile(type,src){
+let s=gl.createShader(type);
+gl.shaderSource(s,src);
+gl.compileShader(s);
+if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){
+console.error(gl.getShaderInfoLog(s));
+}
+return s;
+}
+
+let program=gl.createProgram();
+gl.attachShader(program,compile(gl.VERTEX_SHADER,vertex));
+gl.attachShader(program,compile(gl.FRAGMENT_SHADER,fragment));
+gl.linkProgram(program);
+gl.useProgram(program);
+
+let quad=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,quad);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([
+-1,-1,1,-1,-1,1,
+-1,1,1,-1,1,1
+]),gl.STATIC_DRAW);
+
+let pos=gl.getAttribLocation(program,"aPos");
+gl.enableVertexAttribArray(pos);
+gl.vertexAttribPointer(pos,2,gl.FLOAT,false,0,0);
+
+let iResolution=gl.getUniformLocation(program,"iResolution");
+let iTime=gl.getUniformLocation(program,"iTime");
+let seedLoc=gl.getUniformLocation(program,"seed");
+let paletteLoc=gl.getUniformLocation(program,"paletteShift");
+
+let start=performance.now();
+let seed=[Math.random(),Math.random(),Math.random(),Math.random()];
+let paletteShift=Math.random();
+
+function randomize(){
+seed=[Math.random(),Math.random(),Math.random(),Math.random()];
+paletteShift=Math.random();
+}
+canvas.onclick=randomize;
+addEventListener("keydown",e=>{
+if(e.code==="Space")randomize();
+if(e.key==="h"||e.key==="H"){
+hud.style.display=hud.style.display==="none"?"block":"none";
+}
+if(e.key==="s"||e.key==="S")toggleSound();
+});
+
+function render(){
+let t=(performance.now()-start)/1000;
+gl.uniform2f(iResolution,canvas.width,canvas.height);
+gl.uniform1f(iTime,t);
+gl.uniform4f(seedLoc,seed[0],seed[1],seed[2],seed[3]);
+gl.uniform1f(paletteLoc,paletteShift);
+gl.drawArrays(gl.TRIANGLES,0,6);
+requestAnimationFrame(render);
+}
+render();
+
+/* Optional harmonic synthesis (OFF default, zero compute when muted) */
+let audioCtx=null;
+let osc=[];
+let soundOn=false;
+
+function toggleSound(){
+soundOn=!soundOn;
+if(soundOn){
+if(!audioCtx)audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+osc=[];
+for(let i=0;i<5;i++){
+let o=audioCtx.createOscillator();
+let g=audioCtx.createGain();
+o.frequency.value=150+Math.random()*400;
+o.type="sine";
+g.gain.value=0.05;
+o.connect(g).connect(audioCtx.destination);
+o.start();
+osc.push(o);
+}
+hud.innerHTML=hud.innerHTML.replace("OFF","ON");
+}else{
+osc.forEach(o=>o.stop());
+osc=[];
+hud.innerHTML=hud.innerHTML.replace("ON","OFF");
+}
+}
+</script>
+</body>
+</html>

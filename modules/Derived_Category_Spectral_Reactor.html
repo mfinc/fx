@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+
+<title>Derived Category Spectral Reactor – Advanced Spectral Mathematics Visualization</title>
+
+<meta name="description" content="Advanced generative visualization of derived categories, spectral decomposition mathematics, eigenvalue tensor fields, Fourier morphism flows, and kaleidoscopic Coxeter symmetry rendered as an evolving audiovisual fractal system.">
+
+<meta name="keywords" content="derived categories visualization, spectral mathematics art, eigenvalue tensor field visualization, generative fractal audiovisual systems, Coxeter symmetry generative art, quaternion rotation visualization, higher algebra graphics">
+
+<meta name="viewport" content="width=device-width,initial-scale=1">
+
+<style>
+
+html,body{
+margin:0;
+padding:0;
+background:black;
+overflow:hidden;
+font-family:monospace;
+}
+
+canvas{
+display:block;
+}
+
+#hud{
+position:fixed;
+top:10px;
+left:10px;
+color:white;
+font-size:12px;
+background:rgba(0,0,0,.35);
+padding:8px;
+border-radius:6px;
+display:none;
+}
+
+</style>
+</head>
+
+<body>
+
+<canvas id="c"></canvas>
+<div id="hud"></div>
+
+<script>
+
+const canvas=document.getElementById("c")
+const ctx=canvas.getContext("2d")
+const hud=document.getElementById("hud")
+
+let W,H
+function resize(){
+W=canvas.width=innerWidth
+H=canvas.height=innerHeight
+}
+resize()
+addEventListener("resize",resize)
+
+let t=0
+
+let particles=[]
+let eigen=[]
+let palette=[]
+let tensor=[]
+let symmetry
+let latticeSize
+let particleCount
+let phaseBurst=0
+
+let audioOn=false
+let audioCtx=null
+let oscillators=[]
+let gains=[]
+let filter
+
+function rand(a=1){return Math.random()*a}
+function r(a,b){return a+Math.random()*(b-a)}
+
+function regenerate(){
+
+particles=[]
+eigen=[]
+palette=[]
+tensor=[]
+oscillators=[]
+gains=[]
+
+symmetry=Math.floor(r(3,12))
+latticeSize=Math.floor(r(25,60))
+particleCount=Math.floor(r(1500,5000))
+
+for(let i=0;i<10;i++)
+eigen.push(r(.2,2))
+
+for(let i=0;i<20;i++)
+tensor.push(r(-2,2))
+
+for(let i=0;i<12;i++)
+palette.push(rand(360))
+
+for(let i=0;i<particleCount;i++){
+
+particles.push({
+x:rand(W),
+y:rand(H),
+vx:0,
+vy:0,
+p:rand(10)
+})
+
+}
+
+initAudio()
+
+}
+
+function spectralField(x,y){
+
+let v=0
+
+for(let i=0;i<eigen.length;i++){
+
+let e=eigen[i]
+
+v+=Math.sin(
+x*e*tensor[i%tensor.length]
++
+y*e*tensor[(i+3)%tensor.length]
++
+t*e
+)
+
+}
+
+return v
+}
+
+function quaternionWarp(x,y){
+
+let q1=Math.sin(x*0.5+t)
+let q2=Math.cos(y*0.5-t)
+let q3=Math.sin((x+y)*0.25+t*0.3)
+
+return q1*q2+q3
+
+}
+
+function drawSpectralInterference(){
+
+let step=Math.max(20,Math.floor(W/40))
+
+for(let x=0;x<W;x+=step){
+
+for(let y=0;y<H;y+=step){
+
+let nx=x/W
+let ny=y/H
+
+let v=spectralField(nx,ny)
+let q=quaternionWarp(nx,ny)
+
+let r=Math.abs(v+q)*step*1.2
+
+let h=(palette[0]+v*200+t*40)%360
+
+ctx.strokeStyle=`hsla(${h},80%,65%,0.12)`
+
+ctx.beginPath()
+ctx.arc(x,y,r,0,Math.PI*2)
+ctx.stroke()
+
+}
+
+}
+
+}
+
+function drawLattice(){
+
+for(let i=0;i<latticeSize;i++){
+
+for(let j=0;j<latticeSize;j++){
+
+let nx=i/latticeSize
+let ny=j/latticeSize
+
+let x=nx*W
+let y=ny*H
+
+let v=spectralField(nx,ny)
+let q=quaternionWarp(nx,ny)
+
+let size=8+Math.abs(v+q)*20
+
+let hue=(palette[1]+v*180+t*30)%360
+
+ctx.strokeStyle=`hsla(${hue},90%,65%,0.45)`
+
+ctx.beginPath()
+
+for(let s=0;s<symmetry;s++){
+
+let a=s*Math.PI*2/symmetry+t*0.2
+
+let dx=Math.cos(a)*size
+let dy=Math.sin(a)*size
+
+ctx.moveTo(x,y)
+ctx.lineTo(x+dx,y+dy)
+
+}
+
+ctx.stroke()
+
+}
+
+}
+
+}
+
+function drawParticles(){
+
+particles.forEach(p=>{
+
+let nx=p.x/W
+let ny=p.y/H
+
+let v=spectralField(nx,ny)
+let q=quaternionWarp(nx,ny)
+
+let angle=(v+q)*Math.PI*2
+
+p.vx+=Math.cos(angle)*0.25
+p.vy+=Math.sin(angle)*0.25
+
+p.vx*=0.93
+p.vy*=0.93
+
+p.x+=p.vx
+p.y+=p.vy
+
+if(p.x<0)p.x+=W
+if(p.y<0)p.y+=H
+if(p.x>W)p.x-=W
+if(p.y>H)p.y-=H
+
+let hue=(palette[2]+v*220+t*60)%360
+
+ctx.fillStyle=`hsla(${hue},100%,70%,0.9)`
+ctx.fillRect(p.x,p.y,1.6,1.6)
+
+})
+
+}
+
+function phaseExplosion(){
+
+phaseBurst+=0.01
+
+if(phaseBurst>1){
+
+palette=palette.map(()=>rand(360))
+
+phaseBurst=0
+
+}
+
+}
+
+function drawBackground(){
+
+let g=ctx.createRadialGradient(
+W/2,H/2,0,
+W/2,H/2,Math.max(W,H)
+)
+
+let h1=(palette[3]+t*10)%360
+let h2=(palette[4]+t*20)%360
+
+g.addColorStop(0,`hsl(${h1},70%,8%)`)
+g.addColorStop(1,`hsl(${h2},70%,2%)`)
+
+ctx.fillStyle=g
+ctx.fillRect(0,0,W,H)
+
+}
+
+function initAudio(){
+
+if(!audioOn) return
+
+if(!audioCtx)
+audioCtx=new (window.AudioContext||window.webkitAudioContext)()
+
+oscillators=[]
+gains=[]
+
+filter=audioCtx.createBiquadFilter()
+filter.type="lowpass"
+filter.frequency.value=800
+
+filter.connect(audioCtx.destination)
+
+eigen.forEach(e=>{
+
+let osc=audioCtx.createOscillator()
+let gain=audioCtx.createGain()
+
+osc.type="sine"
+osc.frequency.value=120+e*200
+
+gain.gain.value=.02
+
+osc.connect(gain)
+gain.connect(filter)
+
+osc.start()
+
+oscillators.push(osc)
+gains.push(gain)
+
+})
+
+}
+
+function evolveAudio(){
+
+if(!audioOn) return
+
+let energy=Math.abs(Math.sin(t))
+
+filter.frequency.value=300+energy*2000
+
+oscillators.forEach((o,i)=>{
+
+o.frequency.value=
+120+
+eigen[i%eigen.length]*200+
+Math.sin(t*(i+1))*50
+
+gains[i].gain.value=
+0.01+
+energy*0.05
+
+})
+
+}
+
+function toggleSound(){
+
+audioOn=!audioOn
+
+if(audioOn){
+
+if(!audioCtx)
+audioCtx=new (window.AudioContext||window.webkitAudioContext)()
+
+initAudio()
+
+}else{
+
+oscillators.forEach(o=>o.stop())
+oscillators=[]
+
+}
+
+}
+
+function updateHUD(){
+
+hud.innerHTML=
+`Derived Category Spectral Reactor
+<br>particles: ${particleCount}
+<br>lattice: ${latticeSize}²
+<br>symmetry: ${symmetry}
+<br>eigen modes: ${eigen.length}
+<br>sound: ${audioOn?"ON":"OFF"}
+<br>SPACE / click regenerate
+<br>H toggle HUD
+<br>S toggle sound`
+
+}
+
+function frame(){
+
+t+=0.01
+
+drawBackground()
+
+phaseExplosion()
+
+drawSpectralInterference()
+
+drawLattice()
+
+drawParticles()
+
+evolveAudio()
+
+updateHUD()
+
+requestAnimationFrame(frame)
+
+}
+
+addEventListener("keydown",e=>{
+
+if(e.key==="Shift")return
+
+if(e.key===" "){
+regenerate()
+}
+
+if(e.key==="h"||e.key==="H"){
+hud.style.display=
+hud.style.display==="none"?"block":"none"
+}
+
+if(e.key==="s"||e.key==="S"){
+toggleSound()
+}
+
+})
+
+addEventListener("click",regenerate)
+addEventListener("touchstart",regenerate)
+
+regenerate()
+
+frame()
+
+</script>
+
+</body>
+</html>

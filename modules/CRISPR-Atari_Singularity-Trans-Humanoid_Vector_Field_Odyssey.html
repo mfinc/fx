@@ -1,0 +1,904 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CRISPR-Atari Singularity — Trans-Humanoid Vector Field Odyssey</title>
+  <meta name="description" content="A browser-native generative art experience depicting the transformation of human biological data into modular Atari-style arcade assets via a high-energy vector field. Category-theory functors map human skeletal structures onto rigid-body mechanical lattices in a Tron-inspired neon grid with fractal subdivisions, chromatic aberration, and procedural audio synthesis." />
+  <meta name="keywords" content="CRISPR, Atari, singularity, generative art, transhumanism, vector field, neon grid, Tron, fractal, chromatic aberration, procedural audio, WebAudio, canvas animation, biomechanical, category theory, skeletal mapping, retro-futurism, interactive art, browser-native, JavaScript art, particle system, cyberpunk, DNA, genome, arcade, pixel art, interference patterns, luminous, electronic score" />
+  <meta name="author" content="CRISPR-Atari Singularity Engine" />
+  <meta name="robots" content="index, follow" />
+  <meta property="og:title" content="CRISPR-Atari Singularity — Trans-Humanoid Vector Field Odyssey" />
+  <meta property="og:description" content="Human biological data transformed into Atari-style arcade assets via high-energy vector fields. A generative art experience with procedural audio, fractal subdivisions, and neon interference patterns." />
+  <meta property="og:type" content="website" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="CRISPR-Atari Singularity" />
+  <meta name="twitter:description" content="Trans-humanoid generative art: biology meets Atari through category-theory vector morphisms." />
+  <meta name="theme-color" content="#000814" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --neon-cyan:   #00ffe7;
+      --neon-magenta:#ff00c8;
+      --neon-yellow: #ffe600;
+      --neon-green:  #39ff14;
+      --neon-orange: #ff6600;
+      --neon-blue:   #0088ff;
+      --neon-purple: #cc00ff;
+      --grid-color:  rgba(0,255,231,0.07);
+      --bg:          #000814;
+      --font-main:   'Courier New', Courier, monospace;
+    }
+    html, body {
+      width: 100%; height: 100%;
+      background: var(--bg);
+      overflow: hidden;
+      font-family: var(--font-main);
+      color: var(--neon-cyan);
+      cursor: crosshair;
+    }
+    canvas#bg { position: fixed; inset: 0; z-index: 0; }
+    canvas#main { position: fixed; inset: 0; z-index: 1; }
+    canvas#overlay { position: fixed; inset: 0; z-index: 2; pointer-events: none; }
+
+    #hud {
+      position: fixed; inset: 0; z-index: 10;
+      pointer-events: none;
+      display: none;
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    #hud.visible { display: block; }
+
+    .hud-panel {
+      position: absolute;
+      border: 1px solid rgba(0,255,231,0.3);
+      background: rgba(0,8,20,0.75);
+      padding: 10px 14px;
+      backdrop-filter: blur(4px);
+    }
+    #hud-tl { top: 18px; left: 18px; min-width: 220px; }
+    #hud-tr { top: 18px; right: 18px; min-width: 200px; text-align: right; }
+    #hud-bl { bottom: 18px; left: 18px; min-width: 240px; }
+    #hud-br { bottom: 18px; right: 18px; min-width: 200px; text-align: right; }
+
+    .hud-label { color: rgba(0,255,231,0.45); margin-bottom: 3px; font-size: 9px; }
+    .hud-value { color: var(--neon-cyan); font-size: 12px; margin-bottom: 6px; }
+    .hud-bar { height: 3px; background: rgba(0,255,231,0.15); margin-bottom: 8px; }
+    .hud-bar-fill { height: 100%; background: var(--neon-cyan); transition: width 0.3s; }
+    .hud-accent { color: var(--neon-magenta); }
+    .hud-accent2 { color: var(--neon-yellow); }
+
+    #corner-logo {
+      position: fixed; top: 18px; left: 50%; transform: translateX(-50%);
+      z-index: 20; pointer-events: none;
+      font-size: 10px; letter-spacing: 0.35em; text-transform: uppercase;
+      color: rgba(0,255,231,0.2);
+    }
+
+    #key-hint {
+      position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+      z-index: 20; pointer-events: none;
+      font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase;
+      color: rgba(0,255,231,0.15);
+      transition: opacity 1s;
+    }
+    #key-hint.fade { opacity: 0; }
+
+    #flash {
+      position: fixed; inset: 0; z-index: 50;
+      background: white; opacity: 0; pointer-events: none;
+      transition: opacity 0.05s;
+    }
+  </style>
+</head>
+<body>
+
+<canvas id="bg"></canvas>
+<canvas id="main"></canvas>
+<canvas id="overlay"></canvas>
+
+<div id="corner-logo">CRISPR ✦ ATARI ✦ SINGULARITY</div>
+
+<div id="hud">
+  <div class="hud-panel" id="hud-tl">
+    <div class="hud-label">Universe Seed</div>
+    <div class="hud-value hud-accent" id="hv-seed">—</div>
+    <div class="hud-label">Functor Epoch</div>
+    <div class="hud-value" id="hv-epoch">—</div>
+    <div class="hud-label">Morphism Density</div>
+    <div class="hud-bar"><div class="hud-bar-fill" id="hv-density-bar" style="width:0%"></div></div>
+    <div class="hud-label">Spectral Phase</div>
+    <div class="hud-value hud-accent2" id="hv-spectrum">—</div>
+  </div>
+  <div class="hud-panel" id="hud-tr">
+    <div class="hud-label">Skeletal Nodes</div>
+    <div class="hud-value" id="hv-nodes">—</div>
+    <div class="hud-label">Lattice Edges</div>
+    <div class="hud-value hud-accent" id="hv-edges">—</div>
+    <div class="hud-label">Fractal Depth</div>
+    <div class="hud-value" id="hv-fractal">—</div>
+    <div class="hud-label">Aberration</div>
+    <div class="hud-bar"><div class="hud-bar-fill" id="hv-aber-bar" style="width:0%; background:var(--neon-magenta)"></div></div>
+  </div>
+  <div class="hud-panel" id="hud-bl">
+    <div class="hud-label">Vector Field Intensity</div>
+    <div class="hud-bar"><div class="hud-bar-fill" id="hv-vfield-bar" style="width:0%; background:var(--neon-green)"></div></div>
+    <div class="hud-label">Particle Count</div>
+    <div class="hud-value hud-accent2" id="hv-particles">—</div>
+    <div class="hud-label">DNA Strand Phase</div>
+    <div class="hud-value" id="hv-dna">—</div>
+  </div>
+  <div class="hud-panel" id="hud-br">
+    <div class="hud-label">Audio Engine</div>
+    <div class="hud-value" id="hv-audio">OFFLINE</div>
+    <div class="hud-label">Synthesis Mode</div>
+    <div class="hud-value hud-accent" id="hv-synth">—</div>
+    <div class="hud-label">FPS</div>
+    <div class="hud-value hud-accent2" id="hv-fps">—</div>
+  </div>
+</div>
+
+<div id="key-hint">SPACE · CLICK — regenerate &nbsp;|&nbsp; H — hud &nbsp;|&nbsp; S — audio</div>
+<div id="flash"></div>
+
+<script>
+"use strict";
+/* ─────────────────────────────────────────────
+   CRISPR-ATARI SINGULARITY ENGINE v1.0
+   Trans-humanoid vector field odyssey
+   ───────────────────────────────────────────── */
+
+const bgC   = document.getElementById('bg');
+const mainC = document.getElementById('main');
+const ovC   = document.getElementById('overlay');
+const bgX   = bgC.getContext('2d');
+const mx    = mainC.getContext('2d');
+const ox    = ovC.getContext('2d');
+
+let W, H, cx, cy;
+let seed = Math.random() * 1e9 | 0;
+let epoch = 0;
+let t = 0;
+let hudVisible = false;
+let audioOn = false;
+let audioCtx = null;
+let masterGain = null;
+let oscillators = [];
+let particles = [];
+let skeletonNodes = [];
+let latticeEdges = [];
+let vectorField = [];
+let fractalCache = [];
+let spectrumPhase = 0;
+let morphDensity = 0;
+let aberration = 0;
+let lastFps = 60;
+let fpsSamples = [];
+let lastFrameTime = performance.now();
+let hintTimer = null;
+
+/* ── PRNG ── */
+let _s = seed;
+function rand(a=0, b=1) {
+  _s ^= _s << 13; _s ^= _s >> 17; _s ^= _s << 5;
+  return a + ((_s >>> 0) / 0xFFFFFFFF) * (b - a);
+}
+function srand(n) { _s = (n ^ 0xdeadbeef) >>> 0 || 1; }
+function noise(x, y, z=0) {
+  const ix = Math.floor(x), iy = Math.floor(y), iz = Math.floor(z);
+  const fx = x-ix, fy = y-iy, fz = z-iz;
+  const ux = fx*fx*(3-2*fx), uy = fy*fy*(3-2*fy), uz = fz*fz*(3-2*fz);
+  const h = (a,b,c) => { let s=a*374761393+b*1274126177+c*668265263; s=(s^(s>>>15))*2246822519; s=(s^(s>>>13))*3266489917; return ((s^(s>>>16))>>>0)/0xFFFFFFFF; };
+  return lerp(lerp(lerp(h(ix,iy,iz),h(ix+1,iy,iz),ux), lerp(h(ix,iy+1,iz),h(ix+1,iy+1,iz),ux), uy),
+              lerp(lerp(h(ix,iy,iz+1),h(ix+1,iy,iz+1),ux), lerp(h(ix,iy+1,iz+1),h(ix+1,iy+1,iz+1),ux), uy), uz);
+}
+function lerp(a,b,t){ return a+(b-a)*t; }
+function clamp(v,mn,mx){ return Math.max(mn,Math.min(mx,v)); }
+
+/* ── RESIZE ── */
+function resize() {
+  W = window.innerWidth; H = window.innerHeight;
+  cx = W/2; cy = H/2;
+  for (const c of [bgC, mainC, ovC]) { c.width = W; c.height = H; }
+  buildVectorField();
+  drawGrid();
+}
+
+/* ── SPECTRUM ── */
+function spectrumColor(phase, alpha=1) {
+  const h = ((phase % 1) + 1) % 1;
+  const s = 1, l = 0.55;
+  // HSL to RGB
+  const c = (1 - Math.abs(2*l - 1)) * s;
+  const x = c * (1 - Math.abs((h*6)%2 - 1));
+  const m = l - c/2;
+  let r,g,b;
+  const i = h*6|0;
+  if(i===0){r=c;g=x;b=0}else if(i===1){r=x;g=c;b=0}else if(i===2){r=0;g=c;b=x}
+  else if(i===3){r=0;g=x;b=c}else if(i===4){r=x;g=0;b=c}else{r=c;g=0;b=x}
+  return `rgba(${(r+m)*255|0},${(g+m)*255|0},${(b+m)*255|0},${alpha})`;
+}
+
+function neonColor(phase) {
+  const colors = ['#00ffe7','#ff00c8','#ffe600','#39ff14','#ff6600','#0088ff','#cc00ff','#ff0055'];
+  return colors[Math.floor(phase * colors.length) % colors.length];
+}
+
+/* ── TRON GRID ── */
+function drawGrid() {
+  bgX.clearRect(0, 0, W, H);
+  bgX.fillStyle = '#000814';
+  bgX.fillRect(0, 0, W, H);
+
+  const gridSize = 44;
+  const vanishX = cx + (noise(t*0.001, 0.5) - 0.5) * W * 0.3;
+  const vanishY = cy + (noise(0.5, t*0.001) - 0.5) * H * 0.3;
+
+  // Perspective grid lines
+  const cols = Math.ceil(W / gridSize) + 2;
+  const rows = Math.ceil(H / gridSize) + 2;
+
+  bgX.save();
+  // Horizontal lines with perspective
+  for (let r = -rows; r <= rows*2; r++) {
+    const y = r * gridSize;
+    const progress = (y - vanishY) / H;
+    const alpha = 0.04 + Math.abs(progress) * 0.04;
+    bgX.strokeStyle = `rgba(0,255,231,${Math.min(0.18, alpha)})`;
+    bgX.lineWidth = 0.5;
+    bgX.beginPath();
+    bgX.moveTo(0, y); bgX.lineTo(W, y);
+    bgX.stroke();
+  }
+  // Vertical lines
+  for (let c = -cols; c <= cols*2; c++) {
+    const x = c * gridSize;
+    const progress = (x - vanishX) / W;
+    const alpha = 0.04 + Math.abs(progress) * 0.04;
+    bgX.strokeStyle = `rgba(0,255,231,${Math.min(0.18, alpha)})`;
+    bgX.lineWidth = 0.5;
+    bgX.beginPath();
+    bgX.moveTo(x, 0); bgX.lineTo(x, H);
+    bgX.stroke();
+  }
+
+  // Diagonal accent lines (Tron flavor)
+  for (let i = 0; i < 6; i++) {
+    const phase = (i / 6 + t * 0.0002) % 1;
+    bgX.strokeStyle = `rgba(0,136,255,${0.06 + 0.04 * Math.sin(phase * Math.PI * 2)})`;
+    bgX.lineWidth = 1;
+    bgX.beginPath();
+    bgX.moveTo(vanishX, vanishY);
+    bgX.lineTo(vanishX + Math.cos(phase * Math.PI * 2) * W * 1.5,
+               vanishY + Math.sin(phase * Math.PI * 2) * H * 1.5);
+    bgX.stroke();
+  }
+
+  // Horizon glow
+  const grad = bgX.createRadialGradient(cx, cy, 0, cx, cy, Math.max(W,H)*0.6);
+  grad.addColorStop(0, 'rgba(0,136,255,0.06)');
+  grad.addColorStop(0.4, 'rgba(0,255,231,0.02)');
+  grad.addColorStop(1, 'transparent');
+  bgX.fillStyle = grad;
+  bgX.fillRect(0, 0, W, H);
+  bgX.restore();
+}
+
+/* ── VECTOR FIELD ── */
+function buildVectorField() {
+  const cols = Math.ceil(W / 30) + 1;
+  const rows = Math.ceil(H / 30) + 1;
+  vectorField = [];
+  for (let r = 0; r <= rows; r++) {
+    vectorField[r] = [];
+    for (let c = 0; c <= cols; c++) {
+      const nx = c / cols * 3 + seed * 0.0001;
+      const ny = r / rows * 3 + seed * 0.0001;
+      const angle = noise(nx, ny, t * 0.0003) * Math.PI * 4;
+      const mag = 0.5 + noise(nx + 10, ny + 10, t * 0.0003);
+      vectorField[r][c] = { angle, mag };
+    }
+  }
+}
+
+/* ── SKELETON NODES (human body lattice) ── */
+function buildSkeleton() {
+  srand(seed + epoch);
+  skeletonNodes = [];
+  latticeEdges = [];
+
+  // Human skeleton key points (normalized -1..1)
+  const humanJoints = [
+    // Head/neck
+    [0, -0.85], [0, -0.72],
+    // Shoulders
+    [-0.22, -0.55], [0.22, -0.55],
+    // Spine
+    [0, -0.45], [0, -0.25], [0, -0.05],
+    // Hips
+    [-0.16, 0.1], [0.16, 0.1],
+    // Elbows
+    [-0.38, -0.3], [0.38, -0.3],
+    // Wrists/hands
+    [-0.48, -0.05], [0.48, -0.05],
+    // Knees
+    [-0.14, 0.42], [0.14, 0.42],
+    // Ankles/feet
+    [-0.12, 0.78], [0.12, 0.78],
+    // Ribcage extras
+    [-0.18, -0.4], [0.18, -0.4],
+  ];
+
+  const scale = Math.min(W, H) * 0.35;
+  const offsetX = cx + (rand(-0.1,0.1)) * W;
+  const offsetY = cy + (rand(-0.05,0.05)) * H;
+
+  humanJoints.forEach(([nx, ny], i) => {
+    // Add procedural displacement
+    const wobble = 0.04 * Math.sin(epoch * 0.7 + i);
+    skeletonNodes.push({
+      x: offsetX + nx * scale * (1 + wobble),
+      y: offsetY + ny * scale * (1 + wobble),
+      baseX: offsetX + nx * scale,
+      baseY: offsetY + ny * scale,
+      phase: rand(0, Math.PI * 2),
+      category: i < 2 ? 'head' : i < 9 ? 'torso' : i < 13 ? 'arms' : 'legs',
+      size: rand(3, 7),
+      atariChar: (rand(0,1) > 0.5) ? '◆' : '▪',
+    });
+  });
+
+  // Edges (bone connections)
+  const connections = [
+    [0,1],[1,2],[1,3],[2,4],[3,4],[4,5],[5,6],[6,7],[6,8],
+    [2,9],[3,10],[9,11],[10,12],[7,13],[8,14],[13,15],[14,16],
+    [2,17],[3,18],[17,5],[18,5]
+  ];
+  connections.forEach(([a,b]) => {
+    if (skeletonNodes[a] && skeletonNodes[b]) latticeEdges.push([a,b]);
+  });
+}
+
+/* ── PARTICLES ── */
+function spawnParticles() {
+  particles = [];
+  const count = 180 + (seed % 80);
+  for (let i = 0; i < count; i++) {
+    spawnParticle(true);
+  }
+}
+
+function spawnParticle(init=false) {
+  const edge = Math.random() < 0.3;
+  let x, y;
+  if (edge) {
+    const side = Math.random() * 4 | 0;
+    if (side===0){x=rand(0,W);y=-10;}
+    else if(side===1){x=rand(0,W);y=H+10;}
+    else if(side===2){x=-10;y=rand(0,H);}
+    else{x=W+10;y=rand(0,H);}
+  } else {
+    x = init ? rand(0,W) : rand(cx-W*0.4, cx+W*0.4);
+    y = init ? rand(0,H) : rand(cy-H*0.4, cy+H*0.4);
+  }
+  const angle = rand(0, Math.PI*2);
+  const speed = rand(0.3, 2.2);
+  return {
+    x, y,
+    vx: Math.cos(angle) * speed,
+    vy: Math.sin(angle) * speed,
+    life: 1,
+    decay: rand(0.002, 0.008),
+    size: rand(1, 4),
+    hue: rand(0,1),
+    type: ['dot','square','dna','cross'][Math.random()*4|0],
+    trailLen: rand(4, 18) | 0,
+    trail: [],
+  };
+}
+
+/* ── FRACTAL SUBDIVISION ── */
+function drawFractal(ctx, x, y, size, depth, phase) {
+  if (depth <= 0 || size < 1.5) return;
+  const c = spectrumColor(phase + depth * 0.15, 0.35 - depth * 0.04);
+  ctx.strokeStyle = c;
+  ctx.lineWidth = 0.5 + depth * 0.2;
+
+  // Atari-pixel-style squares
+  ctx.strokeRect(x - size/2, y - size/2, size, size);
+  // Inner cross
+  ctx.beginPath();
+  ctx.moveTo(x - size/2, y); ctx.lineTo(x + size/2, y);
+  ctx.moveTo(x, y - size/2); ctx.lineTo(x, y + size/2);
+  ctx.stroke();
+
+  const sub = size / 2.4;
+  const offsets = [[-.55,.55],[.55,.55],[-.55,-.55],[.55,-.55]];
+  for (const [ox2,oy2] of offsets) {
+    const nx2 = x + ox2 * size * 0.5;
+    const ny2 = y + oy2 * size * 0.5;
+    drawFractal(ctx, nx2, ny2, sub, depth-1, phase + 0.07);
+  }
+}
+
+/* ── DNA STRAND ── */
+function drawDNA(ctx, t) {
+  const n = 28;
+  const height = H * 0.72;
+  const startY = cy - height/2;
+  const wave = 38;
+  const freq = 0.22;
+
+  for (let strand = 0; strand < 2; strand++) {
+    const dir = strand === 0 ? 1 : -1;
+    ctx.beginPath();
+    for (let i = 0; i <= n * 4; i++) {
+      const frac = i / (n * 4);
+      const y = startY + frac * height;
+      const angle = frac * Math.PI * 2 * n * freq + t * 0.015 * dir;
+      const x = cx + dir * Math.sin(angle) * wave;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = strand === 0
+      ? `rgba(0,255,231,0.18)`
+      : `rgba(255,0,200,0.18)`;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+
+  // Rungs
+  for (let i = 0; i <= n; i++) {
+    const frac = i / n;
+    const y = startY + frac * height;
+    const angle = frac * Math.PI * 2 * n * freq + t * 0.015;
+    const x1 = cx + Math.sin(angle) * wave;
+    const x2 = cx - Math.sin(angle) * wave;
+    const rungPhase = (frac + t * 0.002) % 1;
+    ctx.strokeStyle = spectrumColor(rungPhase, 0.25);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x1, y); ctx.lineTo(x2, y);
+    ctx.stroke();
+
+    // Base pair dots
+    const dotColors = ['#00ffe7','#ff00c8','#ffe600','#39ff14'];
+    const dc = dotColors[i%4];
+    ctx.fillStyle = dc + '88';
+    ctx.fillRect(x1-2, y-2, 4, 4);
+    ctx.fillRect(x2-2, y-2, 4, 4);
+  }
+}
+
+/* ── CHROMATIC ABERRATION (post-process) ── */
+function applyAberration(ctx, amount) {
+  if (amount < 1) return;
+  ctx.save();
+  ctx.globalAlpha = 0.12;
+  ctx.globalCompositeOperation = 'screen';
+
+  // Red channel offset
+  ctx.shadowColor = 'rgba(255,0,0,0.5)';
+  ctx.drawImage(mainC, amount, 0);
+  // Blue channel offset
+  ctx.shadowColor = 'rgba(0,0,255,0.5)';
+  ctx.drawImage(mainC, -amount, 0);
+  ctx.restore();
+}
+
+/* ── INTERFERENCE PATTERNS ── */
+function drawInterference(ctx, t) {
+  const step = 60;
+  for (let i = 0; i < 3; i++) {
+    const srcX = cx + Math.cos(t * 0.0008 + i * Math.PI * 2/3) * W * 0.28;
+    const srcY = cy + Math.sin(t * 0.0008 + i * Math.PI * 2/3) * H * 0.28;
+    const maxR = Math.max(W, H) * 0.7;
+    for (let r = step; r < maxR; r += step) {
+      const phase = (r / maxR + t * 0.0006 + i * 0.33) % 1;
+      const alpha = 0.06 * (1 - r/maxR) * (0.5 + 0.5 * Math.sin(r * 0.04 - t * 0.02));
+      ctx.strokeStyle = spectrumColor(phase, alpha);
+      ctx.lineWidth = 0.8;
+      ctx.beginPath();
+      ctx.arc(srcX, srcY, r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+}
+
+/* ── VECTOR MORPHISM ARROWS ── */
+function drawVectorField(ctx, t) {
+  const step = 55;
+  let total = 0;
+  for (let y = step/2; y < H; y += step) {
+    for (let x = step/2; x < W; x += step) {
+      const col = Math.min((x / 30) | 0, vectorField[0] ? vectorField[0].length-1 : 0);
+      const row = Math.min((y / 30) | 0, vectorField.length-1);
+      const vf = vectorField[row] && vectorField[row][col];
+      if (!vf) continue;
+      const angle = vf.angle + t * 0.001;
+      const len = vf.mag * 18;
+      const nx = x + Math.cos(angle) * len;
+      const ny = y + Math.sin(angle) * len;
+      const phase = ((x/W + y/H) * 0.5 + t * 0.0003) % 1;
+      const alpha = 0.12 + 0.08 * vf.mag;
+      ctx.strokeStyle = spectrumColor(phase, alpha);
+      ctx.lineWidth = 0.6;
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(nx, ny); ctx.stroke();
+
+      // Arrow head
+      const aw = 4, ah = 2.5;
+      ctx.fillStyle = spectrumColor(phase + 0.1, alpha * 1.5);
+      ctx.save();
+      ctx.translate(nx, ny);
+      ctx.rotate(angle);
+      ctx.beginPath();
+      ctx.moveTo(0, 0); ctx.lineTo(-aw, ah); ctx.lineTo(-aw, -ah);
+      ctx.closePath(); ctx.fill();
+      ctx.restore();
+      total++;
+    }
+  }
+  morphDensity = clamp(total / 400, 0, 1);
+}
+
+/* ── SKELETON RENDER ── */
+function drawSkeleton(ctx, t) {
+  // Animate nodes
+  skeletonNodes.forEach((n, i) => {
+    const vrow = Math.min((n.baseY / 30) | 0, vectorField.length-1);
+    const vcol = Math.min((n.baseX / 30) | 0, vectorField[0] ? vectorField[0].length-1 : 0);
+    const vf = (vectorField[vrow] && vectorField[vrow][vcol]) || { angle: 0, mag: 0 };
+    const displacement = 8 + vf.mag * 12;
+    n.x = n.baseX + Math.cos(vf.angle + t * 0.002 + n.phase) * displacement;
+    n.y = n.baseY + Math.sin(vf.angle + t * 0.002 + n.phase) * displacement;
+  });
+
+  // Edges — lattice beams
+  latticeEdges.forEach(([a, b]) => {
+    const na = skeletonNodes[a], nb = skeletonNodes[b];
+    if (!na || !nb) return;
+    const phase = ((a+b) / 40 + t * 0.0004) % 1;
+    const grad = ctx.createLinearGradient(na.x, na.y, nb.x, nb.y);
+    grad.addColorStop(0, spectrumColor(phase, 0.6));
+    grad.addColorStop(1, spectrumColor((phase+0.5)%1, 0.6));
+    ctx.strokeStyle = grad;
+    ctx.lineWidth = 1.5;
+    ctx.shadowColor = spectrumColor(phase, 0.8);
+    ctx.shadowBlur = 6;
+    ctx.beginPath(); ctx.moveTo(na.x, na.y); ctx.lineTo(nb.x, nb.y); ctx.stroke();
+    ctx.shadowBlur = 0;
+  });
+
+  // Nodes — Atari pixel blocks
+  skeletonNodes.forEach((n, i) => {
+    const phase = (i / skeletonNodes.length + t * 0.0005) % 1;
+    const col = spectrumColor(phase, 0.9);
+    const s = n.size;
+
+    ctx.fillStyle = col;
+    ctx.shadowColor = col;
+    ctx.shadowBlur = 10;
+
+    // Atari-style pixel node
+    ctx.fillRect(n.x - s, n.y - s, s*2, s*2);
+    ctx.strokeStyle = '#fff8';
+    ctx.lineWidth = 0.5;
+    ctx.strokeRect(n.x - s, n.y - s, s*2, s*2);
+
+    // Inner pixel dot
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(n.x - 1, n.y - 1, 2, 2);
+
+    // Glow ring on joints
+    ctx.strokeStyle = spectrumColor((phase+0.3)%1, 0.4);
+    ctx.lineWidth = 1;
+    ctx.shadowBlur = 4;
+    ctx.beginPath();
+    ctx.arc(n.x, n.y, s + 4 + 2*Math.sin(t*0.05 + n.phase), 0, Math.PI*2);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  });
+}
+
+/* ── PARTICLES RENDER ── */
+function updateParticles(ctx, t) {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+
+    // Vector field influence
+    const vrow = Math.min((p.y / 30) | 0, vectorField.length-1);
+    const vcol = Math.min((p.x / 30) | 0, vectorField[0] ? vectorField[0].length-1 : 0);
+    const vf = (vectorField[vrow] && vectorField[vrow][vcol]) || { angle: 0, mag: 0 };
+    p.vx += Math.cos(vf.angle) * vf.mag * 0.04;
+    p.vy += Math.sin(vf.angle) * vf.mag * 0.04;
+    const spd = Math.sqrt(p.vx*p.vx + p.vy*p.vy);
+    if (spd > 3) { p.vx *= 3/spd; p.vy *= 3/spd; }
+
+    p.trail.push({x: p.x, y: p.y});
+    if (p.trail.length > p.trailLen) p.trail.shift();
+
+    p.x += p.vx; p.y += p.vy;
+    p.life -= p.decay;
+    p.hue = (p.hue + 0.002) % 1;
+
+    if (p.life <= 0 || p.x < -20 || p.x > W+20 || p.y < -20 || p.y > H+20) {
+      particles[i] = spawnParticle(false);
+      continue;
+    }
+
+    // Draw trail
+    if (p.trail.length > 1) {
+      for (let j = 1; j < p.trail.length; j++) {
+        const a = (j / p.trail.length) * p.life * 0.5;
+        ctx.strokeStyle = spectrumColor(p.hue, a);
+        ctx.lineWidth = p.size * (j / p.trail.length) * 0.7;
+        ctx.beginPath();
+        ctx.moveTo(p.trail[j-1].x, p.trail[j-1].y);
+        ctx.lineTo(p.trail[j].x, p.trail[j].y);
+        ctx.stroke();
+      }
+    }
+
+    // Draw particle
+    const col = spectrumColor(p.hue, p.life * 0.85);
+    ctx.fillStyle = col;
+    ctx.shadowColor = col;
+    ctx.shadowBlur = 6;
+    const s = p.size;
+
+    if (p.type === 'square') {
+      ctx.fillRect(p.x-s, p.y-s, s*2, s*2);
+    } else if (p.type === 'cross') {
+      ctx.fillRect(p.x-s*2, p.y-1, s*4, 2);
+      ctx.fillRect(p.x-1, p.y-s*2, 2, s*4);
+    } else if (p.type === 'dna') {
+      ctx.beginPath();
+      ctx.moveTo(p.x-s, p.y); ctx.lineTo(p.x+s, p.y);
+      ctx.moveTo(p.x, p.y-s); ctx.lineTo(p.x, p.y+s);
+      ctx.stroke();
+    } else {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, s, 0, Math.PI*2);
+      ctx.fill();
+    }
+    ctx.shadowBlur = 0;
+  }
+}
+
+/* ── ATARI SCANLINES ── */
+function drawScanlines(ctx) {
+  ctx.fillStyle = 'rgba(0,0,0,0.06)';
+  for (let y = 0; y < H; y += 3) {
+    ctx.fillRect(0, y, W, 1);
+  }
+}
+
+/* ── LUMINOUS BORDER ── */
+function drawBorder(ctx, t) {
+  const phase = (t * 0.0004) % 1;
+  const grad = ctx.createLinearGradient(0, 0, W, H);
+  for (let i = 0; i <= 8; i++) {
+    grad.addColorStop(i/8, spectrumColor((phase + i/8) % 1, 0.35));
+  }
+  ctx.strokeStyle = grad;
+  ctx.lineWidth = 2;
+  ctx.shadowColor = spectrumColor(phase, 0.8);
+  ctx.shadowBlur = 12;
+  ctx.strokeRect(8, 8, W-16, H-16);
+  ctx.shadowBlur = 0;
+
+  // Corner brackets (Atari HUD style)
+  const blen = 28, bw = 2;
+  ctx.strokeStyle = spectrumColor(phase, 0.8);
+  ctx.lineWidth = bw;
+  for (const [bx, by, sx, sy] of [[8,8,1,1],[W-8,8,-1,1],[8,H-8,1,-1],[W-8,H-8,-1,-1]]) {
+    ctx.beginPath();
+    ctx.moveTo(bx, by + sy*blen); ctx.lineTo(bx, by); ctx.lineTo(bx + sx*blen, by);
+    ctx.stroke();
+  }
+}
+
+/* ── TITLE GLITCH TEXT ── */
+function drawTitle(ctx, t) {
+  const glitch = Math.sin(t * 0.03) > 0.92 || Math.sin(t * 0.07) > 0.96;
+  ctx.save();
+  if (glitch) {
+    ctx.translate(rand(-6, 6), rand(-2, 2));
+    ctx.shadowColor = '#ff0055';
+  }
+  ctx.font = `bold ${Math.min(W * 0.042, 32)}px 'Courier New', monospace`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  const phase = (t * 0.0003) % 1;
+  ctx.fillStyle = spectrumColor(phase, glitch ? 0.95 : 0.7);
+  ctx.shadowBlur = glitch ? 20 : 8;
+  ctx.fillText('✦ CRISPR-ATARI SINGULARITY ✦', cx, 26);
+
+  // Sub-title
+  ctx.font = `${Math.min(W * 0.018, 13)}px 'Courier New', monospace`;
+  ctx.fillStyle = `rgba(0,255,231,${glitch ? 0.9 : 0.35})`;
+  ctx.shadowBlur = 4;
+  ctx.fillText('TRANS-HUMANOID VECTOR FIELD ODYSSEY', cx, 26 + Math.min(W*0.042,32) + 6);
+  ctx.restore();
+}
+
+/* ── AUDIO ENGINE ── */
+function initAudio() {
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  masterGain = audioCtx.createGain();
+  masterGain.gain.value = 0.18;
+  masterGain.connect(audioCtx.destination);
+}
+
+function startAudio() {
+  initAudio();
+  stopOscillators();
+
+  // Base drone
+  const freqs = [55, 110, 165, 220, 275, 440];
+  freqs.forEach((freq, i) => {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    const filter = audioCtx.createBiquadFilter();
+
+    osc.type = ['sine','triangle','square','sawtooth'][i % 4];
+    osc.frequency.value = freq * (1 + (seed % 100) * 0.001);
+    gain.gain.value = 0.04 / (i + 1);
+    filter.type = 'bandpass';
+    filter.frequency.value = freq * 2;
+    filter.Q.value = 3;
+
+    osc.connect(filter); filter.connect(gain); gain.connect(masterGain);
+    osc.start();
+    oscillators.push({ osc, gain, filter, baseFreq: freq });
+  });
+
+  // Arpeggio
+  const arpNotes = [261.6, 329.6, 392, 523.3, 659.3];
+  let arpIdx = 0;
+  function arpStep() {
+    if (!audioOn) return;
+    const note = arpNotes[arpIdx % arpNotes.length];
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    const now = audioCtx.currentTime;
+    osc.type = 'square';
+    osc.frequency.value = note * (0.5 + seed % 3 * 0.5);
+    gain.gain.setValueAtTime(0.06, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+    osc.connect(gain); gain.connect(masterGain);
+    osc.start(now); osc.stop(now + 0.2);
+    arpIdx++;
+    setTimeout(arpStep, 120 + morphDensity * 80);
+  }
+  arpStep();
+}
+
+function stopOscillators() {
+  oscillators.forEach(({osc}) => { try { osc.stop(); } catch(e){} });
+  oscillators = [];
+}
+
+function updateAudio(t) {
+  if (!audioOn || !audioCtx) return;
+  oscillators.forEach(({osc, gain, filter}, i) => {
+    try {
+      const drift = 1 + 0.008 * Math.sin(t * 0.001 * (i+1) + seed);
+      osc.frequency.setTargetAtTime(oscillators[i].baseFreq * drift, audioCtx.currentTime, 0.1);
+      gain.gain.setTargetAtTime(0.04 / (i+1) * (0.5 + morphDensity * 1.5), audioCtx.currentTime, 0.15);
+      filter.frequency.setTargetAtTime(oscillators[i].baseFreq * (2 + morphDensity * 3), audioCtx.currentTime, 0.1);
+    } catch(e) {}
+  });
+}
+
+/* ── MAIN LOOP ── */
+function frame(now) {
+  const dt = now - lastFrameTime;
+  lastFrameTime = now;
+
+  fpsSamples.push(1000 / Math.max(dt, 1));
+  if (fpsSamples.length > 30) fpsSamples.shift();
+  lastFps = fpsSamples.reduce((a,b)=>a+b,0) / fpsSamples.length;
+
+  t++;
+  spectrumPhase = (t * 0.0003) % 1;
+  aberration = 2 + 3 * Math.abs(Math.sin(t * 0.015));
+
+  buildVectorField();
+  drawGrid();
+
+  mx.clearRect(0, 0, W, H);
+
+  drawInterference(mx, t);
+  drawDNA(mx, t);
+  drawVectorField(mx, t);
+
+  const fd = clamp(2 + Math.floor(morphDensity * 3), 2, 5);
+  for (let i = 0; i < 3; i++) {
+    const fx = cx + Math.cos(t*0.0007 + i*2.1) * W * 0.22;
+    const fy = cy + Math.sin(t*0.0007 + i*2.1) * H * 0.22;
+    const fsize = 30 + 20 * Math.sin(t*0.003 + i);
+    drawFractal(mx, fx, fy, fsize, fd, (spectrumPhase + i*0.33)%1);
+  }
+
+  drawSkeleton(mx, t);
+  updateParticles(mx, t);
+  drawBorder(mx, t);
+  drawTitle(mx, t);
+  drawScanlines(mx);
+
+  // Overlay: chromatic aberration
+  ox.clearRect(0, 0, W, H);
+  applyAberration(ox, aberration);
+
+  updateAudio(t);
+  updateHUD();
+
+  requestAnimationFrame(frame);
+}
+
+/* ── HUD UPDATE ── */
+function updateHUD() {
+  if (!hudVisible) return;
+  document.getElementById('hv-seed').textContent = `0x${seed.toString(16).toUpperCase().padStart(8,'0')}`;
+  document.getElementById('hv-epoch').textContent = epoch.toString().padStart(4,'0');
+  document.getElementById('hv-density-bar').style.width = (morphDensity * 100).toFixed(0) + '%';
+  document.getElementById('hv-spectrum').textContent = `HSL(${(spectrumPhase*360).toFixed(0)}°)`;
+  document.getElementById('hv-nodes').textContent = skeletonNodes.length;
+  document.getElementById('hv-edges').textContent = latticeEdges.length;
+  document.getElementById('hv-fractal').textContent = clamp(2 + Math.floor(morphDensity*3), 2, 5);
+  document.getElementById('hv-aber-bar').style.width = (aberration / 5 * 100).toFixed(0) + '%';
+  document.getElementById('hv-vfield-bar').style.width = clamp(morphDensity*100, 0, 100).toFixed(0) + '%';
+  document.getElementById('hv-particles').textContent = particles.length;
+  document.getElementById('hv-dna').textContent = `Φ ${(t * 0.015 % (Math.PI*2)).toFixed(2)}`;
+  document.getElementById('hv-audio').textContent = audioOn ? 'ONLINE' : 'OFFLINE';
+  document.getElementById('hv-audio').style.color = audioOn ? 'var(--neon-green)' : 'var(--neon-magenta)';
+  document.getElementById('hv-synth').textContent = audioOn ? `${oscillators.length} OSC` : '—';
+  document.getElementById('hv-fps').textContent = lastFps.toFixed(1);
+}
+
+/* ── REGENERATE ── */
+function regenerate() {
+  seed = Math.random() * 1e9 | 0;
+  epoch++;
+  srand(seed);
+  buildSkeleton();
+  spawnParticles();
+  buildVectorField();
+
+  // Flash
+  const flash = document.getElementById('flash');
+  flash.style.opacity = '0.7';
+  setTimeout(() => { flash.style.opacity = '0'; }, 80);
+}
+
+/* ── KEYS ── */
+document.addEventListener('keydown', e => {
+  const k = e.key.toUpperCase();
+  if (k === ' ' || k === 'ENTER') { e.preventDefault(); regenerate(); }
+  if (k === 'H') {
+    hudVisible = !hudVisible;
+    document.getElementById('hud').classList.toggle('visible', hudVisible);
+  }
+  if (k === 'S') {
+    audioOn = !audioOn;
+    if (audioOn) { startAudio(); } else { stopOscillators(); }
+  }
+});
+
+document.addEventListener('click', () => regenerate());
+
+/* ── HINT FADE ── */
+setTimeout(() => { document.getElementById('key-hint').classList.add('fade'); }, 6000);
+
+/* ── INIT ── */
+resize();
+window.addEventListener('resize', resize);
+buildSkeleton();
+spawnParticles();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

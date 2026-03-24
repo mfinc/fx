@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>E8 Pulse – Neuro-Technological Hilbert Space Wavefront | Generative Art</title>
+<meta name="description" content="An immersive neuro-technological generative art experience visualizing neural firing patterns through Hilbert space-filling curves, Sine-Gordon wave equations, Johnson Solid kaleidoscopes, and L-System fractals. Real-time audiovisual synthesis with CIE chromaticity color palettes and Hilbert Transform audio.">
+<meta name="keywords" content="neuro-geometric generative art, Hilbert curve, Sine-Gordon wave, E8 lattice, Johnson solids, L-systems, CIE chromaticity, neural firing patterns, Hilbert transform audio, kaleidoscope art, generative visual art, audiovisual synthesis, fractal art, wave equation visualization, neuro-technological art, space-filling curves, interactive generative art, WebGL art, canvas animation, algorithmic art, mathematical visualization, neural network art, brainwave art, psychedelic generative art, real-time audio synthesis, computational art">
+<meta name="author" content="E8 Pulse Neuro-Geometric Engine">
+<meta name="robots" content="index, follow">
+<meta property="og:title" content="E8 Pulse – Neuro-Technological Hilbert Space Wavefront">
+<meta property="og:description" content="Mesmerizing generative art: Hilbert curves, Sine-Gordon waves, Johnson Solids, L-Systems and CIE chromaticity audio-visual synthesis.">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="E8 Pulse – Neuro-Geometric Generative Art">
+<meta name="twitter:description" content="Neural firing patterns visualized through Hilbert space, Sine-Gordon equations, and kaleidoscopic Johnson Solid fields.">
+<meta name="theme-color" content="#000000">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: 'Courier New', monospace; }
+  #canvas { display: block; width: 100%; height: 100%; cursor: crosshair; touch-action: none; }
+  #hud {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    pointer-events: none; display: none;
+    font-size: 11px; color: rgba(255,255,255,0.7);
+    text-shadow: 0 0 8px currentColor;
+  }
+  #hud.visible { display: block; }
+  #hud-tl {
+    position: absolute; top: 16px; left: 16px;
+    background: rgba(0,0,0,0.6); padding: 10px 14px;
+    border: 1px solid rgba(255,255,255,0.15); border-radius: 4px;
+    line-height: 1.8; letter-spacing: 0.05em;
+    backdrop-filter: blur(4px);
+  }
+  #hud-tr {
+    position: absolute; top: 16px; right: 16px;
+    background: rgba(0,0,0,0.6); padding: 10px 14px;
+    border: 1px solid rgba(255,255,255,0.15); border-radius: 4px;
+    line-height: 1.8; letter-spacing: 0.05em; text-align: right;
+    backdrop-filter: blur(4px);
+  }
+  #hud-br {
+    position: absolute; bottom: 16px; right: 16px;
+    background: rgba(0,0,0,0.6); padding: 10px 14px;
+    border: 1px solid rgba(255,255,255,0.15); border-radius: 4px;
+    line-height: 1.8; letter-spacing: 0.05em; text-align: right;
+    backdrop-filter: blur(4px);
+  }
+  #keys {
+    position: fixed; bottom: 16px; left: 16px;
+    font-size: 10px; color: rgba(255,255,255,0.35);
+    pointer-events: none; letter-spacing: 0.08em;
+    text-shadow: 0 0 6px rgba(255,255,255,0.2);
+  }
+  .key-tag {
+    display: inline-block; border: 1px solid rgba(255,255,255,0.25);
+    padding: 1px 5px; border-radius: 2px; margin: 0 3px;
+  }
+  #overlay-flash {
+    position: fixed; inset: 0; pointer-events: none;
+    background: rgba(255,255,255,0);
+    transition: background 0.06s ease-out;
+  }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<div id="overlay-flash"></div>
+<div id="hud">
+  <div id="hud-tl">
+    <div id="h-title" style="font-size:13px;font-weight:bold;letter-spacing:0.15em;margin-bottom:4px;">E8 PULSE // HILBERT WAVEFRONT</div>
+    <div id="h-frame">FRAME 0</div>
+    <div id="h-fps">FPS --</div>
+    <div id="h-hilbert">HILBERT ORDER --</div>
+    <div id="h-lsys">L-SYSTEM DEPTH --</div>
+    <div id="h-waves">WAVE NODES --</div>
+  </div>
+  <div id="hud-tr">
+    <div id="h-palette">PALETTE --</div>
+    <div id="h-cie">CIE xy(--,--)</div>
+    <div id="h-lum">LUMINANCE --</div>
+    <div id="h-audio">AUDIO OFF</div>
+    <div id="h-seed">SEED --</div>
+  </div>
+  <div id="hud-br">
+    <div id="h-johnson">JOHNSON SOLID --</div>
+    <div id="h-sinegordon">SINE-GORDON φ --</div>
+    <div id="h-phase">PHASE --</div>
+    <div id="h-scale">SCALE --</div>
+  </div>
+</div>
+<div id="keys">
+  <span class="key-tag">SPACE</span>/<span class="key-tag">CLICK</span> RANDOMIZE &nbsp;
+  <span class="key-tag">H</span> HUD &nbsp;
+  <span class="key-tag">S</span> SOUND
+</div>
+
+<script>
+'use strict';
+
+// ─── CANVAS SETUP ────────────────────────────────────────────────────────────
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d', { alpha: false });
+let W, H, cx, cy, DPR;
+
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = W * DPR; canvas.height = H * DPR;
+  canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  cx = W / 2; cy = H / 2;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ─── STATE ───────────────────────────────────────────────────────────────────
+let seed = Math.random() * 1e9 | 0;
+let frame = 0, lastTime = 0, fps = 60;
+let hudVisible = false, soundOn = false;
+let audioCtx = null, gainNode = null, oscPool = [];
+let params = {};
+
+// ─── SEEDED RNG ───────────────────────────────────────────────────────────────
+let _rng = 0;
+function rng() {
+  _rng ^= _rng << 13; _rng ^= _rng >> 17; _rng ^= _rng << 5;
+  return (_rng >>> 0) / 0xFFFFFFFF;
+}
+function rngInit(s) { _rng = s | 1; }
+function rr(a, b) { return a + rng() * (b - a); }
+function ri(a, b) { return Math.floor(rr(a, b + 1)); }
+function pick(arr) { return arr[ri(0, arr.length - 1)]; }
+
+// ─── CIE CHROMATICITY PALETTES ───────────────────────────────────────────────
+const CIE_PALETTES = [
+  { name: 'PLASMA',    points: [[0.17,0.005],[0.12,0.07],[0.27,0.12],[0.45,0.30],[0.65,0.33]] },
+  { name: 'AURORA',    points: [[0.16,0.35],[0.21,0.45],[0.30,0.40],[0.17,0.20],[0.10,0.05]] },
+  { name: 'INFERNO',   points: [[0.64,0.33],[0.55,0.35],[0.38,0.20],[0.22,0.07],[0.14,0.03]] },
+  { name: 'VIRIDIS',   points: [[0.14,0.08],[0.22,0.28],[0.30,0.39],[0.33,0.38],[0.45,0.40]] },
+  { name: 'MAGMA',     points: [[0.13,0.04],[0.25,0.08],[0.45,0.20],[0.55,0.30],[0.62,0.32]] },
+  { name: 'NEURAL',    points: [[0.19,0.38],[0.28,0.28],[0.38,0.20],[0.50,0.28],[0.60,0.35]] },
+  { name: 'SYNAPSE',   points: [[0.10,0.15],[0.22,0.35],[0.40,0.38],[0.55,0.32],[0.25,0.10]] },
+  { name: 'CORTEX',    points: [[0.60,0.30],[0.35,0.15],[0.20,0.12],[0.15,0.28],[0.28,0.40]] },
+];
+
+function xyY_to_RGB(x, y, Y) {
+  if (y < 0.001) y = 0.001;
+  const X = (Y / y) * x, Z = (Y / y) * (1 - x - y);
+  let r =  3.2406*X - 1.5372*Y*0 - 0.4986*Z; // simplified
+  // Full Bradford XYZ→sRGB
+  let R =  3.2406*X - 1.5372*(Y) - 0.4986*Z;
+  let G = -0.9689*X + 1.8758*(Y) + 0.0415*Z;
+  let B =  0.0557*X - 0.2040*(Y) + 1.0570*Z;
+  // We actually just need Y as luminance proxy; return hsl-like
+  const hue = Math.atan2(y - 0.333, x - 0.333) / (2 * Math.PI);
+  const sat = Math.sqrt((x-0.333)**2 + (y-0.333)**2) * 4;
+  return { h: ((hue % 1) + 1) % 1, s: Math.min(sat, 1), l: Y };
+}
+
+function paletteColor(palette, t, alpha) {
+  const pts = palette.points;
+  const i = t * (pts.length - 1);
+  const lo = Math.floor(i), hi = Math.min(lo + 1, pts.length - 1);
+  const f = i - lo;
+  const px = pts[lo][0] + f*(pts[hi][0]-pts[lo][0]);
+  const py = pts[lo][1] + f*(pts[hi][1]-pts[lo][1]);
+  const { h, s, l } = xyY_to_RGB(px, py, 0.5 + t * 0.5);
+  return `hsla(${(h*360)|0},${(s*100)|0}%,${(45+l*40)|0}%,${alpha})`;
+}
+
+// ─── HILBERT CURVE ────────────────────────────────────────────────────────────
+function hilbertD2XY(n, d) {
+  let rx, ry, s, t = d, x = 0, y = 0;
+  for (s = 1; s < n; s *= 2) {
+    rx = 1 & (t / 2);
+    ry = 1 & (t ^ rx);
+    if (ry === 0) {
+      if (rx === 1) { x = s - 1 - x; y = s - 1 - y; }
+      [x, y] = [y, x];
+    }
+    x += s * rx; y += s * ry; t = Math.floor(t / 4);
+  }
+  return { x, y };
+}
+
+function buildHilbert(order) {
+  const n = 1 << order;
+  const total = n * n;
+  const pts = new Float32Array(total * 2);
+  for (let i = 0; i < total; i++) {
+    const { x, y } = hilbertD2XY(n, i);
+    pts[i * 2] = x / (n - 1);
+    pts[i * 2 + 1] = y / (n - 1);
+  }
+  return { pts, n, total };
+}
+
+// ─── SINE-GORDON WAVE FIELD ───────────────────────────────────────────────────
+class SineGordonField {
+  constructor(nodes, speed, coupling) {
+    this.N = nodes;
+    this.speed = speed;
+    this.coupling = coupling;
+    this.phi = new Float32Array(nodes * nodes);
+    this.dphi = new Float32Array(nodes * nodes);
+    // Seed with a kink soliton
+    for (let i = 0; i < nodes; i++) {
+      for (let j = 0; j < nodes; j++) {
+        const x = (i / nodes - 0.5) * 8;
+        const y = (j / nodes - 0.5) * 8;
+        this.phi[i * nodes + j] = 4 * Math.atan(Math.exp(x * 0.7 + Math.sin(y) * 0.5));
+      }
+    }
+  }
+  step(dt) {
+    const N = this.N, c2 = this.coupling, phi = this.phi, dphi = this.dphi;
+    const dx = 1;
+    const newDphi = new Float32Array(N * N);
+    for (let i = 1; i < N - 1; i++) {
+      for (let j = 1; j < N - 1; j++) {
+        const idx = i * N + j;
+        const laplacian = (phi[(i+1)*N+j] + phi[(i-1)*N+j] + phi[i*N+j+1] + phi[i*N+j-1] - 4*phi[idx]) / (dx*dx);
+        newDphi[idx] = dphi[idx] + dt * (c2 * laplacian - Math.sin(phi[idx]) * this.speed);
+      }
+    }
+    for (let k = 0; k < N * N; k++) {
+      dphi[k] = newDphi[k] * 0.995;
+      phi[k] += dt * dphi[k];
+    }
+  }
+  get(i, j) { return this.phi[Math.min(i, this.N-1) * this.N + Math.min(j, this.N-1)]; }
+  luminance() {
+    let sum = 0;
+    for (let k = 0; k < this.phi.length; k++) sum += Math.sin(this.phi[k] * 0.5) ** 2;
+    return sum / this.phi.length;
+  }
+}
+
+// ─── L-SYSTEM ─────────────────────────────────────────────────────────────────
+const L_SYSTEMS = [
+  { axiom: 'F', rules: { F: 'F+F-F-F+F' }, angle: 90, name: 'QUADRATIC KOCH' },
+  { axiom: 'X', rules: { X: 'F+[[X]-X]-F[-FX]+X', F: 'FF' }, angle: 25, name: 'PLANT' },
+  { axiom: 'F-F-F-F', rules: { F: 'F-F+F+FF-F-F+F' }, angle: 90, name: 'DRAGON-ISH' },
+  { axiom: 'F++F++F', rules: { F: 'F-F++F-F' }, angle: 60, name: 'SIERPINSKI' },
+  { axiom: 'L', rules: { L: 'L+RF+', R: '-FL-R' }, angle: 90, name: 'HILBERT-L' },
+  { axiom: 'F', rules: { F: 'FF+[+F-F-F]-[-F+F+F]' }, angle: 22.5, name: 'BUSH' },
+];
+
+function lSystemGenerate(sys, depth) {
+  let s = sys.axiom;
+  for (let d = 0; d < depth; d++) {
+    let ns = '';
+    for (const c of s) ns += sys.rules[c] || c;
+    s = ns;
+    if (s.length > 80000) break;
+  }
+  return s;
+}
+
+function lSystemPoints(str, angle, scale) {
+  const pts = [];
+  let x = 0, y = 0, a = -Math.PI / 2;
+  const stack = [];
+  const ar = angle * Math.PI / 180;
+  pts.push([x, y]);
+  for (const c of str) {
+    if (c === 'F' || c === 'G' || c === 'L' || c === 'R') {
+      x += Math.cos(a) * scale; y += Math.sin(a) * scale;
+      pts.push([x, y]);
+    } else if (c === '+') a += ar;
+    else if (c === '-') a -= ar;
+    else if (c === '[') stack.push([x, y, a]);
+    else if (c === ']') { [x, y, a] = stack.pop(); pts.push(null); pts.push([x, y]); }
+  }
+  return pts;
+}
+
+// ─── JOHNSON SOLIDS (2D projections) ──────────────────────────────────────────
+const JOHNSON_TYPES = [
+  'SQUARE_CUPOLA', 'TRIANGULAR_CUPOLA', 'PENTAGONAL_CUPOLA',
+  'ELONGATED_SQUARE_DIPYRAMID', 'GYROBIFASTIGIUM', 'AUGMENTED_DODECAHEDRON',
+  'BILUNABIROTUNDA', 'SPHENOCORONA', 'AUGMENTED_TRUNCATED_TETRAHEDRON',
+  'PARABIGYRATE_RHOMBICOSIDODECAHEDRON'
+];
+
+function johnsonPolygon(type, cx, cy, r, rotation) {
+  const polys = [];
+  const t = rotation;
+  switch (type) {
+    case 'SQUARE_CUPOLA': {
+      // Square base + triangle fans
+      const sq = [], sq2 = [];
+      for (let i = 0; i < 4; i++) {
+        const a = t + i * Math.PI / 2;
+        sq.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]);
+      }
+      for (let i = 0; i < 8; i++) {
+        const a = t + i * Math.PI / 4;
+        sq2.push([cx + r * 1.6 * Math.cos(a), cy + r * 1.6 * Math.sin(a)]);
+      }
+      polys.push(sq, sq2);
+      for (let i = 0; i < 4; i++) {
+        polys.push([sq[i], sq2[i*2], sq2[i*2+1], sq[(i+1)%4]]);
+      }
+      break;
+    }
+    case 'TRIANGULAR_CUPOLA': {
+      const tri = [], hex = [];
+      for (let i = 0; i < 3; i++) {
+        const a = t + i * Math.PI * 2/3;
+        tri.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]);
+      }
+      for (let i = 0; i < 6; i++) {
+        const a = t + i * Math.PI / 3;
+        hex.push([cx + r * 1.7 * Math.cos(a), cy + r * 1.7 * Math.sin(a)]);
+      }
+      polys.push(tri, hex);
+      break;
+    }
+    case 'GYROBIFASTIGIUM': {
+      // Two triangular prism faces
+      for (let k = 0; k < 2; k++) {
+        const face = [];
+        const off = k * Math.PI;
+        for (let i = 0; i < 3; i++) {
+          const a = t + off + i * Math.PI * 2/3;
+          face.push([cx + r * (0.8+k*0.4) * Math.cos(a), cy + r * (0.8+k*0.4) * Math.sin(a)]);
+        }
+        polys.push(face);
+      }
+      break;
+    }
+    default: {
+      // Generic n-gon with inner star
+      const n = 5 + (type.length % 4);
+      const outer = [], inner = [];
+      for (let i = 0; i < n; i++) {
+        const a = t + i * Math.PI * 2 / n;
+        outer.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]);
+        inner.push([cx + r * 0.55 * Math.cos(a + Math.PI/n), cy + r * 0.55 * Math.sin(a + Math.PI/n)]);
+      }
+      polys.push(outer, inner);
+      // Spokes
+      for (let i = 0; i < n; i++) polys.push([inner[i], outer[i], outer[(i+1)%n], inner[(i+1)%n]]);
+    }
+  }
+  return polys;
+}
+
+// ─── AUDIO ENGINE ────────────────────────────────────────────────────────────
+function initAudio() {
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  gainNode = audioCtx.createGain();
+  gainNode.gain.value = 0;
+  gainNode.connect(audioCtx.destination);
+}
+
+function updateAudio(luminance, phase, paletteIdx) {
+  if (!audioCtx || !soundOn) return;
+  // Hilbert Transform of luminance → analytic signal → frequency modulation
+  // We approximate: base freq from luminance, sidebands from palette & phase
+  const baseFreq = 55 + luminance * 220;
+  const now = audioCtx.currentTime;
+
+  // Kill old oscs beyond 4
+  while (oscPool.length > 4) {
+    try { oscPool.shift().stop(); } catch(e) {}
+  }
+
+  if (oscPool.length < 3) {
+    // Spawn a new osc
+    const osc = audioCtx.createOscillator();
+    const env = audioCtx.createGain();
+    osc.type = ['sine','triangle','sawtooth'][paletteIdx % 3];
+    osc.frequency.setValueAtTime(baseFreq * (1 + oscPool.length * 0.618), now);
+    env.gain.setValueAtTime(0, now);
+    env.gain.linearRampToValueAtTime(0.08 / (oscPool.length + 1), now + 0.05);
+    env.gain.exponentialRampToValueAtTime(0.001, now + 2.5);
+    osc.connect(env); env.connect(gainNode);
+    osc.start(now); osc.stop(now + 2.5);
+    oscPool.push(osc);
+  }
+
+  // Modulate existing oscs with the Hilbert-derived data
+  oscPool.forEach((o, i) => {
+    try {
+      o.frequency.setTargetAtTime(baseFreq * (1 + i * 0.618) + Math.sin(phase + i) * 30, now, 0.1);
+    } catch(e) {}
+  });
+
+  gainNode.gain.setTargetAtTime(soundOn ? 0.35 : 0, now, 0.05);
+}
+
+// ─── PARAMETER RANDOMIZATION ─────────────────────────────────────────────────
+function randomize() {
+  seed = Math.random() * 1e9 | 0;
+  rngInit(seed);
+  params = {
+    hilbertOrder: ri(3, 6),
+    lsysIdx: ri(0, L_SYSTEMS.length - 1),
+    lsysDepth: ri(2, 5),
+    waveNodes: ri(12, 22),
+    waveSpeed: rr(0.3, 1.4),
+    waveCoupling: rr(0.5, 2.5),
+    paletteIdx: ri(0, CIE_PALETTES.length - 1),
+    paletteSpeed: rr(0.0004, 0.002),
+    johnsonType: pick(JOHNSON_TYPES),
+    johnsonCount: ri(4, 12),
+    trail: rr(0.03, 0.09),
+    baseScale: rr(0.6, 1.3),
+    rotSpeed: rr(0.0003, 0.0015),
+    pulseFreq: rr(0.8, 3.5),
+    kaleidoSym: pick([3, 4, 5, 6, 7, 8]),
+    hilbertAnim: rr(0.2, 1.2),
+    lsysScale: rr(0.5, 1.5),
+    warpAmt: rr(0.3, 1.8),
+  };
+  // Build static data
+  state.hilbert = buildHilbert(params.hilbertOrder);
+  state.lsysStr = lSystemGenerate(L_SYSTEMS[params.lsysIdx], params.lsysDepth);
+  state.lsysPts = lSystemPoints(state.lsysStr, L_SYSTEMS[params.lsysIdx].angle, params.lsysScale * Math.min(W, H) / 400);
+  state.wave = new SineGordonField(params.waveNodes, params.waveSpeed, params.waveCoupling);
+  state.t = 0;
+  state.phase = rng() * Math.PI * 2;
+  state.palettePhase = rng();
+
+  // Normalize L-system to fit
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const p of state.lsysPts) {
+    if (!p) continue;
+    if (p[0] < minX) minX = p[0]; if (p[0] > maxX) maxX = p[0];
+    if (p[1] < minY) minY = p[1]; if (p[1] > maxY) maxY = p[1];
+  }
+  state.lsysNorm = { minX, minY, rangeX: maxX-minX || 1, rangeY: maxY-minY || 1 };
+  updateHUD();
+}
+
+// ─── STATE ────────────────────────────────────────────────────────────────────
+const state = { hilbert: null, lsysPts: [], lsysStr: '', lsysNorm: {}, wave: null, t: 0, phase: 0, palettePhase: 0 };
+
+// ─── HUD UPDATE ───────────────────────────────────────────────────────────────
+function updateHUD() {
+  if (!hudVisible) return;
+  const p = params, pal = CIE_PALETTES[p.paletteIdx];
+  const pt = pal.points[Math.floor(state.palettePhase * pal.points.length) % pal.points.length];
+  document.getElementById('h-frame').textContent = `FRAME ${frame}`;
+  document.getElementById('h-fps').textContent = `FPS ${fps.toFixed(1)}`;
+  document.getElementById('h-hilbert').textContent = `HILBERT ORDER ${p.hilbertOrder} (${state.hilbert?.total} PTS)`;
+  document.getElementById('h-lsys').textContent = `L-SYSTEM DEPTH ${p.lsysDepth} | ${L_SYSTEMS[p.lsysIdx].name}`;
+  document.getElementById('h-waves').textContent = `WAVE NODES ${p.waveNodes}²`;
+  document.getElementById('h-palette').textContent = `PALETTE ${pal.name}`;
+  document.getElementById('h-cie').textContent = `CIE x${pt[0].toFixed(3)} y${pt[1].toFixed(3)}`;
+  document.getElementById('h-lum').textContent = `LUMINANCE ${state.wave ? state.wave.luminance().toFixed(4) : '--'}`;
+  document.getElementById('h-audio').textContent = `AUDIO ${soundOn ? 'ON' : 'OFF'}`;
+  document.getElementById('h-seed').textContent = `SEED ${seed}`;
+  document.getElementById('h-johnson').textContent = `SOLID ${params.johnsonType}`;
+  document.getElementById('h-sinegordon').textContent = `SG φ ${state.wave ? state.wave.get(Math.floor(p.waveNodes/2),Math.floor(p.waveNodes/2)).toFixed(4) : '--'}`;
+  document.getElementById('h-phase').textContent = `PHASE ${state.phase.toFixed(4)}`;
+  document.getElementById('h-scale').textContent = `SCALE ${p.baseScale.toFixed(3)}`;
+}
+
+// ─── DRAW ─────────────────────────────────────────────────────────────────────
+function draw(timestamp) {
+  const dt = Math.min((timestamp - lastTime) / 1000, 0.05);
+  if (lastTime) fps = fps * 0.95 + (1 / dt) * 0.05;
+  lastTime = timestamp;
+  frame++;
+
+  const p = params;
+  if (!p.hilbertOrder) { randomize(); requestAnimationFrame(draw); return; }
+
+  state.t += dt;
+  state.phase += dt * p.pulseFreq;
+  state.palettePhase = (state.palettePhase + dt * p.paletteSpeed * 60) % 1;
+
+  // Step wave
+  for (let s = 0; s < 2; s++) state.wave.step(dt * 0.5);
+  const luminance = state.wave.luminance();
+
+  const pal = CIE_PALETTES[p.paletteIdx];
+
+  // ── BACKGROUND FADE ──────────────────────────────────────────────────────
+  ctx.fillStyle = `rgba(0,0,0,${p.trail})`;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.save();
+  ctx.translate(cx, cy);
+
+  const baseR = Math.min(W, H) * 0.38 * p.baseScale;
+
+  // ── JOHNSON SOLID KALEIDOSCOPE ───────────────────────────────────────────
+  const sym = p.kaleidoSym;
+  const jCount = p.johnsonCount;
+  for (let k = 0; k < sym; k++) {
+    ctx.save();
+    ctx.rotate((k / sym) * Math.PI * 2 + state.t * p.rotSpeed * 60);
+    for (let j = 0; j < jCount; j++) {
+      const angle = (j / jCount) * Math.PI * 2;
+      const dist = baseR * (0.3 + 0.7 * (j / jCount));
+      const jx = Math.cos(angle) * dist;
+      const jy = Math.sin(angle) * dist;
+      const r = baseR * 0.07 * (1 + 0.5 * Math.sin(state.phase + j * 0.7));
+      const rot = state.t * p.rotSpeed * 120 + j * 1.1;
+      const t_pal = ((j / jCount) + state.palettePhase) % 1;
+
+      const polys = johnsonPolygon(p.johnsonType, jx, jy, r, rot);
+      polys.forEach((poly, pi) => {
+        if (!poly || !poly.length) return;
+        // Flatten nested
+        const pts = Array.isArray(poly[0]) ? poly : poly;
+        const alpha = 0.25 + 0.35 * Math.abs(Math.sin(state.phase * 0.7 + pi * 0.4));
+        ctx.beginPath();
+        ctx.moveTo(pts[0][0], pts[0][1]);
+        for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+        ctx.closePath();
+        ctx.strokeStyle = paletteColor(pal, (t_pal + pi * 0.15) % 1, alpha);
+        ctx.lineWidth = 0.7 + luminance * 1.5;
+        ctx.stroke();
+        if (pi % 2 === 0) {
+          ctx.fillStyle = paletteColor(pal, (t_pal + pi * 0.1) % 1, alpha * 0.18);
+          ctx.fill();
+        }
+      });
+    }
+    ctx.restore();
+  }
+
+  // ── HILBERT CURVE NEURAL PULSE ───────────────────────────────────────────
+  const hil = state.hilbert;
+  const hilScale = baseR * 1.7;
+  const hilOff = hilScale * 0.5;
+  const animT = (state.t * p.hilbertAnim * 20) % hil.total;
+  const batchSize = Math.min(hil.total, 2500);
+  const startIdx = (Math.floor(animT) * 2);
+
+  ctx.save();
+  ctx.rotate(state.t * p.rotSpeed * 30 + Math.PI * 0.25);
+
+  for (let pass = 0; pass < 2; pass++) {
+    ctx.beginPath();
+    let moved = false;
+    const step = Math.max(1, Math.floor(hil.total / batchSize));
+    for (let i = 0; i < hil.total - step; i += step) {
+      const idx = (i * 2) % (hil.pts.length - 2);
+      const bx = hil.pts[idx] * hilScale - hilOff;
+      const by = hil.pts[idx+1] * hilScale - hilOff;
+      // Sine-Gordon warp
+      const ni = Math.floor(hil.pts[idx] * (p.waveNodes - 1));
+      const nj = Math.floor(hil.pts[idx+1] * (p.waveNodes - 1));
+      const phi = state.wave.get(ni, nj);
+      const wx = bx + Math.cos(phi) * p.warpAmt * baseR * 0.04;
+      const wy = by + Math.sin(phi) * p.warpAmt * baseR * 0.04;
+
+      if (!moved) { ctx.moveTo(wx, wy); moved = true; }
+      else ctx.lineTo(wx, wy);
+    }
+    const t_pal = ((animT / hil.total) + state.palettePhase + pass * 0.5) % 1;
+    ctx.strokeStyle = paletteColor(pal, t_pal, pass === 0 ? 0.55 : 0.2);
+    ctx.lineWidth = pass === 0 ? (0.8 + luminance * 3) : (2.5 + luminance * 5);
+    ctx.stroke();
+  }
+
+  // Pulse glow along Hilbert path
+  const pulsePos = (state.phase / (Math.PI * 2)) % 1;
+  const pi = Math.floor(pulsePos * (hil.total / 2 - 1)) * 2;
+  if (pi < hil.pts.length - 1) {
+    const px2 = hil.pts[pi] * hilScale - hilOff;
+    const py2 = hil.pts[pi+1] * hilScale - hilOff;
+    const grad = ctx.createRadialGradient(px2, py2, 0, px2, py2, baseR * 0.12);
+    grad.addColorStop(0, paletteColor(pal, pulsePos, 0.9));
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(px2, py2, baseR * 0.12, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // ── L-SYSTEM FRACTAL ─────────────────────────────────────────────────────
+  const lpts = state.lsysPts;
+  const ln = state.lsysNorm;
+  if (lpts.length > 1) {
+    ctx.save();
+    ctx.rotate(-state.t * p.rotSpeed * 20 + Math.PI);
+    const lScale = baseR * 1.1;
+    ctx.beginPath();
+    let lMoved = false;
+    for (let i = 0; i < Math.min(lpts.length, 12000); i++) {
+      const pt = lpts[i];
+      if (!pt) { lMoved = false; continue; }
+      const lx = ((pt[0] - ln.minX) / ln.rangeX - 0.5) * lScale;
+      const ly = ((pt[1] - ln.minY) / ln.rangeY - 0.5) * lScale;
+      // Add wave distortion
+      const warpPhi = state.wave.get(
+        Math.floor(Math.abs(lx / lScale + 0.5) * (p.waveNodes - 1)),
+        Math.floor(Math.abs(ly / lScale + 0.5) * (p.waveNodes - 1))
+      );
+      const dx2 = lx + Math.sin(warpPhi + state.phase * 0.5) * baseR * 0.025;
+      const dy2 = ly + Math.cos(warpPhi + state.phase * 0.3) * baseR * 0.025;
+      if (!lMoved) { ctx.moveTo(dx2, dy2); lMoved = true; }
+      else ctx.lineTo(dx2, dy2);
+    }
+    const lpalT = (state.palettePhase + 0.3) % 1;
+    ctx.strokeStyle = paletteColor(pal, lpalT, 0.45);
+    ctx.lineWidth = 0.5 + luminance * 2;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // ── NEURO-PULSE RINGS ────────────────────────────────────────────────────
+  for (let r = 0; r < 6; r++) {
+    const ringT = (state.phase * (0.4 + r * 0.15)) % (Math.PI * 2);
+    const ringR = baseR * (0.15 + r * 0.18) * (1 + 0.08 * Math.sin(ringT * 2));
+    const palT = (r / 6 + state.palettePhase) % 1;
+    const alpha = (0.15 + 0.1 * Math.sin(ringT * 3)) * (1 - r * 0.08);
+    ctx.beginPath();
+    for (let a = 0; a < Math.PI * 2; a += 0.05) {
+      const phi = state.wave.get(
+        Math.floor((Math.cos(a)*0.5+0.5)*(p.waveNodes-1)),
+        Math.floor((Math.sin(a)*0.5+0.5)*(p.waveNodes-1))
+      );
+      const rr2 = ringR + Math.sin(phi * 2 + a * sym + state.phase) * ringR * 0.12;
+      const x = Math.cos(a + state.t * p.rotSpeed * 15 * (r%2===0?1:-1)) * rr2;
+      const y = Math.sin(a + state.t * p.rotSpeed * 15 * (r%2===0?1:-1)) * rr2;
+      a === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.strokeStyle = paletteColor(pal, palT, alpha);
+    ctx.lineWidth = 1 + luminance * 4;
+    ctx.stroke();
+  }
+
+  // ── CENTRAL E8 STARBURST ─────────────────────────────────────────────────
+  const starSpokes = 8;
+  for (let i = 0; i < starSpokes * 3; i++) {
+    const a = (i / (starSpokes * 3)) * Math.PI * 2 + state.t * p.rotSpeed * 40;
+    const r2 = baseR * (0.05 + 0.55 * Math.abs(Math.sin(state.phase * 0.5 + i * 0.7)));
+    const palT = (i / (starSpokes * 3) + state.palettePhase + 0.6) % 1;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(Math.cos(a) * r2, Math.sin(a) * r2);
+    ctx.strokeStyle = paletteColor(pal, palT, 0.35 + luminance * 0.3);
+    ctx.lineWidth = 0.4 + luminance * 2.5;
+    ctx.stroke();
+  }
+
+  // Central glow
+  const cGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, baseR * 0.2);
+  cGrad.addColorStop(0, paletteColor(pal, state.palettePhase, 0.7));
+  cGrad.addColorStop(0.5, paletteColor(pal, (state.palettePhase+0.3)%1, 0.2));
+  cGrad.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = cGrad;
+  ctx.beginPath();
+  ctx.arc(0, 0, baseR * 0.2, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+
+  // ── AUDIO SYNC ───────────────────────────────────────────────────────────
+  if (frame % 15 === 0) updateAudio(luminance, state.phase, p.paletteIdx);
+  if (frame % 10 === 0) updateHUD();
+
+  requestAnimationFrame(draw);
+}
+
+// ─── FLASH EFFECT ────────────────────────────────────────────────────────────
+function flash() {
+  const el = document.getElementById('overlay-flash');
+  el.style.background = 'rgba(255,255,255,0.15)';
+  setTimeout(() => el.style.background = 'rgba(255,255,255,0)', 120);
+}
+
+// ─── INPUT HANDLING ───────────────────────────────────────────────────────────
+window.addEventListener('keydown', e => {
+  if (e.code === 'Space') {
+    e.preventDefault();
+    flash(); randomize();
+    if (soundOn) updateAudio(0.5, 0, params.paletteIdx);
+  }
+  if (e.key === 'h' || e.key === 'H') {
+    hudVisible = !hudVisible;
+    document.getElementById('hud').classList.toggle('visible', hudVisible);
+    updateHUD();
+  }
+  if (e.key === 's' || e.key === 'S') {
+    soundOn = !soundOn;
+    if (soundOn) {
+      initAudio();
+      if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+      gainNode.gain.setTargetAtTime(0.35, audioCtx.currentTime, 0.1);
+    } else if (gainNode) {
+      gainNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.1);
+    }
+    document.getElementById('h-audio').textContent = `AUDIO ${soundOn ? 'ON' : 'OFF'}`;
+  }
+});
+
+canvas.addEventListener('click', () => { flash(); randomize(); });
+canvas.addEventListener('touchstart', e => { e.preventDefault(); flash(); randomize(); }, { passive: false });
+
+// ─── INIT ─────────────────────────────────────────────────────────────────────
+randomize();
+requestAnimationFrame(draw);
+</script>
+</body>
+</html>

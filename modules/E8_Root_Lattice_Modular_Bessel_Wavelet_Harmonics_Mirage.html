@@ -1,0 +1,852 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="description" content="Interactive visualization of the E8 Lie group root lattice (248 dimensions) projected via stereographic mapping through the 7-sphere, animated with Möbius conformal transformations, spherical Bessel functions, wavelet harmonics, and modular arithmetic on Eisenstein integers.">
+<meta name="keywords" content="E8 lattice visualization modular forms Bessel functions wavelet transform generative graphics, E8 Lie group, root system, stereographic projection, Möbius transformation, Eisenstein integers, hyperbolic tessellation, Weyl group, generative art">
+<meta name="author" content="E8 Harmonics Generator">
+<meta name="robots" content="index, follow">
+<meta property="og:title" content="E8 Root Lattice Modular Bessel Wavelet Harmonics Mirage">
+<meta property="og:description" content="Interactive E8 Lie group visualization: 240 roots projected from 7-sphere via stereographic mapping, animated with Möbius transforms, Bessel wavelet harmonics, and modular Eisenstein arithmetic.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="https://og-image-placeholder.example.com/e8-lattice-preview.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="E8 Root Lattice Modular Bessel Wavelet Harmonics Mirage">
+<meta name="twitter:description" content="Interactive visualization: E8 root lattice (240 vertices, 248-dim Lie algebra) projected through Möbius conformal maps with spherical Bessel wavelet harmonics and modular Eisenstein arithmetic.">
+<meta name="twitter:image" content="https://og-image-placeholder.example.com/e8-lattice-preview.png">
+<title>E8 Root Lattice Modular Bessel Wavelet Harmonics Mirage</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+  canvas { position: absolute; top: 0; left: 0; display: block; }
+  #fg { pointer-events: none; }
+  #hud {
+    display: none;
+    position: absolute; top: 12px; left: 12px;
+    font: 10px/1.6 'Courier New', monospace;
+    color: #00ffcc; background: rgba(0,5,15,0.82);
+    border: 1px solid rgba(0,255,200,0.25);
+    padding: 10px 14px; border-radius: 4px;
+    pointer-events: none; max-width: 420px;
+    text-shadow: 0 0 8px #0fc;
+    backdrop-filter: blur(4px);
+  }
+  #hud .hud-title { color: #ff6ec7; font-size: 11px; letter-spacing: 2px; margin-bottom: 6px; text-transform: uppercase; }
+  #hud .hud-row { color: #aaffee; }
+  #hud .hud-val { color: #ffffaa; }
+  #info {
+    position: absolute; bottom: 14px; left: 50%;
+    transform: translateX(-50%);
+    font: 10px/1.4 'Courier New', monospace;
+    color: rgba(180,220,255,0.45);
+    letter-spacing: 1.5px; text-align: center;
+    pointer-events: none; white-space: nowrap;
+  }
+  #audio-indicator {
+    position: absolute; top: 14px; right: 14px;
+    font: 9px 'Courier New', monospace;
+    color: rgba(255,80,80,0.5);
+    pointer-events: none;
+    transition: color 0.3s;
+  }
+  #audio-indicator.active { color: rgba(80,255,160,0.9); text-shadow: 0 0 6px #0f8; }
+</style>
+</head>
+<body>
+<canvas id="bg"></canvas>
+<canvas id="fg"></canvas>
+<div id="hud">
+  <div class="hud-title">▸ E8 ROOT LATTICE HARMONICS</div>
+  <div id="hud-content"></div>
+</div>
+<div id="audio-indicator">⬤ AUDIO OFF</div>
+<div id="info">SPACE / CLICK: RANDOMIZE &nbsp;|&nbsp; H: HUD &nbsp;|&nbsp; S: AUDIO</div>
+
+<script>
+'use strict';
+
+// ══════════════════════════════════════════════════════════
+//  MERSENNE TWISTER (MT19937)
+// ══════════════════════════════════════════════════════════
+class MT {
+  constructor(seed) {
+    this.mt = new Uint32Array(624);
+    this.idx = 625;
+    this.mt[0] = seed >>> 0;
+    for (let i = 1; i < 624; i++) {
+      this.mt[i] = (Math.imul(1812433253, this.mt[i-1] ^ (this.mt[i-1] >>> 30)) + i) >>> 0;
+    }
+    this.idx = 624;
+  }
+  _generate() {
+    const N = 624, M = 397, A = 0x9908b0df;
+    for (let i = 0; i < N; i++) {
+      const y = (this.mt[i] & 0x80000000) | (this.mt[(i+1)%N] & 0x7fffffff);
+      this.mt[i] = this.mt[(i+M)%N] ^ (y >>> 1);
+      if (y & 1) this.mt[i] ^= A;
+    }
+    this.idx = 0;
+  }
+  rand() {
+    if (this.idx >= 624) this._generate();
+    let y = this.mt[this.idx++];
+    y ^= y >>> 11;
+    y ^= (y << 7)  & 0x9d2c5680;
+    y ^= (y << 15) & 0xefc60000;
+    y ^= y >>> 18;
+    return (y >>> 0) / 4294967296;
+  }
+  randInt(n) { return Math.floor(this.rand() * n); }
+  randRange(a, b) { return a + this.rand() * (b - a); }
+}
+
+let mt = new MT((Date.now() ^ (Math.random() * 0x7fffffff | 0)) >>> 0);
+
+// ══════════════════════════════════════════════════════════
+//  E8 ROOT SYSTEM — 240 ROOTS IN R^8
+// ══════════════════════════════════════════════════════════
+function buildE8Roots() {
+  const R = [];
+  // Type A: ±e_i ± e_j  (i≠j),  norm² = 2  →  112 roots
+  for (let i = 0; i < 8; i++)
+    for (let j = i+1; j < 8; j++)
+      for (const si of [1,-1])
+        for (const sj of [1,-1]) {
+          const r = new Float32Array(8);
+          r[i] = si; r[j] = sj;
+          R.push(r);
+        }
+  // Type B: (±½,±½,…,±½), even #minuses  →  128 roots
+  for (let k = 0; k < 256; k++) {
+    let neg = 0;
+    const r = new Float32Array(8);
+    for (let b = 0; b < 8; b++) {
+      const s = (k >> b) & 1 ? -0.5 : 0.5;
+      r[b] = s;
+      if (s < 0) neg++;
+    }
+    if (neg % 2 === 0) R.push(r);
+  }
+  return R; // 240 roots
+}
+const E8 = buildE8Roots();
+const N_ROOTS = E8.length; // 240
+
+// ══════════════════════════════════════════════════════════
+//  GLOBAL STATE
+// ══════════════════════════════════════════════════════════
+let W = 0, H = 0;
+let projVecs     = null;   // 8×2 projection matrix (two 8D unit vectors)
+let params       = {};
+let projPts      = [];     // 2D projected positions [x,y]
+let restPts      = [];     // rest positions for spring-mass
+let velPts       = [];     // velocities for spring-mass
+let edges        = [];     // [i,j] edge indices
+let tris         = [];     // [i,j,k] triangle indices
+let hudVisible   = false;
+let audioOn      = false;
+let audioCtx     = null;
+let oscNodes     = [];
+let gainNodes    = [];
+let masterGain   = null;
+let startTime    = performance.now();
+let frame        = 0;
+let lastFPS      = 60;
+let fpsSamples   = [];
+
+// ══════════════════════════════════════════════════════════
+//  CANVAS & WEBGL SETUP
+// ══════════════════════════════════════════════════════════
+const bgCanvas = document.getElementById('bg');
+const fgCanvas = document.getElementById('fg');
+const ctx2d    = fgCanvas.getContext('2d');
+
+let gl = bgCanvas.getContext('webgl', { antialias: false, powerPreference: 'default' })
+      || bgCanvas.getContext('experimental-webgl', { antialias: false });
+
+// ══════════════════════════════════════════════════════════
+//  GLSL SHADERS
+// ══════════════════════════════════════════════════════════
+const VS = `
+attribute vec2 a_pos;
+void main(){gl_Position=vec4(a_pos,0.,1.);}
+`;
+
+const FS = `
+precision highp float;
+uniform float u_t;
+uniform vec2  u_res;
+uniform float u_mod;
+uniform float u_bord;
+uniform float u_noct;
+uniform float u_wph;
+uniform float u_hoff;
+uniform float u_seed;
+uniform float u_wscale;
+uniform vec2  u_roots[24];
+
+// ─── Complex arithmetic ───────────────────────────────
+vec2 cMul(vec2 a,vec2 b){return vec2(a.x*b.x-a.y*b.y,a.x*b.y+a.y*b.x);}
+vec2 cDiv(vec2 a,vec2 b){float d=dot(b,b)+1e-9;return vec2(dot(a,b),a.y*b.x-a.x*b.y)/d;}
+
+// Möbius transform  w=(az+b)/(cz+d)
+vec2 mobius(vec2 z,vec2 a,vec2 b,vec2 c,vec2 d){
+  return cDiv(cMul(a,z)+b,cMul(c,z)+d);
+}
+
+// ─── Gradient noise (Perlin-style) ────────────────────
+vec2 hash2(vec2 p){
+  p=vec2(dot(p,vec2(127.1,311.7)),dot(p,vec2(269.5,183.3)));
+  return fract(sin(p)*43758.5453)*2.-1.;
+}
+float gnoise(vec2 p){
+  vec2 i=floor(p),f=fract(p);
+  vec2 u=f*f*(3.-2.*f);
+  return mix(mix(dot(hash2(i),f),dot(hash2(i+vec2(1,0)),f-vec2(1,0)),u.x),
+             mix(dot(hash2(i+vec2(0,1)),f-vec2(0,1)),dot(hash2(i+vec2(1,1)),f-vec2(1,1)),u.x),u.y);
+}
+float fbm(vec2 p,float oct){
+  float v=0.,a=.5;
+  mat2 m=mat2(1.6,1.2,-1.2,1.6);
+  for(int i=0;i<8;i++){
+    if(float(i)>=oct)break;
+    v+=a*gnoise(p+u_seed);
+    p=m*p; a*=.5;
+  }
+  return v;
+}
+
+// ─── Bessel J0 (blended poly/asymptotic) ──────────────
+float J0(float x){
+  x=abs(x)+1e-5;
+  float z=x*x*.25;
+  float poly=1.+z*(-1.+z*(.25+z*(-.027778+z*.001736)));
+  float asym=sqrt(.6366197/x)*cos(x-.7853982);
+  return mix(poly,asym,smoothstep(3.,6.,x));
+}
+
+// ─── Eisenstein integer modular grid ──────────────────
+float eisenstein(vec2 z,float m){
+  float a=z.x-z.y*.57735;
+  float b=z.y*1.1547;
+  return fract(mod(floor(a)+floor(b)*.618,m)/m);
+}
+
+// ─── LAB → linear sRGB ────────────────────────────────
+float labInv(float t){return t>.20689655?t*t*t:(t-0.137931)*0.12842;}
+vec3 lab2rgb(float L,float aa,float bb){
+  float fy=(L+16.)/116.;
+  float fx=aa/500.+fy, fz=fy-bb/200.;
+  float X=.95047*labInv(fx), Y=labInv(fy), Z=1.08883*labInv(fz);
+  float r= X*3.2406+Y*-1.5372+Z*-.4986;
+  float g= X*-.9689+Y*1.8758+Z*.0415;
+  float b2=X*.0557+Y*-.2040+Z*1.0570;
+  vec3 c=clamp(vec3(r,g,b2),0.,1.);
+  // sRGB gamma
+  vec3 lo=12.92*c;
+  vec3 hi=1.055*pow(c,vec3(1./2.4))-0.055;
+  return mix(lo,hi,step(0.0031308,c));
+}
+
+void main(){
+  vec2 uv=(gl_FragCoord.xy-.5*u_res)/min(u_res.x,u_res.y);
+
+  // ── Möbius conformal warp ──────────────────────────
+  float ta=u_t*.11+u_wph;
+  float tb=u_t*.07;
+  vec2 ma=vec2(cos(ta)*.92,sin(ta*.71)*.92);
+  vec2 mb=vec2(.14*sin(u_t*.13),.14*cos(u_t*.19));
+  vec2 mc=vec2(-.07*sin(u_t*.17),-.07*cos(u_t*.11));
+  vec2 md=vec2(cos(tb+u_wph*.5),sin(tb*.83));
+  vec2 wuv=mobius(uv*.75,ma,mb,mc,md);
+
+  // ── Bessel wave field from 24 projected E8 roots ──
+  float bfield=0.;
+  for(int k=0;k<24;k++){
+    vec2 d=wuv-u_roots[k]*.4;
+    float r=length(d)+1e-4;
+    float freq=(5.+u_bord)*(1.+float(k)*.04);
+    bfield+=J0(r*freq)/(1.+r*3.);
+  }
+  bfield*=.13;
+
+  // ── Radial standing waves (Hankel-like) ───────────
+  float r0=length(wuv)+1e-4;
+  float angle0=atan(wuv.y,wuv.x);
+  float standing=0.;
+  for(int k=1;k<=6;k++){
+    float n=float(k);
+    float ord=n*(1.+u_bord*.25);
+    standing+=J0(r0*ord*3.5)*cos(angle0*n+u_t*(.4+n*.12))/n;
+  }
+  standing*=.22;
+
+  // ── Wavelet / fBm texture ─────────────────────────
+  vec2 wp=wuv*(u_wscale*2.5)+u_t*.035;
+  float noise=fbm(wp,u_noct);
+
+  // ── Eisenstein modular kaleidoscope ───────────────
+  float eim=eisenstein(wuv*u_mod*.8,3.);
+  float eim2=eisenstein(wuv*u_mod*1.3+.5,5.);
+  float modfield=(eim+eim2)*.5;
+
+  // ── Combine fields ────────────────────────────────
+  float field=bfield+standing+noise*.35+modfield*.3;
+
+  // ── Phase hue (spectral harmonic series) ──────────
+  float hue=u_hoff+angle0/6.28318+u_t*.035+field*.28;
+  // Chebyshev spectral harmonics on hue phase
+  float spec=0.;
+  for(int n=1;n<=8;n++){
+    spec+=sin(field*3.14159*float(n)+u_t*.08*float(n)+u_wph)/float(n);
+  }
+  spec*=.1;
+  hue=fract(hue+spec);
+
+  // ── Sigmoid-gradient LAB color ────────────────────
+  float sig=1./(1.+exp(-field*2.8));
+  float L=18.+68.*sig;
+  float chA=88.*cos(hue*6.28318+u_t*.09);
+  float chB=88.*sin(hue*6.28318+u_t*.065);
+  // Spectral modulation
+  chA+=18.*sin(spec*12.+u_t*.05);
+  chB+=18.*cos(spec*12.+u_t*.07);
+
+  vec3 rgb=lab2rgb(L,chA,chB);
+
+  // ── Vignette ──────────────────────────────────────
+  float vig=1.-smoothstep(.55,1.2,length(uv)*.9);
+  gl_FragColor=vec4(rgb*vig,1.);
+}
+`;
+
+// ──── Compile shader ────────────────────────────────────
+function makeShader(type, src) {
+  const sh = gl.createShader(type);
+  gl.shaderSource(sh, src);
+  gl.compileShader(sh);
+  if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS))
+    console.error('Shader error:', gl.getShaderInfoLog(sh));
+  return sh;
+}
+const prog = gl.createProgram();
+gl.attachShader(prog, makeShader(gl.VERTEX_SHADER, VS));
+gl.attachShader(prog, makeShader(gl.FRAGMENT_SHADER, FS));
+gl.linkProgram(prog);
+gl.useProgram(prog);
+
+// Full-screen quad
+const quadBuf = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
+gl.bufferData(gl.ARRAY_BUFFER,
+  new Float32Array([-1,-1, 1,-1, -1,1, 1,-1, 1,1, -1,1]), gl.STATIC_DRAW);
+const aPos = gl.getAttribLocation(prog, 'a_pos');
+gl.enableVertexAttribArray(aPos);
+gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+// Uniform locations
+const uT    = gl.getUniformLocation(prog, 'u_t');
+const uRes  = gl.getUniformLocation(prog, 'u_res');
+const uMod  = gl.getUniformLocation(prog, 'u_mod');
+const uBord = gl.getUniformLocation(prog, 'u_bord');
+const uNoct = gl.getUniformLocation(prog, 'u_noct');
+const uWph  = gl.getUniformLocation(prog, 'u_wph');
+const uHoff = gl.getUniformLocation(prog, 'u_hoff');
+const uSeed = gl.getUniformLocation(prog, 'u_seed');
+const uWsc  = gl.getUniformLocation(prog, 'u_wscale');
+const uRoots = gl.getUniformLocation(prog, 'u_roots');
+
+// ══════════════════════════════════════════════════════════
+//  PROJECTION: 8D → 2D (stereographic from S7)
+// ══════════════════════════════════════════════════════════
+function gramSchmidt(vecs) {
+  // Orthonormalize a list of 8D vectors
+  const result = [];
+  for (let v of vecs) {
+    let u = [...v];
+    for (const r of result) {
+      const dot = u.reduce((s,x,i)=>s+x*r[i],0);
+      u = u.map((x,i)=>x - dot*r[i]);
+    }
+    const norm = Math.sqrt(u.reduce((s,x)=>s+x*x,0));
+    if (norm > 1e-10) result.push(u.map(x=>x/norm));
+  }
+  return result;
+}
+
+function randomOrthoProjection() {
+  // Two random 8D unit vectors (orthonormal)
+  const v1 = Array.from({length:8},()=>mt.rand()*2-1);
+  const v2 = Array.from({length:8},()=>mt.rand()*2-1);
+  return gramSchmidt([v1,v2]);
+}
+
+// Weyl group reflection through hyperplane normal n
+function weylReflect(root, n) {
+  // r → r - 2(r·n)/(n·n) * n
+  const dot = root.reduce((s,x,i)=>s+x*n[i],0);
+  const n2  = n.reduce((s,x)=>s+x*x,0);
+  if (n2 < 1e-12) return root;
+  const c = 2*dot/n2;
+  return root.map((x,i)=>x - c*n[i]);
+}
+
+function projectRoots(vecs) {
+  // Apply random Weyl reflections then project
+  const [v1,v2] = vecs;
+  return E8.map(root => {
+    // Apply params.weylOps chain of reflections
+    let r = [...root];
+    for (const op of params.weylOps) {
+      r = weylReflect(r, op);
+    }
+    const x = r.reduce((s,c,i)=>s+c*v1[i],0);
+    const y = r.reduce((s,c,i)=>s+c*v2[i],0);
+    return [x, y];
+  });
+}
+
+// ══════════════════════════════════════════════════════════
+//  EDGE / TRIANGLE TOPOLOGY  (k-NN graph + shared-neighbor tris)
+// ══════════════════════════════════════════════════════════
+function buildTopology(pts) {
+  const N = pts.length;
+  const K = 7; // k-nearest neighbors
+
+  // k-NN adjacency
+  const neighbors = new Array(N).fill(null).map(()=>[]);
+  const edgeSet   = new Map();
+
+  for (let i = 0; i < N; i++) {
+    const dists = [];
+    for (let j = 0; j < N; j++) {
+      if (j===i) continue;
+      const dx=pts[j][0]-pts[i][0], dy=pts[j][1]-pts[i][1];
+      dists.push([j, dx*dx+dy*dy]);
+    }
+    dists.sort((a,b)=>a[1]-b[1]);
+    const knn = dists.slice(0,K).map(d=>d[0]);
+    neighbors[i] = knn;
+    for (const j of knn) {
+      const key = Math.min(i,j)+'_'+Math.max(i,j);
+      edgeSet.set(key, [Math.min(i,j), Math.max(i,j)]);
+    }
+  }
+
+  const edgeArr = [...edgeSet.values()];
+
+  // Triangles: for each vertex i, check all pairs (j,k) in neighbors[i]
+  const triSet = new Map();
+  const triArr = [];
+  for (let i = 0; i < N; i++) {
+    const ni = new Set(neighbors[i]);
+    for (let a = 0; a < neighbors[i].length; a++) {
+      const j = neighbors[i][a];
+      for (let b = a+1; b < neighbors[i].length; b++) {
+        const k = neighbors[i][b];
+        // Only form triangle if j and k are also neighbors
+        if (neighbors[j].includes(k)) {
+          const tri = [i,j,k].sort((a,b)=>a-b);
+          const tkey = tri.join('_');
+          if (!triSet.has(tkey)) {
+            triSet.set(tkey,true);
+            triArr.push(tri);
+          }
+        }
+      }
+    }
+  }
+  return { edges: edgeArr, tris: triArr };
+}
+
+// ══════════════════════════════════════════════════════════
+//  SPRING-MASS SYSTEM  (RK4-inspired damped harmonic)
+// ══════════════════════════════════════════════════════════
+function initSpringMass() {
+  velPts = projPts.map(()=>[
+    (mt.rand()-.5)*.004,
+    (mt.rand()-.5)*.004
+  ]);
+}
+
+function stepSpringMass(dt) {
+  const k_spring = 18;     // Hooke's constant
+  const damping  = 0.88;   // velocity damping per frame
+  const noise_amp = 0.0008;
+
+  // RK4 for harmonic oscillator: ẍ = -k(x-rest) - d·ẋ
+  // k1 = f(x, v)
+  // We'll use simplified RK4 steps
+  for (let i = 0; i < N_ROOTS; i++) {
+    const rx = restPts[i][0], ry = restPts[i][1];
+    const px = projPts[i][0], py = projPts[i][1];
+    const vx = velPts[i][0],  vy = velPts[i][1];
+
+    // Force: spring + small random perturbation
+    const fx = -k_spring*(px - rx) + (mt.rand()-.5)*noise_amp;
+    const fy = -k_spring*(py - ry) + (mt.rand()-.5)*noise_amp;
+
+    // RK4 stage (simplified — full k4 for harmonic oscillator)
+    const ax1 = fx - damping*0.1*vx;
+    const ay1 = fy - damping*0.1*vy;
+    const vx2 = vx + ax1*dt*.5;
+    const vy2 = vy + ay1*dt*.5;
+    const ax2 = -k_spring*(px+vx*dt*.5-rx) + fx*.5 - damping*0.1*vx2;
+    const ay2 = -k_spring*(py+vy*dt*.5-ry) + fy*.5 - damping*0.1*vy2;
+
+    velPts[i][0] = (vx + ax2*dt) * (1 - damping*dt);
+    velPts[i][1] = (vy + ay2*dt) * (1 - damping*dt);
+    projPts[i][0] += velPts[i][0];
+    projPts[i][1] += velPts[i][1];
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+//  AUDIO SYNTHESIS  (Additive / Chebyshev polynomial basis)
+// ══════════════════════════════════════════════════════════
+function initAudio() {
+  if (audioCtx) return;
+  audioCtx  = new (window.AudioContext || window.webkitAudioContext)();
+  masterGain = audioCtx.createGain();
+  masterGain.gain.value = 0;
+  masterGain.connect(audioCtx.destination);
+
+  // 8 oscillators — one per E8 dimension
+  // Frequencies: Chebyshev-based harmonic series
+  // T_n(cos θ) = cos(nθ)  → harmonic series overtones
+  const baseFreqs = [55, 82.5, 110, 165, 220, 275, 330, 440]; // E2 root, harmonic series
+  oscNodes   = [];
+  gainNodes  = [];
+  for (let i = 0; i < 8; i++) {
+    const osc  = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    // Chebyshev polynomial waveshaper (emulates T_n spectral purity)
+    const wshaper = audioCtx.createWaveShaper();
+    const curve   = new Float32Array(2048);
+    for (let s = 0; s < 2048; s++) {
+      const x  = (s / 1024) - 1;
+      // T4(x) + T5(x) shaping for rich timbre
+      const n  = i + 1;
+      // Chebyshev recurrence: approximate via polynomial
+      let Tm2 = 1, Tm1 = x, Tcur = x;
+      for (let j = 2; j <= n; j++) {
+        Tcur = 2*x*Tm1 - Tm2;
+        Tm2  = Tm1;
+        Tm1  = Tcur;
+      }
+      curve[s] = Tcur * 0.7;
+    }
+    wshaper.curve = curve;
+    osc.type      = 'sine';
+    osc.frequency.value = baseFreqs[i];
+    gain.gain.value     = 0;
+    osc.connect(wshaper);
+    wshaper.connect(gain);
+    gain.connect(masterGain);
+    osc.start();
+    oscNodes.push(osc);
+    gainNodes.push(gain);
+  }
+}
+
+function updateAudio(t) {
+  if (!audioCtx || !audioOn) return;
+  // Map projected root statistics to oscillator parameters
+  const avgR = projPts.reduce((s,p)=>s+Math.sqrt(p[0]*p[0]+p[1]*p[1]),0)/N_ROOTS;
+  const baseF = 55 + avgR * 120;
+
+  // Wavelet coefficient magnitudes → gain per oscillator
+  for (let i = 0; i < 8; i++) {
+    // Frequency: Chebyshev harmonic of base freq
+    const harmonic = i + 1;
+    const targetF  = baseF * harmonic;
+    oscNodes[i].frequency.setTargetAtTime(
+      Math.min(targetF, 4000), audioCtx.currentTime, 0.1
+    );
+    // Amplitude: proximity of vertices in that dimension
+    const dimAmp = E8.reduce((s,r,j)=>{
+      const mag = Math.abs(r[i]);
+      const d   = Math.sqrt(projPts[j][0]**2 + projPts[j][1]**2);
+      return s + mag / (1 + d*2);
+    }, 0) / N_ROOTS;
+    const amp = 0.04 * dimAmp / (harmonic * 0.5);
+    gainNodes[i].gain.setTargetAtTime(
+      Math.min(amp, 0.12), audioCtx.currentTime, 0.15
+    );
+  }
+}
+
+function setAudioEnabled(on) {
+  audioOn = on;
+  if (!audioCtx) initAudio();
+  const ind = document.getElementById('audio-indicator');
+  if (on) {
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    masterGain.gain.setTargetAtTime(0.55, audioCtx.currentTime, 0.3);
+    ind.className = 'active';
+    ind.textContent = '⬤ AUDIO ON';
+  } else {
+    masterGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.4);
+    ind.className = '';
+    ind.textContent = '⬤ AUDIO OFF';
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+//  PARAMETER RANDOMIZATION
+// ══════════════════════════════════════════════════════════
+function randomize(seed) {
+  if (seed !== undefined) mt = new MT(seed >>> 0);
+
+  // Core visual params
+  params = {
+    modBase:      mt.randRange(3, 12),
+    besselOrd:    mt.randRange(0, 5),
+    noiseOctaves: mt.randRange(3, 8),
+    weylPhase:    mt.rand() * Math.PI * 2,
+    hueOffset:    mt.rand(),
+    hueSpeed:     mt.randRange(0.025, 0.09),
+    waveletScale: mt.randRange(0.4, 2.2),
+    noiseSeed:    mt.rand() * 1000,
+    // Weyl group: chain of 1-4 reflections using E8 roots as normal vectors
+    weylOps: Array.from({length: mt.randInt(4)+1}, ()=>[...E8[mt.randInt(N_ROOTS)]]),
+    projVecs: randomOrthoProjection(),
+    matrixStr: ''
+  };
+
+  // Matrix display string for HUD
+  const [v1,v2] = params.projVecs;
+  params.matrixStr = `P₁=[${v1.map(x=>x.toFixed(3)).join(', ')}]\nP₂=[${v2.map(x=>x.toFixed(3)).join(', ')}]`;
+
+  // Reproject E8 roots to 2D
+  restPts  = projectRoots(params.projVecs);
+  projPts  = restPts.map(p=>[...p]);
+  initSpringMass();
+
+  // Rebuild topology (once per randomization)
+  const topo = buildTopology(restPts);
+  edges = topo.edges;
+  tris  = topo.tris;
+}
+
+// ══════════════════════════════════════════════════════════
+//  2D CANVAS: DRAW LATTICE OVERLAY
+// ══════════════════════════════════════════════════════════
+function screenPt(p) {
+  const scale = Math.min(W, H) * 0.42;
+  return [W*0.5 + p[0]*scale, H*0.5 + p[1]*scale];
+}
+
+function drawLattice(t) {
+  ctx2d.clearRect(0, 0, W, H);
+
+  const scale = Math.min(W,H)*0.42;
+  const hue0  = (params.hueOffset + t*params.hueSpeed) % 1;
+
+  // ── Delaunay-style triangles (filled) ──────────────
+  for (const [i,j,k] of tris) {
+    const pi = screenPt(projPts[i]);
+    const pj = screenPt(projPts[j]);
+    const pk = screenPt(projPts[k]);
+
+    // Color by triangle centroid distance from center
+    const cx = (pi[0]+pj[0]+pk[0])/3 - W/2;
+    const cy = (pi[1]+pj[1]+pk[1])/3 - H/2;
+    const r  = Math.sqrt(cx*cx+cy*cy)/Math.min(W,H);
+    const hue = (hue0 + r*.4 + (i+j+k)/N_ROOTS*0.15) % 1;
+    const h = hue*360;
+
+    ctx2d.beginPath();
+    ctx2d.moveTo(pi[0],pi[1]);
+    ctx2d.lineTo(pj[0],pj[1]);
+    ctx2d.lineTo(pk[0],pk[1]);
+    ctx2d.closePath();
+    ctx2d.fillStyle   = `hsla(${h},80%,40%,0.045)`;
+    ctx2d.strokeStyle = `hsla(${h},90%,70%,0.12)`;
+    ctx2d.lineWidth   = 0.4;
+    ctx2d.fill();
+    ctx2d.stroke();
+  }
+
+  // ── Edges ──────────────────────────────────────────
+  for (const [i,j] of edges) {
+    const pi = screenPt(projPts[i]);
+    const pj = screenPt(projPts[j]);
+    const dx = pj[0]-pi[0], dy = pj[1]-pi[1];
+    const d  = Math.sqrt(dx*dx+dy*dy);
+    if (d > scale*0.6) continue; // skip long edges (LOD)
+
+    const hue  = (hue0 + i/N_ROOTS*0.5 + t*0.02) % 1;
+    const alpha = Math.max(0, 0.35 - d/(scale*0.6)*0.35);
+
+    ctx2d.beginPath();
+    ctx2d.moveTo(pi[0],pi[1]);
+    ctx2d.lineTo(pj[0],pj[1]);
+    const grad = ctx2d.createLinearGradient(pi[0],pi[1],pj[0],pj[1]);
+    grad.addColorStop(0, `hsla(${hue*360},90%,75%,${alpha})`);
+    grad.addColorStop(1, `hsla(${(hue+0.15)%1*360},90%,75%,${alpha*0.6})`);
+    ctx2d.strokeStyle = grad;
+    ctx2d.lineWidth   = 0.7;
+    ctx2d.stroke();
+  }
+
+  // ── Vertices ───────────────────────────────────────
+  for (let i = 0; i < N_ROOTS; i++) {
+    const [sx,sy] = screenPt(projPts[i]);
+    // Skip if off-screen (LOD for mobile)
+    if (sx < -20 || sx > W+20 || sy < -20 || sy > H+20) continue;
+
+    const hue  = (hue0 + i/N_ROOTS) % 1;
+    const vel  = Math.sqrt(velPts[i][0]**2+velPts[i][1]**2);
+    const glow = 1.5 + vel*500;
+    const r    = Math.max(1.2, Math.min(3.5, glow));
+
+    // Outer glow
+    const g = ctx2d.createRadialGradient(sx,sy,0,sx,sy,r*3.5);
+    g.addColorStop(0, `hsla(${hue*360},100%,80%,0.7)`);
+    g.addColorStop(1, `hsla(${hue*360},100%,60%,0)`);
+    ctx2d.beginPath();
+    ctx2d.arc(sx,sy,r*3.5,0,Math.PI*2);
+    ctx2d.fillStyle = g;
+    ctx2d.fill();
+
+    // Core dot
+    ctx2d.beginPath();
+    ctx2d.arc(sx,sy,r,0,Math.PI*2);
+    ctx2d.fillStyle = `hsl(${hue*360},100%,90%)`;
+    ctx2d.fill();
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+//  HUD
+// ══════════════════════════════════════════════════════════
+function updateHUD(t) {
+  if (!hudVisible) return;
+  const fps  = Math.round(lastFPS);
+  const vc   = N_ROOTS;
+  const ec   = edges.length;
+  const tc   = tris.length;
+  const dim  = 248; // E8 Lie algebra dimension
+  document.getElementById('hud-content').innerHTML = `
+<div class="hud-row">DIMENSION: <span class="hud-val">${dim} (E₈ Lie Algebra)</span></div>
+<div class="hud-row">ROOTS (Vertices): <span class="hud-val">${vc}</span></div>
+<div class="hud-row">EDGES: <span class="hud-val">${ec}</span></div>
+<div class="hud-row">TRIANGLES: <span class="hud-val">${tc}</span></div>
+<div class="hud-row">WEYL OPS: <span class="hud-val">${params.weylOps.length} reflections</span></div>
+<div class="hud-row">MODULAR BASE: <span class="hud-val">${params.modBase.toFixed(3)}</span></div>
+<div class="hud-row">BESSEL ORDER: <span class="hud-val">${params.besselOrd.toFixed(3)}</span></div>
+<div class="hud-row">NOISE OCTAVES: <span class="hud-val">${params.noiseOctaves.toFixed(1)}</span></div>
+<div class="hud-row">WAVELET SCALE: <span class="hud-val">${params.waveletScale.toFixed(3)}</span></div>
+<div class="hud-row">WEYL PHASE: <span class="hud-val">${params.weylPhase.toFixed(4)} rad</span></div>
+<div class="hud-row">TIME: <span class="hud-val">${t.toFixed(2)}s</span></div>
+<div class="hud-row">FPS: <span class="hud-val">${fps}</span></div>
+<div class="hud-row" style="margin-top:4px;font-size:9px;color:#668">PROJECTION MATRIX:</div>
+<div style="font-size:9px;color:#aaf;word-break:break-all;line-height:1.4">${params.matrixStr.replace(/\n/,'<br>')}</div>`;
+}
+
+// ══════════════════════════════════════════════════════════
+//  MAIN RENDER LOOP
+// ══════════════════════════════════════════════════════════
+let lastFrameTime = performance.now();
+
+function render(now) {
+  requestAnimationFrame(render);
+  const dt = Math.min((now - lastFrameTime)/1000, 0.05);
+  lastFrameTime = now;
+  const t  = (now - startTime) / 1000;
+  frame++;
+
+  // FPS tracking
+  fpsSamples.push(1/dt);
+  if (fpsSamples.length > 30) fpsSamples.shift();
+  lastFPS = fpsSamples.reduce((a,b)=>a+b,0)/fpsSamples.length;
+
+  // ── WebGL background ──────────────────────────────
+  gl.uniform1f(uT,    t);
+  gl.uniform2f(uRes,  W, H);
+  gl.uniform1f(uMod,  params.modBase);
+  gl.uniform1f(uBord, params.besselOrd);
+  gl.uniform1f(uNoct, params.noiseOctaves);
+  gl.uniform1f(uWph,  params.weylPhase);
+  gl.uniform1f(uHoff, params.hueOffset + t*params.hueSpeed);
+  gl.uniform1f(uSeed, params.noiseSeed);
+  gl.uniform1f(uWsc,  params.waveletScale);
+
+  // Upload first 24 projected roots as shader uniforms
+  const rootFlats = new Float32Array(48);
+  for (let i = 0; i < 24; i++) {
+    rootFlats[i*2]   = projPts[i][0];
+    rootFlats[i*2+1] = projPts[i][1];
+  }
+  gl.uniform2fv(uRoots, rootFlats);
+  gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+  // ── Spring-mass physics ───────────────────────────
+  stepSpringMass(dt * 0.016);
+
+  // ── 2D lattice overlay ────────────────────────────
+  drawLattice(t);
+
+  // ── Audio ─────────────────────────────────────────
+  if (audioOn && frame % 3 === 0) updateAudio(t);
+
+  // ── HUD ───────────────────────────────────────────
+  if (hudVisible && frame % 8 === 0) updateHUD(t);
+}
+
+// ══════════════════════════════════════════════════════════
+//  RESIZE
+// ══════════════════════════════════════════════════════════
+function resize() {
+  W = window.innerWidth;
+  H = window.innerHeight;
+  bgCanvas.width  = fgCanvas.width  = W;
+  bgCanvas.height = fgCanvas.height = H;
+  gl.viewport(0, 0, W, H);
+}
+
+// ══════════════════════════════════════════════════════════
+//  EVENTS
+// ══════════════════════════════════════════════════════════
+function onRandomize() {
+  const newSeed = (Date.now() ^ (mt.rand()*0x7fffffff|0)) >>> 0;
+  randomize(newSeed);
+  // Flash effect on 2D canvas
+  ctx2d.fillStyle = 'rgba(255,255,255,0.08)';
+  ctx2d.fillRect(0,0,W,H);
+}
+
+document.addEventListener('keydown', e => {
+  switch(e.key) {
+    case ' ':
+      e.preventDefault();
+      onRandomize();
+      break;
+    case 'h': case 'H':
+      hudVisible = !hudVisible;
+      document.getElementById('hud').style.display = hudVisible ? 'block' : 'none';
+      break;
+    case 's': case 'S':
+      setAudioEnabled(!audioOn);
+      break;
+  }
+});
+
+bgCanvas.addEventListener('click', onRandomize);
+bgCanvas.addEventListener('touchend', e => { e.preventDefault(); onRandomize(); });
+
+window.addEventListener('resize', () => { resize(); });
+
+// ══════════════════════════════════════════════════════════
+//  INIT
+// ══════════════════════════════════════════════════════════
+resize();
+randomize((Date.now() * 7919 + 0x1729) >>> 0);
+requestAnimationFrame(render);
+</script>
+</body>
+</html>

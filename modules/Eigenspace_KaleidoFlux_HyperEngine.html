@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>Eigenspace KaleidoFlux HyperEngine</title>
+<meta name="description" content="Eigenspace KaleidoFlux HyperEngine — Ultra-colorful real-time kaleidoscopic matrix exponential eigenfield engine blending Fourier-wavelet transforms, reaction diffusion, quaternion rotations, Möbius warp tunnels, spherical harmonics, Bessel oscillations and perceptual harmonic gradients.">
+<meta name="keywords" content="generative art, kaleidoscope, eigenvalues, matrix exponential, quaternion rotation, reaction diffusion, perlin noise, spherical harmonics, bessel function, webgl, procedural art, fft audio synthesis">
+<style>
+html,body{
+    margin:0;
+    padding:0;
+    overflow:hidden;
+    background:#000;
+    touch-action:none;
+}
+canvas{
+    display:block;
+}
+#hud{
+    position:fixed;
+    top:10px;
+    left:10px;
+    color:#fff;
+    font-family:monospace;
+    font-size:12px;
+    background:rgba(0,0,0,0.35);
+    padding:8px 10px;
+    border-radius:6px;
+    display:none;
+    pointer-events:none;
+}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+
+<script>
+"use strict";
+
+/* ============================================================
+   EIGENSPACE KALEIDOFLUX HYPERENGINE
+   ============================================================ */
+
+const canvas = document.getElementById("c");
+const gl = canvas.getContext("webgl", { antialias:false, preserveDrawingBuffer:false });
+if(!gl){ alert("WebGL not supported."); }
+
+let DPR = Math.min(2, window.devicePixelRatio || 1);
+let resolutionScale = 1;
+
+function resize(){
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    resolutionScale = Math.min(1, 900/Math.max(w,h));
+    canvas.width = w * DPR * resolutionScale;
+    canvas.height = h * DPR * resolutionScale;
+    canvas.style.width = w+"px";
+    canvas.style.height = h+"px";
+    gl.viewport(0,0,canvas.width,canvas.height);
+}
+window.addEventListener("resize", resize);
+resize();
+
+/* ============================================================
+   RANDOM SEED SYSTEM
+   ============================================================ */
+
+let params;
+
+function randomize(){
+    params = {
+        symmetry: 3 + Math.floor(Math.random()*9),
+        eigenPhase: Math.random()*10,
+        eigenFreq: 0.5 + Math.random()*2.5,
+        rdFeed: 0.02 + Math.random()*0.04,
+        rdKill: 0.04 + Math.random()*0.06,
+        harmonicL: 1 + Math.floor(Math.random()*5),
+        harmonicM: 1 + Math.floor(Math.random()*5),
+        besselK: 1 + Math.random()*6,
+        mobiusA: -1 + Math.random()*2,
+        mobiusB: -1 + Math.random()*2,
+        noiseSeed: Math.random()*1000,
+        colorModel: Math.floor(Math.random()*4),
+        attractorA: -2 + Math.random()*4,
+        attractorB: -2 + Math.random()*4,
+        polyDeg: 2 + Math.floor(Math.random()*5)
+    };
+}
+randomize();
+
+/* ============================================================
+   SHADERS
+   ============================================================ */
+
+const vs = `
+attribute vec2 p;
+void main(){
+    gl_Position = vec4(p,0.0,1.0);
+}
+`;
+
+const fs = `
+precision highp float;
+uniform vec2 resolution;
+uniform float time;
+uniform vec2 mouse;
+uniform int symmetry;
+uniform float eigenPhase;
+uniform float eigenFreq;
+uniform float rdFeed;
+uniform float rdKill;
+uniform float harmonicL;
+uniform float harmonicM;
+uniform float besselK;
+uniform float mobiusA;
+uniform float mobiusB;
+uniform float noiseSeed;
+uniform int colorModel;
+uniform float attractorA;
+uniform float attractorB;
+uniform float polyDeg;
+
+float hash(vec2 p){
+    return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);
+}
+
+float noise(vec2 p){
+    vec2 i=floor(p);
+    vec2 f=fract(p);
+    float a=hash(i);
+    float b=hash(i+vec2(1.,0.));
+    float c=hash(i+vec2(0.,1.));
+    float d=hash(i+vec2(1.,1.));
+    vec2 u=f*f*(3.-2.*f);
+    return mix(a,b,u.x)+
+           (c-a)*u.y*(1.-u.x)+
+           (d-b)*u.x*u.y;
+}
+
+float besselApprox(float x){
+    return sin(x)/x;
+}
+
+vec2 mobius(vec2 z){
+    float a=mobiusA;
+    float b=mobiusB;
+    float denom = dot(z,z)+1.0;
+    return vec2(
+        (z.x + a)/denom,
+        (z.y + b)/denom
+    );
+}
+
+vec3 harmonicColor(float t){
+    if(colorModel==0)
+        return vec3(0.5+0.5*cos(t),
+                    0.5+0.5*cos(t+2.094),
+                    0.5+0.5*cos(t+4.188));
+    if(colorModel==1)
+        return vec3(0.5+0.5*sin(t),
+                    0.5+0.5*sin(t+1.5),
+                    0.5+0.5*sin(t+3.0));
+    if(colorModel==2)
+        return vec3(fract(t*0.1),
+                    fract(t*0.13),
+                    fract(t*0.17));
+    return vec3(abs(sin(t)),
+                abs(sin(t*1.3)),
+                abs(sin(t*1.7)));
+}
+
+void main(){
+    vec2 uv=(gl_FragCoord.xy*2.-resolution)/min(resolution.x,resolution.y);
+    
+    float angle=atan(uv.y,uv.x);
+    float r=length(uv);
+    
+    float sector = 6.28318/float(symmetry);
+    angle = mod(angle, sector);
+    angle = abs(angle - sector*0.5);
+    uv = r*vec2(cos(angle), sin(angle));
+    
+    uv = mobius(uv);
+    
+    float eigen = sin(time*eigenFreq + r*eigenPhase);
+    float matrixExp = exp(-r*r*0.5)*eigen;
+    
+    float sh = sin(harmonicL*angle) * cos(harmonicM*r);
+    float bessel = besselApprox(r*besselK + time);
+    
+    float turbulence = noise(uv*3.0 + noiseSeed + time*0.2);
+    
+    float rd = sin(r*5.0 + time*0.7)*cos(angle*3.0);
+    rd += rdFeed - rdKill;
+    
+    float ca = step(0.5, fract((uv.x+uv.y+time*0.2)*3.0));
+    
+    float hybrid = matrixExp + sh + bessel + turbulence + rd + ca;
+    
+    float t = hybrid*3.0 + time;
+    vec3 col = harmonicColor(t);
+    
+    col = smoothstep(0.0,1.0,col);
+    col = pow(col, vec3(1.0/2.2));
+    
+    gl_FragColor = vec4(col,1.0);
+}
+`;
+
+function compile(type,src){
+    const s=gl.createShader(type);
+    gl.shaderSource(s,src);
+    gl.compileShader(s);
+    return s;
+}
+const prog=gl.createProgram();
+gl.attachShader(prog,compile(gl.VERTEX_SHADER,vs));
+gl.attachShader(prog,compile(gl.FRAGMENT_SHADER,fs));
+gl.linkProgram(prog);
+gl.useProgram(prog);
+
+const quad=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,quad);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([
+    -1,-1, 1,-1, -1,1,
+    -1,1, 1,-1, 1,1
+]),gl.STATIC_DRAW);
+
+const loc=gl.getAttribLocation(prog,"p");
+gl.enableVertexAttribArray(loc);
+gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+
+function uni(name){ return gl.getUniformLocation(prog,name); }
+
+/* ============================================================
+   AUDIO (OFF by default, zero processing when OFF)
+   ============================================================ */
+
+let audioCtx=null;
+let analyser=null;
+let audioOn=false;
+
+function toggleAudio(){
+    if(audioOn){
+        audioOn=false;
+        if(audioCtx){ audioCtx.close(); audioCtx=null; analyser=null; }
+    }else{
+        audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+        analyser=audioCtx.createAnalyser();
+        const osc=audioCtx.createOscillator();
+        osc.type="sine";
+        osc.frequency.value=220;
+        osc.connect(analyser);
+        analyser.connect(audioCtx.destination);
+        osc.start();
+        audioOn=true;
+    }
+}
+
+/* ============================================================
+   RENDER LOOP
+   ============================================================ */
+
+let start=performance.now();
+let hud=document.getElementById("hud");
+let showHUD=false;
+
+function draw(){
+    const t=(performance.now()-start)*0.001;
+    
+    gl.uniform2f(uni("resolution"),canvas.width,canvas.height);
+    gl.uniform1f(uni("time"),t);
+    gl.uniform2f(uni("mouse"),0,0);
+    
+    gl.uniform1i(uni("symmetry"),params.symmetry);
+    gl.uniform1f(uni("eigenPhase"),params.eigenPhase);
+    gl.uniform1f(uni("eigenFreq"),params.eigenFreq);
+    gl.uniform1f(uni("rdFeed"),params.rdFeed);
+    gl.uniform1f(uni("rdKill"),params.rdKill);
+    gl.uniform1f(uni("harmonicL"),params.harmonicL);
+    gl.uniform1f(uni("harmonicM"),params.harmonicM);
+    gl.uniform1f(uni("besselK"),params.besselK);
+    gl.uniform1f(uni("mobiusA"),params.mobiusA);
+    gl.uniform1f(uni("mobiusB"),params.mobiusB);
+    gl.uniform1f(uni("noiseSeed"),params.noiseSeed);
+    gl.uniform1i(uni("colorModel"),params.colorModel);
+    gl.uniform1f(uni("attractorA"),params.attractorA);
+    gl.uniform1f(uni("attractorB"),params.attractorB);
+    gl.uniform1f(uni("polyDeg"),params.polyDeg);
+    
+    gl.drawArrays(gl.TRIANGLES,0,6);
+    
+    if(showHUD){
+        hud.innerHTML=
+        "Eigenspace KaleidoFlux HyperEngine<br>"+
+        "Symmetry: "+params.symmetry+"<br>"+
+        "EigenFreq: "+params.eigenFreq.toFixed(2)+"<br>"+
+        "Harmonics: "+params.harmonicL+","+params.harmonicM+"<br>"+
+        "Audio: "+(audioOn?"ON":"OFF")+"<br>"+
+        "Resolution Scale: "+resolutionScale.toFixed(2);
+        hud.style.display="block";
+    }else{
+        hud.style.display="none";
+    }
+    
+    requestAnimationFrame(draw);
+}
+draw();
+
+/* ============================================================
+   CONTROLS
+   ============================================================ */
+
+window.addEventListener("keydown",e=>{
+    if(e.code==="Space") randomize();
+    if(e.key==="s"||e.key==="S") toggleAudio();
+    if(e.key==="h"||e.key==="H") showHUD=!showHUD;
+});
+window.addEventListener("click", randomize);
+window.addEventListener("touchstart", randomize);
+
+</script>
+</body>
+</html>

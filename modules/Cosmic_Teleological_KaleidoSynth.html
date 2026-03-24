@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Cosmic Teleological KaleidoSynth</title>
+<meta name="description" content="Cosmic Teleological KaleidoSynth: an astonishing real-time audiovisual phenomenon fusing teleological field maps, category-theoretic transformation metaphors, complex analytic continuation across Riemann surfaces, eigenvalue decompositions, tensor transforms, spherical harmonics, modular form symmetry lattices, and kaleidoscopic fractal topology into a massively varied stylistic engine spanning quasar plasma storms, geometric manifold sculptures, quantum orbital clouds, and fractal topology gardens with synchronized procedural audio via harmonic oscillators, convolution integrals, and FM synthesis.">
+<meta name="keywords" content="kaleidoscope, generative art, audiovisual, canvas, fractal, tensor, Riemann surface, eigenvalue, spherical harmonics, modular forms, quantum orbital, quasar plasma, teleological field, category theory, manifold, topology, synesthetic, psychedelic, procedural audio, Web Audio API, FM synthesis, spectral art, mathematical art, cosmic visualization">
+<meta property="og:title" content="Cosmic Teleological KaleidoSynth">
+<meta property="og:description" content="A never-before-designed meta-abstract audiovisual phenomenon: kaleidoscopic engines fusing tensor mathematics, Riemann surfaces, spherical harmonics and real-time FM synthesis into vibrant cosmic spectacle.">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000;touch-action:none}
+canvas{display:block;width:100vw;height:100vh}
+#hud{position:fixed;top:0;left:0;width:100%;pointer-events:none;font-family:'Courier New',monospace;font-size:11px;color:rgba(255,255,255,0.7);padding:10px 14px;line-height:1.7;display:none;z-index:10;text-shadow:0 0 8px rgba(0,200,255,0.8)}
+#hud b{color:#0ff}
+#hint{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);font-family:'Courier New',monospace;font-size:10px;color:rgba(255,255,255,0.35);pointer-events:none;z-index:10;letter-spacing:2px;white-space:nowrap;transition:opacity 1s}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<div id="hint">SPACE &middot; CLICK &middot; TAP = RANDOMIZE &nbsp;|&nbsp; H = HUD &nbsp;|&nbsp; S = SOUND</div>
+<script>
+(function(){
+"use strict";
+
+// Canvas
+var C = document.getElementById('c');
+var ctx = C.getContext('2d');
+var W, H, cx, cy, minD;
+function resize() {
+  W = C.width = window.innerWidth;
+  H = C.height = window.innerHeight;
+  cx = W/2; cy = H/2; minD = Math.min(W,H);
+}
+window.addEventListener('resize', resize);
+resize();
+
+// Math - use verbose names to avoid any conflicts with HSL vars (h,s,l) or loop vars
+var mPI = Math.PI, mTAU = mPI*2;
+var Msin=Math.sin, Mcos=Math.cos, Msqrt=Math.sqrt, Mabs=Math.abs;
+var Mfloor=Math.floor, Matan2=Math.atan2, Mlog=Math.log, Mmax=Math.max, Mmin=Math.min;
+function rand()      { return Math.random(); }
+function rng(a,b)    { return a+(b-a)*rand(); }
+function rni(a,b)    { return Mfloor(a+(b-a+0.9999)*rand()); }
+function pick(arr)   { return arr[rni(0,arr.length-1)]; }
+function lerp(a,b,t) { return a+(b-a)*t; }
+function clamp(v,a,b){ return Mmax(a,Mmin(b,v)); }
+function frac(v)     { return v-Mfloor(v); }
+
+// Spherical harmonics - params named ql,qm to never shadow state vars
+function Ylm(ql, qm, theta, phi) {
+  var ct=Mcos(theta), st=Msin(theta);
+  if(ql===0) return 0.2821;
+  if(ql===1){
+    if(qm=== 0) return 0.4886*ct;
+    if(qm=== 1) return -0.3455*st*Mcos(phi);
+    if(qm===-1) return  0.3455*st*Msin(phi);
+  }
+  if(ql===2){
+    if(qm=== 0) return 0.3153*(3*ct*ct-1);
+    if(qm=== 1) return -0.7726*st*ct*Mcos(phi);
+    if(qm===-1) return  0.7726*st*ct*Msin(phi);
+    if(qm=== 2) return  0.3863*st*st*Mcos(2*phi);
+    if(qm===-2) return  0.3863*st*st*Msin(2*phi);
+  }
+  if(ql===3){
+    if(qm=== 0) return 0.3732*(5*ct*ct*ct-3*ct);
+    if(qm=== 1) return -0.4572*st*(5*ct*ct-1)*Mcos(phi);
+    if(qm=== 2) return  1.4457*st*st*ct*Mcos(2*phi);
+    if(qm=== 3) return -0.5900*st*st*st*Mcos(3*phi);
+    if(qm===-1) return  0.4572*st*(5*ct*ct-1)*Msin(phi);
+    if(qm===-2) return  1.4457*st*st*ct*Msin(2*phi);
+    if(qm===-3) return  0.5900*st*st*st*Msin(3*phi);
+  }
+  return Msin((ql+1)*theta+qm*phi)*0.4;
+}
+
+// Eisenstein-like modular series
+function eisensteinE2(taur, taui, depth) {
+  var acc=0, aa, bb, cr, ci, d2;
+  for(aa=-depth;aa<=depth;aa++){
+    for(bb=-depth;bb<=depth;bb++){
+      if(aa===0&&bb===0) continue;
+      cr=aa+bb*taur; ci=bb*taui; d2=cr*cr+ci*ci;
+      if(d2>0.0001) acc+=1/(d2*d2);
+    }
+  }
+  return acc;
+}
+
+// Riemann zeta partial on critical strip
+function zetaPartial(tval, nterms) {
+  var re=0, im=0, kk, phase;
+  for(kk=1;kk<=nterms;kk++){
+    phase=-tval*Mlog(kk);
+    re+=Mcos(phase)/Msqrt(kk);
+    im+=Msin(phase)/Msqrt(kk);
+  }
+  return {re:re, im:im};
+}
+
+// 2x2 real symmetric eigenvalues
+function eigenSym2(aa, bb, dd) {
+  var tr=aa+dd, disc=Msqrt(Mmax(0,tr*tr-4*(aa*dd-bb*bb)));
+  return [(tr+disc)*0.5,(tr-disc)*0.5];
+}
+
+// Tensor trace
+function tensorTrace(tens, phase) {
+  var acc=0, ii;
+  for(ii=0;ii<tens.length;ii++) acc+=tens[ii]*Msin(phase*(ii+1));
+  return acc/tens.length;
+}
+
+// HSL->RGB with fully verbose local vars
+function hsl2rgb(hh, ss, ll) {
+  hh=((hh%360)+360)%360; ss/=100; ll/=100;
+  var cc=(1-Mabs(2*ll-1))*ss;
+  var xx=cc*(1-Mabs((hh/60)%2-1));
+  var mm=ll-cc*0.5;
+  var rr=0, gg=0, bbb=0;
+  if(hh<60){rr=cc;gg=xx;}
+  else if(hh<120){rr=xx;gg=cc;}
+  else if(hh<180){gg=cc;bbb=xx;}
+  else if(hh<240){gg=xx;bbb=cc;}
+  else if(hh<300){rr=xx;bbb=cc;}
+  else{rr=cc;bbb=xx;}
+  return [(rr+mm)*255,(gg+mm)*255,(bbb+mm)*255];
+}
+
+// State
+var ST = {};
+var MODES=['quasar','manifold','quantum','fractal','lattice','plasma','orbital','topology'];
+var CMODES=['spectral','gradient','banded','perceptual','musical','cosmic'];
+
+function genPalette() {
+  var n=rni(4,8), p=[], h0=rand()*360, ii;
+  for(ii=0;ii<n;ii++){p.push([h0,rng(70,100),rng(50,100)]);h0+=rng(25,120);}
+  return p;
+}
+
+function randomize() {
+  var ql=rni(1,3);
+  var tens=[]; for(var ti=0;ti<8;ti++) tens.push(rng(-1,1));
+  ST={
+    t:0, mode:pick(MODES), colorMode:pick(CMODES),
+    symmetry:rni(3,16), layers:rni(3,9),
+    rotation:rng(-0.3,0.3), rotAcc:rng(-0.002,0.002),
+    zoom:1, zoomPulse:rng(0.01,0.08),
+    ql:ql, qm:clamp(rni(-3,3),-ql,ql),
+    zetaT:rng(10,50), zetaSpeed:rng(0.1,2),
+    tauR:rng(-0.5,0.5), tauI:rng(0.5,2), tauSpeed:rng(0.02,0.3),
+    eigenA:rng(-2,2), eigenB:rng(-1,1), eigenD:rng(-2,2),
+    tensor:tens, tensorSpeed:rng(0.5,3),
+    hue0:rand()*360, hueSpeed:rng(-30,30), sat:rng(60,100), bri:rng(40,100),
+    palette:genPalette(),
+    juliaCr:rng(-1,0.5), juliaCi:rng(-0.5,0.5), juliaSpeed:rng(0.001,0.01),
+    polarN:rni(2,12), polarK:rni(1,7),
+    warpAmp:rng(0.1,0.8), warpFreq:rng(1,6), warpSpeed:rng(0.2,1.5),
+    modFreq:rng(1,8), modAmp:rng(0.1,0.5),
+    quasarStreaks:rni(6,24), quantumOrbitals:rni(3,12), fractalDepth:rni(4,8),
+    bloomAmt:rng(0.3,0.9), trailAlpha:rng(0.03,0.13), speed:rng(0.3,1.5),
+    latticeN:rni(4,14), galaxyArms:rni(2,7), topoHoles:rni(1,6)
+  };
+}
+
+// Color - all local HSL vars are hh/ss/ll
+function pickColor(phase, tval, alpha) {
+  var cm=ST.colorMode, pal=ST.palette, hue0=ST.hue0, hspd=ST.hueSpeed, sat=ST.sat, bri=ST.bri;
+  var hh, ss, ll, idx, i2, j2, tf, uu, ivs, idx2, rgb, rr, gg, bbb;
+  if(cm==='spectral'){
+    hh=(hue0+hspd*tval+phase*360/mTAU)%360; ss=sat; ll=bri;
+  } else if(cm==='gradient'){
+    idx=frac((phase/mTAU+tval*0.05))*pal.length;
+    i2=Mfloor(idx)%pal.length; j2=(i2+1)%pal.length; tf=idx-Mfloor(idx);
+    hh=lerp(pal[i2][0],pal[j2][0],tf); ss=lerp(pal[i2][1],pal[j2][1],tf); ll=lerp(pal[i2][2],pal[j2][2],tf);
+  } else if(cm==='banded'){
+    hh=(Mfloor(phase/mTAU*8)*45+hue0+tval*hspd)%360; ss=sat; ll=bri;
+  } else if(cm==='perceptual'){
+    uu=frac(phase/mTAU+tval*0.03);
+    hh=(hue0+uu*360+tval*hspd)%360; ss=80+20*Msin(phase+tval*0.1); ll=45+30*Mcos(phase*2+tval*0.07);
+  } else if(cm==='musical'){
+    ivs=[0,2,4,5,7,9,11,12]; idx2=Mfloor(frac(phase/mTAU)*ivs.length);
+    hh=(hue0+ivs[idx2]*30+tval*hspd)%360; ss=sat; ll=bri;
+  } else {
+    hh=(Msin(phase*3+tval*0.5)*180+Mcos(phase*2+tval*0.3)*120+hue0)%360; ss=100; ll=40+20*Msin(phase+tval);
+  }
+  hh=((hh%360)+360)%360; ss=clamp(ss,0,100); ll=clamp(ll,0,100);
+  rgb=hsl2rgb(hh,ss,ll); rr=rgb[0]|0; gg=rgb[1]|0; bbb=rgb[2]|0;
+  if(alpha===undefined||alpha>=1) return 'rgb('+rr+','+gg+','+bbb+')';
+  return 'rgba('+rr+','+gg+','+bbb+','+alpha+')';
+}
+
+// Kaleidoscope driver
+function drawKaleidoBase(fn) {
+  var slice=mTAU/ST.symmetry, kk;
+  ctx.save(); ctx.translate(cx,cy);
+  for(kk=0;kk<ST.symmetry;kk++){
+    ctx.save(); ctx.rotate(kk*slice+ST.rotation); fn(kk); ctx.restore();
+    ctx.save(); ctx.rotate(kk*slice+ST.rotation); ctx.scale(1,-1); fn(kk); ctx.restore();
+  }
+  ctx.restore();
+}
+
+// QUASAR
+function drawQuasar() {
+  var R=minD*0.55, tval=ST.t, spd=ST.speed, streaks=ST.quasarStreaks;
+  var wA=ST.warpAmp, wF=ST.warpFreq, wS=ST.warpSpeed, layers=ST.layers;
+  var zv=zetaPartial(ST.zetaT+tval*0.5,20);
+  var zphase=Matan2(zv.im,zv.re), zmag=Msqrt(zv.re*zv.re+zv.im*zv.im)*0.1;
+  drawKaleidoBase(function(kk){
+    var layer, lF, si, sF, bA, wp, r0, r1, x0, y0, x1, y1, x2, y2, ph, grd, cR, gr;
+    for(layer=0;layer<layers;layer++){
+      lF=(layer+1)/layers;
+      for(si=0;si<streaks;si++){
+        sF=si/streaks; bA=sF*mPI;
+        wp=wA*Msin(wF*bA+tval*wS+zphase);
+        r0=R*lF*(0.1+0.4*sF); r1=R*lF*(0.5+0.5*sF+zmag);
+        x0=r0*Mcos(bA+wp);        y0=r0*Msin(bA+wp);
+        x1=r1*Mcos(bA+wp*1.5+0.3); y1=r1*Msin(bA+wp*1.5+0.3);
+        x2=r1*0.7*Mcos(bA+mPI/streaks+wp*0.5);
+        y2=r1*0.7*Msin(bA+mPI/streaks+wp*0.5);
+        ph=bA+tval*spd*0.2+kk*0.3;
+        grd=ctx.createLinearGradient(x0,y0,x1,y1);
+        grd.addColorStop(0,  pickColor(ph,  tval,0.9));
+        grd.addColorStop(0.6,pickColor(ph+1,tval,0.5));
+        grd.addColorStop(1,  pickColor(ph+2,tval,0));
+        ctx.strokeStyle=grd; ctx.lineWidth=Mmax(0.5,3*lF*(1-sF*0.5));
+        ctx.beginPath(); ctx.moveTo(x0,y0); ctx.quadraticCurveTo(x2,y2,x1,y1); ctx.stroke();
+      }
+      // Core blob inside layer loop - lF is in scope here
+      cR=R*0.15*lF;
+      gr=ctx.createRadialGradient(0,0,0,0,0,cR);
+      gr.addColorStop(0,pickColor(tval+layer,tval,0.8));
+      gr.addColorStop(1,pickColor(tval+mPI+layer,tval,0));
+      ctx.fillStyle=gr; ctx.beginPath(); ctx.arc(0,0,cR,0,mPI); ctx.fill();
+    }
+  });
+}
+
+// MANIFOLD
+function drawManifold() {
+  var R=minD*0.48, tval=ST.t, spd=ST.speed, ql=ST.ql, qm=ST.qm;
+  var layers=ST.layers, wA=ST.warpAmp, tens=ST.tensor, tSpd=ST.tensorSpeed;
+  var evs=eigenSym2(ST.eigenA+Msin(tval*0.1),ST.eigenB+Mcos(tval*0.07),ST.eigenD+Msin(tval*0.13));
+  drawKaleidoBase(function(kk){
+    var layer, lF, pts, ii, phi, theta, yr, wp, em, rr, px, py, ph, ei, ev, ang, re;
+    for(layer=0;layer<layers;layer++){
+      lF=(layer+1)/layers; pts=32+layer*8;
+      ctx.beginPath();
+      for(ii=0;ii<=pts;ii++){
+        phi=ii/pts*mPI; theta=mPI*0.5;
+        yr=Ylm(ql,qm,theta+Msin(tval*0.2+phi)*0.5,phi+tval*spd*0.1);
+        wp=wA*tensorTrace(tens,phi*tSpd+tval)*0.3;
+        em=(evs[0]*Mcos(phi)+evs[1]*Msin(phi))*0.1*R*lF;
+        rr=Mabs(yr)*R*lF+R*0.1*lF+wp*R*0.1+em;
+        px=rr*Mcos(phi); py=rr*Msin(phi);
+        if(ii===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+      }
+      ph=lF*mTAU+tval*0.3+kk*mPI/3;
+      ctx.strokeStyle=pickColor(ph,tval,0.7); ctx.lineWidth=Mmax(0.5,2.5-layer*0.2); ctx.stroke();
+      for(ei=0;ei<2;ei++){
+        ev=evs[ei]; ang=ei*mPI+tval*0.1*ev; re=Mabs(ev)*R*0.15*lF;
+        ctx.beginPath(); ctx.arc(Mcos(ang)*re,Msin(ang)*re,Mmax(1,re*0.1),0,mPI);
+        ctx.fillStyle=pickColor(ph+ei*mPI,tval,0.5); ctx.fill();
+      }
+    }
+  });
+}
+
+// QUANTUM
+function drawQuantum() {
+  var R=minD*0.46, tval=ST.t, spd=ST.speed, ql=ST.ql, qm=ST.qm;
+  var nOrb=ST.quantumOrbitals, mF=ST.modFreq, mA=ST.modAmp;
+  var zv=zetaPartial(ST.zetaT+tval*ST.zetaSpeed,25);
+  drawKaleidoBase(function(kk){
+    var orb, oF, ii, theta, phi, yr, pd, rm, zm, px, py, ph, nn, nd, th2, ph2, yr2, rr2;
+    for(orb=0;orb<nOrb;orb++){
+      oF=orb/nOrb;
+      ctx.beginPath();
+      for(ii=0;ii<=48;ii++){
+        theta=ii/48*mPI; phi=oF*mTAU+tval*spd*(0.1+oF*0.1);
+        yr=Ylm(ql,qm,theta,phi); pd=yr*yr;
+        rm=R*(0.15+0.7*pd)*(1+mA*Msin(mF*theta+tval));
+        zm=(zv.re*Mcos(theta)+zv.im*Msin(theta))*0.05*R;
+        px=(rm+zm)*Mcos(theta); py=(rm+zm)*Msin(theta);
+        if(ii===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+      }
+      ph=oF*mTAU+tval*0.4+kk*0.5;
+      ctx.strokeStyle=pickColor(ph,tval,0.65); ctx.lineWidth=Mmax(0.5,2*(1-oF*0.5)); ctx.stroke();
+      nn=ql+1;
+      for(nd=0;nd<nn;nd++){
+        th2=(nd+1)*mPI/(nn+1); ph2=oF*mTAU+tval*spd*0.1;
+        yr2=Ylm(ql,qm,th2,ph2); rr2=R*(0.15+0.7*yr2*yr2);
+        ctx.beginPath(); ctx.arc(rr2*Mcos(th2),rr2*Msin(th2),Mmax(1,3*(1-oF*0.5)),0,mTAU);
+        ctx.fillStyle=pickColor(ph+nd,tval,0.8); ctx.fill();
+      }
+    }
+  });
+}
+
+// FRACTAL
+function drawFractal() {
+  var R=minD*0.44, tval=ST.t, layers=ST.layers, depth=ST.fractalDepth;
+  var wA=ST.warpAmp, wF=ST.warpFreq, wS=ST.warpSpeed;
+  var pN=ST.polarN, pK=ST.polarK;
+  var cr=ST.juliaCr+0.1*Msin(tval*ST.juliaSpeed*3);
+  var ci=ST.juliaCi+0.1*Mcos(tval*ST.juliaSpeed*2);
+  var eis=eisensteinE2(ST.tauR+tval*ST.tauSpeed*0.01,Mmax(0.1,ST.tauI),4)*0.00001;
+  drawKaleidoBase(function(kk){
+    var layer, lF, npts, ii, ang, zr, zi, tmp, it, iter, wpF, rr, px, py, ph;
+    for(layer=0;layer<layers;layer++){
+      lF=(layer+1)/layers; npts=40+layer*6;
+      ctx.beginPath();
+      for(ii=0;ii<=npts;ii++){
+        ang=ii/npts*mPI;
+        zr=Mcos(ang)*lF*0.8; zi=Msin(ang)*lF*0.8; iter=0;
+        for(it=0;it<depth;it++){
+          tmp=zr*zr-zi*zi+cr; zi=2*zr*zi+ci; zr=tmp;
+          if(zr*zr+zi*zi>4) break; iter++;
+        }
+        wpF=wA*Msin(wF*ang+tval*wS);
+        rr=R*lF*(0.3+0.5*(iter/depth))+wpF*R*0.2+eis*R;
+        px=rr*Mcos(ang+wpF*0.5); py=rr*Msin(ang+wpF*0.5);
+        if(ii===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+      }
+      ph=lF*mPI+tval*0.3+kk*0.4;
+      ctx.strokeStyle=pickColor(ph,tval,0.75); ctx.lineWidth=Mmax(0.5,2.5*(1-layer/(layers+1))); ctx.stroke();
+    }
+    ctx.beginPath();
+    for(ii=0;ii<=64;ii++){
+      ang=ii/64*mPI;
+      rr=R*0.4*Mabs(Mcos(pN/pK*ang+tval*0.2)+Msin((pN-1)/pK*ang+tval*0.15))*(1+eis*5);
+      px=rr*Mcos(ang); py=rr*Msin(ang);
+      if(ii===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+    }
+    ctx.strokeStyle=pickColor(tval,tval,0.5); ctx.lineWidth=1; ctx.stroke();
+  });
+}
+
+// LATTICE
+function drawLattice() {
+  var R=minD*0.46, tval=ST.t, spd=ST.speed, lN=ST.latticeN;
+  var tens=ST.tensor, tSpd=ST.tensorSpeed;
+  drawKaleidoBase(function(kk){
+    var taur=ST.tauR+tval*ST.tauSpeed*0.01;
+    var taui=Mmax(0.1,ST.tauI+Msin(tval*0.1)*0.3);
+    var aa, bb, lx, ly, dist, tc, ph, nR;
+    for(aa=0;aa<lN;aa++){
+      for(bb=0;bb<lN;bb++){
+        if(aa===0&&bb===0) continue;
+        lx=(aa+bb*taur)*R/lN*0.8; ly=bb*taui*R/lN*0.5;
+        dist=Msqrt(lx*lx+ly*ly);
+        if(dist>R*0.8) continue;
+        tc=tensorTrace(tens,aa*tSpd+bb+tval);
+        ph=Matan2(ly,lx)+tval*spd*0.15+tc;
+        nR=Mmax(0.5,R*0.03*(1-dist/R)*Mabs(tc));
+        ctx.beginPath(); ctx.arc(lx,ly,nR,0,mTAU);
+        ctx.fillStyle=pickColor(ph,tval,0.7); ctx.fill();
+        if(aa+bb<lN*1.5){
+          ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(lx,ly);
+          ctx.strokeStyle=pickColor(ph+1,tval,0.15); ctx.lineWidth=0.5; ctx.stroke();
+        }
+      }
+    }
+  });
+}
+
+// PLASMA
+function drawPlasma() {
+  var R=minD*0.5, tval=ST.t, spd=ST.speed, layers=ST.layers, bA=ST.bloomAmt;
+  var wA=ST.warpAmp, wF=ST.warpFreq, wS=ST.warpSpeed, mF=ST.modFreq;
+  drawKaleidoBase(function(kk){
+    var layer, lF, curve, ii, uu, ang, rr, wp, fa, px, py, ph, ringR, ring;
+    for(layer=0;layer<layers;layer++){
+      lF=(layer+1)/layers;
+      for(curve=0;curve<3;curve++){
+        ctx.beginPath();
+        for(ii=0;ii<=60;ii++){
+          uu=ii/60; ang=uu*mPI;
+          rr=R*lF*(0.2+0.6*Mabs(Msin(wF*ang+tval*wS+curve*mPI/3)));
+          wp=wA*Msin(mF*ang+tval*spd*(0.5+curve*0.2)+kk)*0.3;
+          fa=ang+wp+curve*mPI/3; px=rr*Mcos(fa); py=rr*Msin(fa);
+          if(ii===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+        }
+        ph=curve*mTAU/3+lF*mPI+tval*0.25+kk*0.3;
+        ctx.strokeStyle=pickColor(ph,tval,0.6); ctx.lineWidth=Mmax(0.5,3*lF*(1-lF*0.3)); ctx.stroke();
+      }
+    }
+    for(ring=0;ring<4;ring++){
+      ringR=R*(0.15+ring*0.18)*(1+bA*0.1*Msin(tval+ring));
+      ctx.beginPath(); ctx.arc(0,0,ringR,0,mPI);
+      ctx.strokeStyle=pickColor(ring*mPI/2+tval*0.3,tval,0.3);
+      ctx.lineWidth=Mmax(1,4-ring); ctx.stroke();
+    }
+  });
+}
+
+// ORBITAL
+function drawOrbital() {
+  var R=minD*0.46, tval=ST.t, spd=ST.speed, nA=ST.galaxyArms;
+  var wA=ST.warpAmp, pN=ST.polarN, pK=ST.polarK;
+  var zv=zetaPartial(ST.zetaT+tval*ST.zetaSpeed,20);
+  var zAmp=Msqrt(zv.re*zv.re+zv.im*zv.im)*0.05;
+  drawKaleidoBase(function(kk){
+    var arm, aF, ii, ss, rr, sA, wp, zt, px, py, ph, si, ss2, rr2, sA2;
+    for(arm=0;arm<nA;arm++){
+      aF=arm/nA;
+      ctx.beginPath();
+      for(ii=0;ii<=50;ii++){
+        ss=ii/50; rr=R*(0.05+ss*0.85);
+        sA=ss*mPI*pN/pK+aF*mTAU/nA+tval*spd*0.08;
+        wp=wA*Msin(ss*mPI*3+tval+aF)*0.3;
+        zt=zAmp*Msin(sA*2+tval)*R;
+        px=(rr+zt)*Mcos(sA+wp); py=(rr+zt)*Msin(sA+wp);
+        if(ii===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+      }
+      ph=aF*mTAU+tval*0.2+kk*0.4;
+      ctx.strokeStyle=pickColor(ph,tval,0.7); ctx.lineWidth=Mmax(0.5,2.5*(1-arm/(nA+1))); ctx.stroke();
+      for(si=0;si<8;si++){
+        ss2=(si+1)/9; rr2=R*(0.05+ss2*0.85);
+        sA2=ss2*mPI*pN/pK+aF*mTAU/nA+tval*spd*0.08;
+        ctx.beginPath(); ctx.arc(rr2*Mcos(sA2),rr2*Msin(sA2),Mmax(0.5,3*ss2),0,mTAU);
+        ctx.fillStyle=pickColor(ph+si*0.3,tval,0.9); ctx.fill();
+      }
+    }
+  });
+}
+
+// TOPOLOGY
+function drawTopology() {
+  var R=minD*0.46, tval=ST.t, spd=ST.speed, nH=ST.topoHoles;
+  var wA=ST.warpAmp, wS=ST.warpSpeed, tens=ST.tensor, tSpd=ST.tensorSpeed;
+  drawKaleidoBase(function(kk){
+    var hole, hF, R1, R2, pass, ii, phi, theta, tc, px, py, ph, ww, rr, ang;
+    for(hole=0;hole<nH;hole++){
+      hF=hole/nH; R1=R*(0.15+hF*0.5); R2=R*(0.05+hF*0.15);
+      for(pass=0;pass<2;pass++){
+        ctx.beginPath();
+        for(ii=0;ii<=48;ii++){
+          phi=ii/48*mPI; theta=pass*mPI+tval*spd*(0.05+hF*0.05);
+          tc=tensorTrace(tens,phi*tSpd+tval+hole)*wA;
+          px=(R1+R2*Mcos(theta)+tc*R*0.1)*Mcos(phi);
+          py=(R1+R2*Mcos(theta)+tc*R*0.1)*Msin(phi);
+          if(ii===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+        }
+        ph=hF*mTAU+pass*mPI+tval*0.25+kk*0.35;
+        ctx.strokeStyle=pickColor(ph,tval,0.65); ctx.lineWidth=Mmax(0.5,2.5*(1-hF*0.4)); ctx.stroke();
+      }
+    }
+    for(ww=1;ww<=3;ww++){
+      ctx.beginPath();
+      for(ii=0;ii<=64;ii++){
+        ang=ii/64*mPI;
+        rr=R*0.2*ww*(1+0.15*Msin(ww*ang+tval*wS+kk));
+        px=rr*Mcos(ang*(ww+1)); py=rr*Msin(ang*(ww+1));
+        if(ii===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+      }
+      ctx.strokeStyle=pickColor(ww*mPI/2+tval*0.3,tval,0.4);
+      ctx.lineWidth=Mmax(0.3,1.5*(4-ww)/3); ctx.stroke();
+    }
+  });
+}
+
+// Render
+function render() {
+  ctx.globalAlpha=ST.trailAlpha; ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H); ctx.globalAlpha=1;
+  switch(ST.mode){
+    case 'quasar':   drawQuasar();   break;
+    case 'manifold': drawManifold(); break;
+    case 'quantum':  drawQuantum();  break;
+    case 'fractal':  drawFractal();  break;
+    case 'lattice':  drawLattice();  break;
+    case 'plasma':   drawPlasma();   break;
+    case 'orbital':  drawOrbital();  break;
+    case 'topology': drawTopology(); break;
+  }
+}
+
+// Audio
+var audioCtx=null, soundEnabled=false;
+var osc1,osc2,osc3,modOsc,gainNode,filterNode,compressor;
+function initAudio(){
+  if(audioCtx) return;
+  audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+  compressor=audioCtx.createDynamicsCompressor(); compressor.connect(audioCtx.destination);
+  filterNode=audioCtx.createBiquadFilter(); filterNode.type='lowpass';
+  filterNode.frequency.value=2000; filterNode.Q.value=3; filterNode.connect(compressor);
+  gainNode=audioCtx.createGain(); gainNode.gain.value=0; gainNode.connect(filterNode);
+  osc1=audioCtx.createOscillator(); osc1.type='sine';
+  osc2=audioCtx.createOscillator(); osc2.type='triangle';
+  osc3=audioCtx.createOscillator(); osc3.type='sine';
+  modOsc=audioCtx.createOscillator(); modOsc.type='sine';
+  var mg=audioCtx.createGain(); mg.gain.value=200;
+  modOsc.connect(mg); mg.connect(osc1.frequency); mg.connect(osc3.frequency);
+  osc1.connect(gainNode); osc3.connect(gainNode);
+  var g2=audioCtx.createGain(); g2.gain.value=0.3; osc2.connect(g2); g2.connect(gainNode);
+  [osc1,osc2,osc3,modOsc].forEach(function(o){o.start();});
+}
+function updateAudio(){
+  if(!soundEnabled||!audioCtx) return;
+  var tval=ST.t;
+  var evs=eigenSym2(ST.eigenA+Msin(tval*0.1),ST.eigenB,ST.eigenD+Mcos(tval*0.07));
+  var bF=220+Mabs(evs[0])*80+Mabs(evs[1])*40;
+  var mFV=bF*ST.modFreq*(0.5+ST.modAmp);
+  var zv=zetaPartial(ST.zetaT+tval*0.3,15);
+  var zM=Msqrt(zv.re*zv.re+zv.im*zv.im);
+  var tc=tensorTrace(ST.tensor,tval*ST.tensorSpeed);
+  var now=audioCtx.currentTime, ramp=0.05;
+  osc1.frequency.setTargetAtTime(clamp(bF*(1+tc*0.3),80,1200),now,ramp);
+  osc2.frequency.setTargetAtTime(clamp(bF*1.5+ST.symmetry*10,80,2000),now,ramp);
+  osc3.frequency.setTargetAtTime(clamp(bF*2+ST.warpAmp*100,80,2400),now,ramp);
+  modOsc.frequency.setTargetAtTime(clamp(mFV,1,300),now,ramp);
+  filterNode.frequency.setTargetAtTime(clamp(500+zM*800+ST.zoom*1000,200,8000),now,ramp);
+  filterNode.Q.setTargetAtTime(clamp(1+Mabs(tc)*10,0.5,20),now,ramp);
+  gainNode.gain.setTargetAtTime(0.12,now,0.1);
+}
+function enableSound(){ initAudio(); soundEnabled=true; if(audioCtx.state==='suspended') audioCtx.resume(); }
+function disableSound(){ soundEnabled=false; if(gainNode) gainNode.gain.setTargetAtTime(0,audioCtx.currentTime,0.1); }
+
+// HUD
+var hudVisible=false;
+var hudEl=document.getElementById('hud');
+var hintEl=document.getElementById('hint');
+function updateHUD(){
+  if(!hudVisible) return;
+  var tval=ST.t;
+  var evs=eigenSym2(ST.eigenA+Msin(tval*0.1),ST.eigenB,ST.eigenD+Mcos(tval*0.07));
+  var zv=zetaPartial(ST.zetaT+tval*0.3,10);
+  hudEl.innerHTML='<b>COSMIC TELEOLOGICAL KALEIDOSYNTH</b><br>'+
+    'Mode: <b>'+ST.mode.toUpperCase()+'</b> &nbsp; Color: <b>'+ST.colorMode+'</b><br>'+
+    'Symmetry: <b>'+ST.symmetry+'</b> &nbsp; l=<b>'+ST.ql+'</b> m=<b>'+ST.qm+'</b><br>'+
+    'Eigenvalues: <b>'+evs[0].toFixed(3)+', '+evs[1].toFixed(3)+'</b><br>'+
+    '&#950;: <b>'+zv.re.toFixed(3)+'+'+zv.im.toFixed(3)+'i</b><br>'+
+    'Sound: <b>'+(soundEnabled?'ON':'OFF')+'</b> &nbsp; t=<b>'+tval.toFixed(2)+'</b>';
+}
+
+// Loop
+var lastTS=0, modeTimer=0, modeDur=rng(15,45);
+function tick(ts){
+  requestAnimationFrame(tick);
+  var dt=Mmin((ts-lastTS)/1000,0.05); lastTS=ts;
+  ST.t+=dt*ST.speed; ST.rotation+=ST.rotAcc;
+  ST.zoom=1+ST.zoomPulse*Msin(ST.t*0.3);
+  ST.juliaCr+=0.00003*Msin(ST.t*0.7);
+  ST.juliaCi+=0.00003*Mcos(ST.t*0.5);
+  ST.tauI=Mmax(0.2,ST.tauI+0.001*Msin(ST.t*0.2));
+  ST.eigenA=Msin(ST.t*0.11)*2; ST.eigenD=Mcos(ST.t*0.13)*2;
+  modeTimer+=dt;
+  if(modeTimer>modeDur){
+    modeTimer=0; modeDur=rng(12,40); ST.mode=pick(MODES);
+    if(rand()<0.4) ST.colorMode=pick(CMODES);
+    if(rand()<0.3) ST.hue0=(ST.hue0+rng(30,180))%360;
+  }
+  render(); updateAudio(); updateHUD();
+}
+
+function doRandomize(){ randomize(); modeTimer=0; ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H); }
+window.addEventListener('keydown',function(e){
+  if(e.code==='Space'){e.preventDefault();doRandomize();}
+  if(e.code==='KeyH'){hudVisible=!hudVisible;hudEl.style.display=hudVisible?'block':'none';}
+  if(e.code==='KeyS'){if(soundEnabled)disableSound();else enableSound();soundEnabled=!soundEnabled;}
+});
+C.addEventListener('click',doRandomize);
+C.addEventListener('touchstart',function(e){e.preventDefault();doRandomize();},{passive:false});
+setTimeout(function(){hintEl.style.opacity='0';},5000);
+
+randomize();
+ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
+requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>
