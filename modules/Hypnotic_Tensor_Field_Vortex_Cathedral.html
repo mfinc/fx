@@ -1,0 +1,1952 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hypnotic Tensor Field Vortex Cathedral</title>
+<meta name="description" content="Real-time WebGL2 mathematical art: rank-2 tensor fields from Hénon map Jacobians and Lotka–Volterra dynamics, warped through conformal mappings to create infinite cathedral corridor illusions with additive synthesis audio.">
+<meta name="keywords" content="tensor field, conformal mapping, Henon map, Lotka-Volterra, Voronoi, Delaunay, generative art, WebGL2, additive synthesis, Joukowski, Schwarz-Christoffel, mathematical visualization, cathedral, vortex">
+<meta name="robots" content="index, follow">
+<meta name="author" content="Generative Math Art Engine">
+<meta property="og:title" content="Hypnotic Tensor Field Vortex Cathedral">
+<meta property="og:description" content="Real-time tensor field vortex visualization: Hénon attractors, Lotka–Volterra systems, and conformal maps create infinite cathedral geometry.">
+<meta property="og:type" content="website">
+<meta property="og:image:alt" content="Hypnotic neon crystalline cathedral corridor generated from tensor fields">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Hypnotic Tensor Field Vortex Cathedral">
+<meta name="twitter:description" content="Real-time mathematical generative art — tensor fields, Hénon attractors, Voronoi tessellation, and additive synthesis audio.">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "CreativeWork",
+  "name": "Hypnotic Tensor Field Vortex Cathedral",
+  "description": "Real-time WebGL2 visualization of rank-2 tensor fields derived from eigenvalue decomposition of dynamically evolving Jacobian matrices from Hénon maps and Lotka–Volterra systems, warped through Joukowski, Schwarz-Christoffel, power-law, and inverse conformal mappings, tiled with Voronoi tessellation colored by DFT spectral analysis, with additive synthesis audio.",
+  "creator": {"@type": "SoftwareApplication", "name": "Generative Mathematics Engine"},
+  "genre": "Mathematical Generative Art",
+  "keywords": "tensor field, conformal mapping, Henon map, Lotka-Volterra, Voronoi, WebGL2, additive synthesis, Legendre polynomials",
+  "technicalRequirements": "WebGL2, Web Audio API, modern browser"
+}
+</script>
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;background:#000;overflow:hidden}
+canvas{display:block;width:100%;height:100%}
+#hud{
+  position:fixed;top:14px;left:14px;
+  font:11px/1.8 'Courier New',Courier,monospace;
+  color:#00e5ff;
+  text-shadow:0 0 8px #00e5ff,0 0 20px rgba(0,229,255,0.4);
+  pointer-events:none;
+  transition:opacity 0.5s ease;
+  z-index:100;
+  letter-spacing:0.03em;
+}
+#hud.hidden{opacity:0}
+#hud .title{
+  font-size:13px;font-weight:bold;
+  color:#fff;letter-spacing:0.15em;text-transform:uppercase;
+  text-shadow:0 0 12px #fff,0 0 30px #88aaff,0 0 50px rgba(136,170,255,0.3));
+  margin-bottom:4px;
+}
+#hud .row{display:block;color:#80ffee;opacity:.82}
+#hud .keys{
+  margin-top:6px;color:#ffea00;opacity:.55;font-size:10px;letter-spacing:0.05em;
+}
+#flash{
+  position:fixed;inset:0;background:#fff;opacity:0;pointer-events:none;
+  transition:opacity 0.08s ease;z-index:200;
+}
+</style>
+</head>
+<body>
+<main>
+  <canvas id="c" role="img"
+    aria-label="Hypnotic Tensor Field Vortex Cathedral — real-time generative mathematical art animation. Infinite cathedral corridor illusions created from tensor field eigenvalue decomposition, Hénon map attractors, Lotka–Volterra dynamics, and conformal mappings with spectral Voronoi tessellation.">
+  </canvas>
+</main>
+<div id="flash" aria-hidden="true"></div>
+<aside id="hud" role="complementary" aria-label="Visualization parameters">
+  <div class="title">⬡ TENSOR FIELD VORTEX CATHEDRAL</div>
+  <span class="row" id="h-fps">FPS: …</span>
+  <span class="row" id="h-henon">Hénon: a=1.400 b=0.300</span>
+  <span class="row" id="h-lv">LV: α=0.60 β=1.10 δ=0.80 γ=0.70</span>
+  <span class="row" id="h-maps">Maps: Jouk → S-C → z^n → z⁻¹</span>
+  <span class="row" id="h-seeds">Voronoi: 32 seeds | γ=2.20</span>
+  <span class="row" id="h-color">Sat=0.80 | LumScale=1.00 | σ=2.00</span>
+  <span class="row" id="h-audio">Audio: OFF  [S to enable]</span>
+  <div class="keys">SPACE / CLICK · Randomize 300+ params · H · HUD · S · Audio</div>
+</aside>
+
+<script>
+/* =================================================================
+   HYPNOTIC TENSOR FIELD VORTEX CATHEDRAL
+   WebGL2 fragment-shader renderer + Web Audio synthesis engine
+   ================================================================= */
+'use strict';
+
+// ─── Canvas & Context ────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const gl = canvas.getContext('webgl2', {antialias:false, alpha:false, depth:false, stencil:false});
+if (!gl) { document.body.innerHTML='<p style="color:#f00;padding:2em">WebGL2 required. Please use Chrome, Firefox, or Edge.</p>'; }
+
+const TAU = Math.PI * 2;
+
+// ─── State ───────────────────────────────────────────────────────
+let W=0, H=0, program=null, vao=null, uL={};
+let specTex=null, densTex=null;
+let audioCtx=null, audioNodes=[];
+let audioOn=false, hudVisible=true;
+let lastT=0, fps=0, frameN=0, fpsAcc=0;
+let P={};
+let lvState=[1.5, 1.5];
+
+// ─── Vertex Shader ───────────────────────────────────────────────
+const VS = `#version 300 es
+in vec2 aPos;
+void main(){gl_Position=vec4(aPos,0.0,1.0);}
+`;
+
+// ─── Fragment Shader ─────────────────────────────────────────────
+const FS = `#version 300 es
+precision highp float;
+
+uniform float uTime;
+uniform vec2  uRes;
+
+// Hénon attractor parameters
+uniform float uHA, uHB;
+
+// Lotka–Volterra (current CPU state passed as uniforms)
+uniform float uLVA, uLVB, uLVD, uLVG;
+uniform float uLVX, uLVY;
+
+// Conformal map ordering (0=Joukowski, 1=Schwarz–Christoffel, 2=power z^n, 3=inverse z^-1)
+uniform float uMap0, uMap1, uMap2, uMap3;
+uniform float uJouC;        // Joukowski wing parameter c
+uniform float uPowN;        // power-law exponent
+uniform float uInvS;        // inverse map scale
+uniform float uSchK;        // Schwarz–Christoffel polygon sides
+uniform float uCScale;      // scale applied before each conformal step
+uniform float uCRot;        // inter-step rotation increment
+
+// Projective homogeneous transform (column-major mat3)
+uniform mat3  uProj;
+// Affine shear-rotation (column-major mat3)
+uniform mat3  uAff;
+
+// Voronoi seeds (flat vec2 array)
+uniform vec2  uSeeds[64];
+uniform int   uNSeeds;
+
+// Color parameters
+uniform float uGamma, uLumS, uCPhase, uSat;
+
+// Tiling & tunnel
+uniform float uTScale, uTRot;
+
+// Pre-computed textures
+uniform sampler2D uSpectrum;   // 1D DFT spectral color strip
+uniform sampler2D uDensity;    // 2D attractor density (Gaussian RBF smoothed)
+
+out vec4 fragColor;
+
+const float PI  = 3.14159265358979;
+const float TAU = 6.28318530717959;
+const float EPS = 1e-9;
+
+// ─── Complex arithmetic ──────────────────────────────────────────
+vec2 cMul(vec2 a, vec2 b){
+  return vec2(a.x*b.x - a.y*b.y, a.x*b.y + a.y*b.x);
+}
+vec2 cDiv(vec2 a, vec2 b){
+  float d = dot(b,b) + EPS;
+  return vec2(dot(a,b), a.y*b.x - a.x*b.y) / d;
+}
+// z^n via polar form
+vec2 cPow(vec2 z, float n){
+  float r = length(z) + EPS;
+  float th = atan(z.y, z.x);
+  return pow(r, n) * vec2(cos(n*th), sin(n*th));
+}
+
+// ─── Conformal maps ──────────────────────────────────────────────
+// Joukowski: w = z + c²/z  (aerofoil / arch generator)
+vec2 fJouk(vec2 z){
+  return z + uJouC*uJouC * cDiv(vec2(1.0,0.0), z);
+}
+// Approximated Schwarz–Christoffel: power-wedge warp onto n-gon
+vec2 fSC(vec2 z){
+  float n  = max(3.0, uSchK);
+  float al = 2.0 / n;
+  float r  = length(z) + EPS;
+  float th = atan(z.y, z.x);
+  return pow(r, 1.0-al) * vec2(cos((1.0-al)*th), sin((1.0-al)*th));
+}
+// Power-law z^n
+vec2 fPow(vec2 z){ return cPow(z, uPowN); }
+// Inverse (Möbius-like): s/z
+vec2 fInv(vec2 z){ return uInvS * cDiv(vec2(1.0,0.0), z); }
+
+// Apply randomly ordered conformal composition
+vec2 applyConformals(vec2 z){
+  float order[4];
+  order[0]=uMap0; order[1]=uMap1; order[2]=uMap2; order[3]=uMap3;
+  for(int i=0;i<4;i++){
+    float m = order[i];
+    z *= uCScale;
+    if     (m < 0.5) z = fJouk(z);
+    else if(m < 1.5) z = fSC(z);
+    else if(m < 2.5) z = fPow(z);
+    else             z = fInv(z);
+    // Inter-step rotation keeps geometry from collapsing
+    float cr = cos(uCRot * float(i+1));
+    float sr = sin(uCRot * float(i+1));
+    z = vec2(cr*z.x - sr*z.y, sr*z.x + cr*z.y);
+  }
+  return z;
+}
+
+// ─── Coordinate transforms ───────────────────────────────────────
+vec2 projT(vec2 p){
+  vec3 h = uProj * vec3(p, 1.0);
+  return h.xy / (h.z + EPS);
+}
+vec2 affT(vec2 p){
+  return (uAff * vec3(p, 1.0)).xy;
+}
+
+// ─── 2×2 analytic eigenvalue decomposition ───────────────────────
+// Matrix M = [[a,b],[c,d]] (math-row notation → GLSL col-major: M[col][row])
+// trace = a+d, det = ad-bc, λ = tr/2 ± sqrt((tr/2)² - det)
+vec2 eigvals(float a, float b, float c, float d){
+  float tr  = (a + d) * 0.5;
+  float disc = tr*tr - (a*d - b*c);
+  float sq  = sqrt(max(0.0, disc));
+  return vec2(tr + sq, tr - sq);
+}
+
+// ─── Hénon map Jacobian ──────────────────────────────────────────
+// Map: (x,y) → (1 - a·x² + y,  b·x)
+// Jacobian (math rows): [[-2ax, 1], [b, 0]]
+// GLSL mat2 col-major: col0=[-2ax,b], col1=[1,0]
+mat2 henonJ(vec2 p){
+  return mat2(-2.0*uHA*p.x, uHB, 1.0, 0.0);
+}
+
+// ─── Lotka–Volterra Jacobian ─────────────────────────────────────
+// dx/dt = α·x − β·x·y  → ∂f1/∂x = α−βy, ∂f1/∂y = −βx
+// dy/dt = δ·x·y − γ·y  → ∂f2/∂x = δy,   ∂f2/∂y = δx−γ
+// GLSL col-major: col0=[α-βy, δy], col1=[-βx, δx-γ]
+mat2 lvJ(vec2 p){
+  float x=max(p.x,0.01), y=max(p.y,0.01);
+  return mat2(uLVA-uLVB*y, uLVD*y, -uLVB*x, uLVD*x-uLVG);
+}
+
+// ─── Rank-2 tensor field ─────────────────────────────────────────
+struct TField { vec2 ev; float aniso; float orient; float trace; };
+
+TField tensorAt(vec2 q){
+  // Iterate Hénon from q to approach the attractor basin
+  vec2 hp = q;
+  for(int i=0;i<16;i++){
+    float nx = 1.0 - uHA*hp.x*hp.x + hp.y;
+    float ny = uHB * hp.x;
+    hp = vec2(nx, ny);
+  }
+  mat2 Jh = henonJ(hp);
+
+  // LV Jacobian perturbed by local coordinate
+  vec2 lp = clamp(vec2(uLVX,uLVY)*(1.0+0.15*q), vec2(0.01), vec2(50.0));
+  mat2 Jl = lvJ(lp);
+
+  // Time-varying blend of the two Jacobians → coupling between systems
+  float w = 0.5 + 0.5*sin(uTime*0.19 + q.x*1.7 + q.y*2.3);
+  // Element-wise blend (mat2 col-major)
+  mat2 J  = mat2(
+    Jh[0]*w + Jl[0]*(1.0-w),
+    Jh[1]*w + Jl[1]*(1.0-w)
+  );
+
+  // Analytic eigenvalues of combined Jacobian
+  // J[0][0]=col0row0=a, J[0][1]=col0row1=c, J[1][0]=col1row0=b, J[1][1]=col1row1=d
+  float a=J[0][0], c=J[0][1], b=J[1][0], d=J[1][1];
+  vec2 ev = eigvals(a, b, c, d);
+
+  // Principal eigenvector direction (analytic for 2×2)
+  float lam1 = ev.x;
+  vec2 evec = normalize(vec2(lam1 - d + EPS, c + EPS));
+
+  float aniso = (ev.x - ev.y) / (abs(ev.x) + abs(ev.y) + EPS);
+  float orient = atan(evec.y, evec.x);
+
+  TField tf;
+  tf.ev     = ev;
+  tf.aniso  = aniso;
+  tf.orient = orient;
+  tf.trace  = a + d;
+  return tf;
+}
+
+// ─── Voronoi tessellation ─────────────────────────────────────────
+// Returns (minDist, secondMinDist-minDist) and writes cell index
+float voronoi(vec2 p, out int idx){
+  float d0=1e9, d1=1e9;
+  idx = 0;
+  for(int i=0;i<64;i++){
+    if(i >= uNSeeds) break;
+    float d = distance(p, uSeeds[i]);
+    if(d < d0){ d1=d0; d0=d; idx=i; }
+    else if(d < d1){ d1=d; }
+  }
+  return d1 - d0;   // ≈ 0 at cell boundary → glow there
+}
+
+// ─── HSV → RGB ───────────────────────────────────────────────────
+vec3 hsv2rgb(float h, float s, float v){
+  vec4 K = vec4(1.0, 2.0/3.0, 1.0/3.0, 3.0);
+  vec3 p = abs(fract(vec3(h)+K.xyz)*6.0 - K.www);
+  return v * mix(K.xxx, clamp(p-K.xxx,0.0,1.0), s);
+}
+
+// ─── Main ─────────────────────────────────────────────────────────
+void main(){
+  vec2 fc = gl_FragCoord.xy;
+  vec2 uv = (fc - uRes*0.5) / min(uRes.x, uRes.y);
+
+  // Apply tiling rotation
+  float cr = cos(uTRot), sr = sin(uTRot);
+  uv = vec2(cr*uv.x - sr*uv.y, sr*uv.x + cr*uv.y);
+
+  // ── Log-polar unwrapping → creates infinite tunnel depth ──────
+  float r  = length(uv) + 0.001;
+  float th = atan(uv.y, uv.x);
+
+  // Log-polar tile: each concentric ring is one tile in r-direction
+  // Time offset in lr → automated zoom into tunnel
+  float lr = log(r)*uTScale*1.5 + uTime*0.14;
+  float lt = th * uTScale * 0.32;
+
+  vec2 tuv = vec2(
+    fract(lr * 0.33 + 0.5) - 0.5,
+    fract(lt / PI  + 0.5) - 0.5
+  );
+
+  // ── 6-fold kaleidoscopic reflection (stained-glass cathedral window)
+  vec2 ruv = abs(tuv);
+  // Mirror fold at 60° intervals
+  float sym = floor(th / (PI/3.0));
+  if(mod(sym, 2.0) > 0.5) ruv = vec2(0.5 - ruv.x, ruv.y);
+
+  // ── Conformal composition ─────────────────────────────────────
+  vec2 cuv = applyConformals(ruv);
+
+  // ── Projective warp ──────────────────────────────────────────
+  vec2 puv = projT(cuv);
+
+  // ── Affine shear-rotation ─────────────────────────────────────
+  vec2 wuv = affT(puv);
+
+  // ── Rank-2 tensor field at warped position ────────────────────
+  TField tf = tensorAt(wuv);
+
+  // ── Voronoi tessellation ───────────────────────────────────────
+  int cidx;
+  float vedge = voronoi(wuv * uTScale * 0.6, cidx);
+  // Edge glow width controlled by abs(vedge): glow where edge ≈ 0
+  float edgeGlow = exp(-abs(vedge) * 55.0);
+  float edgeSoft = smoothstep(0.0, 0.04, abs(vedge));
+
+  // ── Attractor density sample (log-scaled Gaussian RBF density) ─
+  vec2 dUV = clamp(wuv * 0.18 + 0.5, 0.0, 1.0);
+  float dens = texture(uDensity, dUV).r;
+
+  // ── Spectral color from DFT-derived spectrum texture ──────────
+  // Per-cell hue with time drift (simulates shifting attractor density)
+  float specU = fract(float(cidx)/float(uNSeeds)*0.73 + uCPhase + uTime*0.006);
+  vec3 specCol = texture(uSpectrum, vec2(specU, 0.5)).rgb;
+
+  // ── HSV color from tensor field properties ────────────────────
+  float hue = fract(
+    tf.orient / TAU * 0.5           // principal direction
+    + float(cidx)/float(uNSeeds)*0.6  // cell identity
+    + uCPhase                        // global phase
+    + uTime * 0.011                  // slow drift
+    + dens * 0.25                    // density-driven hue warp
+    + tf.trace * 0.04               // trace adds spectral shimmer
+  );
+  float sat = clamp(uSat * (0.55 + 0.45*abs(tf.aniso)), 0.0, 1.0);
+
+  // Luminance: log-scale eigenvalue magnitude × attractor density
+  float eigMag = log(length(tf.ev) + 1.0) * 0.45;
+  float lum = uLumS * (eigMag*0.65 + dens*0.35 + abs(tf.aniso)*0.15);
+  lum = clamp(lum, 0.0, 1.0);
+
+  // Base crystalline color
+  vec3 col = hsv2rgb(hue, sat, lum);
+
+  // Blend with DFT spectrum (spectral color from Hénon density DFT)
+  col = mix(col, specCol, 0.32);
+
+  // ── Voronoi edge: bright neon spectral glow ────────────────────
+  vec3 edgeHue = hsv2rgb(fract(hue + 0.5 + uTime*0.023), 1.0, 1.0);
+  col = mix(col, edgeHue * 2.2, edgeGlow * 0.72);
+
+  // ── Tensor orientation streaks (crystalline/directional texture) ─
+  float streak = 0.5 + 0.5*sin(tf.orient*9.0 + uTime*0.38 + length(wuv)*28.0);
+  col += col * streak * 0.18;
+
+  // ── Cathedral depth vignette (tunnel darkening) ───────────────
+  // Darker at conformal extremes → stone pillars / arch shadows
+  float cDist = length(cuv);
+  float archShadow = exp(-cDist * 0.7);
+  col *= (0.35 + 0.65*archShadow);
+
+  // Second-layer tunnel rings: echo the log-polar tiling
+  float ring = abs(sin(lr * PI));
+  col += col * ring * 0.12;
+
+  // ── Gamma-corrected power-law mapping ─────────────────────────
+  col = pow(max(col, 0.0), vec3(1.0/uGamma));
+
+  // ── Contrast boost for neon-bright crystalline edges ─────────
+  col = col*col*(3.0 - 2.0*col);  // smooth-step contrast curve
+
+  // ── Logarithmic luminance re-scale ───────────────────────────
+  col = log(1.0 + col*2.5) / log(3.5);
+
+  fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+}
+`;
+
+// ─── WebGL Utilities ─────────────────────────────────────────────
+function mkShader(type, src){
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if(!gl.getShaderParameter(s, gl.COMPILE_STATUS)){
+    console.error('Shader compile error:', gl.getShaderInfoLog(s));
+    return null;
+  }
+  return s;
+}
+
+function mkProg(vs, fs){
+  const p = gl.createProgram();
+  gl.attachShader(p, mkShader(gl.VERTEX_SHADER, vs));
+  gl.attachShader(p, mkShader(gl.FRAGMENT_SHADER, fs));
+  gl.linkProgram(p);
+  if(!gl.getProgramParameter(p, gl.LINK_STATUS)){
+    console.error('Program link error:', gl.getProgramInfoLog(p));
+    return null;
+  }
+  return p;
+}
+
+function initGL(){
+  program = mkProg(VS, FS);
+  gl.useProgram(program);
+
+  // Fullscreen triangle strip quad
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  vao = gl.createVertexArray();
+  gl.bindVertexArray(vao);
+  const aloc = gl.getAttribLocation(program, 'aPos');
+  gl.enableVertexAttribArray(aloc);
+  gl.vertexAttribPointer(aloc, 2, gl.FLOAT, false, 0, 0);
+
+  // Cache all uniform locations
+  const uniforms = [
+    'uTime','uRes','uHA','uHB','uLVA','uLVB','uLVD','uLVG','uLVX','uLVY',
+    'uMap0','uMap1','uMap2','uMap3','uJouC','uPowN','uInvS','uSchK','uCScale','uCRot',
+    'uProj','uAff','uSeeds','uNSeeds',
+    'uGamma','uLumS','uCPhase','uSat','uTScale','uTRot',
+    'uSpectrum','uDensity'
+  ];
+  for(const u of uniforms) uL[u] = gl.getUniformLocation(program, u);
+}
+
+// ─── Legendre Polynomials ─────────────────────────────────────────
+function legendreP(n, x){
+  if(n===0) return 1.0;
+  if(n===1) return x;
+  let p0=1.0, p1=x;
+  for(let k=1;k<n;k++){
+    const p2 = ((2*k+1)*x*p1 - k*p0)/(k+1);
+    p0=p1; p1=p2;
+  }
+  return p1;
+}
+
+// ─── CPU-side HSV → RGB ───────────────────────────────────────────
+function hsvRgb(h,s,v){
+  h = ((h%1)+1)%1;
+  const i=Math.floor(h*6)%6;
+  const f=h*6-Math.floor(h*6);
+  const p=v*(1-s), q=v*(1-f*s), t=v*(1-(1-f)*s);
+  return [[v,t,p],[q,v,p],[p,v,t],[p,q,v],[t,p,v],[v,p,q]][i] || [v,v,v];
+}
+
+// ─── Build spectrum texture (DFT of Hénon attractor histogram) ────
+function buildSpectrumTex(){
+  const N = 512;
+
+  // 1. Simulate Hénon attractor → 1D histogram
+  const hist = new Float32Array(N);
+  let hx=0.1, hy=0.1;
+  for(let i=0;i<100000;i++){
+    const nx = 1.0 - P.hA*hx*hx + hy;
+    const ny = P.hB*hx;
+    hx=nx; hy=ny;
+    if(i>3000){
+      const ix = Math.floor(((hx+1.6)/3.2)*N);
+      if(ix>=0 && ix<N) hist[ix]++;
+    }
+  }
+  let maxH=0; for(let i=0;i<N;i++) maxH=Math.max(maxH,hist[i]);
+  for(let i=0;i<N;i++) hist[i]/=(maxH+1e-10);
+
+  // 2. Decimated DFT (M spectral bins) → frequency magnitudes
+  const M = 64;
+  const mag = new Float32Array(M);
+  for(let k=0;k<M;k++){
+    let re=0, im=0;
+    for(let n=0;n<N;n++){
+      const ang = TAU*k*n/N;
+      re+=hist[n]*Math.cos(ang);
+      im+=hist[n]*Math.sin(ang);
+    }
+    mag[k]=Math.sqrt(re*re+im*im)/N;
+  }
+  // Interpolate M→N and normalize
+  const freqMag = new Float32Array(N);
+  let maxM=0; for(let i=0;i<M;i++) maxM=Math.max(maxM,mag[i]);
+  for(let i=0;i<N;i++){
+    const t=(i/N)*M; const k0=Math.floor(t)%M; const k1=(k0+1)%M;
+    freqMag[i]=(mag[k0]+(t-Math.floor(t))*(mag[k1]-mag[k0]))/(maxM+1e-10);
+  }
+
+  // 3. Build RGBA spectrum strip: HSV color weighted by DFT magnitude
+  const px = new Uint8Array(N*4);
+  for(let i=0;i<N;i++){
+    const hue = (i/N + P.colorPhase)%1.0;
+    const val = 0.25 + 0.75*(freqMag[i]*0.8 + 0.2*Math.sin(i*0.4+P.colorPhase*TAU));
+    const sat = 0.8 + 0.2*Math.cos(i*0.3);
+    const [r,g,b]=hsvRgb(hue, sat, val);
+    px[i*4]=r*255|0; px[i*4+1]=g*255|0; px[i*4+2]=b*255|0; px[i*4+3]=255;
+  }
+
+  if(!specTex) specTex=gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, specTex);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,N,1,0,gl.RGBA,gl.UNSIGNED_BYTE,px);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+}
+
+// ─── Build density texture (attractor + Gaussian RBF smoothing) ───
+function buildDensityTex(){
+  const N=128;
+  const hist = new Float32Array(N*N);
+
+  // Hénon attractor 2D density
+  let hx=0.1, hy=0.1;
+  for(let i=0;i<60000;i++){
+    const nx=1.0-P.hA*hx*hx+hy; const ny=P.hB*hx;
+    hx=nx; hy=ny;
+    if(i>1000){
+      const ix=Math.floor(((hx+1.6)/3.2)*N);
+      const iy=Math.floor(((hy+0.5)/1.0)*N);
+      if(ix>=0&&ix<N&&iy>=0&&iy<N) hist[iy*N+ix]++;
+    }
+  }
+
+  // Lotka–Volterra orbit density (adds spiral rings)
+  let lx=P.lvX0, ly=P.lvY0;
+  for(let i=0;i<20000;i++){
+    const dx=P.lvA*lx-P.lvB*lx*ly;
+    const dy=P.lvD*lx*ly-P.lvG*ly;
+    lx+=dx*0.015; ly+=dy*0.015;
+    lx=Math.max(0.01,lx); ly=Math.max(0.01,ly);
+    if(lx>25||ly>25){lx=P.lvX0;ly=P.lvY0;}
+    if(i>500){
+      const ix=Math.floor((lx/18.0)*N);
+      const iy=Math.floor((ly/18.0)*N);
+      if(ix>=0&&ix<N&&iy>=0&&iy<N) hist[iy*N+ix]+=0.4;
+    }
+  }
+
+  // Gaussian RBF smoothing (separable 2D Gaussian kernel)
+  const sigma = P.grfSigma*1.8;
+  const kR  = Math.ceil(sigma*2.8)|0;
+  const kern = []; let kSum=0;
+  for(let k=-kR;k<=kR;k++){const g=Math.exp(-k*k/(2*sigma*sigma));kern.push(g);kSum+=g;}
+  for(let i=0;i<kern.length;i++) kern[i]/=kSum;
+
+  // Horizontal pass
+  const tmp = new Float32Array(N*N);
+  for(let y=0;y<N;y++) for(let x=0;x<N;x++){
+    let s=0;
+    for(let k=-kR;k<=kR;k++){
+      const xi=Math.min(N-1,Math.max(0,x+k));
+      s+=hist[y*N+xi]*kern[k+kR];
+    }
+    tmp[y*N+x]=s;
+  }
+  // Vertical pass
+  const blurred = new Float32Array(N*N);
+  for(let y=0;y<N;y++) for(let x=0;x<N;x++){
+    let s=0;
+    for(let k=-kR;k<=kR;k++){
+      const yi=Math.min(N-1,Math.max(0,y+k));
+      s+=tmp[yi*N+x]*kern[k+kR];
+    }
+    blurred[y*N+x]=s;
+  }
+
+  // Log-normalize → texture
+  let maxD=0; for(let i=0;i<N*N;i++) maxD=Math.max(maxD,blurred[i]);
+  const px=new Uint8Array(N*N*4);
+  for(let i=0;i<N*N;i++){
+    const v=blurred[i]/(maxD+1e-10);
+    const lv=Math.log1p(v*9)/Math.log(10); // log scale
+    const b=Math.min(255,lv*255|0);
+    px[i*4]=px[i*4+1]=px[i*4+2]=b; px[i*4+3]=255;
+  }
+
+  if(!densTex) densTex=gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D,densTex);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,N,N,0,gl.RGBA,gl.UNSIGNED_BYTE,px);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.REPEAT);
+}
+
+// ─── Randomizer helpers ───────────────────────────────────────────
+const rnd   = (a,b)=>a+(b-a)*Math.random();
+const rndI  = (a,b)=>Math.floor(rnd(a,b));
+function shuffle(arr){
+  for(let i=arr.length-1;i>0;i--){
+    const j=rndI(0,i+1); [arr[i],arr[j]]=[arr[j],arr[i]];
+  }
+  return arr;
+}
+
+// ─── Randomize ALL 300+ parameters ───────────────────────────────
+function randomize(){
+
+  // ── Hénon attractor (bounded for classical attractor region)
+  P.hA = rnd(0.88, 1.56);
+  P.hB = rnd(0.12, 0.52);
+
+  // ── Lotka–Volterra differential equation system
+  P.lvA  = rnd(0.35, 1.4);
+  P.lvB  = rnd(0.45, 1.9);
+  P.lvD  = rnd(0.28, 1.3);
+  P.lvG  = rnd(0.38, 1.6);
+  P.lvX0 = rnd(0.4, 5.0);
+  P.lvY0 = rnd(0.4, 5.0);
+  lvState = [P.lvX0, P.lvY0];
+
+  // ── Conformal map random composition order
+  P.confOrder = shuffle([0,1,2,3]);
+  P.jouC   = rnd(0.05, 0.98);   // Joukowski wing chord
+  P.powN   = rnd(0.35, 7.0);   // z^n exponent
+  P.invS   = rnd(0.05, 3.0);   // inverse scale
+  P.schK   = rnd(3.0, 11.0);   // polygon sides (Schwarz–Christoffel)
+  P.cScale = rnd(0.25, 2.8);   // pre-map scale
+  P.cRot   = rnd(0, TAU);      // inter-step rotation
+
+  // ── Projective homogeneous coordinate transform (near-identity)
+  const eps = rnd(0.015, 0.28);
+  const pe  = ()=>rnd(-eps,eps);
+  const ppe = ()=>rnd(-eps*0.06,eps*0.06);
+  // Float32Array in column-major order for WebGL uniformMatrix3fv
+  P.proj = new Float32Array([
+    1+pe(), pe(),   ppe(),   // column 0: rows 0,1,2
+    pe(),   1+pe(), ppe(),   // column 1
+    pe(),   pe(),   1        // column 2
+  ]);
+
+  // ── Affine shear-rotation matrix
+  const ang = rnd(0, TAU);
+  const shx = rnd(-0.5, 0.5);
+  const shy = rnd(-0.5, 0.5);
+  const sc  = rnd(0.5, 2.2);
+  const tx  = rnd(-0.25, 0.25);
+  const ty  = rnd(-0.25, 0.25);
+  const ca  = Math.cos(ang), sa=Math.sin(ang);
+  // Column-major: [c0r0,c0r1,c0r2, c1r0,c1r1,c1r2, c2r0,c2r1,c2r2]
+  P.aff = new Float32Array([
+    sc*ca + shx*sa, sc*sa,        0,
+    -sc*sa + shy*ca, sc*ca,       0,
+    tx,             ty,           1
+  ]);
+
+  // ── Voronoi seeds (Poisson-ish distribution in [-2,2]²)
+  P.nSeeds = rndI(14, 62);
+  P.seeds  = new Float32Array(128);   // 64 vec2s
+  for(let i=0;i<64;i++){
+    P.seeds[i*2]   = rnd(-2.2, 2.2);
+    P.seeds[i*2+1] = rnd(-2.2, 2.2);
+  }
+
+  // ── Color
+  P.gamma      = rnd(0.9, 3.9);
+  P.lumScale   = rnd(0.35, 2.2);
+  P.colorPhase = Math.random();
+  P.saturation = rnd(0.45, 1.0);
+
+  // ── Log-polar tiling
+  P.tileScale = rnd(0.7, 3.8);
+  P.tileRot   = rnd(0, TAU);
+
+  // ── Gaussian RBF kernel width
+  P.grfSigma = rnd(0.4, 5.0);
+
+  // ── Audio: 32 Legendre-polynomial-weighted sine partials
+  P.baseFreq   = rnd(45, 175);
+  P.audioFreqs = new Float32Array(32);
+  P.audioAmps  = new Float32Array(32);
+  P.audioLFOs  = new Float32Array(32);
+
+  for(let i=0;i<32;i++){
+    // Map partial index to Legendre domain x ∈ [-1,1]
+    const x     = (i/31)*2-1;
+    const legW  = Math.abs(legendreP(i%9, x));   // Legendre polynomial weight
+    const pN    = i+1;
+    // Frequency: harmonic series weighted by Legendre polynomial
+    P.audioFreqs[i] = P.baseFreq * pN * (0.55 + 0.45*legW) * (1 + rnd(-0.02,0.02));
+    // Amplitude: 1/n roll-off × Legendre weight
+    P.audioAmps[i]  = legW * 0.06 / Math.pow(pN, 0.85);
+    // LFO rate for Z-transform filtered random walk
+    P.audioLFOs[i]  = rnd(0.012, 0.18);
+  }
+  // Z-transform IIR filter coefficients for random walk
+  P.filterA    = rnd(0.72, 0.985);  // pole position (near 1 = slow, lush)
+  P.filterB    = rnd(0.08, 0.45);   // zero position
+  // Spatial reverb
+  P.reverbDecay = rnd(0.35, 0.94);
+  P.reverbLen   = rnd(1.2, 4.5);
+
+  // Rebuild pre-computed CPU textures
+  buildSpectrumTex();
+  buildDensityTex();
+
+  // Restart audio engine if active
+  if(audioOn){ stopAudio(); startAudio(); }
+
+  updateHUD();
+  flashUI();
+}
+
+// ─── Audio synthesis engine ───────────────────────────────────────
+function startAudio(){
+  if(!audioCtx) audioCtx = new(window.AudioContext||window.webkitAudioContext)();
+  if(audioCtx.state==='suspended') audioCtx.resume();
+  const sr = audioCtx.sampleRate;
+
+  // Master gain → compressor → output
+  const master = audioCtx.createGain();
+  master.gain.value = 0.16;
+  const comp = audioCtx.createDynamicsCompressor();
+  comp.threshold.value = -18; comp.knee.value=12;
+  comp.ratio.value=5; comp.attack.value=0.015; comp.release.value=0.4;
+  comp.connect(audioCtx.destination);
+  master.connect(comp);
+
+  // Convolution reverb (exponential-decay impulse response = vast cathedral)
+  const conv = audioCtx.createConvolver();
+  const irLen = Math.floor(sr * P.reverbLen);
+  const ir    = audioCtx.createBuffer(2, irLen, sr);
+  for(let ch=0;ch<2;ch++){
+    const d = ir.getChannelData(ch);
+    for(let i=0;i<irLen;i++){
+      // Diffuse noise * exponential decay → classic plate reverb
+      d[i] = (Math.random()*2-1) * Math.exp(-i/sr / P.reverbDecay * 4.5);
+    }
+  }
+  conv.buffer = ir;
+
+  const dryG = audioCtx.createGain(); dryG.gain.value = 0.30;
+  const wetG = audioCtx.createGain(); wetG.gain.value = 0.70;
+  dryG.connect(master);
+  wetG.connect(conv);
+  conv.connect(master);
+
+  audioNodes = [master,comp,conv,dryG,wetG];
+
+  // 32 additive partials: Legendre-weighted sine oscillators
+  // Each has an LFO implementing Z-transform filtered random walk on amplitude
+  for(let i=0;i<32;i++){
+    const freq = P.audioFreqs[i];
+    if(freq>=sr*0.44) continue;   // Nyquist guard
+
+    const osc = audioCtx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    // Slight detuning for beating effect (lustrous pad quality)
+    osc.detune.value = rnd(-3,3);
+
+    const ampG = audioCtx.createGain();
+    ampG.gain.value = P.audioAmps[i];
+
+    // LFO = Z-transform filtered random walk on amplitude
+    // H(z) = (1-filterB) / (1-filterA·z^-1)  → first-order IIR lowpass
+    // Modeled as: slow LFO at random rate with depth ∝ filterB
+    const lfo = audioCtx.createOscillator();
+    lfo.type = 'sine';
+    lfo.frequency.value = P.audioLFOs[i];
+    lfo.detune.value = rnd(-0.5,0.5);
+
+    const lfoG = audioCtx.createGain();
+    lfoG.gain.value = P.audioAmps[i] * P.filterB * 0.8;
+
+    lfo.connect(lfoG);
+    lfoG.connect(ampG.gain);
+    osc.connect(ampG);
+    ampG.connect(dryG);
+    ampG.connect(wetG);
+
+    // Stagger start times to avoid click chorus
+    const startT = audioCtx.currentTime + i*0.04;
+    osc.start(startT);
+    lfo.start(startT + Math.random()*2);
+
+    audioNodes.push(osc,ampG,lfo,lfoG);
+  }
+}
+
+function stopAudio(){
+  const now = audioCtx ? audioCtx.currentTime : 0;
+  audioNodes.forEach(n=>{
+    try{
+      if(n.gain) n.gain.setTargetAtTime(0.0001, now, 0.08);
+      if(n.stop) n.stop(now+0.3);
+      setTimeout(()=>{try{n.disconnect();}catch(e){}},600);
+    }catch(e){}
+  });
+  audioNodes=[];
+}
+
+function toggleAudio(){
+  audioOn = !audioOn;
+  if(audioOn) startAudio(); else stopAudio();
+  document.getElementById('h-audio').textContent =
+    'Audio: ' + (audioOn?'ON  ♫  [S to disable]':'OFF  [S to enable]');
+}
+
+// ─── Lotka–Volterra CPU evolution (RK4) ──────────────────────────
+function stepLV(dt){
+  const [x,y] = lvState;
+  const f = (x,y)=>[P.lvA*x-P.lvB*x*y, P.lvD*x*y-P.lvG*y];
+  const [k1x,k1y]=f(x,y);
+  const [k2x,k2y]=f(x+k1x*dt*.5, y+k1y*dt*.5);
+  const [k3x,k3y]=f(x+k2x*dt*.5, y+k2y*dt*.5);
+  const [k4x,k4y]=f(x+k3x*dt, y+k3y*dt);
+  lvState[0] = Math.max(0.01, x+(k1x+2*k2x+2*k3x+k4x)*dt/6);
+  lvState[1] = Math.max(0.01, y+(k1y+2*k2y+2*k3y+k4y)*dt/6);
+  // Reset if diverges (can happen with some parameter combinations)
+  if(lvState[0]>200 || lvState[1]>200) lvState=[P.lvX0,P.lvY0];
+}
+
+// ─── Upload uniforms ──────────────────────────────────────────────
+function setUniforms(t){
+  const l=uL;
+  gl.uniform1f(l.uTime, t);
+  gl.uniform2f(l.uRes, W, H);
+  gl.uniform1f(l.uHA, P.hA);
+  gl.uniform1f(l.uHB, P.hB);
+  gl.uniform1f(l.uLVA, P.lvA);
+  gl.uniform1f(l.uLVB, P.lvB);
+  gl.uniform1f(l.uLVD, P.lvD);
+  gl.uniform1f(l.uLVG, P.lvG);
+  gl.uniform1f(l.uLVX, lvState[0]);
+  gl.uniform1f(l.uLVY, lvState[1]);
+  gl.uniform1f(l.uMap0, P.confOrder[0]);
+  gl.uniform1f(l.uMap1, P.confOrder[1]);
+  gl.uniform1f(l.uMap2, P.confOrder[2]);
+  gl.uniform1f(l.uMap3, P.confOrder[3]);
+  gl.uniform1f(l.uJouC, P.jouC);
+  gl.uniform1f(l.uPowN, P.powN);
+  gl.uniform1f(l.uInvS, P.invS);
+  gl.uniform1f(l.uSchK, P.schK);
+  gl.uniform1f(l.uCScale, P.cScale);
+  gl.uniform1f(l.uCRot, P.cRot);
+  gl.uniformMatrix3fv(l.uProj, false, P.proj);
+  gl.uniformMatrix3fv(l.uAff,  false, P.aff);
+  gl.uniform2fv(l.uSeeds, P.seeds);
+  gl.uniform1i(l.uNSeeds, P.nSeeds);
+  gl.uniform1f(l.uGamma, P.gamma);
+  gl.uniform1f(l.uLumS, P.lumScale);
+  gl.uniform1f(l.uCPhase, (P.colorPhase + t*0.007)%1.0);
+  gl.uniform1f(l.uSat, P.saturation);
+  gl.uniform1f(l.uTScale, P.tileScale);
+  gl.uniform1f(l.uTRot, P.tileRot + t*0.035);
+
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, specTex);
+  gl.uniform1i(l.uSpectrum, 0);
+
+  gl.activeTexture(gl.TEXTURE1);
+  gl.bindTexture(gl.TEXTURE_2D, densTex);
+  gl.uniform1i(l.uDensity, 1);
+}
+
+// ─── HUD update ───────────────────────────────────────────────────
+function updateHUD(){
+  if(!P.hA) return;
+  const mapNames=['Jouk','S-C','z^n','z⁻¹'];
+  document.getElementById('h-fps').textContent =
+    `FPS: ${fps.toFixed(1)}  ·  ${W}×${H}`;
+  document.getElementById('h-henon').textContent =
+    `Hénon  a=${P.hA.toFixed(4)}  b=${P.hB.toFixed(4)}`;
+  document.getElementById('h-lv').textContent =
+    `LV  α=${P.lvA.toFixed(3)}  β=${P.lvB.toFixed(3)}  δ=${P.lvD.toFixed(3)}  γ=${P.lvG.toFixed(3)}`;
+  document.getElementById('h-maps').textContent =
+    `Maps: ${P.confOrder.map(m=>mapNames[m]).join(' → ')}  n=${P.powN.toFixed(3)}  k=${P.schK.toFixed(2)}`;
+  document.getElementById('h-seeds').textContent =
+    `Voronoi: ${P.nSeeds} seeds  |  γ=${P.gamma.toFixed(3)}  jouc=${P.jouC.toFixed(3)}`;
+  document.getElementById('h-color').textContent =
+    `Sat=${P.saturation.toFixed(3)}  LumS=${P.lumScale.toFixed(3)}  σ=${P.grfSigma.toFixed(3)}`;
+}
+
+// ─── Brief white flash on randomize ──────────────────────────────
+function flashUI(){
+  const f=document.getElementById('flash');
+  f.style.transition='none'; f.style.opacity='0.18';
+  requestAnimationFrame(()=>{
+    f.style.transition='opacity 0.25s ease';
+    f.style.opacity='0';
+  });
+}
+
+// ─── Resize handler ───────────────────────────────────────────────
+function resize(){
+  W = canvas.width  = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  if(gl) gl.viewport(0,0,W,H);
+}
+
+// ─── Render loop ──────────────────────────────────────────────────
+function render(ts){
+  requestAnimationFrame(render);
+  const t  = ts*0.001;
+  const dt = Math.min(t-lastT, 0.05);
+  lastT = t;
+
+  // FPS counter
+  frameN++; fpsAcc+=dt;
+  if(fpsAcc>=1.0){ fps=frameN/fpsAcc; frameN=0; fpsAcc=0; updateHUD(); }
+
+  // Evolve Lotka–Volterra system on CPU (drives dynamic Jacobian blending)
+  stepLV(dt*0.22);
+
+  // Render
+  gl.useProgram(program);
+  gl.bindVertexArray(vao);
+  setUniforms(t);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+}
+
+// ─── Event wiring ─────────────────────────────────────────────────
+window.addEventListener('resize', resize);
+
+document.addEventListener('keydown', e=>{
+  switch(e.code){
+    case 'Space':   e.preventDefault(); randomize(); break;
+    case 'KeyH':    hudVisible=!hudVisible; hud.classList.toggle('hidden',!hudVisible); break;
+    case 'KeyS':    toggleAudio(); break;
+  }
+});
+
+canvas.addEventListener('click', ()=>randomize());
+canvas.addEventListener('touchend', e=>{e.preventDefault(); randomize();}, {passive:false});
+
+// ─── Boot ─────────────────────────────────────────────────────────
+resize();
+initGL();
+randomize();
+requestAnimationFrame(render);
+</script>
+</body>
+</html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hypnotic Tensor Field Vortex Cathedral</title>
+<meta name="description" content="Real-time WebGL2 mathematical art: rank-2 tensor fields from Hénon map Jacobians and Lotka–Volterra dynamics, warped through conformal mappings to create infinite cathedral corridor illusions with additive synthesis audio.">
+<meta name="keywords" content="tensor field, conformal mapping, Henon map, Lotka-Volterra, Voronoi, Delaunay, generative art, WebGL2, additive synthesis, Joukowski, Schwarz-Christoffel, mathematical visualization, cathedral, vortex">
+<meta name="robots" content="index, follow">
+<meta name="author" content="Generative Math Art Engine">
+<meta property="og:title" content="Hypnotic Tensor Field Vortex Cathedral">
+<meta property="og:description" content="Real-time tensor field vortex visualization: Hénon attractors, Lotka–Volterra systems, and conformal maps create infinite cathedral geometry.">
+<meta property="og:type" content="website">
+<meta property="og:image:alt" content="Hypnotic neon crystalline cathedral corridor generated from tensor fields">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Hypnotic Tensor Field Vortex Cathedral">
+<meta name="twitter:description" content="Real-time mathematical generative art — tensor fields, Hénon attractors, Voronoi tessellation, and additive synthesis audio.">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "CreativeWork",
+  "name": "Hypnotic Tensor Field Vortex Cathedral",
+  "description": "Real-time WebGL2 visualization of rank-2 tensor fields derived from eigenvalue decomposition of dynamically evolving Jacobian matrices from Hénon maps and Lotka–Volterra systems, warped through Joukowski, Schwarz-Christoffel, power-law, and inverse conformal mappings, tiled with Voronoi tessellation colored by DFT spectral analysis, with additive synthesis audio.",
+  "creator": {"@type": "SoftwareApplication", "name": "Generative Mathematics Engine"},
+  "genre": "Mathematical Generative Art",
+  "keywords": "tensor field, conformal mapping, Henon map, Lotka-Volterra, Voronoi, WebGL2, additive synthesis, Legendre polynomials",
+  "technicalRequirements": "WebGL2, Web Audio API, modern browser"
+}
+</script>
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;background:#000;overflow:hidden}
+canvas{display:block;width:100%;height:100%}
+#hud{
+  position:fixed;top:14px;left:14px;
+  font:11px/1.8 'Courier New',Courier,monospace;
+  color:#00e5ff;
+  text-shadow:0 0 8px #00e5ff,0 0 20px rgba(0,229,255,0.4);
+  pointer-events:none;
+  transition:opacity 0.5s ease;
+  z-index:100;
+  letter-spacing:0.03em;
+}
+#hud.hidden{opacity:0}
+#hud .title{
+  font-size:13px;font-weight:bold;
+  color:#fff;letter-spacing:0.15em;text-transform:uppercase;
+  text-shadow:0 0 12px #fff,0 0 30px #88aaff,0 0 50px rgba(136,170,255,0.3));
+  margin-bottom:4px;
+}
+#hud .row{display:block;color:#80ffee;opacity:.82}
+#hud .keys{
+  margin-top:6px;color:#ffea00;opacity:.55;font-size:10px;letter-spacing:0.05em;
+}
+#flash{
+  position:fixed;inset:0;background:#fff;opacity:0;pointer-events:none;
+  transition:opacity 0.08s ease;z-index:200;
+}
+</style>
+</head>
+<body>
+<main>
+  <canvas id="c" role="img"
+    aria-label="Hypnotic Tensor Field Vortex Cathedral — real-time generative mathematical art animation. Infinite cathedral corridor illusions created from tensor field eigenvalue decomposition, Hénon map attractors, Lotka–Volterra dynamics, and conformal mappings with spectral Voronoi tessellation.">
+  </canvas>
+</main>
+<div id="flash" aria-hidden="true"></div>
+<aside id="hud" role="complementary" aria-label="Visualization parameters">
+  <div class="title">⬡ TENSOR FIELD VORTEX CATHEDRAL</div>
+  <span class="row" id="h-fps">FPS: …</span>
+  <span class="row" id="h-henon">Hénon: a=1.400 b=0.300</span>
+  <span class="row" id="h-lv">LV: α=0.60 β=1.10 δ=0.80 γ=0.70</span>
+  <span class="row" id="h-maps">Maps: Jouk → S-C → z^n → z⁻¹</span>
+  <span class="row" id="h-seeds">Voronoi: 32 seeds | γ=2.20</span>
+  <span class="row" id="h-color">Sat=0.80 | LumScale=1.00 | σ=2.00</span>
+  <span class="row" id="h-audio">Audio: OFF  [S to enable]</span>
+  <div class="keys">SPACE / CLICK · Randomize 300+ params · H · HUD · S · Audio</div>
+</aside>
+
+<script>
+/* =================================================================
+   HYPNOTIC TENSOR FIELD VORTEX CATHEDRAL
+   WebGL2 fragment-shader renderer + Web Audio synthesis engine
+   ================================================================= */
+'use strict';
+
+// ─── Canvas & Context ────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const gl = canvas.getContext('webgl2', {antialias:false, alpha:false, depth:false, stencil:false});
+if (!gl) { document.body.innerHTML='<p style="color:#f00;padding:2em">WebGL2 required. Please use Chrome, Firefox, or Edge.</p>'; }
+
+const TAU = Math.PI * 2;
+
+// ─── State ───────────────────────────────────────────────────────
+let W=0, H=0, program=null, vao=null, uL={};
+let specTex=null, densTex=null;
+let audioCtx=null, audioNodes=[];
+let audioOn=false, hudVisible=true;
+let lastT=0, fps=0, frameN=0, fpsAcc=0;
+let P={};
+let lvState=[1.5, 1.5];
+
+// ─── Vertex Shader ───────────────────────────────────────────────
+const VS = `#version 300 es
+in vec2 aPos;
+void main(){gl_Position=vec4(aPos,0.0,1.0);}
+`;
+
+// ─── Fragment Shader ─────────────────────────────────────────────
+const FS = `#version 300 es
+precision highp float;
+
+uniform float uTime;
+uniform vec2  uRes;
+
+// Hénon attractor parameters
+uniform float uHA, uHB;
+
+// Lotka–Volterra (current CPU state passed as uniforms)
+uniform float uLVA, uLVB, uLVD, uLVG;
+uniform float uLVX, uLVY;
+
+// Conformal map ordering (0=Joukowski, 1=Schwarz–Christoffel, 2=power z^n, 3=inverse z^-1)
+uniform float uMap0, uMap1, uMap2, uMap3;
+uniform float uJouC;        // Joukowski wing parameter c
+uniform float uPowN;        // power-law exponent
+uniform float uInvS;        // inverse map scale
+uniform float uSchK;        // Schwarz–Christoffel polygon sides
+uniform float uCScale;      // scale applied before each conformal step
+uniform float uCRot;        // inter-step rotation increment
+
+// Projective homogeneous transform (column-major mat3)
+uniform mat3  uProj;
+// Affine shear-rotation (column-major mat3)
+uniform mat3  uAff;
+
+// Voronoi seeds (flat vec2 array)
+uniform vec2  uSeeds[64];
+uniform int   uNSeeds;
+
+// Color parameters
+uniform float uGamma, uLumS, uCPhase, uSat;
+
+// Tiling & tunnel
+uniform float uTScale, uTRot;
+
+// Pre-computed textures
+uniform sampler2D uSpectrum;   // 1D DFT spectral color strip
+uniform sampler2D uDensity;    // 2D attractor density (Gaussian RBF smoothed)
+
+out vec4 fragColor;
+
+const float PI  = 3.14159265358979;
+const float TAU = 6.28318530717959;
+const float EPS = 1e-9;
+
+// ─── Complex arithmetic ──────────────────────────────────────────
+vec2 cMul(vec2 a, vec2 b){
+  return vec2(a.x*b.x - a.y*b.y, a.x*b.y + a.y*b.x);
+}
+vec2 cDiv(vec2 a, vec2 b){
+  float d = dot(b,b) + EPS;
+  return vec2(dot(a,b), a.y*b.x - a.x*b.y) / d;
+}
+// z^n via polar form
+vec2 cPow(vec2 z, float n){
+  float r = length(z) + EPS;
+  float th = atan(z.y, z.x);
+  return pow(r, n) * vec2(cos(n*th), sin(n*th));
+}
+
+// ─── Conformal maps ──────────────────────────────────────────────
+// Joukowski: w = z + c²/z  (aerofoil / arch generator)
+vec2 fJouk(vec2 z){
+  return z + uJouC*uJouC * cDiv(vec2(1.0,0.0), z);
+}
+// Approximated Schwarz–Christoffel: power-wedge warp onto n-gon
+vec2 fSC(vec2 z){
+  float n  = max(3.0, uSchK);
+  float al = 2.0 / n;
+  float r  = length(z) + EPS;
+  float th = atan(z.y, z.x);
+  return pow(r, 1.0-al) * vec2(cos((1.0-al)*th), sin((1.0-al)*th));
+}
+// Power-law z^n
+vec2 fPow(vec2 z){ return cPow(z, uPowN); }
+// Inverse (Möbius-like): s/z
+vec2 fInv(vec2 z){ return uInvS * cDiv(vec2(1.0,0.0), z); }
+
+// Apply randomly ordered conformal composition
+vec2 applyConformals(vec2 z){
+  float order[4];
+  order[0]=uMap0; order[1]=uMap1; order[2]=uMap2; order[3]=uMap3;
+  for(int i=0;i<4;i++){
+    float m = order[i];
+    z *= uCScale;
+    if     (m < 0.5) z = fJouk(z);
+    else if(m < 1.5) z = fSC(z);
+    else if(m < 2.5) z = fPow(z);
+    else             z = fInv(z);
+    // Inter-step rotation keeps geometry from collapsing
+    float cr = cos(uCRot * float(i+1));
+    float sr = sin(uCRot * float(i+1));
+    z = vec2(cr*z.x - sr*z.y, sr*z.x + cr*z.y);
+  }
+  return z;
+}
+
+// ─── Coordinate transforms ───────────────────────────────────────
+vec2 projT(vec2 p){
+  vec3 h = uProj * vec3(p, 1.0);
+  return h.xy / (h.z + EPS);
+}
+vec2 affT(vec2 p){
+  return (uAff * vec3(p, 1.0)).xy;
+}
+
+// ─── 2×2 analytic eigenvalue decomposition ───────────────────────
+// Matrix M = [[a,b],[c,d]] (math-row notation → GLSL col-major: M[col][row])
+// trace = a+d, det = ad-bc, λ = tr/2 ± sqrt((tr/2)² - det)
+vec2 eigvals(float a, float b, float c, float d){
+  float tr  = (a + d) * 0.5;
+  float disc = tr*tr - (a*d - b*c);
+  float sq  = sqrt(max(0.0, disc));
+  return vec2(tr + sq, tr - sq);
+}
+
+// ─── Hénon map Jacobian ──────────────────────────────────────────
+// Map: (x,y) → (1 - a·x² + y,  b·x)
+// Jacobian (math rows): [[-2ax, 1], [b, 0]]
+// GLSL mat2 col-major: col0=[-2ax,b], col1=[1,0]
+mat2 henonJ(vec2 p){
+  return mat2(-2.0*uHA*p.x, uHB, 1.0, 0.0);
+}
+
+// ─── Lotka–Volterra Jacobian ─────────────────────────────────────
+// dx/dt = α·x − β·x·y  → ∂f1/∂x = α−βy, ∂f1/∂y = −βx
+// dy/dt = δ·x·y − γ·y  → ∂f2/∂x = δy,   ∂f2/∂y = δx−γ
+// GLSL col-major: col0=[α-βy, δy], col1=[-βx, δx-γ]
+mat2 lvJ(vec2 p){
+  float x=max(p.x,0.01), y=max(p.y,0.01);
+  return mat2(uLVA-uLVB*y, uLVD*y, -uLVB*x, uLVD*x-uLVG);
+}
+
+// ─── Rank-2 tensor field ─────────────────────────────────────────
+struct TField { vec2 ev; float aniso; float orient; float trace; };
+
+TField tensorAt(vec2 q){
+  // Iterate Hénon from q to approach the attractor basin
+  vec2 hp = q;
+  for(int i=0;i<16;i++){
+    float nx = 1.0 - uHA*hp.x*hp.x + hp.y;
+    float ny = uHB * hp.x;
+    hp = vec2(nx, ny);
+  }
+  mat2 Jh = henonJ(hp);
+
+  // LV Jacobian perturbed by local coordinate
+  vec2 lp = clamp(vec2(uLVX,uLVY)*(1.0+0.15*q), vec2(0.01), vec2(50.0));
+  mat2 Jl = lvJ(lp);
+
+  // Time-varying blend of the two Jacobians → coupling between systems
+  float w = 0.5 + 0.5*sin(uTime*0.19 + q.x*1.7 + q.y*2.3);
+  // Element-wise blend (mat2 col-major)
+  mat2 J  = mat2(
+    Jh[0]*w + Jl[0]*(1.0-w),
+    Jh[1]*w + Jl[1]*(1.0-w)
+  );
+
+  // Analytic eigenvalues of combined Jacobian
+  // J[0][0]=col0row0=a, J[0][1]=col0row1=c, J[1][0]=col1row0=b, J[1][1]=col1row1=d
+  float a=J[0][0], c=J[0][1], b=J[1][0], d=J[1][1];
+  vec2 ev = eigvals(a, b, c, d);
+
+  // Principal eigenvector direction (analytic for 2×2)
+  float lam1 = ev.x;
+  vec2 evec = normalize(vec2(lam1 - d + EPS, c + EPS));
+
+  float aniso = (ev.x - ev.y) / (abs(ev.x) + abs(ev.y) + EPS);
+  float orient = atan(evec.y, evec.x);
+
+  TField tf;
+  tf.ev     = ev;
+  tf.aniso  = aniso;
+  tf.orient = orient;
+  tf.trace  = a + d;
+  return tf;
+}
+
+// ─── Voronoi tessellation ─────────────────────────────────────────
+// Returns (minDist, secondMinDist-minDist) and writes cell index
+float voronoi(vec2 p, out int idx){
+  float d0=1e9, d1=1e9;
+  idx = 0;
+  for(int i=0;i<64;i++){
+    if(i >= uNSeeds) break;
+    float d = distance(p, uSeeds[i]);
+    if(d < d0){ d1=d0; d0=d; idx=i; }
+    else if(d < d1){ d1=d; }
+  }
+  return d1 - d0;   // ≈ 0 at cell boundary → glow there
+}
+
+// ─── HSV → RGB ───────────────────────────────────────────────────
+vec3 hsv2rgb(float h, float s, float v){
+  vec4 K = vec4(1.0, 2.0/3.0, 1.0/3.0, 3.0);
+  vec3 p = abs(fract(vec3(h)+K.xyz)*6.0 - K.www);
+  return v * mix(K.xxx, clamp(p-K.xxx,0.0,1.0), s);
+}
+
+// ─── Main ─────────────────────────────────────────────────────────
+void main(){
+  vec2 fc = gl_FragCoord.xy;
+  vec2 uv = (fc - uRes*0.5) / min(uRes.x, uRes.y);
+
+  // Apply tiling rotation
+  float cr = cos(uTRot), sr = sin(uTRot);
+  uv = vec2(cr*uv.x - sr*uv.y, sr*uv.x + cr*uv.y);
+
+  // ── Log-polar unwrapping → creates infinite tunnel depth ──────
+  float r  = length(uv) + 0.001;
+  float th = atan(uv.y, uv.x);
+
+  // Log-polar tile: each concentric ring is one tile in r-direction
+  // Time offset in lr → automated zoom into tunnel
+  float lr = log(r)*uTScale*1.5 + uTime*0.14;
+  float lt = th * uTScale * 0.32;
+
+  vec2 tuv = vec2(
+    fract(lr * 0.33 + 0.5) - 0.5,
+    fract(lt / PI  + 0.5) - 0.5
+  );
+
+  // ── 6-fold kaleidoscopic reflection (stained-glass cathedral window)
+  vec2 ruv = abs(tuv);
+  // Mirror fold at 60° intervals
+  float sym = floor(th / (PI/3.0));
+  if(mod(sym, 2.0) > 0.5) ruv = vec2(0.5 - ruv.x, ruv.y);
+
+  // ── Conformal composition ─────────────────────────────────────
+  vec2 cuv = applyConformals(ruv);
+
+  // ── Projective warp ──────────────────────────────────────────
+  vec2 puv = projT(cuv);
+
+  // ── Affine shear-rotation ─────────────────────────────────────
+  vec2 wuv = affT(puv);
+
+  // ── Rank-2 tensor field at warped position ────────────────────
+  TField tf = tensorAt(wuv);
+
+  // ── Voronoi tessellation ───────────────────────────────────────
+  int cidx;
+  float vedge = voronoi(wuv * uTScale * 0.6, cidx);
+  // Edge glow width controlled by abs(vedge): glow where edge ≈ 0
+  float edgeGlow = exp(-abs(vedge) * 55.0);
+  float edgeSoft = smoothstep(0.0, 0.04, abs(vedge));
+
+  // ── Attractor density sample (log-scaled Gaussian RBF density) ─
+  vec2 dUV = clamp(wuv * 0.18 + 0.5, 0.0, 1.0);
+  float dens = texture(uDensity, dUV).r;
+
+  // ── Spectral color from DFT-derived spectrum texture ──────────
+  // Per-cell hue with time drift (simulates shifting attractor density)
+  float specU = fract(float(cidx)/float(uNSeeds)*0.73 + uCPhase + uTime*0.006);
+  vec3 specCol = texture(uSpectrum, vec2(specU, 0.5)).rgb;
+
+  // ── HSV color from tensor field properties ────────────────────
+  float hue = fract(
+    tf.orient / TAU * 0.5           // principal direction
+    + float(cidx)/float(uNSeeds)*0.6  // cell identity
+    + uCPhase                        // global phase
+    + uTime * 0.011                  // slow drift
+    + dens * 0.25                    // density-driven hue warp
+    + tf.trace * 0.04               // trace adds spectral shimmer
+  );
+  float sat = clamp(uSat * (0.55 + 0.45*abs(tf.aniso)), 0.0, 1.0);
+
+  // Luminance: log-scale eigenvalue magnitude × attractor density
+  float eigMag = log(length(tf.ev) + 1.0) * 0.45;
+  float lum = uLumS * (eigMag*0.65 + dens*0.35 + abs(tf.aniso)*0.15);
+  lum = clamp(lum, 0.0, 1.0);
+
+  // Base crystalline color
+  vec3 col = hsv2rgb(hue, sat, lum);
+
+  // Blend with DFT spectrum (spectral color from Hénon density DFT)
+  col = mix(col, specCol, 0.32);
+
+  // ── Voronoi edge: bright neon spectral glow ────────────────────
+  vec3 edgeHue = hsv2rgb(fract(hue + 0.5 + uTime*0.023), 1.0, 1.0);
+  col = mix(col, edgeHue * 2.2, edgeGlow * 0.72);
+
+  // ── Tensor orientation streaks (crystalline/directional texture) ─
+  float streak = 0.5 + 0.5*sin(tf.orient*9.0 + uTime*0.38 + length(wuv)*28.0);
+  col += col * streak * 0.18;
+
+  // ── Cathedral depth vignette (tunnel darkening) ───────────────
+  // Darker at conformal extremes → stone pillars / arch shadows
+  float cDist = length(cuv);
+  float archShadow = exp(-cDist * 0.7);
+  col *= (0.35 + 0.65*archShadow);
+
+  // Second-layer tunnel rings: echo the log-polar tiling
+  float ring = abs(sin(lr * PI));
+  col += col * ring * 0.12;
+
+  // ── Gamma-corrected power-law mapping ─────────────────────────
+  col = pow(max(col, 0.0), vec3(1.0/uGamma));
+
+  // ── Contrast boost for neon-bright crystalline edges ─────────
+  col = col*col*(3.0 - 2.0*col);  // smooth-step contrast curve
+
+  // ── Logarithmic luminance re-scale ───────────────────────────
+  col = log(1.0 + col*2.5) / log(3.5);
+
+  fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+}
+`;
+
+// ─── WebGL Utilities ─────────────────────────────────────────────
+function mkShader(type, src){
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if(!gl.getShaderParameter(s, gl.COMPILE_STATUS)){
+    console.error('Shader compile error:', gl.getShaderInfoLog(s));
+    return null;
+  }
+  return s;
+}
+
+function mkProg(vs, fs){
+  const p = gl.createProgram();
+  gl.attachShader(p, mkShader(gl.VERTEX_SHADER, vs));
+  gl.attachShader(p, mkShader(gl.FRAGMENT_SHADER, fs));
+  gl.linkProgram(p);
+  if(!gl.getProgramParameter(p, gl.LINK_STATUS)){
+    console.error('Program link error:', gl.getProgramInfoLog(p));
+    return null;
+  }
+  return p;
+}
+
+function initGL(){
+  program = mkProg(VS, FS);
+  gl.useProgram(program);
+
+  // Fullscreen triangle strip quad
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  vao = gl.createVertexArray();
+  gl.bindVertexArray(vao);
+  const aloc = gl.getAttribLocation(program, 'aPos');
+  gl.enableVertexAttribArray(aloc);
+  gl.vertexAttribPointer(aloc, 2, gl.FLOAT, false, 0, 0);
+
+  // Cache all uniform locations
+  const uniforms = [
+    'uTime','uRes','uHA','uHB','uLVA','uLVB','uLVD','uLVG','uLVX','uLVY',
+    'uMap0','uMap1','uMap2','uMap3','uJouC','uPowN','uInvS','uSchK','uCScale','uCRot',
+    'uProj','uAff','uSeeds','uNSeeds',
+    'uGamma','uLumS','uCPhase','uSat','uTScale','uTRot',
+    'uSpectrum','uDensity'
+  ];
+  for(const u of uniforms) uL[u] = gl.getUniformLocation(program, u);
+}
+
+// ─── Legendre Polynomials ─────────────────────────────────────────
+function legendreP(n, x){
+  if(n===0) return 1.0;
+  if(n===1) return x;
+  let p0=1.0, p1=x;
+  for(let k=1;k<n;k++){
+    const p2 = ((2*k+1)*x*p1 - k*p0)/(k+1);
+    p0=p1; p1=p2;
+  }
+  return p1;
+}
+
+// ─── CPU-side HSV → RGB ───────────────────────────────────────────
+function hsvRgb(h,s,v){
+  h = ((h%1)+1)%1;
+  const i=Math.floor(h*6)%6;
+  const f=h*6-Math.floor(h*6);
+  const p=v*(1-s), q=v*(1-f*s), t=v*(1-(1-f)*s);
+  return [[v,t,p],[q,v,p],[p,v,t],[p,q,v],[t,p,v],[v,p,q]][i] || [v,v,v];
+}
+
+// ─── Build spectrum texture (DFT of Hénon attractor histogram) ────
+function buildSpectrumTex(){
+  const N = 512;
+
+  // 1. Simulate Hénon attractor → 1D histogram
+  const hist = new Float32Array(N);
+  let hx=0.1, hy=0.1;
+  for(let i=0;i<100000;i++){
+    const nx = 1.0 - P.hA*hx*hx + hy;
+    const ny = P.hB*hx;
+    hx=nx; hy=ny;
+    if(i>3000){
+      const ix = Math.floor(((hx+1.6)/3.2)*N);
+      if(ix>=0 && ix<N) hist[ix]++;
+    }
+  }
+  let maxH=0; for(let i=0;i<N;i++) maxH=Math.max(maxH,hist[i]);
+  for(let i=0;i<N;i++) hist[i]/=(maxH+1e-10);
+
+  // 2. Decimated DFT (M spectral bins) → frequency magnitudes
+  const M = 64;
+  const mag = new Float32Array(M);
+  for(let k=0;k<M;k++){
+    let re=0, im=0;
+    for(let n=0;n<N;n++){
+      const ang = TAU*k*n/N;
+      re+=hist[n]*Math.cos(ang);
+      im+=hist[n]*Math.sin(ang);
+    }
+    mag[k]=Math.sqrt(re*re+im*im)/N;
+  }
+  // Interpolate M→N and normalize
+  const freqMag = new Float32Array(N);
+  let maxM=0; for(let i=0;i<M;i++) maxM=Math.max(maxM,mag[i]);
+  for(let i=0;i<N;i++){
+    const t=(i/N)*M; const k0=Math.floor(t)%M; const k1=(k0+1)%M;
+    freqMag[i]=(mag[k0]+(t-Math.floor(t))*(mag[k1]-mag[k0]))/(maxM+1e-10);
+  }
+
+  // 3. Build RGBA spectrum strip: HSV color weighted by DFT magnitude
+  const px = new Uint8Array(N*4);
+  for(let i=0;i<N;i++){
+    const hue = (i/N + P.colorPhase)%1.0;
+    const val = 0.25 + 0.75*(freqMag[i]*0.8 + 0.2*Math.sin(i*0.4+P.colorPhase*TAU));
+    const sat = 0.8 + 0.2*Math.cos(i*0.3);
+    const [r,g,b]=hsvRgb(hue, sat, val);
+    px[i*4]=r*255|0; px[i*4+1]=g*255|0; px[i*4+2]=b*255|0; px[i*4+3]=255;
+  }
+
+  if(!specTex) specTex=gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, specTex);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,N,1,0,gl.RGBA,gl.UNSIGNED_BYTE,px);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+}
+
+// ─── Build density texture (attractor + Gaussian RBF smoothing) ───
+function buildDensityTex(){
+  const N=128;
+  const hist = new Float32Array(N*N);
+
+  // Hénon attractor 2D density
+  let hx=0.1, hy=0.1;
+  for(let i=0;i<60000;i++){
+    const nx=1.0-P.hA*hx*hx+hy; const ny=P.hB*hx;
+    hx=nx; hy=ny;
+    if(i>1000){
+      const ix=Math.floor(((hx+1.6)/3.2)*N);
+      const iy=Math.floor(((hy+0.5)/1.0)*N);
+      if(ix>=0&&ix<N&&iy>=0&&iy<N) hist[iy*N+ix]++;
+    }
+  }
+
+  // Lotka–Volterra orbit density (adds spiral rings)
+  let lx=P.lvX0, ly=P.lvY0;
+  for(let i=0;i<20000;i++){
+    const dx=P.lvA*lx-P.lvB*lx*ly;
+    const dy=P.lvD*lx*ly-P.lvG*ly;
+    lx+=dx*0.015; ly+=dy*0.015;
+    lx=Math.max(0.01,lx); ly=Math.max(0.01,ly);
+    if(lx>25||ly>25){lx=P.lvX0;ly=P.lvY0;}
+    if(i>500){
+      const ix=Math.floor((lx/18.0)*N);
+      const iy=Math.floor((ly/18.0)*N);
+      if(ix>=0&&ix<N&&iy>=0&&iy<N) hist[iy*N+ix]+=0.4;
+    }
+  }
+
+  // Gaussian RBF smoothing (separable 2D Gaussian kernel)
+  const sigma = P.grfSigma*1.8;
+  const kR  = Math.ceil(sigma*2.8)|0;
+  const kern = []; let kSum=0;
+  for(let k=-kR;k<=kR;k++){const g=Math.exp(-k*k/(2*sigma*sigma));kern.push(g);kSum+=g;}
+  for(let i=0;i<kern.length;i++) kern[i]/=kSum;
+
+  // Horizontal pass
+  const tmp = new Float32Array(N*N);
+  for(let y=0;y<N;y++) for(let x=0;x<N;x++){
+    let s=0;
+    for(let k=-kR;k<=kR;k++){
+      const xi=Math.min(N-1,Math.max(0,x+k));
+      s+=hist[y*N+xi]*kern[k+kR];
+    }
+    tmp[y*N+x]=s;
+  }
+  // Vertical pass
+  const blurred = new Float32Array(N*N);
+  for(let y=0;y<N;y++) for(let x=0;x<N;x++){
+    let s=0;
+    for(let k=-kR;k<=kR;k++){
+      const yi=Math.min(N-1,Math.max(0,y+k));
+      s+=tmp[yi*N+x]*kern[k+kR];
+    }
+    blurred[y*N+x]=s;
+  }
+
+  // Log-normalize → texture
+  let maxD=0; for(let i=0;i<N*N;i++) maxD=Math.max(maxD,blurred[i]);
+  const px=new Uint8Array(N*N*4);
+  for(let i=0;i<N*N;i++){
+    const v=blurred[i]/(maxD+1e-10);
+    const lv=Math.log1p(v*9)/Math.log(10); // log scale
+    const b=Math.min(255,lv*255|0);
+    px[i*4]=px[i*4+1]=px[i*4+2]=b; px[i*4+3]=255;
+  }
+
+  if(!densTex) densTex=gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D,densTex);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,N,N,0,gl.RGBA,gl.UNSIGNED_BYTE,px);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.REPEAT);
+}
+
+// ─── Randomizer helpers ───────────────────────────────────────────
+const rnd   = (a,b)=>a+(b-a)*Math.random();
+const rndI  = (a,b)=>Math.floor(rnd(a,b));
+function shuffle(arr){
+  for(let i=arr.length-1;i>0;i--){
+    const j=rndI(0,i+1); [arr[i],arr[j]]=[arr[j],arr[i]];
+  }
+  return arr;
+}
+
+// ─── Randomize ALL 300+ parameters ───────────────────────────────
+function randomize(){
+
+  // ── Hénon attractor (bounded for classical attractor region)
+  P.hA = rnd(0.88, 1.56);
+  P.hB = rnd(0.12, 0.52);
+
+  // ── Lotka–Volterra differential equation system
+  P.lvA  = rnd(0.35, 1.4);
+  P.lvB  = rnd(0.45, 1.9);
+  P.lvD  = rnd(0.28, 1.3);
+  P.lvG  = rnd(0.38, 1.6);
+  P.lvX0 = rnd(0.4, 5.0);
+  P.lvY0 = rnd(0.4, 5.0);
+  lvState = [P.lvX0, P.lvY0];
+
+  // ── Conformal map random composition order
+  P.confOrder = shuffle([0,1,2,3]);
+  P.jouC   = rnd(0.05, 0.98);   // Joukowski wing chord
+  P.powN   = rnd(0.35, 7.0);   // z^n exponent
+  P.invS   = rnd(0.05, 3.0);   // inverse scale
+  P.schK   = rnd(3.0, 11.0);   // polygon sides (Schwarz–Christoffel)
+  P.cScale = rnd(0.25, 2.8);   // pre-map scale
+  P.cRot   = rnd(0, TAU);      // inter-step rotation
+
+  // ── Projective homogeneous coordinate transform (near-identity)
+  const eps = rnd(0.015, 0.28);
+  const pe  = ()=>rnd(-eps,eps);
+  const ppe = ()=>rnd(-eps*0.06,eps*0.06);
+  // Float32Array in column-major order for WebGL uniformMatrix3fv
+  P.proj = new Float32Array([
+    1+pe(), pe(),   ppe(),   // column 0: rows 0,1,2
+    pe(),   1+pe(), ppe(),   // column 1
+    pe(),   pe(),   1        // column 2
+  ]);
+
+  // ── Affine shear-rotation matrix
+  const ang = rnd(0, TAU);
+  const shx = rnd(-0.5, 0.5);
+  const shy = rnd(-0.5, 0.5);
+  const sc  = rnd(0.5, 2.2);
+  const tx  = rnd(-0.25, 0.25);
+  const ty  = rnd(-0.25, 0.25);
+  const ca  = Math.cos(ang), sa=Math.sin(ang);
+  // Column-major: [c0r0,c0r1,c0r2, c1r0,c1r1,c1r2, c2r0,c2r1,c2r2]
+  P.aff = new Float32Array([
+    sc*ca + shx*sa, sc*sa,        0,
+    -sc*sa + shy*ca, sc*ca,       0,
+    tx,             ty,           1
+  ]);
+
+  // ── Voronoi seeds (Poisson-ish distribution in [-2,2]²)
+  P.nSeeds = rndI(14, 62);
+  P.seeds  = new Float32Array(128);   // 64 vec2s
+  for(let i=0;i<64;i++){
+    P.seeds[i*2]   = rnd(-2.2, 2.2);
+    P.seeds[i*2+1] = rnd(-2.2, 2.2);
+  }
+
+  // ── Color
+  P.gamma      = rnd(0.9, 3.9);
+  P.lumScale   = rnd(0.35, 2.2);
+  P.colorPhase = Math.random();
+  P.saturation = rnd(0.45, 1.0);
+
+  // ── Log-polar tiling
+  P.tileScale = rnd(0.7, 3.8);
+  P.tileRot   = rnd(0, TAU);
+
+  // ── Gaussian RBF kernel width
+  P.grfSigma = rnd(0.4, 5.0);
+
+  // ── Audio: 32 Legendre-polynomial-weighted sine partials
+  P.baseFreq   = rnd(45, 175);
+  P.audioFreqs = new Float32Array(32);
+  P.audioAmps  = new Float32Array(32);
+  P.audioLFOs  = new Float32Array(32);
+
+  for(let i=0;i<32;i++){
+    // Map partial index to Legendre domain x ∈ [-1,1]
+    const x     = (i/31)*2-1;
+    const legW  = Math.abs(legendreP(i%9, x));   // Legendre polynomial weight
+    const pN    = i+1;
+    // Frequency: harmonic series weighted by Legendre polynomial
+    P.audioFreqs[i] = P.baseFreq * pN * (0.55 + 0.45*legW) * (1 + rnd(-0.02,0.02));
+    // Amplitude: 1/n roll-off × Legendre weight
+    P.audioAmps[i]  = legW * 0.06 / Math.pow(pN, 0.85);
+    // LFO rate for Z-transform filtered random walk
+    P.audioLFOs[i]  = rnd(0.012, 0.18);
+  }
+  // Z-transform IIR filter coefficients for random walk
+  P.filterA    = rnd(0.72, 0.985);  // pole position (near 1 = slow, lush)
+  P.filterB    = rnd(0.08, 0.45);   // zero position
+  // Spatial reverb
+  P.reverbDecay = rnd(0.35, 0.94);
+  P.reverbLen   = rnd(1.2, 4.5);
+
+  // Rebuild pre-computed CPU textures
+  buildSpectrumTex();
+  buildDensityTex();
+
+  // Restart audio engine if active
+  if(audioOn){ stopAudio(); startAudio(); }
+
+  updateHUD();
+  flashUI();
+}
+
+// ─── Audio synthesis engine ───────────────────────────────────────
+function startAudio(){
+  if(!audioCtx) audioCtx = new(window.AudioContext||window.webkitAudioContext)();
+  if(audioCtx.state==='suspended') audioCtx.resume();
+  const sr = audioCtx.sampleRate;
+
+  // Master gain → compressor → output
+  const master = audioCtx.createGain();
+  master.gain.value = 0.16;
+  const comp = audioCtx.createDynamicsCompressor();
+  comp.threshold.value = -18; comp.knee.value=12;
+  comp.ratio.value=5; comp.attack.value=0.015; comp.release.value=0.4;
+  comp.connect(audioCtx.destination);
+  master.connect(comp);
+
+  // Convolution reverb (exponential-decay impulse response = vast cathedral)
+  const conv = audioCtx.createConvolver();
+  const irLen = Math.floor(sr * P.reverbLen);
+  const ir    = audioCtx.createBuffer(2, irLen, sr);
+  for(let ch=0;ch<2;ch++){
+    const d = ir.getChannelData(ch);
+    for(let i=0;i<irLen;i++){
+      // Diffuse noise * exponential decay → classic plate reverb
+      d[i] = (Math.random()*2-1) * Math.exp(-i/sr / P.reverbDecay * 4.5);
+    }
+  }
+  conv.buffer = ir;
+
+  const dryG = audioCtx.createGain(); dryG.gain.value = 0.30;
+  const wetG = audioCtx.createGain(); wetG.gain.value = 0.70;
+  dryG.connect(master);
+  wetG.connect(conv);
+  conv.connect(master);
+
+  audioNodes = [master,comp,conv,dryG,wetG];
+
+  // 32 additive partials: Legendre-weighted sine oscillators
+  // Each has an LFO implementing Z-transform filtered random walk on amplitude
+  for(let i=0;i<32;i++){
+    const freq = P.audioFreqs[i];
+    if(freq>=sr*0.44) continue;   // Nyquist guard
+
+    const osc = audioCtx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    // Slight detuning for beating effect (lustrous pad quality)
+    osc.detune.value = rnd(-3,3);
+
+    const ampG = audioCtx.createGain();
+    ampG.gain.value = P.audioAmps[i];
+
+    // LFO = Z-transform filtered random walk on amplitude
+    // H(z) = (1-filterB) / (1-filterA·z^-1)  → first-order IIR lowpass
+    // Modeled as: slow LFO at random rate with depth ∝ filterB
+    const lfo = audioCtx.createOscillator();
+    lfo.type = 'sine';
+    lfo.frequency.value = P.audioLFOs[i];
+    lfo.detune.value = rnd(-0.5,0.5);
+
+    const lfoG = audioCtx.createGain();
+    lfoG.gain.value = P.audioAmps[i] * P.filterB * 0.8;
+
+    lfo.connect(lfoG);
+    lfoG.connect(ampG.gain);
+    osc.connect(ampG);
+    ampG.connect(dryG);
+    ampG.connect(wetG);
+
+    // Stagger start times to avoid click chorus
+    const startT = audioCtx.currentTime + i*0.04;
+    osc.start(startT);
+    lfo.start(startT + Math.random()*2);
+
+    audioNodes.push(osc,ampG,lfo,lfoG);
+  }
+}
+
+function stopAudio(){
+  const now = audioCtx ? audioCtx.currentTime : 0;
+  audioNodes.forEach(n=>{
+    try{
+      if(n.gain) n.gain.setTargetAtTime(0.0001, now, 0.08);
+      if(n.stop) n.stop(now+0.3);
+      setTimeout(()=>{try{n.disconnect();}catch(e){}},600);
+    }catch(e){}
+  });
+  audioNodes=[];
+}
+
+function toggleAudio(){
+  audioOn = !audioOn;
+  if(audioOn) startAudio(); else stopAudio();
+  document.getElementById('h-audio').textContent =
+    'Audio: ' + (audioOn?'ON  ♫  [S to disable]':'OFF  [S to enable]');
+}
+
+// ─── Lotka–Volterra CPU evolution (RK4) ──────────────────────────
+function stepLV(dt){
+  const [x,y] = lvState;
+  const f = (x,y)=>[P.lvA*x-P.lvB*x*y, P.lvD*x*y-P.lvG*y];
+  const [k1x,k1y]=f(x,y);
+  const [k2x,k2y]=f(x+k1x*dt*.5, y+k1y*dt*.5);
+  const [k3x,k3y]=f(x+k2x*dt*.5, y+k2y*dt*.5);
+  const [k4x,k4y]=f(x+k3x*dt, y+k3y*dt);
+  lvState[0] = Math.max(0.01, x+(k1x+2*k2x+2*k3x+k4x)*dt/6);
+  lvState[1] = Math.max(0.01, y+(k1y+2*k2y+2*k3y+k4y)*dt/6);
+  // Reset if diverges (can happen with some parameter combinations)
+  if(lvState[0]>200 || lvState[1]>200) lvState=[P.lvX0,P.lvY0];
+}
+
+// ─── Upload uniforms ──────────────────────────────────────────────
+function setUniforms(t){
+  const l=uL;
+  gl.uniform1f(l.uTime, t);
+  gl.uniform2f(l.uRes, W, H);
+  gl.uniform1f(l.uHA, P.hA);
+  gl.uniform1f(l.uHB, P.hB);
+  gl.uniform1f(l.uLVA, P.lvA);
+  gl.uniform1f(l.uLVB, P.lvB);
+  gl.uniform1f(l.uLVD, P.lvD);
+  gl.uniform1f(l.uLVG, P.lvG);
+  gl.uniform1f(l.uLVX, lvState[0]);
+  gl.uniform1f(l.uLVY, lvState[1]);
+  gl.uniform1f(l.uMap0, P.confOrder[0]);
+  gl.uniform1f(l.uMap1, P.confOrder[1]);
+  gl.uniform1f(l.uMap2, P.confOrder[2]);
+  gl.uniform1f(l.uMap3, P.confOrder[3]);
+  gl.uniform1f(l.uJouC, P.jouC);
+  gl.uniform1f(l.uPowN, P.powN);
+  gl.uniform1f(l.uInvS, P.invS);
+  gl.uniform1f(l.uSchK, P.schK);
+  gl.uniform1f(l.uCScale, P.cScale);
+  gl.uniform1f(l.uCRot, P.cRot);
+  gl.uniformMatrix3fv(l.uProj, false, P.proj);
+  gl.uniformMatrix3fv(l.uAff,  false, P.aff);
+  gl.uniform2fv(l.uSeeds, P.seeds);
+  gl.uniform1i(l.uNSeeds, P.nSeeds);
+  gl.uniform1f(l.uGamma, P.gamma);
+  gl.uniform1f(l.uLumS, P.lumScale);
+  gl.uniform1f(l.uCPhase, (P.colorPhase + t*0.007)%1.0);
+  gl.uniform1f(l.uSat, P.saturation);
+  gl.uniform1f(l.uTScale, P.tileScale);
+  gl.uniform1f(l.uTRot, P.tileRot + t*0.035);
+
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, specTex);
+  gl.uniform1i(l.uSpectrum, 0);
+
+  gl.activeTexture(gl.TEXTURE1);
+  gl.bindTexture(gl.TEXTURE_2D, densTex);
+  gl.uniform1i(l.uDensity, 1);
+}
+
+// ─── HUD update ───────────────────────────────────────────────────
+function updateHUD(){
+  if(!P.hA) return;
+  const mapNames=['Jouk','S-C','z^n','z⁻¹'];
+  document.getElementById('h-fps').textContent =
+    `FPS: ${fps.toFixed(1)}  ·  ${W}×${H}`;
+  document.getElementById('h-henon').textContent =
+    `Hénon  a=${P.hA.toFixed(4)}  b=${P.hB.toFixed(4)}`;
+  document.getElementById('h-lv').textContent =
+    `LV  α=${P.lvA.toFixed(3)}  β=${P.lvB.toFixed(3)}  δ=${P.lvD.toFixed(3)}  γ=${P.lvG.toFixed(3)}`;
+  document.getElementById('h-maps').textContent =
+    `Maps: ${P.confOrder.map(m=>mapNames[m]).join(' → ')}  n=${P.powN.toFixed(3)}  k=${P.schK.toFixed(2)}`;
+  document.getElementById('h-seeds').textContent =
+    `Voronoi: ${P.nSeeds} seeds  |  γ=${P.gamma.toFixed(3)}  jouc=${P.jouC.toFixed(3)}`;
+  document.getElementById('h-color').textContent =
+    `Sat=${P.saturation.toFixed(3)}  LumS=${P.lumScale.toFixed(3)}  σ=${P.grfSigma.toFixed(3)}`;
+}
+
+// ─── Brief white flash on randomize ──────────────────────────────
+function flashUI(){
+  const f=document.getElementById('flash');
+  f.style.transition='none'; f.style.opacity='0.18';
+  requestAnimationFrame(()=>{
+    f.style.transition='opacity 0.25s ease';
+    f.style.opacity='0';
+  });
+}
+
+// ─── Resize handler ───────────────────────────────────────────────
+function resize(){
+  W = canvas.width  = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  if(gl) gl.viewport(0,0,W,H);
+}
+
+// ─── Render loop ──────────────────────────────────────────────────
+function render(ts){
+  requestAnimationFrame(render);
+  const t  = ts*0.001;
+  const dt = Math.min(t-lastT, 0.05);
+  lastT = t;
+
+  // FPS counter
+  frameN++; fpsAcc+=dt;
+  if(fpsAcc>=1.0){ fps=frameN/fpsAcc; frameN=0; fpsAcc=0; updateHUD(); }
+
+  // Evolve Lotka–Volterra system on CPU (drives dynamic Jacobian blending)
+  stepLV(dt*0.22);
+
+  // Render
+  gl.useProgram(program);
+  gl.bindVertexArray(vao);
+  setUniforms(t);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+}
+
+// ─── Event wiring ─────────────────────────────────────────────────
+window.addEventListener('resize', resize);
+
+document.addEventListener('keydown', e=>{
+  switch(e.code){
+    case 'Space':   e.preventDefault(); randomize(); break;
+    case 'KeyH':    hudVisible=!hudVisible; hud.classList.toggle('hidden',!hudVisible); break;
+    case 'KeyS':    toggleAudio(); break;
+  }
+});
+
+canvas.addEventListener('click', ()=>randomize());
+canvas.addEventListener('touchend', e=>{e.preventDefault(); randomize();}, {passive:false});
+
+// ─── Boot ─────────────────────────────────────────────────────────
+resize();
+initGL();
+randomize();
+requestAnimationFrame(render);
+</script>
+</body>
+</html>

@@ -1,0 +1,932 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hyperbolic Vector Multiverse Arcade Simulator</title>
+<meta name="description" content="A visually stunning full-screen generative art system featuring hyperbolic tilings, Penrose tessellations, Voronoi networks, strange attractors, kaleidoscopic symmetries, and synchronized audio synthesis — an infinite arcade multiverse of evolving mathematical beauty.">
+<meta name="keywords" content="generative art, hyperbolic geometry, Penrose tessellation, Voronoi diagram, Delaunay triangulation, strange attractor, Fourier synthesis, kaleidoscope, fractal, Bézier curves, quaternion rotation, projective transform, Coxeter symmetry, WebAudio, canvas animation, arcade simulator, multiverse, mathematical visualization, particle system, procedural art">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Courier New',monospace}
+  canvas{display:block;position:fixed;top:0;left:0}
+  #hud{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;display:none;z-index:10}
+  #hud-inner{position:absolute;top:16px;left:16px;color:#0ff;font-size:11px;line-height:1.7;text-shadow:0 0 8px #0ff,0 0 20px #0ff4;letter-spacing:0.05em;border:1px solid #0ff3;padding:10px 14px;background:#0002;backdrop-filter:blur(4px)}
+  #hud-inner span{color:#ff0}
+  #corner{position:fixed;bottom:14px;right:16px;color:#fff4;font-size:10px;letter-spacing:0.12em;pointer-events:none;z-index:10;text-align:right}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"><div id="hud-inner" id="hi">
+  HYPERBOLIC MULTIVERSE v∞<br>
+  ─────────────────────────<br>
+  FRAME: <span id="hf">0</span> &nbsp; FPS: <span id="hfps">60</span><br>
+  SEED: <span id="hs">0</span><br>
+  MODE: <span id="hm">PENROSE</span><br>
+  PARTICLES: <span id="hp">0</span><br>
+  ATTRACTOR: <span id="ha">LORENZ</span><br>
+  SYMMETRY: <span id="hsy">D6</span><br>
+  PHASE: <span id="hph">GENESIS</span><br>
+  ─────────────────────────<br>
+  [SPACE/TAP] REGENERATE<br>
+  [H] TOGGLE HUD<br>
+  [S] TOGGLE SOUND
+</div></div>
+<div id="corner">HVMAS · ∞ · ANTHROPIC</div>
+
+<script>
+(function(){
+"use strict";
+
+// ─── CANVAS SETUP ───────────────────────────────────────────────
+const cv = document.getElementById('c');
+const cx = cv.getContext('2d');
+let W, H, CX, CY;
+function resize(){
+  W = cv.width = window.innerWidth;
+  H = cv.height = window.innerHeight;
+  CX = W/2; CY = H/2;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ─── STATE ──────────────────────────────────────────────────────
+let seed = Math.random()*999999|0;
+let frame = 0;
+let t = 0;
+let rng;
+let soundOn = false;
+let hudOn = false;
+let audioCtx = null;
+let masterGain = null;
+let oscillators = [];
+
+// Seeded RNG (xorshift)
+function mkRng(s){
+  let x = s|1;
+  return function(){
+    x ^= x<<13; x ^= x>>17; x ^= x<<5;
+    return (x>>>0)/4294967296;
+  };
+}
+
+// ─── GLOBAL CONFIG (randomized each generation) ─────────────────
+let CFG = {};
+function randomize(){
+  seed = Math.random()*999999|0;
+  rng = mkRng(seed);
+  frame = 0; t = 0;
+
+  const modes = ['PENROSE','VORONOI','DELAUNAY','HYPERBOLIC','RIEMANN','ATTRACTOR'];
+  const attractors = ['LORENZ','ROSSLER','HALVORSEN','THOMAS','AIZAWA'];
+  const syms = ['D3','D4','D5','D6','D7','D8','D12'];
+  const phases = ['GENESIS','MUTATION','TRANSCENDENCE','SINGULARITY','REBOOT'];
+
+  CFG = {
+    mode: modes[rng()*modes.length|0],
+    attractor: attractors[rng()*attractors.length|0],
+    sym: syms[rng()*syms.length|0],
+    phase: phases[rng()*phases.length|0],
+    symN: 0,
+    hueBase: rng()*360,
+    hueRange: 60+rng()*240,
+    hueSpeed: (rng()-0.5)*0.8,
+    bgAlpha: 0.03+rng()*0.06,
+    particleCount: 300+rng()*500|0,
+    voronoiN: 15+rng()*35|0,
+    tileDepth: 3+rng()*3|0,
+    scale: 0.3+rng()*0.7,
+    rotSpeed: (rng()-0.5)*0.015,
+    zoom: 0.6+rng()*1.2,
+    useKaleid: rng()>0.3,
+    useFractalBg: rng()>0.4,
+    lorenzSigma: 8+rng()*4,
+    lorenzRho: 24+rng()*16,
+    lorenzBeta: 2+rng()*1.5,
+    fbmOct: 3+rng()*3|0,
+    logisticR: 3.5+rng()*0.49,
+    fireworkProb: 0.015+rng()*0.03,
+    colorMode: rng()*3|0, // 0=HSV,1=RGB waves,2=CIELAB-ish
+    crisperPhase: rng()*Math.PI*2,
+  };
+  CFG.symN = parseInt(CFG.sym.replace('D',''));
+
+  // Update HUD
+  document.getElementById('hs').textContent = seed;
+  document.getElementById('hm').textContent = CFG.mode;
+  document.getElementById('ha').textContent = CFG.attractor;
+  document.getElementById('hsy').textContent = CFG.sym;
+  document.getElementById('hph').textContent = CFG.phase;
+
+  initSystems();
+}
+
+// ─── MATH UTILITIES ──────────────────────────────────────────────
+const TAU = Math.PI*2;
+function lerp(a,b,t){return a+(b-a)*t}
+function clamp(x,a,b){return x<a?a:x>b?b:x}
+function smoothstep(a,b,t){t=clamp((t-a)/(b-a),0,1);return t*t*(3-2*t)}
+function fract(x){return x-Math.floor(x)}
+function hash(x,y){return fract(Math.sin(x*127.1+y*311.7)*43758.5453)}
+
+// Quaternion rotation (applied as 2D projection)
+function quatRot(x,y,z,q){
+  // q = [w,i,j,k]
+  const [w,qi,qj,qk]=q;
+  const ix = w*x+qj*z-qk*y;
+  const iy = w*y+qk*x-qi*z;
+  const iz = w*z+qi*y-qj*x;
+  const iw=-qi*x-qj*y-qk*z;
+  return [ix*w+iw*(-qi)+iy*(-qk)-iz*(-qj),
+          iy*w+iw*(-qj)+iz*(-qi)-ix*(-qk),
+          iz*w+iw*(-qk)+ix*(-qj)-iy*(-qi)];
+}
+
+// Fractal Brownian Motion
+function fbm(x,y,oct){
+  let v=0,a=0.5,f=1;
+  for(let i=0;i<oct;i++){
+    v+=a*(hash(Math.floor(x*f),Math.floor(y*f))*2-1);
+    a*=0.5; f*=2.1;
+  }
+  return v;
+}
+
+// Logistic map
+let logX = 0.4;
+function logisticStep(){
+  logX = CFG.logisticR*logX*(1-logX);
+  return logX;
+}
+
+// ─── COLOR UTILITIES ─────────────────────────────────────────────
+function hsvToRgb(h,s,v){
+  h=((h%360)+360)%360;
+  const c=v*s, x=c*(1-Math.abs((h/60)%2-1)), m=v-c;
+  let r=0,g=0,b=0;
+  if(h<60){r=c;g=x}else if(h<120){r=x;g=c}else if(h<180){g=c;b=x}
+  else if(h<240){g=x;b=c}else if(h<300){r=x;b=c}else{r=c;b=x}
+  return [(r+m)*255|0,(g+m)*255|0,(b+m)*255|0];
+}
+
+function getColor(phase, brightness, alpha){
+  let r,g,b;
+  const h = (CFG.hueBase + phase*CFG.hueRange/TAU + t*CFG.hueSpeed*40)%360;
+  if(CFG.colorMode===0){
+    [r,g,b]=hsvToRgb(h,0.7+0.3*Math.sin(t+phase),brightness);
+  } else if(CFG.colorMode===1){
+    // RGB spectral wave
+    r=(0.5+0.5*Math.sin(t*0.7+phase))*brightness*255|0;
+    g=(0.5+0.5*Math.sin(t*0.9+phase+2.094))*brightness*255|0;
+    b=(0.5+0.5*Math.sin(t*1.1+phase+4.189))*brightness*255|0;
+  } else {
+    // CIELAB-ish: perceptual
+    const L=brightness*0.9;
+    const A=0.6*Math.cos(h*Math.PI/180+t*0.3);
+    const Bc=0.6*Math.sin(h*Math.PI/180+t*0.3);
+    r=clamp((L+1.28*A)*255,0,255)|0;
+    g=clamp((L-0.385*A-0.2*Bc)*255,0,255)|0;
+    b=clamp((L+2.128*Bc)*255,0,255)|0;
+  }
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+// ─── ATTRACTOR ──────────────────────────────────────────────────
+let ax=0.1,ay=0,az=0;
+function stepAttractor(dt){
+  const {lorenzSigma:s,lorenzRho:rho,lorenzBeta:beta,attractor:aType}=CFG;
+  let dx,dy,dz;
+  switch(aType){
+    case 'LORENZ':
+      dx=s*(ay-ax); dy=ax*(rho-az)-ay; dz=ax*ay-beta*az; break;
+    case 'ROSSLER':
+      dx=-ay-az; dy=ax+0.2*ay; dz=0.2+az*(ax-5.7); break;
+    case 'HALVORSEN':
+      dx=-1.4*ax-4*ay-4*az-ay*ay;
+      dy=-1.4*ay-4*az-4*ax-az*az;
+      dz=-1.4*az-4*ax-4*ay-ax*ax; break;
+    case 'THOMAS':
+      dx=Math.sin(ay)-0.19*ax; dy=Math.sin(az)-0.19*ay; dz=Math.sin(ax)-0.19*az; break;
+    default: // AIZAWA
+      dx=(az-0.7)*ax-3.5*ay;
+      dy=3.5*ax+(az-0.7)*ay;
+      dz=0.6+0.95*az-az*az*az/3-(ax*ax+ay*ay)*(1+0.25*az)+0.1*az*ax*ax*ax; break;
+  }
+  ax+=dx*dt; ay+=dy*dt; az+=dz*dt;
+}
+
+// ─── PARTICLES ───────────────────────────────────────────────────
+let particles = [];
+function initSystems(){
+  particles = [];
+  ax=rng()*0.2-0.1; ay=rng()*0.2-0.1; az=rng()*0.2-0.1;
+  logX=0.3+rng()*0.4;
+  for(let i=0;i<CFG.particleCount;i++){
+    spawnParticle(rng()*W, rng()*H, false);
+  }
+  voronoiPts = [];
+  for(let i=0;i<CFG.voronoiN;i++){
+    voronoiPts.push({
+      x:rng()*W, y:rng()*H,
+      vx:(rng()-0.5)*1.5, vy:(rng()-0.5)*1.5
+    });
+  }
+  fireworks=[];
+}
+
+function spawnParticle(x,y,isFire){
+  return particles.push({
+    x:x||CX, y:y||CY,
+    vx:(rng()-0.5)*(isFire?8:3),
+    vy:(rng()-0.5)*(isFire?8:3)-(isFire?6:0),
+    life:isFire?0:rng(),
+    maxLife:0.5+rng()*2,
+    size:1+rng()*3,
+    phase:rng()*TAU,
+    isFire:!!isFire,
+    hue:CFG.hueBase+rng()*CFG.hueRange
+  });
+}
+
+// ─── VORONOI / DELAUNAY ──────────────────────────────────────────
+let voronoiPts = [];
+function updateVoronoi(dt){
+  for(let p of voronoiPts){
+    p.x+=p.vx; p.y+=p.vy;
+    if(p.x<0||p.x>W) p.vx*=-1;
+    if(p.y<0||p.y>H) p.vy*=-1;
+    p.x=clamp(p.x,0,W); p.y=clamp(p.y,0,H);
+  }
+}
+
+function drawVoronoi(){
+  const n=voronoiPts.length;
+  // Draw edges (Delaunay-style) between nearby points
+  for(let i=0;i<n;i++){
+    for(let j=i+1;j<n;j++){
+      const dx=voronoiPts[i].x-voronoiPts[j].x;
+      const dy=voronoiPts[i].y-voronoiPts[j].y;
+      const d=Math.sqrt(dx*dx+dy*dy);
+      if(d<W*0.3){
+        const alpha=0.3*(1-d/(W*0.3));
+        const phase=(i+j)*0.5+t;
+        cx.strokeStyle=getColor(phase,0.8,alpha);
+        cx.lineWidth=0.5+2*(1-d/(W*0.3));
+        cx.beginPath();
+        cx.moveTo(voronoiPts[i].x,voronoiPts[i].y);
+        // Bezier through midpoint distorted by fbm
+        const mx=(voronoiPts[i].x+voronoiPts[j].x)/2;
+        const my=(voronoiPts[i].y+voronoiPts[j].y)/2;
+        const noise=fbm(mx*0.005+t*0.1,my*0.005,CFG.fbmOct)*60;
+        cx.quadraticCurveTo(mx+noise,my+noise,voronoiPts[j].x,voronoiPts[j].y);
+        cx.stroke();
+      }
+    }
+  }
+  // Draw nodes as cybernetic glyphs
+  for(let i=0;i<n;i++){
+    const p=voronoiPts[i];
+    const r=5+3*Math.sin(t+i);
+    const col=getColor(i*0.8+t,0.9,0.9);
+    cx.strokeStyle=col;
+    cx.fillStyle=col.replace(/[\d.]+\)$/,'0.15)');
+    cx.lineWidth=1.5;
+    cx.beginPath();
+    cx.arc(p.x,p.y,r,0,TAU);
+    cx.fill();
+    cx.stroke();
+    // Inner cross
+    cx.beginPath();
+    cx.moveTo(p.x-r*1.5,p.y); cx.lineTo(p.x+r*1.5,p.y);
+    cx.moveTo(p.x,p.y-r*1.5); cx.lineTo(p.x,p.y+r*1.5);
+    cx.stroke();
+  }
+}
+
+// ─── PENROSE / HYPERBOLIC TILING ─────────────────────────────────
+function drawHyperbolicTiling(){
+  const n=CFG.symN;
+  const maxR=Math.min(W,H)*0.48*CFG.zoom;
+  cx.save();
+  cx.translate(CX,CY);
+  // Poincaré disk boundary
+  cx.strokeStyle=getColor(t,0.6,0.4);
+  cx.lineWidth=1;
+  cx.beginPath();
+  cx.arc(0,0,maxR,0,TAU);
+  cx.stroke();
+
+  function drawTile(depth,angle,r,dr){
+    if(depth<=0||r>=maxR) return;
+    const a=CFG.hueBase+depth*40+t*30;
+    const alpha=0.15+0.3*(depth/CFG.tileDepth);
+    cx.strokeStyle=getColor(angle+depth+t*0.5,0.7+0.2*Math.sin(t+depth),alpha);
+    cx.lineWidth=0.8;
+
+    // Spline mesh around the tile
+    cx.beginPath();
+    for(let i=0;i<=n;i++){
+      const ang=angle+i*TAU/n;
+      const x=r*Math.cos(ang), y=r*Math.sin(ang);
+      i===0?cx.moveTo(x,y):cx.lineTo(x,y);
+    }
+    cx.stroke();
+
+    // Recursive radial arms
+    for(let i=0;i<n;i++){
+      const ang=angle+i*TAU/n+t*CFG.rotSpeed*0.3;
+      const nr=r+dr;
+      if(nr<maxR){
+        cx.beginPath();
+        cx.moveTo(r*Math.cos(ang),r*Math.sin(ang));
+        // Bezier Riemann surface curve
+        const cp1x=(r+dr*0.3)*Math.cos(ang+0.3), cp1y=(r+dr*0.3)*Math.sin(ang+0.3);
+        const cp2x=nr*Math.cos(ang-0.2), cp2y=nr*Math.sin(ang-0.2);
+        cx.bezierCurveTo(cp1x,cp1y,cp2x,cp2y,nr*Math.cos(ang),nr*Math.sin(ang));
+        cx.stroke();
+      }
+    }
+    drawTile(depth-1,angle+Math.PI/n+t*0.002,r+dr,dr*0.68);
+  }
+
+  for(let k=0;k<n;k++){
+    drawTile(CFG.tileDepth, k*TAU/n, maxR*0.08, maxR*0.22);
+  }
+  cx.restore();
+}
+
+// ─── PENROSE TESSELLATION (rhombs) ───────────────────────────────
+function drawPenrose(){
+  cx.save();
+  cx.translate(CX,CY);
+  const size=Math.min(W,H)*0.4*CFG.zoom;
+  const phi=(1+Math.sqrt(5))/2;
+  // Generate P3 Penrose tiles by subdivision
+  function subdivide(triangles){
+    const next=[];
+    for(const [type,A,B,C] of triangles){
+      if(type===0){
+        const P=[A[0]+(B[0]-A[0])/phi, A[1]+(B[1]-A[1])/phi];
+        next.push([0,C,P,B],[1,P,C,A]);
+      } else {
+        const Q=[B[0]+(A[0]-B[0])/phi, B[1]+(A[1]-B[1])/phi];
+        const R=[B[0]+(C[0]-B[0])/phi, B[1]+(C[1]-B[1])/phi];
+        next.push([1,R,C,A],[1,Q,R,B],[0,R,Q,A]);
+      }
+    }
+    return next;
+  }
+  let tris=[];
+  for(let i=0;i<10;i++){
+    const a=(2*i-1)*Math.PI/10+t*CFG.rotSpeed;
+    const b=(2*i+1)*Math.PI/10+t*CFG.rotSpeed;
+    tris.push([0,[0,0],[size*Math.cos(a),size*Math.sin(a)],[size*Math.cos(b),size*Math.sin(b)]]);
+  }
+  for(let d=0;d<4;d++) tris=subdivide(tris);
+
+  for(let i=0;i<tris.length;i++){
+    const [type,A,B,C]=tris[i];
+    const phase=Math.atan2((A[1]+B[1]+C[1])/3,(A[0]+B[0]+C[0])/3)+t;
+    const col=getColor(phase+type*1.5,0.75,0.55);
+    cx.fillStyle=col;
+    cx.strokeStyle=getColor(phase+1,0.5,0.3);
+    cx.lineWidth=0.5;
+    cx.beginPath();
+    cx.moveTo(A[0],A[1]);cx.lineTo(B[0],B[1]);cx.lineTo(C[0],C[1]);
+    cx.closePath();
+    cx.fill();cx.stroke();
+  }
+  cx.restore();
+}
+
+// ─── STRANGE ATTRACTOR TRAIL ─────────────────────────────────────
+let attPoints=[];
+const MAX_ATT=800;
+function updateAttractor(){
+  stepAttractor(0.003);
+  const scale=Math.min(W,H)*0.022;
+  attPoints.push([ax*scale+CX, ay*scale+CY, az]);
+  if(attPoints.length>MAX_ATT) attPoints.shift();
+}
+
+function drawAttractor(){
+  if(attPoints.length<2) return;
+  for(let i=1;i<attPoints.length;i++){
+    const [x0,y0,z0]=attPoints[i-1];
+    const [x1,y1,z1]=attPoints[i];
+    const alpha=(i/attPoints.length)*0.7;
+    const norm=(z0+30)/60;
+    cx.strokeStyle=getColor(norm*TAU+t,0.9,alpha);
+    cx.lineWidth=0.8+1.5*(i/attPoints.length);
+    cx.beginPath();
+    cx.moveTo(x0,y0);cx.lineTo(x1,y1);
+    cx.stroke();
+  }
+}
+
+// ─── KALEIDOSCOPE ────────────────────────────────────────────────
+function applyKaleidoscope(fn){
+  const n=CFG.symN;
+  for(let k=0;k<n;k++){
+    cx.save();
+    cx.translate(CX,CY);
+    cx.rotate(k*TAU/n);
+    if(k%2===1) cx.scale(1,-1);
+    fn();
+    cx.restore();
+  }
+}
+
+// ─── HUMAN → CYBERNETIC MORPHISMS ───────────────────────────────
+function drawMorphisms(){
+  const n=5+CFG.symN;
+  cx.save();
+  for(let i=0;i<n;i++){
+    const phase=i*TAU/n+t*0.3;
+    const r=Math.min(W,H)*0.3*(0.4+0.6*logisticStep());
+    const x=CX+r*Math.cos(phase), y=CY+r*Math.sin(phase);
+    const morph=0.5+0.5*Math.sin(t*0.7+i);
+    // Human figure (ellipses → rectangles = organic → cybernetic)
+    const rx=4+8*morph, ry=8+4*(1-morph);
+    const col=getColor(phase+t,0.85,0.7);
+    cx.strokeStyle=col;
+    cx.fillStyle=col.replace(/[\d.]+\)$/,'0.15)');
+    cx.lineWidth=1.2;
+    // Head
+    cx.beginPath();
+    cx.ellipse(x,y-ry*2.5,rx*(1-morph*0.5)+2,ry*(1-morph*0.3)+2,t*0.2,0,TAU);
+    cx.fill();cx.stroke();
+    // Body (morphs from oval to rectangle)
+    cx.beginPath();
+    if(morph>0.7){
+      const bw=rx*1.5,bh=ry*2;
+      cx.rect(x-bw/2,y-bh/2,bw,bh);
+    } else {
+      cx.ellipse(x,y,rx*1.5,ry*2,0,0,TAU);
+    }
+    cx.fill();cx.stroke();
+    // Category morphism arrow
+    const ax2=CX+r*0.3*Math.cos(phase+0.4), ay2=CY+r*0.3*Math.sin(phase+0.4);
+    cx.strokeStyle=getColor(phase+2,0.6,0.4);
+    cx.lineWidth=0.8;
+    cx.setLineDash([3,5]);
+    cx.beginPath();
+    cx.moveTo(x,y);cx.lineTo(ax2,ay2);
+    cx.stroke();
+    cx.setLineDash([]);
+    // Arrow head
+    const ang=Math.atan2(ay2-y,ax2-x);
+    cx.fillStyle=getColor(phase+2,0.8,0.6);
+    cx.beginPath();
+    cx.moveTo(ax2,ay2);
+    cx.lineTo(ax2-8*Math.cos(ang-0.4),ay2-8*Math.sin(ang-0.4));
+    cx.lineTo(ax2-8*Math.cos(ang+0.4),ay2-8*Math.sin(ang+0.4));
+    cx.closePath();cx.fill();
+    // Tensor network node
+    cx.strokeStyle=getColor(phase+3,0.9,0.5);
+    cx.lineWidth=1;
+    cx.beginPath();
+    cx.arc(ax2,ay2,4,0,TAU);
+    cx.stroke();
+  }
+  cx.restore();
+}
+
+// ─── FIREWORKS / ARCADE BURSTS ───────────────────────────────────
+let fireworks = [];
+function spawnFirework(x,y){
+  const n=20+rng()*30|0;
+  const hue=CFG.hueBase+rng()*CFG.hueRange;
+  for(let i=0;i<n;i++){
+    const ang=rng()*TAU;
+    const spd=2+rng()*8;
+    fireworks.push({
+      x:x,y:y,
+      vx:Math.cos(ang)*spd, vy:Math.sin(ang)*spd,
+      life:1, decay:0.012+rng()*0.025,
+      size:1.5+rng()*3,
+      hue:hue+rng()*40,
+      trail:[]
+    });
+  }
+}
+
+function updateFireworks(){
+  for(let i=fireworks.length-1;i>=0;i--){
+    const f=fireworks[i];
+    f.trail.push([f.x,f.y]);
+    if(f.trail.length>8) f.trail.shift();
+    f.vy+=0.12;
+    f.x+=f.vx; f.y+=f.vy;
+    f.vx*=0.97; f.vy*=0.97;
+    f.life-=f.decay;
+    if(f.life<=0) fireworks.splice(i,1);
+  }
+}
+
+function drawFireworks(){
+  for(const f of fireworks){
+    // Trail
+    for(let i=1;i<f.trail.length;i++){
+      const a=f.life*(i/f.trail.length)*0.6;
+      cx.strokeStyle=`hsla(${f.hue},100%,${60+30*f.life}%,${a})`;
+      cx.lineWidth=f.size*(i/f.trail.length);
+      cx.beginPath();
+      cx.moveTo(f.trail[i-1][0],f.trail[i-1][1]);
+      cx.lineTo(f.trail[i][0],f.trail[i][1]);
+      cx.stroke();
+    }
+    // Head
+    const grd=cx.createRadialGradient(f.x,f.y,0,f.x,f.y,f.size*3);
+    grd.addColorStop(0,`hsla(${f.hue},100%,95%,${f.life})`);
+    grd.addColorStop(1,`hsla(${f.hue},100%,60%,0)`);
+    cx.fillStyle=grd;
+    cx.beginPath();cx.arc(f.x,f.y,f.size*3,0,TAU);cx.fill();
+  }
+}
+
+// ─── PARTICLES UPDATE / DRAW ─────────────────────────────────────
+function updateParticles(dt){
+  const sc=Math.min(W,H)*0.01;
+  for(let i=particles.length-1;i>=0;i--){
+    const p=particles[i];
+    // Flow field via fbm
+    const nx=fbm(p.x*0.003+t*0.05, p.y*0.003, CFG.fbmOct);
+    const ny=fbm(p.x*0.003+100+t*0.05, p.y*0.003+100, CFG.fbmOct);
+    p.vx+=(nx-0.5)*0.4; p.vy+=(ny-0.5)*0.4;
+    // Attractor pull
+    const adx=(ax*sc+CX-p.x)*0.001;
+    const ady=(ay*sc+CY-p.y)*0.001;
+    p.vx+=adx; p.vy+=ady;
+    p.vx*=0.97; p.vy*=0.97;
+    p.x+=p.vx; p.y+=p.vy;
+    p.life+=dt*0.3;
+    if(p.life>=p.maxLife||p.x<0||p.x>W||p.y<0||p.y>H){
+      particles[i].x=rng()*W; particles[i].y=rng()*H;
+      particles[i].vx=(rng()-0.5)*2; particles[i].vy=(rng()-0.5)*2;
+      particles[i].life=0;
+    }
+  }
+}
+
+function drawParticles(){
+  for(const p of particles){
+    const alpha=(0.5-Math.abs(p.life/p.maxLife-0.5))*0.8;
+    if(alpha<=0) continue;
+    const col=getColor(p.phase+p.life+t,0.9,alpha);
+    cx.fillStyle=col;
+    const sz=p.size*(0.5+0.5*Math.sin(t*2+p.phase));
+    cx.beginPath();cx.arc(p.x,p.y,sz,0,TAU);cx.fill();
+  }
+}
+
+// ─── RIEMANN SURFACE MESH ────────────────────────────────────────
+function drawRiemannSurface(){
+  const res=20;
+  const sc=Math.min(W,H)*0.35*CFG.zoom;
+  cx.save();
+  cx.translate(CX,CY);
+  cx.rotate(t*CFG.rotSpeed);
+  for(let i=0;i<=res;i++){
+    const u=i/res*TAU;
+    cx.beginPath();
+    let first=true;
+    for(let j=0;j<=res;j++){
+      const v=(j/res)*4-2;
+      // z=re^(i*u), Riemann sheet
+      const re=Math.exp(v)*Math.cos(u+v*0.3+t*0.1);
+      const im=Math.exp(v)*Math.sin(u+v*0.3+t*0.1);
+      const x=re*sc*0.4, y=im*sc*0.4+v*sc*0.1;
+      if(first){cx.moveTo(x,y);first=false;}
+      else cx.lineTo(x,y);
+    }
+    const alpha=0.15+0.2*Math.abs(Math.sin(u+t));
+    cx.strokeStyle=getColor(u+t,0.8,alpha);
+    cx.lineWidth=0.8;
+    cx.stroke();
+  }
+  cx.restore();
+}
+
+// ─── FOURIER SPIROGRAPH ──────────────────────────────────────────
+function drawFourier(){
+  const nTerms=8+CFG.fbmOct*2;
+  cx.save();
+  cx.translate(CX,CY);
+  const sc=Math.min(W,H)*0.18;
+  const pts=[];
+  const steps=400;
+  for(let s=0;s<steps;s++){
+    const phi=s/steps*TAU;
+    let x=0,y=0;
+    for(let k=1;k<=nTerms;k++){
+      const r=sc/(k*(1+0.3*logisticStep()));
+      x+=r*Math.cos(k*phi+t*(k%3-1)*0.4);
+      y+=r*Math.sin(k*phi+t*(k%3-1)*0.4);
+    }
+    pts.push([x,y]);
+  }
+  // Draw as gradient spline
+  for(let i=0;i<pts.length;i++){
+    const [x0,y0]=pts[i];
+    const [x1,y1]=pts[(i+1)%pts.length];
+    cx.strokeStyle=getColor(i/pts.length*TAU+t,0.9,0.55);
+    cx.lineWidth=1.2;
+    cx.beginPath();cx.moveTo(x0,y0);cx.lineTo(x1,y1);cx.stroke();
+  }
+  cx.restore();
+}
+
+// ─── BACKGROUND ──────────────────────────────────────────────────
+function drawBackground(){
+  // Dim trail
+  cx.fillStyle=`rgba(0,0,0,${CFG.bgAlpha})`;
+  cx.fillRect(0,0,W,H);
+
+  if(CFG.useFractalBg){
+    // Subtle fractal grid overlay
+    const gs=60;
+    for(let gx=0;gx<W;gx+=gs){
+      for(let gy=0;gy<H;gy+=gs){
+        const n=fbm(gx*0.01+t*0.02, gy*0.01, 2);
+        if(n>0.2){
+          cx.fillStyle=getColor(n*TAU+t,0.4,0.03);
+          cx.fillRect(gx,gy,gs,gs);
+        }
+      }
+    }
+  }
+}
+
+// ─── CHROMATIC WAVE GRID ─────────────────────────────────────────
+function drawWaveGrid(){
+  const cols=16, rows=10;
+  const cw=W/cols, rh=H/rows;
+  for(let i=0;i<cols;i++){
+    for(let j=0;j<rows;j++){
+      const phase=i/cols*TAU+j/rows*TAU+t*0.5;
+      const n=fbm(i*0.3+t*0.1,j*0.3,2);
+      if(n>0.1){
+        const alpha=n*0.08;
+        cx.fillStyle=getColor(phase,0.7,alpha);
+        cx.fillRect(i*cw,j*rh,cw,rh);
+      }
+    }
+  }
+}
+
+// ─── PROJECTIVE TRANSFORM FRAME ─────────────────────────────────
+function drawProjectiveFrame(){
+  cx.save();
+  const s=Math.min(W,H)*0.45;
+  // Projective warp corners
+  const warp=20*Math.sin(t*0.3);
+  const corners=[[CX-s+warp,CY-s],[CX+s,CY-s-warp],[CX+s-warp,CY+s],[CX-s,CY+s+warp]];
+  for(let i=0;i<4;i++){
+    const [x0,y0]=corners[i];
+    const [x1,y1]=corners[(i+1)%4];
+    const phase=i*Math.PI/2+t;
+    cx.strokeStyle=getColor(phase,0.7,0.25);
+    cx.lineWidth=1;
+    cx.beginPath();
+    const mx=(x0+x1)/2+fbm(t+i,t*0.5,2)*30;
+    const my=(y0+y1)/2+fbm(t*0.5+i,t+2,2)*30;
+    cx.moveTo(x0,y0);cx.quadraticCurveTo(mx,my,x1,y1);
+    cx.stroke();
+  }
+  cx.restore();
+}
+
+// ─── CRISPR / TENSOR NETWORK ─────────────────────────────────────
+function drawTensorNetwork(){
+  const nodes=12;
+  cx.save();
+  const r=Math.min(W,H)*0.38;
+  const nodePos=[];
+  for(let i=0;i<nodes;i++){
+    const ang=i*TAU/nodes+t*0.05+CFG.crisperPhase;
+    const nr=r*(0.5+0.5*Math.sin(t*0.4+i));
+    nodePos.push([CX+nr*Math.cos(ang),CY+nr*Math.sin(ang)]);
+  }
+  // Connections
+  for(let i=0;i<nodes;i++){
+    for(let j=i+2;j<nodes;j+=2){
+      const [x0,y0]=nodePos[i];
+      const [x1,y1]=nodePos[j];
+      const alpha=0.1+0.1*Math.sin(t+i+j);
+      cx.strokeStyle=getColor((i+j)*0.4+t,0.7,alpha);
+      cx.lineWidth=0.6;
+      cx.beginPath();
+      cx.moveTo(x0,y0);
+      const cpx=(x0+x1)/2+Math.sin(t+i)*40;
+      const cpy=(y0+y1)/2+Math.cos(t+j)*40;
+      cx.quadraticCurveTo(cpx,cpy,x1,y1);
+      cx.stroke();
+    }
+  }
+  // Nodes
+  for(let i=0;i<nodes;i++){
+    const [x,y]=nodePos[i];
+    const morph=0.5+0.5*Math.sin(t*1.1+i*0.7);
+    const sz=4+5*morph;
+    cx.strokeStyle=getColor(i*0.5+t,0.9,0.8);
+    cx.fillStyle=getColor(i*0.5+t,0.9,0.2);
+    cx.lineWidth=1.5;
+    cx.beginPath();
+    if(morph>0.6){
+      cx.rect(x-sz/2,y-sz/2,sz,sz);
+    } else {
+      cx.arc(x,y,sz/2,0,TAU);
+    }
+    cx.fill();cx.stroke();
+    // DNA-like helix tick
+    cx.strokeStyle=getColor(i*0.5+t+1,0.7,0.5);
+    cx.lineWidth=0.7;
+    cx.beginPath();
+    cx.moveTo(x-sz,y+Math.sin(t*3+i)*sz*0.5);
+    cx.lineTo(x+sz,y-Math.sin(t*3+i)*sz*0.5);
+    cx.stroke();
+  }
+  cx.restore();
+}
+
+// ─── AUDIO ENGINE ────────────────────────────────────────────────
+function initAudio(){
+  if(audioCtx) return;
+  audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+  masterGain=audioCtx.createGain();
+  masterGain.gain.value=0.12;
+  // Reverb-like delay chain
+  const delay=audioCtx.createDelay(1.0);
+  delay.delayTime.value=0.3;
+  const delayGain=audioCtx.createGain();
+  delayGain.gain.value=0.35;
+  masterGain.connect(delay);
+  delay.connect(delayGain);
+  delayGain.connect(delay);
+  masterGain.connect(audioCtx.destination);
+  delayGain.connect(audioCtx.destination);
+
+  // 4 oscillators in FM network
+  const freqs=[55,110,220,330];
+  for(let i=0;i<4;i++){
+    const mod=audioCtx.createOscillator();
+    const modGain=audioCtx.createGain();
+    const car=audioCtx.createOscillator();
+    const carGain=audioCtx.createGain();
+
+    mod.frequency.value=freqs[i]*(1+rng()*0.5);
+    mod.type=['sine','triangle','sawtooth','square'][i%4];
+    modGain.gain.value=freqs[i]*2;
+    car.frequency.value=freqs[i];
+    car.type='sine';
+    carGain.gain.value=0.06;
+
+    mod.connect(modGain);
+    modGain.connect(car.frequency);
+    car.connect(carGain);
+    carGain.connect(masterGain);
+
+    mod.start(); car.start();
+    oscillators.push({mod,modGain,car,carGain,baseFreq:freqs[i]});
+  }
+}
+
+function updateAudio(){
+  if(!soundOn||!audioCtx) return;
+  const now=audioCtx.currentTime;
+  for(let i=0;i<oscillators.length;i++){
+    const o=oscillators[i];
+    // Modulate frequencies from attractor
+    const freqMod=o.baseFreq*(1+0.3*Math.sin(t*0.3+i+ax*0.01));
+    const depthMod=o.baseFreq*(2+3*Math.abs(ay*0.05));
+    o.car.frequency.setTargetAtTime(freqMod,now,0.1);
+    o.modGain.gain.setTargetAtTime(depthMod,now,0.1);
+    // Phase modulation from logistic map
+    const lv=logisticStep();
+    o.carGain.gain.setTargetAtTime(0.04+0.04*lv,now,0.05);
+  }
+}
+
+function toggleSound(){
+  soundOn=!soundOn;
+  if(soundOn){
+    initAudio();
+    if(audioCtx.state==='suspended') audioCtx.resume();
+  } else if(audioCtx){
+    audioCtx.suspend();
+  }
+}
+
+// ─── FPS ─────────────────────────────────────────────────────────
+let lastT=performance.now(), fps=60, fpsAlpha=0.05;
+function updateFps(now){
+  const dt=(now-lastT)/1000;
+  fps=fps*(1-fpsAlpha)+(1/dt)*fpsAlpha;
+  lastT=now;
+  return dt;
+}
+
+// ─── MAIN RENDER LOOP ────────────────────────────────────────────
+function render(now){
+  requestAnimationFrame(render);
+  const dt=updateFps(now);
+  t+=dt*0.5;
+  frame++;
+
+  drawBackground();
+  drawWaveGrid();
+
+  // Mode-specific primary structure
+  switch(CFG.mode){
+    case 'PENROSE': drawPenrose(); break;
+    case 'HYPERBOLIC': drawHyperbolicTiling(); break;
+    case 'RIEMANN': drawRiemannSurface(); break;
+    case 'ATTRACTOR':
+      for(let s=0;s<3;s++) updateAttractor();
+      drawAttractor(); break;
+    default:
+      drawHyperbolicTiling();
+  }
+
+  // Always draw supporting layers
+  updateVoronoi(dt);
+  if(CFG.useKaleid){
+    applyKaleidoscope(()=>{ drawVoronoi(); });
+  } else {
+    drawVoronoi();
+  }
+
+  drawRiemannSurface();
+  drawFourier();
+  drawTensorNetwork();
+  drawMorphisms();
+  drawProjectiveFrame();
+
+  updateParticles(dt);
+  drawParticles();
+
+  // Random fireworks
+  if(rng()<CFG.fireworkProb){
+    spawnFirework(rng()*W, rng()*H*0.7);
+  }
+  updateFireworks();
+  drawFireworks();
+
+  // HUD update
+  if(hudOn && frame%10===0){
+    document.getElementById('hf').textContent=frame;
+    document.getElementById('hfps').textContent=fps.toFixed(0);
+    document.getElementById('hp').textContent=particles.length;
+  }
+
+  if(soundOn) updateAudio();
+}
+
+// ─── INPUT ───────────────────────────────────────────────────────
+document.addEventListener('keydown',function(e){
+  if(e.key===' '||e.code==='Space'){
+    e.preventDefault();
+    randomize();
+  } else if(e.key==='h'||e.key==='H'){
+    hudOn=!hudOn;
+    document.getElementById('hud').style.display=hudOn?'block':'none';
+  } else if(e.key==='s'||e.key==='S'){
+    toggleSound();
+  }
+});
+
+let tapTimeout;
+document.addEventListener('click',function(e){
+  // Spawn firework at click
+  spawnFirework(e.clientX, e.clientY);
+  clearTimeout(tapTimeout);
+  tapTimeout=setTimeout(randomize,400);
+});
+document.addEventListener('touchend',function(e){
+  e.preventDefault();
+  spawnFirework(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
+  clearTimeout(tapTimeout);
+  tapTimeout=setTimeout(randomize,400);
+},{passive:false});
+
+// Cancel regen if it was a firework-only tap
+document.addEventListener('mousedown',function(){clearTimeout(tapTimeout);});
+document.addEventListener('touchstart',function(){clearTimeout(tapTimeout);},{passive:true});
+// Actually just do single click = firework, double = regenerate... simpler:
+let lastClick=0;
+document.addEventListener('click',function(e){
+  const now2=Date.now();
+  if(now2-lastClick<350){ randomize(); }
+  lastClick=now2;
+});
+
+// ─── BOOT ────────────────────────────────────────────────────────
+randomize();
+requestAnimationFrame(render);
+
+})();
+</script>
+</body>
+</html>

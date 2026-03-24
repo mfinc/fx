@@ -1,0 +1,977 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Hyperbolic Mechanism Labyrinth Engine</title>
+<meta name="description" content="A generative audiovisual engine rendering hyperbolic mechanism labyrinth universes with concentric circular mazes, Penrose tilings, Apollonian circle packings, mechanical simulations, particle swarms, and procedural audio synthesis. A mesmerizing fusion of geometry, physics, and sound.">
+<meta name="keywords" content="hyperbolic geometry, generative art, labyrinth, mechanical simulation, pendulum, Penrose tiling, Apollonian circles, Hilbert curve, Voronoi, reaction diffusion, particle swarm, procedural audio, granular synthesis, WebGL, canvas, WebAudio, kaleidoscope, Islamic geometry, Celtic knot, fractal, chaos theory, audiovisual engine">
+<meta name="author" content="Hyperbolic Mechanism Labyrinth Engine">
+<meta property="og:title" content="Hyperbolic Mechanism Labyrinth Engine">
+<meta property="og:description" content="Generative audiovisual engine: hyperbolic mazes, mechanical simulations, particle fields, and procedural sound synthesis.">
+<meta property="og:type" content="website">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000;}
+  canvas{display:block;position:fixed;top:0;left:0;width:100%;height:100%;}
+  #hud{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;display:none;font-family:'Courier New',monospace;font-size:11px;color:#0ff;text-shadow:0 0 8px #0ff;}
+  #hud-panel{position:absolute;top:12px;left:12px;background:rgba(0,0,0,0.7);border:1px solid rgba(0,255,255,0.3);padding:10px 14px;line-height:1.7;max-width:320px;border-radius:2px;}
+  #hud-keys{position:absolute;bottom:12px;right:12px;background:rgba(0,0,0,0.7);border:1px solid rgba(0,255,255,0.2);padding:8px 12px;line-height:1.8;text-align:right;border-radius:2px;}
+  #hud-keys span{color:#ff0;text-shadow:0 0 6px #ff0;}
+  #toast{position:fixed;bottom:30px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.8);color:#fff;font-family:'Courier New',monospace;font-size:13px;padding:6px 18px;border-radius:20px;border:1px solid rgba(255,255,255,0.2);pointer-events:none;opacity:0;transition:opacity 0.4s;}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div id="hud-panel">
+    <div id="hud-content">Loading...</div>
+  </div>
+  <div id="hud-keys">
+    <span>SPACE/CLICK/TAP</span> Regenerate<br>
+    <span>H</span> Toggle HUD<br>
+    <span>S</span> Toggle Sound
+  </div>
+</div>
+<div id="toast"></div>
+<script>
+"use strict";
+(function(){
+
+// ─── GLOBAL STATE ────────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d', {alpha:false});
+const hud = document.getElementById('hud');
+const hudContent = document.getElementById('hud-content');
+const toast = document.getElementById('toast');
+let W, H, CX, CY, t=0, frame=0, lastTime=0, fps=60;
+let hudVisible=false, soundEnabled=false;
+let audioCtx=null, masterGain=null, audioNodes=[];
+let RNG_SEED = Math.random()*99999|0;
+
+// ─── SEEDED RNG ───────────────────────────────────────────────────────────────
+function mulberry32(s){
+  return function(){
+    s|=0;s=s+0x6D2B79F5|0;
+    let t=Math.imul(s^s>>>15,1|s);
+    t=t+Math.imul(t^t>>>7,61|t)^t;
+    return((t^t>>>14)>>>0)/4294967296;
+  };
+}
+let rng=mulberry32(RNG_SEED);
+const R=()=>rng();
+const Ri=(n)=>Math.floor(R()*n);
+const Rf=(a,b)=>a+R()*(b-a);
+const Rc=()=>`hsl(${R()*360|0},${60+R()*40|0}%,${40+R()*40|0}%)`;
+
+// ─── PALETTE SYSTEM ──────────────────────────────────────────────────────────
+let palette={}, paletteT=0;
+const STYLES = ['stained-glass','islamic','celadon','celtic','moorish','bauhaus','psychedelic','cyberpunk'];
+const PALETTE_MODES = ['spectral','flowing','harmonic','interference','field-harmonized'];
+
+function randomPalette(){
+  const style = STYLES[Ri(STYLES.length)];
+  const mode = PALETTE_MODES[Ri(PALETTE_MODES.length)];
+  const hueBase = R()*360;
+  palette = {style, mode, hueBase,
+    h0: hueBase, h1: (hueBase+60+R()*120)%360, h2:(hueBase+180+R()*60)%360,
+    sat: 60+R()*40, lit: 30+R()*30,
+    bg: `hsl(${hueBase|0},${40+R()*20|0}%,${3+R()*6|0}%)`,
+    speed: 0.0003+R()*0.001,
+    contrast: 0.6+R()*0.8
+  };
+  return palette;
+}
+
+function getColor(i, energy=0.5, alpha=1){
+  const ph = paletteT * palette.speed * 360;
+  let h,s,l;
+  switch(palette.mode){
+    case 'spectral': h=(palette.h0+i*137.508+ph)%360; s=palette.sat+energy*30; l=palette.lit+energy*20; break;
+    case 'flowing': h=(palette.h0+Math.sin(i*0.1+paletteT*0.002)*60+ph)%360; s=palette.sat; l=palette.lit+Math.cos(i*0.07)*15; break;
+    case 'harmonic': h=(palette.h0+i*(palette.h1-palette.h0)*0.01+ph)%360; s=55+Math.sin(i*0.3)*25; l=palette.lit+Math.sin(i*0.5)*20; break;
+    case 'interference': h=(palette.h0+(Math.sin(i*0.2)*palette.h1+Math.cos(i*0.13)*palette.h2)*0.5+ph)%360; s=70+energy*20; l=palette.lit; break;
+    default: h=(palette.h0+energy*palette.h2*0.5+ph)%360; s=50+energy*40; l=palette.lit+energy*25;
+  }
+  h=(h+360)%360; s=Math.max(20,Math.min(100,s)); l=Math.max(10,Math.min(80,l));
+  return alpha<1 ? `hsla(${h|0},${s|0}%,${l|0}%,${alpha.toFixed(2)})` : `hsl(${h|0},${s|0}%,${l|0}%)`;
+}
+
+function getGlow(i, energy=1){
+  const c=getColor(i,energy,0.8);
+  return c;
+}
+
+// ─── SYSTEM CONFIG ────────────────────────────────────────────────────────────
+let SYS = {};
+function buildSystem(){
+  rng = mulberry32(RNG_SEED);
+  randomPalette();
+  SYS = {
+    // geometry layers
+    useHyperbolic: R()>0.3,
+    useConcentric: R()>0.2,
+    useHilbert: R()>0.4,
+    useApollonius: R()>0.4,
+    usePenrose: R()>0.35,
+    useVoronoi: R()>0.3,
+    useTriTiling: R()>0.4,
+    // mechanics
+    pendulumCount: 2+Ri(4),
+    gearCount: 2+Ri(5),
+    linkageCount: 1+Ri(3),
+    // particle
+    particleCount: 300+Ri(400),
+    vortexCount: 3+Ri(8),
+    // fluid
+    rdEnabled: R()>0.4,
+    // scale
+    scale: 0.4+R()*0.6,
+    rotSpeed: (R()-0.5)*0.003,
+    zoom: 0.8+R()*0.6,
+    // layers
+    layers: 4+Ri(5),
+  };
+
+  pendulums = buildPendulums();
+  gearTrain = buildGearTrain();
+  linkages = buildLinkages();
+  particles = buildParticles();
+  vortices = buildVortices();
+  apollonianCircles = buildApollonius();
+  voronoiSeeds = buildVoronoi();
+  hilbertOrder = 3+Ri(3);
+  hyperbolicTiles = buildHyperbolicTiles();
+  penroseTiles = buildPenrose();
+  rdGrid = buildRD();
+  convectionCells = buildConvection();
+}
+
+// ─── PENDULUM CHAINS ─────────────────────────────────────────────────────────
+let pendulums=[];
+function buildPendulums(){
+  const arr=[];
+  const N=SYS.pendulumCount;
+  for(let p=0;p<N;p++){
+    const links=[];
+    const n=2+Ri(3);
+    for(let i=0;i<n;i++){
+      links.push({
+        len: (60+R()*80)*SYS.scale,
+        mass: 0.5+R()*2,
+        theta: R()*Math.PI*2,
+        omega: (R()-0.5)*3,
+        colorIdx: R()*360|0
+      });
+    }
+    arr.push({links, ox:Rf(-0.3,0.3)*W, oy:Rf(-0.3,0.3)*H});
+  }
+  return arr;
+}
+
+function stepPendulum(p, dt){
+  const g=9.81*80*SYS.scale;
+  const links=p.links; const n=links.length;
+  // Simple Verlet for each link
+  for(let i=0;i<n;i++){
+    const l=links[i];
+    const a=-g/l.len*Math.sin(l.theta)-0.002*l.omega;
+    l.omega += a*dt;
+    l.omega *= 0.9999;
+    l.theta += l.omega*dt;
+    // coupling
+    if(i>0){
+      const prev=links[i-1];
+      const coupling=0.15*(prev.omega-l.omega);
+      l.omega+=coupling*dt;
+    }
+  }
+}
+
+function drawPendulum(p){
+  let x=CX+p.ox, y=CY+p.oy;
+  ctx.save();
+  for(let i=0;i<p.links.length;i++){
+    const l=p.links[i];
+    const nx=x+Math.sin(l.theta)*l.len;
+    const ny=y+Math.cos(l.theta)*l.len;
+    const e=Math.abs(l.omega)/5;
+    ctx.strokeStyle=getColor(l.colorIdx+i*30, e, 0.85);
+    ctx.lineWidth=1.5+e*2;
+    ctx.shadowColor=getGlow(l.colorIdx+i*30,e);
+    ctx.shadowBlur=8+e*12;
+    ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(nx,ny); ctx.stroke();
+    ctx.fillStyle=getColor(l.colorIdx+i*40,e);
+    ctx.beginPath(); ctx.arc(nx,ny,3+l.mass*2,0,Math.PI*2); ctx.fill();
+    x=nx; y=ny;
+  }
+  ctx.restore();
+}
+
+// ─── GEAR TRAIN ───────────────────────────────────────────────────────────────
+let gearTrain=[];
+function buildGearTrain(){
+  const arr=[];
+  const n=SYS.gearCount;
+  const cx=Rf(-0.3,0.3)*W, cy=Rf(-0.3,0.3)*H;
+  let r=40+R()*30, angle=0, x=cx, y=cy;
+  for(let i=0;i<n;i++){
+    const teeth=8+Ri(20);
+    const gr=teeth*5*SYS.scale;
+    arr.push({x:i===0?cx:x, y:i===0?cy:y, r:gr, teeth, angle:R()*Math.PI*2, speed:(R()-0.5)*0.04*(i%2?-1:1), colorIdx:R()*360|0});
+    const next=arr[arr.length-1];
+    const na=R()*Math.PI*2;
+    x=next.x+(gr+(15+R()*30)*SYS.scale)*Math.cos(na);
+    y=next.y+(gr+(15+R()*30)*SYS.scale)*Math.sin(na);
+  }
+  return arr;
+}
+
+function drawGear(g){
+  const {x,y,r,teeth,angle,colorIdx}=g;
+  const e=0.5;
+  ctx.save();
+  ctx.translate(x,y);
+  ctx.rotate(angle);
+  ctx.strokeStyle=getColor(colorIdx,e,0.9);
+  ctx.lineWidth=1.2;
+  ctx.shadowColor=getGlow(colorIdx,0.7);
+  ctx.shadowBlur=6;
+  const toothH=r*0.15, toothW=Math.PI*2/teeth;
+  ctx.beginPath();
+  for(let i=0;i<teeth;i++){
+    const a0=i*toothW, a1=a0+toothW*0.3, a2=a0+toothW*0.7, a3=a0+toothW;
+    ctx.lineTo(Math.cos(a0)*r, Math.sin(a0)*r);
+    ctx.lineTo(Math.cos(a0+toothW*0.15)*(r+toothH), Math.sin(a0+toothW*0.15)*(r+toothH));
+    ctx.lineTo(Math.cos(a2)*(r+toothH), Math.sin(a2)*(r+toothH));
+    ctx.lineTo(Math.cos(a3)*r, Math.sin(a3)*r);
+  }
+  ctx.closePath(); ctx.stroke();
+  // hub
+  ctx.beginPath(); ctx.arc(0,0,r*0.15,0,Math.PI*2); ctx.stroke();
+  // spokes
+  for(let s=0;s<4;s++){
+    const sa=s*Math.PI/2;
+    ctx.beginPath(); ctx.moveTo(Math.cos(sa)*r*0.15,Math.sin(sa)*r*0.15);
+    ctx.lineTo(Math.cos(sa)*r*0.8, Math.sin(sa)*r*0.8); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// ─── LINKAGES ─────────────────────────────────────────────────────────────────
+let linkages=[];
+function buildLinkages(){
+  const arr=[];
+  for(let i=0;i<SYS.linkageCount;i++){
+    arr.push({
+      ox:Rf(-0.4,0.4)*W, oy:Rf(-0.4,0.4)*H,
+      r1:(50+R()*60)*SYS.scale,
+      r2:(80+R()*80)*SYS.scale,
+      r3:(60+R()*70)*SYS.scale,
+      angle:R()*Math.PI*2,
+      speed:(R()-0.5)*0.05,
+      colorIdx:R()*360|0
+    });
+  }
+  return arr;
+}
+
+function drawLinkage(lk){
+  const{ox,oy,r1,r2,r3,angle,colorIdx}=lk;
+  const e=0.6;
+  const A={x:ox,y:oy};
+  const B={x:ox+Math.cos(angle)*r1, y:oy+Math.sin(angle)*r1};
+  // four-bar: D fixed
+  const D={x:ox+r3*0.6,y:oy};
+  // approximate C
+  const C={x:B.x+Math.cos(angle*1.3)*r2, y:B.y+Math.sin(angle*1.3)*r2};
+  ctx.save();
+  ctx.strokeStyle=getColor(colorIdx,e,0.8);
+  ctx.lineWidth=2;
+  ctx.shadowColor=getGlow(colorIdx,0.8); ctx.shadowBlur=10;
+  const pts=[[A,B],[B,C],[C,D],[D,A]];
+  pts.forEach(([p,q])=>{
+    ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(q.x,q.y); ctx.stroke();
+  });
+  [A,B,C,D].forEach((p,i)=>{
+    ctx.fillStyle=getColor(colorIdx+i*40,e);
+    ctx.beginPath(); ctx.arc(p.x,p.y,5,0,Math.PI*2); ctx.fill();
+  });
+  ctx.restore();
+}
+
+// ─── PARTICLES ────────────────────────────────────────────────────────────────
+let particles=[];
+function buildParticles(){
+  return Array.from({length:SYS.particleCount},()=>({
+    x:Rf(0,W), y:Rf(0,H),
+    vx:(R()-0.5)*2, vy:(R()-0.5)*2,
+    life:R(), maxLife:0.5+R()*1.5,
+    size:1+R()*3, colorIdx:R()*360|0,
+    trail:[]
+  }));
+}
+
+let vortices=[];
+function buildVortices(){
+  return Array.from({length:SYS.vortexCount},()=>({
+    x:Rf(0.1,0.9)*W, y:Rf(0.1,0.9)*H,
+    strength:(R()-0.5)*300,
+    radius:80+R()*200,
+    colorIdx:R()*360|0,
+    drift:{vx:(R()-0.5)*0.3,vy:(R()-0.5)*0.3}
+  }));
+}
+
+function stepParticles(dt){
+  const inv=1/60;
+  particles.forEach(p=>{
+    // vortex influence
+    vortices.forEach(v=>{
+      const dx=v.x-p.x, dy=v.y-p.y;
+      const d2=dx*dx+dy*dy+1;
+      const d=Math.sqrt(d2);
+      const f=v.strength/(d2+v.radius*v.radius);
+      p.vx+=(-dy*f)*dt; p.vy+=(dx*f)*dt;
+    });
+    p.vx*=0.99; p.vy*=0.99;
+    const spd=Math.sqrt(p.vx*p.vx+p.vy*p.vy);
+    if(spd>3){p.vx=p.vx/spd*3;p.vy=p.vy/spd*3;}
+    p.trail.push({x:p.x,y:p.y});
+    if(p.trail.length>8) p.trail.shift();
+    p.x+=p.vx; p.y+=p.vy;
+    p.life-=dt*inv*0.01;
+    if(p.life<=0||p.x<-10||p.x>W+10||p.y<-10||p.y>H+10){
+      p.x=Rf(0,W); p.y=Rf(0,H);
+      p.vx=(R()-0.5)*2; p.vy=(R()-0.5)*2;
+      p.life=0.5+R(); p.trail=[];
+    }
+  });
+  vortices.forEach(v=>{
+    v.x+=v.drift.vx; v.y+=v.drift.vy;
+    if(v.x<0||v.x>W) v.drift.vx*=-1;
+    if(v.y<0||v.y>H) v.drift.vy*=-1;
+  });
+}
+
+function drawParticles(){
+  ctx.save();
+  particles.forEach(p=>{
+    const e=Math.min(1,Math.sqrt(p.vx*p.vx+p.vy*p.vy)/3);
+    if(p.trail.length>1){
+      ctx.beginPath();
+      ctx.moveTo(p.trail[0].x,p.trail[0].y);
+      for(let i=1;i<p.trail.length;i++) ctx.lineTo(p.trail[i].x,p.trail[i].y);
+      ctx.lineTo(p.x,p.y);
+      ctx.strokeStyle=getColor(p.colorIdx,e,0.25);
+      ctx.lineWidth=p.size*0.5;
+      ctx.stroke();
+    }
+    ctx.fillStyle=getColor(p.colorIdx,e,0.7);
+    ctx.beginPath(); ctx.arc(p.x,p.y,p.size*p.life,0,Math.PI*2); ctx.fill();
+  });
+  ctx.restore();
+}
+
+// ─── APOLLONIUS PACKING ───────────────────────────────────────────────────────
+let apollonianCircles=[];
+function buildApollonius(){
+  const arr=[];
+  const cx=CX, cy=CY;
+  const R0=Math.min(W,H)*0.42;
+  arr.push({x:cx,y:cy,r:R0,depth:0,colorIdx:R()*360|0});
+  // generate recursive packing (simplified Apollonius)
+  function pack(x,y,r,d){
+    if(d>4||r<8) return;
+    const n=3+Ri(4);
+    for(let i=0;i<n;i++){
+      const a=i/n*Math.PI*2+R()*0.3;
+      const nr=r*(0.3+R()*0.25);
+      const nx=x+Math.cos(a)*(r-nr);
+      const ny=y+Math.sin(a)*(r-nr);
+      arr.push({x:nx,y:ny,r:nr,depth:d,colorIdx:R()*360|0});
+      pack(nx,ny,nr,d+1);
+    }
+  }
+  pack(cx,cy,R0*0.55,1);
+  return arr;
+}
+
+function drawApollonius(time){
+  ctx.save();
+  apollonianCircles.forEach((c,i)=>{
+    const e=0.3+Math.sin(time*0.001+i*0.3)*0.3;
+    const alpha=0.3-c.depth*0.05;
+    if(alpha<=0) return;
+    ctx.strokeStyle=getColor(c.colorIdx+i*7, e, alpha);
+    ctx.lineWidth=1;
+    ctx.shadowColor=getGlow(c.colorIdx+i*7,e*0.5);
+    ctx.shadowBlur=4;
+    ctx.beginPath(); ctx.arc(c.x,c.y,c.r,0,Math.PI*2); ctx.stroke();
+  });
+  ctx.restore();
+}
+
+// ─── VORONOI ─────────────────────────────────────────────────────────────────
+let voronoiSeeds=[];
+function buildVoronoi(){
+  return Array.from({length:20+Ri(20)},()=>({
+    x:Rf(0,W), y:Rf(0,H),
+    vx:(R()-0.5)*0.8, vy:(R()-0.5)*0.8,
+    colorIdx:R()*360|0
+  }));
+}
+
+function drawVoronoi(){
+  // Approximate Voronoi via distance coloring on a coarse grid
+  const step=20;
+  ctx.save();
+  for(let x=0;x<W;x+=step){
+    for(let y=0;y<H;y+=step){
+      let minD=1e9, minI=0, secD=1e9;
+      voronoiSeeds.forEach((s,i)=>{
+        const d=(x-s.x)*(x-s.x)+(y-s.y)*(y-s.y);
+        if(d<minD){secD=minD;minD=d;minI=i;}
+        else if(d<secD) secD=d;
+      });
+      const edge=Math.sqrt(secD)-Math.sqrt(minD);
+      if(edge<step*0.7){
+        const alpha=0.06+0.04*(1-edge/(step*0.7));
+        ctx.fillStyle=getColor(voronoiSeeds[minI].colorIdx, 0.4, alpha);
+        ctx.fillRect(x,y,step,step);
+      }
+    }
+  }
+  ctx.restore();
+}
+
+function stepVoronoi(){
+  voronoiSeeds.forEach(s=>{
+    s.x+=s.vx; s.y+=s.vy;
+    if(s.x<0||s.x>W) s.vx*=-1;
+    if(s.y<0||s.y>H) s.vy*=-1;
+  });
+}
+
+// ─── HILBERT CURVE ────────────────────────────────────────────────────────────
+let hilbertOrder=4;
+function hilbert(order){
+  let pts=[{x:0,y:0},{x:0,y:1},{x:1,y:1},{x:1,y:0}];
+  for(let o=1;o<order;o++){
+    const prev=[...pts];
+    const n=prev.length;
+    const newPts=[];
+    // bottom-left (flip x,y)
+    for(let i=0;i<n;i++) newPts.push({x:prev[i].y*0.5, y:prev[i].x*0.5});
+    // top-left
+    for(let i=0;i<n;i++) newPts.push({x:prev[i].x*0.5, y:prev[i].y*0.5+0.5});
+    // top-right
+    for(let i=0;i<n;i++) newPts.push({x:prev[i].x*0.5+0.5, y:prev[i].y*0.5+0.5});
+    // bottom-right (flip x,y, reverse)
+    for(let i=n-1;i>=0;i--) newPts.push({x:(1-prev[i].y)*0.5+0.5, y:(1-prev[i].x)*0.5});
+    pts=newPts;
+  }
+  return pts;
+}
+
+let _hilbertPts=null;
+function drawHilbert(time){
+  if(!_hilbertPts) _hilbertPts=hilbert(hilbertOrder);
+  const pts=_hilbertPts;
+  const s=Math.min(W,H)*0.85;
+  const ox=CX-s/2, oy=CY-s/2;
+  ctx.save();
+  ctx.lineWidth=1;
+  const seg=pts.length;
+  for(let i=0;i<seg-1;i++){
+    const frac=i/seg;
+    const e=0.4+Math.sin(time*0.001+frac*10)*0.3;
+    ctx.strokeStyle=getColor((palette.h0+frac*360)%360, e, 0.18);
+    ctx.beginPath();
+    ctx.moveTo(pts[i].x*s+ox, pts[i].y*s+oy);
+    ctx.lineTo(pts[i+1].x*s+ox, pts[i+1].y*s+oy);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// ─── HYPERBOLIC TILES ─────────────────────────────────────────────────────────
+let hyperbolicTiles=[];
+function buildHyperbolicTiles(){
+  // Poincaré disk model tiles
+  const tiles=[];
+  const R0=Math.min(W,H)*0.42;
+  function moebius(z, a){
+    // Möbius transform: (z-a)/(1-conj(a)*z)
+    const denom={r:1-a.r*z.r-a.i*z.i, i:-(a.r*z.i-a.i*z.r)};
+    const num={r:z.r-a.r, i:z.i-a.i};
+    const d2=denom.r*denom.r+denom.i*denom.i+1e-10;
+    return{r:(num.r*denom.r+num.i*denom.i)/d2, i:(num.i*denom.r-num.r*denom.i)/d2};
+  }
+  // generate {4,5} tiling approximation
+  const depth=3;
+  function addTile(z,d,parent){
+    if(d>depth) return;
+    const mod=Math.sqrt(z.r*z.r+z.i*z.i);
+    if(mod>=0.97) return;
+    tiles.push({cx:CX+z.r*R0, cy:CY+z.i*R0, r:R0*(1-mod*mod)*0.3, depth:d, colorIdx:R()*360|0});
+    const n=5;
+    for(let i=0;i<n;i++){
+      const a=i/n*Math.PI*2;
+      const step=0.45+d*0.05;
+      const zn={r:Math.cos(a)*step, i:Math.sin(a)*step};
+      // apply moebius to move to z
+      const zt=moebius(zn,{r:-z.r,i:-z.i});
+      if(zt.r*zt.r+zt.i*zt.i<0.94) addTile(zt,d+1,z);
+    }
+  }
+  addTile({r:0,i:0},0,null);
+  return tiles;
+}
+
+function drawHyperbolicTiles(time){
+  const R0=Math.min(W,H)*0.42;
+  ctx.save();
+  // boundary circle
+  ctx.strokeStyle=getColor(palette.h0,0.4,0.4);
+  ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.arc(CX,CY,R0,0,Math.PI*2); ctx.stroke();
+  hyperbolicTiles.forEach((t,i)=>{
+    if(t.r<3) return;
+    const e=0.3+Math.sin(time*0.0008+i*0.15)*0.3;
+    const alpha=0.25-t.depth*0.05;
+    if(alpha<=0.02) return;
+    ctx.fillStyle=getColor(t.colorIdx+i*5,e,alpha);
+    ctx.strokeStyle=getColor(t.colorIdx,e,alpha*2);
+    ctx.lineWidth=0.8;
+    ctx.beginPath(); ctx.arc(t.cx,t.cy,t.r,0,Math.PI*2);
+    ctx.fill(); ctx.stroke();
+  });
+  ctx.restore();
+}
+
+// ─── PENROSE TILING ───────────────────────────────────────────────────────────
+let penroseTiles=[];
+const PHI=(1+Math.sqrt(5))/2;
+function buildPenrose(){
+  const tiles=[];
+  const n=10;
+  const R0=Math.min(W,H)*0.45;
+  // Initial kite/dart subdivision
+  function kite(ax,ay,bx,by,cx,cy,depth){
+    if(depth===0){tiles.push({type:'k',pts:[[ax,ay],[bx,by],[cx,cy]],colorIdx:R()*360|0});return;}
+    const mx=(ax+cx)/2, my=(ay+cy)/2;
+    const ex=bx+(cx-bx)/PHI, ey=by+(cy-by)/PHI;
+    const fx=bx+(ax-bx)/PHI, fy=by+(ay-by)/PHI;
+    dart(bx,by,ex,ey,fx,fy,depth-1);
+    kite(ax,ay,fx,fy,mx,my,depth-1);
+    kite(cx,cy,ex,ey,mx,my,depth-1);
+  }
+  function dart(ax,ay,bx,by,cx,cy,depth){
+    if(depth===0){tiles.push({type:'d',pts:[[ax,ay],[bx,by],[cx,cy]],colorIdx:R()*360|0});return;}
+    const ex=ax+(bx-ax)/PHI, ey=ay+(by-ay)/PHI;
+    const fx=ax+(cx-ax)/PHI, fy=ay+(cy-ay)/PHI;
+    dart(fx,fy,bx,by,ex,ey,depth-1);
+    kite(bx,by,cx,cy,fx,fy,depth-1);
+    kite(cx,cy,ax,ay,fx,fy,depth-1);
+  }
+  // Create initial star
+  for(let i=0;i<n;i++){
+    const a0=i*Math.PI*2/n, a1=(i+1)*Math.PI*2/n;
+    kite(CX,CY, CX+Math.cos(a0)*R0,CY+Math.sin(a0)*R0, CX+Math.cos(a1)*R0,CY+Math.sin(a1)*R0, 4);
+  }
+  return tiles;
+}
+
+function drawPenrose(time){
+  ctx.save();
+  penroseTiles.forEach((t,i)=>{
+    const e=0.3+Math.sin(time*0.0005+i*0.07)*0.3;
+    const alpha=t.type==='k'?0.12:0.09;
+    ctx.fillStyle=getColor(t.colorIdx+i*3,e,alpha);
+    ctx.strokeStyle=getColor(t.colorIdx,e,alpha*2.5);
+    ctx.lineWidth=0.7;
+    ctx.beginPath();
+    ctx.moveTo(t.pts[0][0],t.pts[0][1]);
+    ctx.lineTo(t.pts[1][0],t.pts[1][1]);
+    ctx.lineTo(t.pts[2][0],t.pts[2][1]);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+  });
+  ctx.restore();
+}
+
+// ─── CONCENTRIC MAZES ─────────────────────────────────────────────────────────
+function drawConcentricMazes(time){
+  const R0=Math.min(W,H)*0.44;
+  const rings=8+Ri(6);
+  ctx.save();
+  ctx.translate(CX,CY);
+  ctx.rotate(time*SYS.rotSpeed);
+  for(let r=1;r<=rings;r++){
+    const rad=R0*r/rings;
+    const segs=6+r*3;
+    const e=0.4+Math.sin(time*0.001+r)*0.3;
+    ctx.strokeStyle=getColor(palette.h0+r*20, e, 0.35);
+    ctx.lineWidth=1;
+    // draw arc segments with gaps (maze walls)
+    for(let s=0;s<segs;s++){
+      if(R()<0.7){ // 70% chance of wall segment
+        const a0=s/segs*Math.PI*2;
+        const a1=(s+0.85)/segs*Math.PI*2;
+        ctx.beginPath(); ctx.arc(0,0,rad,a0,a1); ctx.stroke();
+      }
+    }
+    // radial walls
+    for(let s=0;s<segs;s++){
+      if(R()<0.5){
+        const a=s/segs*Math.PI*2;
+        const r0=R0*(r-1)/rings, r1=rad;
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(a)*r0, Math.sin(a)*r0);
+        ctx.lineTo(Math.cos(a)*r1, Math.sin(a)*r1);
+        ctx.stroke();
+      }
+    }
+  }
+  ctx.restore();
+}
+
+// ─── REACTION-DIFFUSION ────────────────────────────────────────────────────────
+let rdGrid=null, rdGridB=null;
+const RD_W=80, RD_H=60;
+function buildRD(){
+  if(!SYS.rdEnabled) return null;
+  const a=new Float32Array(RD_W*RD_H).fill(1);
+  const b=new Float32Array(RD_W*RD_H).fill(0);
+  // seed
+  for(let i=0;i<20;i++){
+    const cx=Ri(RD_W), cy=Ri(RD_H);
+    for(let dy=-3;dy<=3;dy++) for(let dx=-3;dx<=3;dx++){
+      const idx=(cy+dy+RD_H)%RD_H*RD_W+(cx+dx+RD_W)%RD_W;
+      a[idx]=0.5; b[idx]=0.25+R()*0.5;
+    }
+  }
+  rdGridB=new Float32Array(RD_W*RD_H);
+  return {a,b,dA:1.0,dB:0.5,f:0.035+R()*0.025,k:0.06+R()*0.02};
+}
+
+function stepRD(){
+  if(!rdGrid) return;
+  const{a,b,dA,dB,f,k}=rdGrid;
+  const na=new Float32Array(RD_W*RD_H);
+  const nb=new Float32Array(RD_W*RD_H);
+  for(let y=0;y<RD_H;y++){
+    for(let x=0;x<RD_W;x++){
+      const i=y*RD_W+x;
+      const l=(x>0?y*RD_W+x-1:i), r=(x<RD_W-1?y*RD_W+x+1:i);
+      const u=(y>0?(y-1)*RD_W+x:i), d=(y<RD_H-1?(y+1)*RD_W+x:i);
+      const lapA=a[l]+a[r]+a[u]+a[d]-4*a[i];
+      const lapB=b[l]+b[r]+b[u]+b[d]-4*b[i];
+      const ab2=a[i]*b[i]*b[i];
+      na[i]=Math.max(0,Math.min(1, a[i]+dA*lapA*0.2-ab2+f*(1-a[i])));
+      nb[i]=Math.max(0,Math.min(1, b[i]+dB*lapB*0.2+ab2-(k+f)*b[i]));
+    }
+  }
+  rdGrid.a=na; rdGrid.b=nb;
+}
+
+function drawRD(){
+  if(!rdGrid) return;
+  const{a,b}=rdGrid;
+  const sw=W/RD_W, sh=H/RD_H;
+  ctx.save();
+  for(let y=0;y<RD_H;y++){
+    for(let x=0;x<RD_W;x++){
+      const i=y*RD_W+x;
+      const v=b[i];
+      if(v>0.15){
+        const alpha=v*0.25;
+        ctx.fillStyle=getColor(palette.h1+v*120, v, alpha);
+        ctx.fillRect(x*sw,y*sh,sw+1,sh+1);
+      }
+    }
+  }
+  ctx.restore();
+}
+
+// ─── CONVECTION CELLS ─────────────────────────────────────────────────────────
+let convectionCells=[];
+function buildConvection(){
+  return Array.from({length:5+Ri(8)},()=>({
+    x:Rf(0.1,0.9)*W, y:Rf(0.1,0.9)*H,
+    rx:60+R()*120, ry:40+R()*80,
+    phase:R()*Math.PI*2, speed:0.002+R()*0.003,
+    colorIdx:R()*360|0
+  }));
+}
+
+function drawConvection(time){
+  ctx.save();
+  convectionCells.forEach((c,i)=>{
+    const ph=time*c.speed+c.phase;
+    const e=0.3+Math.sin(ph)*0.3;
+    ctx.strokeStyle=getColor(c.colorIdx+i*15, e, 0.15);
+    ctx.lineWidth=0.8;
+    for(let k=0;k<3;k++){
+      const scale=0.5+k*0.25;
+      ctx.beginPath();
+      ctx.ellipse(c.x+Math.cos(ph)*20, c.y+Math.sin(ph*0.7)*15, c.rx*scale, c.ry*scale, ph*0.3,0,Math.PI*2);
+      ctx.stroke();
+    }
+  });
+  ctx.restore();
+}
+
+// ─── ISLAMIC / MOORISH OVERLAY ────────────────────────────────────────────────
+function drawIslamicPattern(time){
+  const n=8+Ri(4);
+  const size=60+R()*40;
+  ctx.save();
+  ctx.globalAlpha=0.12;
+  for(let gy=0;gy<H/size+1;gy++){
+    for(let gx=0;gx<W/size+1;gx++){
+      const cx=gx*size, cy=gy*size;
+      const phase=time*0.0003+(gx+gy)*0.3;
+      ctx.strokeStyle=getColor(palette.h2+(gx*gy)%360, 0.6, 1);
+      ctx.lineWidth=0.8;
+      // star polygon
+      ctx.beginPath();
+      for(let i=0;i<n*2;i++){
+        const a=i/n/2*Math.PI*2+phase;
+        const r=i%2===0?size*0.45:size*0.2;
+        const x=cx+Math.cos(a)*r, y=cy+Math.sin(a)*r;
+        i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+      }
+      ctx.closePath(); ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+// ─── AUDIO ────────────────────────────────────────────────────────────────────
+function initAudio(){
+  if(!soundEnabled) return;
+  try{
+    audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+    masterGain=audioCtx.createGain();
+    masterGain.gain.value=0.12;
+    masterGain.connect(audioCtx.destination);
+    buildAudioGraph();
+  }catch(e){console.warn('Audio init failed:',e);}
+}
+
+function buildAudioGraph(){
+  if(!audioCtx||!soundEnabled) return;
+  stopAudio();
+  audioNodes=[];
+  // Oscillator bank - modal synthesis
+  const freqs=[55,82.5,110,165,220,330];
+  freqs.forEach((f,i)=>{
+    const osc=audioCtx.createOscillator();
+    const gain=audioCtx.createGain();
+    const filter=audioCtx.createBiquadFilter();
+    osc.type=['sine','triangle','sawtooth'][i%3];
+    osc.frequency.value=f;
+    filter.type='bandpass';
+    filter.frequency.value=f*2;
+    filter.Q.value=8+i*3;
+    gain.gain.value=0.03/(i+1);
+    osc.connect(filter); filter.connect(gain); gain.connect(masterGain);
+    osc.start();
+    audioNodes.push({osc,gain,filter,baseFreq:f});
+  });
+  // Granular-ish noise
+  const bufferSize=audioCtx.sampleRate*2;
+  const buffer=audioCtx.createBuffer(1,bufferSize,audioCtx.sampleRate);
+  const data=buffer.getChannelData(0);
+  for(let i=0;i<bufferSize;i++) data[i]=(Math.random()-0.5)*0.3*Math.sin(i*0.001);
+  const src=audioCtx.createBufferSource();
+  src.buffer=buffer; src.loop=true;
+  const noiseGain=audioCtx.createGain();
+  const noiseFilter=audioCtx.createBiquadFilter();
+  noiseGain.gain.value=0.02;
+  noiseFilter.type='lowpass'; noiseFilter.frequency.value=400;
+  src.connect(noiseFilter); noiseFilter.connect(noiseGain); noiseGain.connect(masterGain);
+  src.start();
+  audioNodes.push({src,gain:noiseGain});
+}
+
+function stopAudio(){
+  audioNodes.forEach(n=>{try{if(n.osc)n.osc.stop();if(n.src)n.src.stop();}catch(e){}});
+  audioNodes=[];
+}
+
+function updateAudio(time){
+  if(!soundEnabled||!audioCtx||audioNodes.length===0) return;
+  const energy=pendulums.reduce((acc,p)=>acc+Math.abs(p.links[0].omega),0)/pendulums.length;
+  const particleE=particles.slice(0,20).reduce((acc,p)=>acc+Math.sqrt(p.vx*p.vx+p.vy*p.vy),0)/20;
+  audioNodes.forEach((n,i)=>{
+    if(n.osc&&n.baseFreq){
+      const drift=Math.sin(time*0.0001+i)*10+energy*20;
+      n.osc.frequency.setTargetAtTime(n.baseFreq+drift,audioCtx.currentTime,0.5);
+      n.gain.gain.setTargetAtTime(0.03*(0.5+energy)/(i+1),audioCtx.currentTime,0.3);
+    }
+  });
+}
+
+// ─── CANVAS SETUP ─────────────────────────────────────────────────────────────
+function resize(){
+  W=canvas.width=window.innerWidth;
+  H=canvas.height=window.innerHeight;
+  CX=W/2; CY=H/2;
+  _hilbertPts=null; // invalidate cache
+}
+
+// ─── REGENERATE ───────────────────────────────────────────────────────────────
+function regenerate(){
+  RNG_SEED=Math.random()*99999|0;
+  _hilbertPts=null;
+  buildSystem();
+  if(soundEnabled) buildAudioGraph();
+  showToast('System Regenerated');
+}
+
+// ─── HUD ──────────────────────────────────────────────────────────────────────
+function updateHUD(){
+  if(!hudVisible) return;
+  const pCount=particles.length;
+  const energy=(pendulums.reduce((a,p)=>a+p.links.reduce((b,l)=>b+Math.abs(l.omega),0),0)).toFixed(2);
+  hudContent.innerHTML=`
+    <b style="color:#ff0">HYPERBOLIC LABYRINTH ENGINE</b><br>
+    Style: ${palette.style} / ${palette.mode}<br>
+    FPS: ${fps|0} &nbsp; Frame: ${frame}<br>
+    Time: ${(t/1000).toFixed(1)}s<br>
+    Seed: ${RNG_SEED}<br>
+    ──────────────────<br>
+    Pendulums: ${pendulums.length} chains<br>
+    Gears: ${gearTrain.length}<br>
+    Linkages: ${linkages.length}<br>
+    Particles: ${pCount}<br>
+    Vortices: ${vortices.length}<br>
+    Apollonius: ${apollonianCircles.length} circles<br>
+    Voronoi: ${voronoiSeeds.length} cells<br>
+    Penrose: ${penroseTiles.length} tiles<br>
+    Hyperbolic: ${hyperbolicTiles.length} tiles<br>
+    RD: ${SYS.rdEnabled?'ON':'OFF'}<br>
+    ──────────────────<br>
+    System Energy: ${energy}<br>
+    Sound: ${soundEnabled?'<span style="color:#0f0">ON</span>':'<span style="color:#f44">OFF</span>'}
+  `;
+}
+
+// ─── TOAST ────────────────────────────────────────────────────────────────────
+let toastTimer=null;
+function showToast(msg){
+  toast.textContent=msg; toast.style.opacity='1';
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>{toast.style.opacity='0';},1500);
+}
+
+// ─── MAIN RENDER LOOP ─────────────────────────────────────────────────────────
+function drawBackground(){
+  ctx.fillStyle=palette.bg;
+  ctx.fillRect(0,0,W,H);
+  // subtle gradient overlay
+  const grad=ctx.createRadialGradient(CX,CY,0,CX,CY,Math.min(W,H)*0.7);
+  grad.addColorStop(0,getColor(palette.h0,0.2,0.05));
+  grad.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=grad;
+  ctx.fillRect(0,0,W,H);
+}
+
+let rdFrameCounter=0;
+function render(timestamp){
+  requestAnimationFrame(render);
+  const dt=Math.min((timestamp-lastTime)/16.67,3);
+  fps=fps*0.95+(1000/(timestamp-lastTime+0.001))*0.05;
+  lastTime=timestamp;
+  t=timestamp;
+  paletteT=timestamp;
+  frame++;
+
+  drawBackground();
+
+  // Geometry layers (back to front)
+  if(SYS.useHilbert) drawHilbert(t);
+  if(SYS.useVoronoi){
+    stepVoronoi();
+    drawVoronoi();
+  }
+  if(SYS.usePenrose) drawPenrose(t);
+  if(SYS.useHyperbolic) drawHyperbolicTiles(t);
+  if(SYS.useApollonius) drawApollonius(t);
+  if(SYS.useConcentric) drawConcentricMazes(t);
+  drawIslamicPattern(t);
+  drawConvection(t);
+
+  // RD (every 2 frames for perf)
+  if(SYS.rdEnabled){
+    if(frame%2===0) stepRD();
+    drawRD();
+  }
+
+  // Mechanics
+  linkages.forEach(lk=>{
+    lk.angle+=lk.speed*dt;
+    drawLinkage(lk);
+  });
+  gearTrain.forEach(g=>{
+    g.angle+=g.speed*dt;
+    drawGear(g);
+  });
+  pendulums.forEach(p=>{
+    stepPendulum(p, dt*0.016);
+    drawPendulum(p);
+  });
+
+  // Particles
+  stepParticles(dt);
+  drawParticles();
+
+  // Audio
+  if(soundEnabled) updateAudio(t);
+
+  updateHUD();
+}
+
+// ─── EVENTS ───────────────────────────────────────────────────────────────────
+window.addEventListener('keydown',e=>{
+  if(e.key===' '){e.preventDefault();regenerate();}
+  else if(e.key==='h'||e.key==='H'){
+    hudVisible=!hudVisible;
+    hud.style.display=hudVisible?'block':'none';
+    showToast('HUD '+(hudVisible?'ON':'OFF'));
+  }
+  else if(e.key==='s'||e.key==='S'){
+    soundEnabled=!soundEnabled;
+    if(soundEnabled){
+      if(!audioCtx) initAudio();
+      else{if(audioCtx.state==='suspended')audioCtx.resume();buildAudioGraph();}
+    } else {
+      stopAudio();
+      if(audioCtx){audioCtx.suspend();}
+    }
+    showToast('Sound '+(soundEnabled?'ON':'OFF'));
+  }
+});
+
+let tapTimer=null;
+function onInteract(e){
+  if(e.target===canvas){
+    regenerate();
+  }
+}
+canvas.addEventListener('click', onInteract);
+canvas.addEventListener('touchend', e=>{e.preventDefault(); onInteract(e);},{passive:false});
+window.addEventListener('resize',()=>{resize(); buildSystem();});
+
+// ─── BOOT ─────────────────────────────────────────────────────────────────────
+resize();
+buildSystem();
+requestAnimationFrame(t=>{lastTime=t; requestAnimationFrame(render);});
+
+})();
+</script>
+</body>
+</html>

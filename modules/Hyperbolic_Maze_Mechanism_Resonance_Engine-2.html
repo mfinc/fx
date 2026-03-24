@@ -1,0 +1,1341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Hyperbolic Maze–Mechanism Resonance Engine</title>
+<meta name="description" content="A hypnotic generative audiovisual engine fusing hyperbolic mazes, recursive labyrinths, multi-pendulum chaos, Hamiltonian mechanics, Penrose tilings, Islamic geometry, Celtic knotwork, and procedural harmonic audio into an endlessly evolving meta-abstract universe.">
+<meta name="keywords" content="generative art, hyperbolic maze, pendulum chaos, Penrose tiling, Islamic geometry, Celtic knotwork, Hamiltonian mechanics, Lagrangian mechanics, Runge-Kutta, symplectic integrator, double pendulum, Peaucellier linkage, Hilbert curve, Klein bottle, procedural audio, modal synthesis, quasicrystal, Moorish tessellation, gyroscope, torsion spring, audiovisual engine, WebGL, canvas animation, fractal maze">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Courier New',monospace}
+canvas{display:block;position:fixed;top:0;left:0;width:100%!important;height:100%!important}
+#hud{position:fixed;top:0;left:0;width:100%;padding:12px 16px;pointer-events:none;display:none;z-index:10}
+#hud.visible{display:block}
+#hud-inner{background:rgba(0,0,0,0.55);border:1px solid rgba(255,255,255,0.15);border-radius:8px;padding:10px 14px;font-size:11px;line-height:1.7;color:rgba(255,255,255,0.75);max-width:360px;backdrop-filter:blur(6px)}
+#hud-inner span{color:#7ff}
+#hint{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);font-size:10px;color:rgba(255,255,255,0.25);pointer-events:none;letter-spacing:2px;text-transform:uppercase;z-index:10;transition:opacity 1s}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"><div id="hud-inner" id="hud-content"></div></div>
+<div id="hint">SPACE · CLICK · TAP to restart &nbsp;|&nbsp; H toggles HUD &nbsp;|&nbsp; S toggles sound</div>
+<script>
+"use strict";
+// ═══════════════════════════════════════════════════════
+// HYPERBOLIC MAZE–MECHANISM RESONANCE ENGINE
+// ═══════════════════════════════════════════════════════
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const hudEl = document.getElementById('hud');
+const hudContent = document.querySelector('#hud-inner');
+const hintEl = document.getElementById('hint');
+
+let W, H, cx, cy, t = 0, frame = 0;
+let hudVisible = false, soundEnabled = false;
+let audioCtx = null, masterGain = null;
+let oscillators = [], noiseNode = null;
+let animId = null;
+let palette = [], palette2 = [];
+let seed = Math.random() * 1e9 | 0;
+
+// ── RNG ──────────────────────────────────────────────
+let rngState = seed;
+function rng() {
+  rngState ^= rngState << 13; rngState ^= rngState >> 17; rngState ^= rngState << 5;
+  return (rngState >>> 0) / 4294967296;
+}
+function rngRange(a, b) { return a + rng() * (b - a); }
+function rngInt(a, b) { return Math.floor(rngRange(a, b + 1)); }
+function rngChoice(arr) { return arr[Math.floor(rng() * arr.length)]; }
+
+// ── RESIZE ───────────────────────────────────────────
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  cx = W / 2; cy = H / 2;
+}
+
+// ── PALETTE GENERATION ───────────────────────────────
+function mkPalette() {
+  palette = []; palette2 = [];
+  const modes = ['neon','jewel','earth','ghost','solar','cyber','ocean','coral'];
+  const mode = rngChoice(modes);
+  const baseHue = rngRange(0, 360);
+  const schemes = {
+    neon:  [[baseHue, 90, 60],[baseHue+60,85,65],[baseHue+180,95,70],[baseHue+240,80,55],[baseHue+300,100,75]],
+    jewel: [[baseHue, 80, 45],[baseHue+90,75,40],[baseHue+180,85,50],[baseHue+270,70,35],[baseHue+30,90,55]],
+    ghost: [[baseHue, 20, 85],[baseHue+40,15,90],[baseHue+80,25,80],[baseHue+120,10,95],[baseHue+200,30,75]],
+    solar: [[30,100,70],[50,95,65],[10,90,55],[200,60,80],[280,70,65]],
+    cyber: [[180,100,65],[120,90,55],[300,95,70],[60,80,60],[240,85,75]],
+    ocean: [[200,90,60],[220,85,50],[180,80,70],[160,75,65],[240,70,55]],
+    earth: [[30,60,55],[50,70,50],[80,55,45],[200,40,60],[10,65,40]],
+    coral: [[350,90,65],[20,85,60],[40,80,70],[320,75,55],[270,70,65]]
+  };
+  const cols = schemes[mode] || schemes.neon;
+  for (let i = 0; i < cols.length; i++) {
+    const [h, s, l] = cols[i];
+    palette.push(`hsl(${h % 360},${s}%,${l}%)`);
+    palette2.push(`hsl(${(h+30) % 360},${Math.min(100, s+10)}%,${Math.min(100, l+15)}%)`);
+  }
+  return { mode, baseHue };
+}
+
+// ── COLOR UTILS ──────────────────────────────────────
+function hsl(h, s, l, a = 1) {
+  return `hsla(${((h % 360) + 360) % 360},${s}%,${l}%,${a})`;
+}
+function lerp(a, b, t) { return a + (b - a) * t; }
+function lerpColor(c1, c2, t) {
+  // simplified: use palette cycling
+  return palette[Math.floor(t * palette.length) % palette.length];
+}
+function palCol(i, a = 1) {
+  const c = palette[((i % palette.length) + palette.length) % palette.length];
+  if (a >= 1) return c;
+  return c.replace('hsl(', 'hsla(').replace(')', `,${a})`);
+}
+function spectral(t, a = 1) {
+  const h = (t * 360 + frame * 0.3) % 360;
+  return `hsla(${h},85%,60%,${a})`;
+}
+
+// ══════════════════════════════════════════════════════
+// PHYSICS ENGINE
+// ══════════════════════════════════════════════════════
+
+// ── RK4 INTEGRATOR ───────────────────────────────────
+function rk4(state, ddt, h) {
+  const k1 = ddt(state);
+  const s2 = state.map((v, i) => v + h * 0.5 * k1[i]);
+  const k2 = ddt(s2);
+  const s3 = state.map((v, i) => v + h * 0.5 * k2[i]);
+  const k3 = ddt(s3);
+  const s4 = state.map((v, i) => v + h * k3[i]);
+  const k4 = ddt(s4);
+  return state.map((v, i) => v + h / 6 * (k1[i] + 2*k2[i] + 2*k3[i] + k4[i]));
+}
+
+// ── DOUBLE PENDULUM ──────────────────────────────────
+class DoublePendulum {
+  constructor(x0, y0, l1, l2, m1, m2, a1, a2, da1, da2, col) {
+    this.x0 = x0; this.y0 = y0;
+    this.l1 = l1; this.l2 = l2;
+    this.m1 = m1; this.m2 = m2;
+    this.a1 = a1; this.a2 = a2;
+    this.da1 = da1; this.da2 = da2;
+    this.col = col;
+    this.trail = [];
+    this.g = 9.8;
+    this.energy = 0;
+  }
+  step(dt) {
+    const { l1, l2, m1, m2, g } = this;
+    const state = [this.a1, this.a2, this.da1, this.da2];
+    const ddt = ([a1, a2, da1, da2]) => {
+      const d = a1 - a2;
+      const sd = Math.sin(d), cd = Math.cos(d);
+      const den1 = (m1 + m2) * l1 - m2 * l1 * cd * cd;
+      const den2 = den1 * (l2 / l1);
+      const dda1 = (m2*l1*da1*da1*sd*cd + m2*g*Math.sin(a2)*cd + m2*l2*da2*da2*sd - (m1+m2)*g*Math.sin(a1)) / den1;
+      const dda2 = (-(m1+m2)*(l1*da1*da1*sd - g*Math.sin(a2) + g*Math.sin(a1)*cd) - m2*l2*da2*da2*sd*cd) / den2;
+      return [da1, da2, dda1, dda2];
+    };
+    const ns = rk4(state, ddt, dt);
+    [this.a1, this.a2, this.da1, this.da2] = ns;
+    // compute tip position
+    const x1 = this.x0 + l1 * Math.sin(this.a1);
+    const y1 = this.y0 + l1 * Math.cos(this.a1);
+    const x2 = x1 + l2 * Math.sin(this.a2);
+    const y2 = y1 + l2 * Math.cos(this.a2);
+    this.trail.push([x2, y2]);
+    if (this.trail.length > 200) this.trail.shift();
+    // d is a1 - a2, computed here at the outer scope for the energy formula
+    const dAngle = this.a1 - this.a2;
+    this.energy = 0.5 * (m1 + m2) * l1 * l1 * this.da1 * this.da1 +
+                  0.5 * m2 * l2 * l2 * this.da2 * this.da2 +
+                  m2 * l1 * l2 * this.da1 * this.da2 * Math.cos(dAngle) -
+                  (m1 + m2) * g * l1 * Math.cos(this.a1) - m2 * g * l2 * Math.cos(this.a2);
+  }
+  draw(ctx) {
+    const { l1, l2 } = this;
+    const x1 = this.x0 + l1 * Math.sin(this.a1);
+    const y1 = this.y0 + l1 * Math.cos(this.a1);
+    const x2 = x1 + l2 * Math.sin(this.a2);
+    const y2 = y1 + l2 * Math.cos(this.a2);
+    // trail
+    if (this.trail.length > 2) {
+      ctx.beginPath();
+      ctx.moveTo(this.trail[0][0], this.trail[0][1]);
+      for (let i = 1; i < this.trail.length; i++) {
+        ctx.lineTo(this.trail[i][0], this.trail[i][1]);
+      }
+      ctx.strokeStyle = `hsla(0,0%,90%,0.35)`;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+    // rods
+    ctx.strokeStyle = this.col;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(this.x0, this.y0); ctx.lineTo(x1, y1); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+    // bobs
+    ctx.fillStyle = this.col;
+    ctx.beginPath(); ctx.arc(x1, y1, 4, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(x2, y2, 5, 0, Math.PI*2); ctx.fill();
+  }
+}
+
+// ── PEAUCELLIER–LIPKIN LINKAGE ───────────────────────
+class PeaucellierLinkage {
+  constructor(x, y, scale, col, speed) {
+    this.ox = x; this.oy = y;
+    this.scale = scale;
+    this.col = col;
+    this.speed = speed;
+    this.angle = rng() * Math.PI * 2;
+    this.trail = [];
+  }
+  getPoints(angle) {
+    const s = this.scale;
+    // Fixed pivot A at origin, driver pivot B offset
+    const bx = this.ox, by = this.oy;
+    const k1 = s * 1.2, k2 = s * 0.8;
+    // driver circle
+    const r = s * 0.5;
+    const px = bx + r * Math.cos(angle);
+    const py = by + r * Math.sin(angle);
+    // inversion: output point traces a line
+    const ax = this.ox - s * 0.7, ay = this.oy;
+    const dx = px - ax, dy = py - ay;
+    const dist2 = dx * dx + dy * dy;
+    const k = k1 * k1 - k2 * k2;
+    const t_inv = k / dist2;
+    const qx = ax + dx * t_inv;
+    const qy = ay + dy * t_inv;
+    return { px, py, qx, qy, ax, ay };
+  }
+  step(dt) {
+    this.angle += this.speed * dt;
+    const { qx, qy } = this.getPoints(this.angle);
+    this.trail.push([qx, qy]);
+    if (this.trail.length > 300) this.trail.shift();
+  }
+  draw(ctx) {
+    const pts = this.getPoints(this.angle);
+    // draw trail
+    if (this.trail.length > 2) {
+      ctx.beginPath();
+      ctx.moveTo(this.trail[0][0], this.trail[0][1]);
+      for (const p of this.trail) ctx.lineTo(p[0], p[1]);
+      ctx.strokeStyle = this.col;
+      ctx.lineWidth = 1;
+      ctx.globalAlpha = 0.5;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+    // linkage bars
+    ctx.strokeStyle = this.col;
+    ctx.lineWidth = 1.5;
+    const { px, py, qx, qy, ax, ay } = pts;
+    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(px, py); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(qx, qy); ctx.stroke();
+    ctx.fillStyle = this.col;
+    ctx.beginPath(); ctx.arc(px, py, 3, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(qx, qy, 4, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(ax, ay, 3, 0, Math.PI*2); ctx.fill();
+  }
+}
+
+// ── GYROSCOPIC ROTOR ─────────────────────────────────
+class GyroRotor {
+  constructor(x, y, r, col) {
+    this.x = x; this.y = y; this.r = r; this.col = col;
+    this.phi = rng() * Math.PI * 2;
+    this.theta = rng() * 0.5;
+    this.psi = rng() * Math.PI * 2;
+    this.dphi = rngRange(0.5, 2.0) * (rng() > 0.5 ? 1 : -1);
+    this.dtheta = rngRange(0.01, 0.1);
+    this.dpsi = rngRange(1, 4);
+    this.thetaDir = 1;
+  }
+  step(dt) {
+    this.phi += this.dphi * dt;
+    this.theta += this.dtheta * this.thetaDir * dt;
+    if (Math.abs(this.theta) > 0.6) this.thetaDir *= -1;
+    this.psi += this.dpsi * dt;
+  }
+  draw(ctx) {
+    const { x, y, r, phi, theta, psi, col } = this;
+    ctx.save();
+    ctx.translate(x, y);
+    // outer ring
+    ctx.beginPath();
+    ctx.ellipse(0, 0, r, r * Math.abs(Math.cos(theta)), phi, 0, Math.PI*2);
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 1.5;
+    ctx.globalAlpha = 0.7;
+    ctx.stroke();
+    // inner ring
+    ctx.beginPath();
+    ctx.ellipse(0, 0, r*0.6, r*0.6*Math.abs(Math.cos(theta+0.3)), phi+psi*0.3, 0, Math.PI*2);
+    ctx.strokeStyle = palette2[0] || col;
+    ctx.stroke();
+    // spoke
+    const sx = r * Math.cos(psi), sy = r * 0.6 * Math.sin(psi) * Math.cos(theta);
+    ctx.beginPath();
+    ctx.moveTo(-sx * 0.9, -sy * 0.9);
+    ctx.lineTo(sx * 0.9, sy * 0.9);
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    // hub
+    ctx.beginPath();
+    ctx.arc(0, 0, r * 0.08, 0, Math.PI*2);
+    ctx.fillStyle = col;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+}
+
+// ── SLIDER-CRANK MECHANISM ───────────────────────────
+class SliderCrank {
+  constructor(x, y, scale, col, speed) {
+    this.x = x; this.y = y; this.s = scale; this.col = col;
+    this.angle = rng() * Math.PI * 2;
+    this.speed = speed;
+    this.trail = [];
+    this.r = scale * 0.4;
+    this.L = scale * 0.9;
+  }
+  step(dt) {
+    this.angle += this.speed * dt;
+    // slider position
+    const x_s = this.r * Math.cos(this.angle) +
+      Math.sqrt(Math.max(0, this.L * this.L - (this.r * Math.sin(this.angle)) ** 2));
+    this.trail.push(x_s);
+    if (this.trail.length > 150) this.trail.shift();
+  }
+  draw(ctx) {
+    const { x, y, s, r, L, angle, col } = this;
+    const cx_pin = x + r * Math.cos(angle);
+    const cy_pin = y + r * Math.sin(angle);
+    const x_s = this.x + r * Math.cos(angle) +
+      Math.sqrt(Math.max(0, L * L - (r * Math.sin(angle)) ** 2));
+    const y_s = y;
+    // crank
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(cx_pin, cy_pin); ctx.stroke();
+    // connecting rod
+    ctx.beginPath(); ctx.moveTo(cx_pin, cy_pin); ctx.lineTo(x_s, y_s); ctx.stroke();
+    // slider block
+    ctx.fillStyle = col;
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 1;
+    ctx.fillRect(x_s - 8, y_s - 8, 16, 16);
+    // guide rail
+    ctx.beginPath();
+    ctx.moveTo(x - s * 0.5, y);
+    ctx.lineTo(x + s * 1.5, y);
+    ctx.strokeStyle = col.replace('hsl(', 'hsla(').replace(')', ',0.3)');
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillStyle = col;
+    ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx_pin, cy_pin, 4, 0, Math.PI*2); ctx.fill();
+  }
+}
+
+// ── TORSION SPRING LATTICE ────────────────────────────
+class TorsionSpring {
+  constructor(x, y, n, r, col) {
+    this.x = x; this.y = y; this.n = n; this.r = r; this.col = col;
+    this.angles = Array.from({length: n}, (_, i) => (i / n) * Math.PI * 2 + rng() * 0.3);
+    this.velocities = Array.from({length: n}, () => rngRange(-0.5, 0.5));
+    this.natural = Array.from({length: n}, (_, i) => (i / n) * Math.PI * 2);
+    this.k = rngRange(3, 8); // spring constant
+    this.damp = 0.02;
+  }
+  step(dt) {
+    for (let i = 0; i < this.n; i++) {
+      const d = this.natural[i] - this.angles[i];
+      this.velocities[i] += (this.k * d - this.damp * this.velocities[i]) * dt;
+      this.angles[i] += this.velocities[i] * dt;
+      // coupling with neighbors
+      const prev = (i - 1 + this.n) % this.n;
+      const next = (i + 1) % this.n;
+      this.velocities[i] += 0.3 * (this.angles[prev] + this.angles[next] - 2 * this.angles[i]) * dt;
+    }
+    // slowly rotate natural angles
+    for (let i = 0; i < this.n; i++) this.natural[i] += 0.003 * dt;
+  }
+  draw(ctx) {
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    for (let i = 0; i < this.n; i++) {
+      const a = this.angles[i];
+      const x1 = this.r * 0.3 * Math.cos(a);
+      const y1 = this.r * 0.3 * Math.sin(a);
+      const x2 = this.r * Math.cos(a);
+      const y2 = this.r * Math.sin(a);
+      ctx.strokeStyle = this.col;
+      ctx.lineWidth = 1.5;
+      ctx.globalAlpha = 0.7 + 0.3 * Math.sin(a * 3 + t);
+      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+      // spring coils visual
+      for (let j = 1; j < 5; j++) {
+        const f = j / 5;
+        const sx = lerp(x1, x2, f) + 3 * Math.cos(a + Math.PI / 2 + j * 1.2);
+        const sy = lerp(y1, y2, f) + 3 * Math.sin(a + Math.PI / 2 + j * 1.2);
+        ctx.beginPath(); ctx.arc(sx, sy, 1, 0, Math.PI * 2);
+        ctx.fillStyle = this.col; ctx.fill();
+      }
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// MAZE SYSTEMS
+// ══════════════════════════════════════════════════════
+
+// ── RECURSIVE BACKTRACKER MAZE ───────────────────────
+class RecursiveMaze {
+  constructor(cols, rows, cellW, cellH, ox, oy, col) {
+    this.cols = cols; this.rows = rows;
+    this.cellW = cellW; this.cellH = cellH;
+    this.ox = ox; this.oy = oy; this.col = col;
+    this.walls = [];
+    this.generate();
+    this.opacity = 0;
+    this.fadeIn = rngRange(0.003, 0.008);
+  }
+  generate() {
+    const { cols, rows } = this;
+    const visited = new Uint8Array(cols * rows);
+    const walls = Array.from({length: cols * rows}, () => ({N:1,S:1,E:1,W:1}));
+    const idx = (c, r) => r * cols + c;
+    const stack = [[0, 0]];
+    visited[idx(0,0)] = 1;
+    const dirs = [{dx:0,dy:-1,d:'N',od:'S'},{dx:0,dy:1,d:'S',od:'N'},{dx:1,dy:0,d:'E',od:'W'},{dx:-1,dy:0,d:'W',od:'E'}];
+    while (stack.length) {
+      const [c, r] = stack[stack.length - 1];
+      const neighbors = dirs.filter(({dx,dy}) => {
+        const nc = c + dx, nr = r + dy;
+        return nc >= 0 && nc < cols && nr >= 0 && nr < rows && !visited[idx(nc,nr)];
+      });
+      if (neighbors.length === 0) { stack.pop(); continue; }
+      const {dx,dy,d,od} = neighbors[Math.floor(rng() * neighbors.length)];
+      walls[idx(c,r)][d] = 0;
+      walls[idx(c+dx, r+dy)][od] = 0;
+      visited[idx(c+dx,r+dy)] = 1;
+      stack.push([c+dx, r+dy]);
+    }
+    this.walls = walls;
+  }
+  draw(ctx) {
+    if (this.opacity < 1) this.opacity = Math.min(1, this.opacity + this.fadeIn);
+    const { cols, rows, cellW, cellH, ox, oy, walls, col } = this;
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 1;
+    ctx.globalAlpha = this.opacity * 0.6;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const w = walls[r * cols + c];
+        const x = ox + c * cellW, y = oy + r * cellH;
+        if (w.N) { ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + cellW, y); ctx.stroke(); }
+        if (w.S && r === rows - 1) { ctx.beginPath(); ctx.moveTo(x, y + cellH); ctx.lineTo(x + cellW, y + cellH); ctx.stroke(); }
+        if (w.W) { ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y + cellH); ctx.stroke(); }
+        if (w.E && c === cols - 1) { ctx.beginPath(); ctx.moveTo(x + cellW, y); ctx.lineTo(x + cellW, y + cellH); ctx.stroke(); }
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+}
+
+// ── CONCENTRIC CIRCULAR MAZE ─────────────────────────
+class ConcentricMaze {
+  constructor(x, y, rings, col) {
+    this.x = x; this.y = y; this.rings = rings; this.col = col;
+    this.gaps = this.generate();
+    this.rotSpeed = rngRange(0.0002, 0.001) * (rng() > 0.5 ? 1 : -1);
+    this.baseAngle = 0;
+  }
+  generate() {
+    const gaps = [];
+    for (let ring = 0; ring < this.rings; ring++) {
+      const segments = 4 + ring * 2;
+      const gap = Math.floor(rng() * segments);
+      gaps.push({ segments, gap });
+    }
+    return gaps;
+  }
+  draw(ctx, minR, maxR) {
+    this.baseAngle += this.rotSpeed;
+    const { x, y, rings, gaps, col } = this;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(this.baseAngle);
+    for (let ring = 0; ring < rings; ring++) {
+      const r = minR + (ring + 1) * (maxR - minR) / rings;
+      const { segments, gap } = gaps[ring];
+      const segAngle = (Math.PI * 2) / segments;
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 1.2;
+      ctx.globalAlpha = 0.55;
+      for (let s = 0; s < segments; s++) {
+        if (s === gap) continue;
+        const a1 = s * segAngle - Math.PI / 2;
+        const a2 = a1 + segAngle;
+        ctx.beginPath();
+        ctx.arc(0, 0, r, a1, a2);
+        ctx.stroke();
+      }
+      // radial walls
+      for (let s = 0; s < segments; s++) {
+        if (s === gap || s === (gap - 1 + segments) % segments) continue;
+        const a = s * segAngle - Math.PI / 2;
+        const rInner = ring === 0 ? 0 : minR + ring * (maxR - minR) / rings;
+        ctx.beginPath();
+        ctx.moveTo(rInner * Math.cos(a), rInner * Math.sin(a));
+        ctx.lineTo(r * Math.cos(a), r * Math.sin(a));
+        ctx.stroke();
+      }
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+}
+
+// ── HYPERBOLIC MAZE ───────────────────────────────────
+class HyperbolicMaze {
+  constructor(x, y, R, col) {
+    this.x = x; this.y = y; this.R = R; this.col = col;
+    this.nodes = this.generate();
+    this.phase = rng() * Math.PI * 2;
+    this.rotSpeed = rngRange(0.0001, 0.0003);
+  }
+  // Poincaré disk model
+  poincareToScreen(px, py) {
+    return [this.x + px * this.R, this.y + py * this.R];
+  }
+  moebius(z_re, z_im, a_re, a_im) {
+    // Möbius transform: (z - a) / (1 - conj(a)*z)
+    const num_re = z_re - a_re, num_im = z_im - a_im;
+    const den_re = 1 - (a_re * z_re + a_im * z_im);
+    const den_im = -(a_re * z_im - a_im * z_re);
+    const denom = den_re * den_re + den_im * den_im;
+    return [(num_re * den_re + num_im * den_im) / denom,
+            (num_im * den_re - num_re * den_im) / denom];
+  }
+  generate() {
+    // Generate nodes on Poincaré disk
+    const nodes = [];
+    for (let level = 0; level < 4; level++) {
+      const count = 4 + level * 6;
+      const r = 0.2 + level * 0.18;
+      for (let i = 0; i < count; i++) {
+        const a = (i / count) * Math.PI * 2;
+        nodes.push({ r, a, level });
+      }
+    }
+    return nodes;
+  }
+  draw(ctx) {
+    this.phase += this.rotSpeed;
+    const { col, R } = this;
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    // outer circle (disk boundary)
+    ctx.beginPath();
+    ctx.arc(0, 0, R, 0, Math.PI * 2);
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 1;
+    ctx.globalAlpha = 0.3;
+    ctx.stroke();
+    // Draw hyperbolic geodesics
+    ctx.globalAlpha = 0.5;
+    ctx.lineWidth = 0.8;
+    for (let i = 0; i < this.nodes.length; i++) {
+      const n1 = this.nodes[i];
+      const n2 = this.nodes[(i + 1) % this.nodes.length];
+      const a1 = n1.a + this.phase;
+      const a2 = n2.a + this.phase;
+      const p1 = [n1.r * Math.cos(a1), n1.r * Math.sin(a1)];
+      const p2 = [n2.r * Math.cos(a2), n2.r * Math.sin(a2)];
+      // geodesic as circular arc in Poincaré model
+      // simplified: draw straight chord (Euclidean chord approximates small geodesics)
+      ctx.beginPath();
+      ctx.moveTo(p1[0] * R, p1[1] * R);
+      ctx.lineTo(p2[0] * R, p2[1] * R);
+      ctx.strokeStyle = col;
+      ctx.stroke();
+    }
+    // inner nodes
+    for (const n of this.nodes) {
+      const a = n.a + this.phase;
+      const px = n.r * Math.cos(a) * R;
+      const py = n.r * Math.sin(a) * R;
+      ctx.beginPath();
+      ctx.arc(px, py, 2, 0, Math.PI * 2);
+      ctx.fillStyle = col;
+      ctx.globalAlpha = 0.7;
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// TILING SYSTEMS
+// ══════════════════════════════════════════════════════
+
+// ── PENROSE QUASICRYSTAL TILING ───────────────────────
+class PenroseTiling {
+  constructor(x, y, size, depth, col1, col2) {
+    this.x = x; this.y = y; this.size = size;
+    this.depth = depth; this.col1 = col1; this.col2 = col2;
+    this.triangles = this.generate();
+    this.phase = rng() * Math.PI * 2;
+    this.rotSpeed = rngRange(0.0001, 0.0002);
+  }
+  generate() {
+    // P2 Penrose tiling via triangles (Robinson decomposition)
+    const phi = (1 + Math.sqrt(5)) / 2;
+    const tris = [];
+    for (let i = 0; i < 10; i++) {
+      const a = (2 * i - 1) * Math.PI / 10;
+      const b = (2 * i + 1) * Math.PI / 10;
+      tris.push({
+        type: 0,
+        ax: 0, ay: 0,
+        bx: Math.cos(a) * this.size, by: Math.sin(a) * this.size,
+        cx: Math.cos(b) * this.size, cy: Math.sin(b) * this.size
+      });
+    }
+    let result = tris;
+    for (let d = 0; d < this.depth; d++) {
+      const next = [];
+      for (const t of result) {
+        if (t.type === 0) {
+          const px = t.ax + (t.bx - t.ax) / phi, py = t.ay + (t.by - t.ay) / phi;
+          next.push({type:0, ax:t.cx, ay:t.cy, bx:px, by:py, cx:t.bx, cy:t.by});
+          next.push({type:1, ax:px, ay:py, bx:t.cx, by:t.cy, cx:t.ax, cy:t.ay});
+        } else {
+          const px = t.bx + (t.ax - t.bx) / phi, py = t.by + (t.ay - t.by) / phi;
+          next.push({type:1, ax:t.cx, ay:t.cy, bx:t.bx, by:t.by, cx:px, cy:py});
+          next.push({type:0, ax:px, ay:py, bx:t.cx, by:t.cy, cx:t.ax, cy:t.ay});
+          next.push({type:1, ax:t.bx, ay:t.by, bx:px, by:py, cx:t.ax, cy:t.ay});
+        }
+      }
+      result = next;
+    }
+    return result;
+  }
+  draw(ctx) {
+    this.phase += this.rotSpeed;
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.rotate(this.phase);
+    for (const t of this.triangles) {
+      ctx.beginPath();
+      ctx.moveTo(t.ax, t.ay);
+      ctx.lineTo(t.bx, t.by);
+      ctx.lineTo(t.cx, t.cy);
+      ctx.closePath();
+      ctx.strokeStyle = t.type === 0 ? this.col1 : this.col2;
+      ctx.lineWidth = 0.5;
+      ctx.globalAlpha = 0.35;
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+}
+
+// ── ISLAMIC GEOMETRIC ORNAMENT ────────────────────────
+class IslamicGeometry {
+  constructor(x, y, size, col, n) {
+    this.x = x; this.y = y; this.size = size; this.col = col;
+    this.n = n || rngInt(6, 12); // star polygon order
+    this.phase = rng() * Math.PI * 2;
+    this.rotSpeed = rngRange(0.0001, 0.0004) * (rng() > 0.5 ? 1 : -1);
+    this.layers = rngInt(2, 4);
+  }
+  drawStarPolygon(ctx, x, y, r, n, skip, angle) {
+    const pts = [];
+    for (let i = 0; i < n; i++) {
+      const a = angle + (i * Math.PI * 2) / n;
+      pts.push([x + r * Math.cos(a), y + r * Math.sin(a)]);
+    }
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 0; i < n; i++) {
+      ctx.lineTo(pts[(i * skip) % n][0], pts[(i * skip) % n][1]);
+    }
+    ctx.closePath();
+    ctx.stroke();
+  }
+  draw(ctx) {
+    this.phase += this.rotSpeed;
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.strokeStyle = this.col;
+    ctx.lineWidth = 0.8;
+    ctx.globalAlpha = 0.55;
+    for (let l = 0; l < this.layers; l++) {
+      const r = this.size * (0.4 + l * 0.25);
+      const skip = Math.floor(this.n / 2) - (l % 2 === 0 ? 0 : 1);
+      if (skip < 2) continue;
+      this.drawStarPolygon(ctx, 0, 0, r, this.n, skip, this.phase + l * 0.2);
+      // Inner decorative ring
+      for (let i = 0; i < this.n; i++) {
+        const a = this.phase + (i * Math.PI * 2) / this.n;
+        const px = r * 0.7 * Math.cos(a);
+        const py = r * 0.7 * Math.sin(a);
+        ctx.beginPath();
+        ctx.arc(px, py, r * 0.08, 0, Math.PI * 2);
+        ctx.fillStyle = this.col;
+        ctx.fill();
+      }
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+}
+
+// ── HILBERT CURVE PATHWAY ─────────────────────────────
+class HilbertCurve {
+  constructor(x, y, order, size, col) {
+    this.x = x; this.y = y;
+    this.col = col;
+    this.points = this.generate(order, size);
+    this.drawProgress = 0;
+    this.drawSpeed = rngRange(0.003, 0.01);
+  }
+  generate(order, size) {
+    const n = Math.pow(2, order);
+    const pts = [];
+    for (let i = 0; i < n * n; i++) {
+      let rx, ry, t = i;
+      let x = 0, y = 0, s = 1;
+      while (s < n) {
+        rx = 1 & (t >> 1);
+        ry = 1 & (t ^ rx);
+        if (ry === 0) {
+          if (rx === 1) { x = s - 1 - x; y = s - 1 - y; }
+          [x, y] = [y, x];
+        }
+        x += s * rx; y += s * ry;
+        t >>= 2; s <<= 1;
+      }
+      pts.push([
+        this.x + (x / (n - 1) - 0.5) * size,
+        this.y + (y / (n - 1) - 0.5) * size
+      ]);
+    }
+    return pts;
+  }
+  draw(ctx) {
+    this.drawProgress = Math.min(1, this.drawProgress + this.drawSpeed);
+    const pts = this.points;
+    const end = Math.floor(this.drawProgress * (pts.length - 1));
+    if (end < 2) return;
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i <= end; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+    ctx.strokeStyle = this.col;
+    ctx.lineWidth = 1;
+    ctx.globalAlpha = 0.6;
+    ctx.stroke();
+    // glowing head
+    const p = pts[end];
+    ctx.beginPath();
+    ctx.arc(p[0], p[1], 3, 0, Math.PI * 2);
+    ctx.fillStyle = this.col;
+    ctx.globalAlpha = 1;
+    ctx.fill();
+    if (this.drawProgress >= 1) this.drawProgress = 0;
+  }
+}
+
+// ── CELTIC KNOTWORK ───────────────────────────────────
+class CelticKnot {
+  constructor(x, y, r, col, crossings) {
+    this.x = x; this.y = y; this.r = r; this.col = col;
+    this.c = crossings || rngInt(3, 7);
+    this.phase = rng() * Math.PI * 2;
+    this.speed = rngRange(0.0002, 0.001);
+    this.trail = [];
+  }
+  knot(t) {
+    const { r, c } = this;
+    const k = c;
+    // Lissajous-based knot
+    const x = r * Math.cos(t * k + Math.PI / 4) * Math.cos(t);
+    const y = r * Math.cos(t * k + Math.PI / 4) * Math.sin(t);
+    return [x, y];
+  }
+  draw(ctx) {
+    this.phase += this.speed;
+    const steps = 400;
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.lineWidth = 2;
+    for (let i = 0; i < steps; i++) {
+      const t1 = (i / steps) * Math.PI * 2 + this.phase;
+      const t2 = ((i + 1) / steps) * Math.PI * 2 + this.phase;
+      const [x1, y1] = this.knot(t1);
+      const [x2, y2] = this.knot(t2);
+      const hh = ((i / steps) * 360 + frame * 0.5) % 360;
+      ctx.strokeStyle = `hsla(${hh},80%,65%,0.5)`;
+      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+// ── MOORISH TESSELLATION ─────────────────────────────
+class MoorishTessellation {
+  constructor(x, y, size, col) {
+    this.x = x; this.y = y; this.size = size; this.col = col;
+    this.phase = rng() * Math.PI * 2;
+    this.speed = rngRange(0.0002, 0.0008);
+    this.tiles = this.generateTiles();
+  }
+  generateTiles() {
+    const tiles = [];
+    const s = this.size;
+    // Moroccan 8-pointed star tile positions
+    for (let i = -3; i <= 3; i++) {
+      for (let j = -3; j <= 3; j++) {
+        tiles.push({ dx: i * s * 2.1, dy: j * s * 2.1 });
+      }
+    }
+    return tiles;
+  }
+  drawStar8(ctx, x, y, r, angle) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+    ctx.beginPath();
+    for (let i = 0; i < 8; i++) {
+      const a1 = (i * Math.PI) / 4;
+      const a2 = a1 + Math.PI / 8;
+      const rOuter = r;
+      const rInner = r * 0.4;
+      if (i === 0) ctx.moveTo(rOuter * Math.cos(a1), rOuter * Math.sin(a1));
+      else ctx.lineTo(rOuter * Math.cos(a1), rOuter * Math.sin(a1));
+      ctx.lineTo(rInner * Math.cos(a2), rInner * Math.sin(a2));
+    }
+    ctx.closePath();
+    ctx.strokeStyle = this.col;
+    ctx.lineWidth = 0.8;
+    ctx.globalAlpha = 0.4;
+    ctx.stroke();
+    ctx.restore();
+  }
+  draw(ctx) {
+    this.phase += this.speed;
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    for (const tile of this.tiles) {
+      // clip distant tiles
+      const d = Math.sqrt(tile.dx * tile.dx + tile.dy * tile.dy);
+      if (d > W * 0.6) continue;
+      this.drawStar8(ctx, tile.dx, tile.dy, this.size * 0.8, this.phase);
+    }
+    ctx.restore();
+  }
+}
+
+// ── STAINED GLASS RADIAL ─────────────────────────────
+class StainedGlassRadial {
+  constructor(x, y, r, col, segments) {
+    this.x = x; this.y = y; this.r = r; this.col = col;
+    this.seg = segments || rngInt(8, 16);
+    this.rings = rngInt(3, 6);
+    this.phase = rng() * Math.PI * 2;
+    this.speed = rngRange(0.0001, 0.0005) * (rng() > 0.5 ? 1 : -1);
+  }
+  draw(ctx) {
+    this.phase += this.speed;
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.rotate(this.phase);
+    for (let ring = 1; ring <= this.rings; ring++) {
+      const r1 = (ring - 1) / this.rings * this.r;
+      const r2 = ring / this.rings * this.r;
+      for (let s = 0; s < this.seg; s++) {
+        const a1 = (s / this.seg) * Math.PI * 2;
+        const a2 = ((s + 1) / this.seg) * Math.PI * 2;
+        const hh = ((s / this.seg + ring / this.rings) * 360 + frame * 0.4) % 360;
+        ctx.beginPath();
+        ctx.arc(0, 0, r2, a1, a2);
+        ctx.arc(0, 0, r1, a2, a1, true);
+        ctx.closePath();
+        ctx.fillStyle = `hsla(${hh},75%,55%,0.1)`;
+        ctx.fill();
+        ctx.strokeStyle = `hsla(${hh},60%,70%,0.4)`;
+        ctx.lineWidth = 0.7;
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+}
+
+// ── PARTICLE TRAILS ───────────────────────────────────
+class ParticleSystem {
+  constructor(n, col) {
+    this.particles = [];
+    this.col = col;
+    this.n = n;
+    for (let i = 0; i < n; i++) this.addParticle();
+  }
+  addParticle() {
+    const angle = rng() * Math.PI * 2;
+    const speed = rngRange(0.5, 2.5);
+    this.particles.push({
+      x: rngRange(0, W), y: rngRange(0, H),
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      life: 1.0, decay: rngRange(0.003, 0.01),
+      trail: [],
+      hue: rngRange(0, 360)
+    });
+  }
+  step(dt) {
+    for (let i = this.particles.length - 1; i >= 0; i--) {
+      const p = this.particles[i];
+      p.trail.push([p.x, p.y]);
+      if (p.trail.length > 30) p.trail.shift();
+      // attractor influence
+      const dx = cx - p.x, dy = cy - p.y;
+      const d = Math.sqrt(dx * dx + dy * dy);
+      p.vx += (dx / (d + 100)) * 0.1 + (rng() - 0.5) * 0.2;
+      p.vy += (dy / (d + 100)) * 0.1 + (rng() - 0.5) * 0.2;
+      p.vx *= 0.99; p.vy *= 0.99;
+      p.x += p.vx; p.y += p.vy;
+      p.life -= p.decay;
+      p.hue = (p.hue + 0.5) % 360;
+      if (p.life <= 0) {
+        this.particles.splice(i, 1);
+        this.addParticle();
+      }
+    }
+  }
+  draw(ctx) {
+    for (const p of this.particles) {
+      if (p.trail.length < 2) continue;
+      ctx.beginPath();
+      ctx.moveTo(p.trail[0][0], p.trail[0][1]);
+      for (let i = 1; i < p.trail.length; i++) {
+        ctx.lineTo(p.trail[i][0], p.trail[i][1]);
+      }
+      ctx.strokeStyle = `hsla(${p.hue},80%,65%,${p.life * 0.5})`;
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 1.5, 0, Math.PI * 2);
+      ctx.fillStyle = `hsla(${p.hue},90%,80%,${p.life})`;
+      ctx.fill();
+    }
+  }
+}
+
+// ── INTERFERENCE BANDS ────────────────────────────────
+function drawInterference(ctx, t) {
+  const sources = [
+    {x: cx * 0.5, y: cy * 0.7},
+    {x: cx * 1.5, y: cy * 0.5},
+    {x: cx, y: cy * 1.6}
+  ];
+  for (let s of sources) {
+    for (let r = 10; r < Math.max(W, H); r += 35 + 10 * Math.sin(t * 0.3)) {
+      const alpha = 0.03 * (1 - r / Math.max(W, H));
+      if (alpha <= 0) continue;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, r + 20 * Math.sin(t + r * 0.05), 0, Math.PI * 2);
+      const hh = (r * 0.5 + frame * 0.5) % 360;
+      ctx.strokeStyle = `hsla(${hh},70%,60%,${alpha})`;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// AUDIO ENGINE
+// ══════════════════════════════════════════════════════
+function initAudio() {
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  masterGain = audioCtx.createGain();
+  masterGain.gain.setValueAtTime(0.08, audioCtx.currentTime);
+  masterGain.connect(audioCtx.destination);
+  startAudio();
+}
+
+function startAudio() {
+  if (!audioCtx || !soundEnabled) return;
+  stopAudio();
+  // Modal synthesis tones
+  const baseFreqs = [65.4, 130.8, 196, 261.6, 392, 523.2, 784];
+  const modes = ['sine', 'triangle', 'sawtooth'];
+  oscillators = [];
+  for (let i = 0; i < 5; i++) {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.value = baseFreqs[i % baseFreqs.length] * (1 + rng() * 0.5);
+    filter.Q.value = 5 + rng() * 10;
+    osc.type = modes[i % modes.length];
+    osc.frequency.value = baseFreqs[i % baseFreqs.length];
+    gain.gain.setValueAtTime(0.02 + rng() * 0.04, audioCtx.currentTime);
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(masterGain);
+    osc.start();
+    oscillators.push({ osc, gain, filter, baseFreq: osc.frequency.value });
+  }
+  // Drone / pad
+  const droneOsc = audioCtx.createOscillator();
+  const droneGain = audioCtx.createGain();
+  const droneFilter = audioCtx.createBiquadFilter();
+  droneFilter.type = 'lowpass';
+  droneFilter.frequency.value = 400;
+  droneOsc.type = 'sawtooth';
+  droneOsc.frequency.value = 55;
+  droneGain.gain.setValueAtTime(0.015, audioCtx.currentTime);
+  droneOsc.connect(droneFilter);
+  droneFilter.connect(droneGain);
+  droneGain.connect(masterGain);
+  droneOsc.start();
+  oscillators.push({ osc: droneOsc, gain: droneGain, filter: droneFilter, baseFreq: 55 });
+  // Noise for texture
+  const bufferSize = audioCtx.sampleRate * 2;
+  const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) data[i] = (Math.random() * 2 - 1) * 0.3;
+  noiseNode = audioCtx.createBufferSource();
+  noiseNode.buffer = buffer;
+  noiseNode.loop = true;
+  const noiseGain = audioCtx.createGain();
+  const noiseFilter = audioCtx.createBiquadFilter();
+  noiseFilter.type = 'bandpass';
+  noiseFilter.frequency.value = 200;
+  noiseFilter.Q.value = 0.5;
+  noiseGain.gain.value = 0.008;
+  noiseNode.connect(noiseFilter);
+  noiseFilter.connect(noiseGain);
+  noiseGain.connect(masterGain);
+  noiseNode.start();
+}
+
+function stopAudio() {
+  for (const { osc } of oscillators) { try { osc.stop(); } catch(e){} }
+  oscillators = [];
+  if (noiseNode) { try { noiseNode.stop(); } catch(e){} noiseNode = null; }
+}
+
+function updateAudio(energy) {
+  if (!audioCtx || !soundEnabled) return;
+  const t = audioCtx.currentTime;
+  for (let i = 0; i < oscillators.length; i++) {
+    const { osc, gain, filter, baseFreq } = oscillators[i];
+    const mod = 1 + 0.1 * Math.sin(t * (0.1 + i * 0.07)) + energy * 0.05;
+    osc.frequency.setTargetAtTime(baseFreq * mod, t, 0.1);
+    gain.gain.setTargetAtTime(0.01 + energy * 0.03 + 0.02 * Math.sin(t * (0.5 + i)), t, 0.5);
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// SCENE MANAGEMENT
+// ══════════════════════════════════════════════════════
+let pendulums = [], linkages = [], gyros = [], cranks = [], springs = [];
+let mazes = [], circMazes = [], hypMazes = [];
+let penrose = [], islamic = [], hilbert = [], celtic = [], moorish = [], stained = [];
+let particles = null;
+let palInfo = {};
+let systemEnergy = 0;
+
+function buildScene() {
+  t = 0; frame = 0;
+  rngState = (Date.now() ^ (Math.random() * 0xFFFFFFFF | 0)) >>> 0;
+  palInfo = mkPalette();
+  resize();
+
+  // ── Physics objects ──
+  pendulums = [];
+  const nPend = Math.min(5, 2 + rngInt(0, 3));
+  for (let i = 0; i < nPend; i++) {
+    const x0 = W * rngRange(0.2, 0.8);
+    const y0 = H * rngRange(0.1, 0.4);
+    const l1 = rngRange(60, 120);
+    const l2 = rngRange(50, 100);
+    pendulums.push(new DoublePendulum(
+      x0, y0, l1, l2,
+      rngRange(1, 3), rngRange(0.5, 2),
+      rngRange(0.5, Math.PI * 0.8),
+      rngRange(0.5, Math.PI * 0.8),
+      rngRange(-0.5, 0.5), rngRange(-0.5, 0.5),
+      palCol(i, 1)
+    ));
+  }
+
+  linkages = [];
+  const nLink = rngInt(1, 3);
+  for (let i = 0; i < nLink; i++) {
+    linkages.push(new PeaucellierLinkage(
+      rngRange(W * 0.1, W * 0.9), rngRange(H * 0.3, H * 0.7),
+      rngRange(50, 90), palCol(i + 1, 1), rngRange(0.3, 0.9)
+    ));
+  }
+
+  gyros = [];
+  const nGyro = rngInt(3, 6);
+  for (let i = 0; i < nGyro; i++) {
+    gyros.push(new GyroRotor(
+      rngRange(W * 0.1, W * 0.9), rngRange(H * 0.1, H * 0.9),
+      rngRange(30, 70), palCol(i + 2, 1)
+    ));
+  }
+
+  cranks = [];
+  const nCrank = rngInt(2, 4);
+  for (let i = 0; i < nCrank; i++) {
+    cranks.push(new SliderCrank(
+      rngRange(W * 0.1, W * 0.7), rngRange(H * 0.2, H * 0.8),
+      rngRange(80, 140), palCol(i, 1), rngRange(0.5, 2)
+    ));
+  }
+
+  springs = [];
+  const nSpr = rngInt(2, 4);
+  for (let i = 0; i < nSpr; i++) {
+    springs.push(new TorsionSpring(
+      rngRange(W * 0.15, W * 0.85), rngRange(H * 0.15, H * 0.85),
+      rngInt(6, 12), rngRange(40, 80), palCol(i + 3, 1)
+    ));
+  }
+
+  // ── Maze objects ──
+  mazes = [];
+  const isMobile = W < 600;
+  const cellSz = isMobile ? 20 : 14;
+  const mW = Math.floor(W * 0.4 / cellSz);
+  const mH = Math.floor(H * 0.4 / cellSz);
+  mazes.push(new RecursiveMaze(
+    mW, mH, cellSz, cellSz,
+    rngRange(W * 0.05, W * 0.1), rngRange(H * 0.05, H * 0.1),
+    palCol(0, 1)
+  ));
+
+  circMazes = [];
+  for (let i = 0; i < rngInt(2, 4); i++) {
+    circMazes.push(new ConcentricMaze(
+      rngRange(W * 0.15, W * 0.85), rngRange(H * 0.15, H * 0.85),
+      rngInt(4, 8), palCol(i + 1, 1)
+    ));
+  }
+
+  hypMazes = [];
+  for (let i = 0; i < rngInt(1, 3); i++) {
+    hypMazes.push(new HyperbolicMaze(
+      rngRange(W * 0.2, W * 0.8), rngRange(H * 0.2, H * 0.8),
+      Math.min(W, H) * rngRange(0.12, 0.2),
+      palCol(i + 2, 1)
+    ));
+  }
+
+  // ── Tiling objects ──
+  penrose = [];
+  const penDepth = isMobile ? 3 : 4;
+  for (let i = 0; i < rngInt(1, 3); i++) {
+    penrose.push(new PenroseTiling(
+      rngRange(W * 0.2, W * 0.8), rngRange(H * 0.2, H * 0.8),
+      Math.min(W, H) * rngRange(0.15, 0.3), penDepth,
+      palCol(i, 1), palCol(i + 2, 1)
+    ));
+  }
+
+  islamic = [];
+  for (let i = 0; i < rngInt(2, 5); i++) {
+    islamic.push(new IslamicGeometry(
+      rngRange(W * 0.1, W * 0.9), rngRange(H * 0.1, H * 0.9),
+      rngRange(40, 100), palCol(i + 1, 1)
+    ));
+  }
+
+  hilbert = [];
+  const hOrder = isMobile ? 3 : 4;
+  for (let i = 0; i < rngInt(1, 3); i++) {
+    hilbert.push(new HilbertCurve(
+      rngRange(W * 0.2, W * 0.8), rngRange(H * 0.2, H * 0.8),
+      hOrder, Math.min(W, H) * rngRange(0.2, 0.35),
+      palCol(i + 3, 1)
+    ));
+  }
+
+  celtic = [];
+  for (let i = 0; i < rngInt(2, 4); i++) {
+    celtic.push(new CelticKnot(
+      rngRange(W * 0.15, W * 0.85), rngRange(H * 0.15, H * 0.85),
+      rngRange(40, 90), palCol(i, 1)
+    ));
+  }
+
+  moorish = [];
+  for (let i = 0; i < rngInt(1, 2); i++) {
+    moorish.push(new MoorishTessellation(
+      cx, cy, rngRange(30, 60), palCol(i + 2, 1)
+    ));
+  }
+
+  stained = [];
+  for (let i = 0; i < rngInt(2, 4); i++) {
+    stained.push(new StainedGlassRadial(
+      rngRange(W * 0.1, W * 0.9), rngRange(H * 0.1, H * 0.9),
+      rngRange(60, 140), palCol(i, 1)
+    ));
+  }
+
+  // ── Particles ──
+  particles = new ParticleSystem(isMobile ? 40 : 80, palCol(0, 1));
+}
+
+// ══════════════════════════════════════════════════════
+// MAIN RENDER LOOP
+// ══════════════════════════════════════════════════════
+function render(timestamp) {
+  animId = requestAnimationFrame(render);
+  const dt = Math.min(0.05, 0.016);
+  t += dt;
+  frame++;
+
+  // ── Background ──
+  ctx.fillStyle = `rgba(0,0,0,${0.07 + 0.03 * Math.sin(t * 0.1)})`;
+  ctx.fillRect(0, 0, W, H);
+
+  // ── Interference bands ──
+  if (frame % 2 === 0) drawInterference(ctx, t);
+
+  // ── Tilings (bottom layer) ──
+  for (const p of penrose) p.draw(ctx);
+  for (const m of moorish) m.draw(ctx);
+  for (const s of stained) s.draw(ctx);
+
+  // ── Mazes ──
+  for (const m of mazes) m.draw(ctx);
+  const mazeR = Math.min(W, H) * 0.35;
+  for (const cm of circMazes) cm.draw(ctx, mazeR * 0.3, mazeR);
+  for (const hm of hypMazes) hm.draw(ctx);
+
+  // ── Hilbert curves ──
+  for (const h of hilbert) h.draw(ctx);
+
+  // ── Islamic geometry ──
+  for (const ig of islamic) ig.draw(ctx);
+
+  // ── Celtic knots ──
+  for (const c of celtic) c.draw(ctx);
+
+  // ── Physics update + draw ──
+  systemEnergy = 0;
+  for (const p of pendulums) {
+    p.step(dt);
+    p.draw(ctx);
+    systemEnergy += Math.abs(p.energy);
+  }
+  for (const l of linkages) { l.step(dt); l.draw(ctx); }
+  for (const g of gyros) { g.step(dt); g.draw(ctx); }
+  for (const c of cranks) { c.step(dt); c.draw(ctx); }
+  for (const s of springs) { s.step(dt); s.draw(ctx); }
+
+  // ── Particles ──
+  particles.step(dt);
+  particles.draw(ctx);
+
+  // ── Chromatic radial pulse ──
+  const pulse = Math.sin(t * 2) * 0.5 + 0.5;
+  const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.min(W, H) * 0.5);
+  const baseH = (frame * 0.2) % 360;
+  grad.addColorStop(0, `hsla(${baseH},80%,50%,${0.03 * pulse})`);
+  grad.addColorStop(1, `hsla(${(baseH + 180) % 360},60%,30%,0)`);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  // ── Audio sync ──
+  if (soundEnabled) updateAudio(Math.min(1, systemEnergy / 1000));
+
+  // ── HUD ──
+  if (hudVisible && frame % 10 === 0) updateHUD();
+
+  // Fade hint
+  if (frame === 180) hintEl.style.opacity = '0';
+}
+
+function updateHUD() {
+  const energy = systemEnergy.toFixed(1);
+  const fps = Math.round(1000 / (16));
+  hudContent.innerHTML = `
+    <div><span>MODE</span> ${palInfo.mode?.toUpperCase() || 'SPECTRAL'}</div>
+    <div><span>PALETTE</span> ${palette.map(c => `<span style="color:${c}">■</span>`).join('')}</div>
+    <div><span>PENDULA</span> ${pendulums.length} &nbsp; <span>LINKAGES</span> ${linkages.length}</div>
+    <div><span>GYROS</span> ${gyros.length} &nbsp; <span>CRANKS</span> ${cranks.length}</div>
+    <div><span>MAZES</span> ${mazes.length + circMazes.length + hypMazes.length}</div>
+    <div><span>TILINGS</span> ${penrose.length + islamic.length + celtic.length + moorish.length}</div>
+    <div><span>ENERGY</span> ${energy}</div>
+    <div><span>SOUND</span> ${soundEnabled ? 'ON' : 'OFF'} &nbsp; <span>FRAME</span> ${frame}</div>
+    <div style="margin-top:4px;opacity:0.5">SPACE/CLICK/TAP restart · H hud · S sound</div>
+  `;
+}
+
+// ══════════════════════════════════════════════════════
+// INPUT HANDLING
+// ══════════════════════════════════════════════════════
+function restart() {
+  if (animId) cancelAnimationFrame(animId);
+  ctx.clearRect(0, 0, W, H);
+  buildScene();
+  if (soundEnabled && audioCtx) startAudio();
+  render();
+}
+
+window.addEventListener('keydown', e => {
+  if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); restart(); }
+  if (e.key === 'h' || e.key === 'H') {
+    hudVisible = !hudVisible;
+    hudEl.classList.toggle('visible', hudVisible);
+  }
+  if (e.key === 's' || e.key === 'S') {
+    soundEnabled = !soundEnabled;
+    if (soundEnabled) {
+      initAudio();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      startAudio();
+    } else {
+      stopAudio();
+    }
+  }
+});
+
+canvas.addEventListener('click', () => restart());
+canvas.addEventListener('touchstart', e => { e.preventDefault(); restart(); }, { passive: false });
+window.addEventListener('resize', () => { resize(); });
+
+// ── BOOT ──────────────────────────────────────────────
+resize();
+buildScene();
+render();
+</script>
+</body>
+</html>

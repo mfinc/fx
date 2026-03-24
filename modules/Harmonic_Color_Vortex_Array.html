@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Multi-Layer Harmonic Color Vortex Array — an immersive full-canvas generative art animation featuring concentric rotating color vortices, gradient spirals, swatch rings, and dynamic spectral cycling with algorithmic palette generation.">
+<meta name="keywords" content="generative art, color vortex, harmonic colors, animation, canvas, spectral cycling, analogous colors, complementary colors, tetradic palette, heatmap, fabric colors, UI palette, audio visualization, WebAudio API">
+<title>Harmonic Color Vortex Array</title>
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+  canvas { display: block; width: 100%; height: 100%; cursor: crosshair; }
+
+  #hud {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none; font-family: 'Courier New', monospace;
+    color: rgba(255,255,255,0.85); display: none;
+  }
+  #hud.visible { display: block; }
+
+  #hud-panel {
+    position: absolute; top: 18px; left: 18px;
+    background: rgba(0,0,0,0.62); border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 8px; padding: 14px 18px; min-width: 260px;
+    backdrop-filter: blur(6px); font-size: 11.5px; line-height: 1.85;
+  }
+  #hud-panel .hud-title {
+    font-size: 13px; font-weight: bold; letter-spacing: 2px;
+    color: #fff; margin-bottom: 8px; text-transform: uppercase;
+  }
+  #hud-panel .hud-row { display: flex; justify-content: space-between; gap: 16px; }
+  #hud-panel .hud-label { color: rgba(255,255,255,0.5); }
+  #hud-panel .hud-val { color: #fff; min-width: 90px; text-align: right; }
+  #hud-panel .hud-sep { border-top: 1px solid rgba(255,255,255,0.1); margin: 6px 0; }
+
+  #swatch-bar {
+    position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 5px; align-items: center;
+    background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 40px; padding: 8px 16px; backdrop-filter: blur(8px);
+  }
+  .swatch { width: 22px; height: 22px; border-radius: 50%; border: 1.5px solid rgba(255,255,255,0.2); flex-shrink: 0; transition: transform 0.2s; }
+  #swatch-label { font-size: 10px; letter-spacing: 1.5px; color: rgba(255,255,255,0.4); margin-right: 6px; text-transform: uppercase; }
+
+  #keys {
+    position: absolute; bottom: 18px; right: 18px;
+    font-size: 10px; color: rgba(255,255,255,0.35); text-align: right;
+    background: rgba(0,0,0,0.4); border-radius: 6px; padding: 8px 12px;
+    border: 1px solid rgba(255,255,255,0.08); backdrop-filter: blur(4px);
+    line-height: 1.9;
+  }
+  #keys span { color: rgba(255,255,255,0.7); }
+
+  #palette-name {
+    position: absolute; top: 18px; right: 18px;
+    font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
+    color: rgba(255,255,255,0.4); background: rgba(0,0,0,0.4);
+    padding: 6px 12px; border-radius: 5px;
+    border: 1px solid rgba(255,255,255,0.08); backdrop-filter: blur(4px);
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="hud">
+  <div id="hud-panel">
+    <div class="hud-title">⬡ Vortex Array HUD</div>
+    <div class="hud-row"><span class="hud-label">FPS</span><span class="hud-val" id="h-fps">—</span></div>
+    <div class="hud-row"><span class="hud-label">Palette</span><span class="hud-val" id="h-pal">—</span></div>
+    <div class="hud-row"><span class="hud-label">Harmony</span><span class="hud-val" id="h-harm">—</span></div>
+    <div class="hud-row"><span class="hud-label">Layers</span><span class="hud-val" id="h-layers">—</span></div>
+    <div class="hud-sep"></div>
+    <div class="hud-row"><span class="hud-label">Master Hue</span><span class="hud-val" id="h-hue">—</span></div>
+    <div class="hud-row"><span class="hud-label">Hue Drift</span><span class="hud-val" id="h-drift">—</span></div>
+    <div class="hud-row"><span class="hud-label">Sat Flux</span><span class="hud-val" id="h-sat">—</span></div>
+    <div class="hud-row"><span class="hud-label">Angular Vel</span><span class="hud-val" id="h-ang">—</span></div>
+    <div class="hud-sep"></div>
+    <div class="hud-row"><span class="hud-label">Audio</span><span class="hud-val" id="h-audio">OFF</span></div>
+    <div class="hud-row"><span class="hud-label">Vortex Mode</span><span class="hud-val" id="h-vmode">—</span></div>
+    <div class="hud-row"><span class="hud-label">Blend</span><span class="hud-val" id="h-blend">—</span></div>
+  </div>
+  <div id="swatch-bar">
+    <span id="swatch-label">Active</span>
+    <div class="swatch" id="sw0"></div>
+    <div class="swatch" id="sw1"></div>
+    <div class="swatch" id="sw2"></div>
+    <div class="swatch" id="sw3"></div>
+    <div class="swatch" id="sw4"></div>
+    <div class="swatch" id="sw5"></div>
+    <div class="swatch" id="sw6"></div>
+    <div class="swatch" id="sw7"></div>
+  </div>
+  <div id="palette-name" id="h-palname">—</div>
+  <div id="keys">
+    <span>SPACE / CLICK</span> randomize all<br>
+    <span>H</span> toggle HUD<br>
+    <span>S</span> toggle audio
+  </div>
+</div>
+
+<script>
+(function(){
+"use strict";
+
+// ─── CANVAS SETUP ───────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H, cx, cy, minDim;
+
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  cx = W / 2; cy = H / 2;
+  minDim = Math.min(W, H);
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ─── HUD STATE ──────────────────────────────────────────────────────
+let hudVisible = false;
+const hud = document.getElementById('hud');
+
+function toggleHUD() {
+  hudVisible = !hudVisible;
+  hud.classList.toggle('visible', hudVisible);
+}
+
+// ─── AUDIO ENGINE ────────────────────────────────────────────────────
+let audioEnabled = false;
+let audioCtx = null;
+let masterGain = null;
+let oscNodes = [];
+const NUM_OSC = 5;
+
+function initAudio() {
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  masterGain = audioCtx.createGain();
+  masterGain.gain.value = 0.0;
+  masterGain.connect(audioCtx.destination);
+
+  for (let i = 0; i < NUM_OSC; i++) {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.Q.value = 8;
+    osc.type = ['sine','triangle','sawtooth','sine','triangle'][i];
+    osc.frequency.value = 80 + i * 60;
+    gain.gain.value = 0.08 / NUM_OSC;
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(masterGain);
+    osc.start();
+    oscNodes.push({ osc, gain, filter });
+  }
+}
+
+function enableAudio() {
+  initAudio();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  masterGain.gain.setTargetAtTime(0.35, audioCtx.currentTime, 0.5);
+  audioEnabled = true;
+  if (hudVisible) document.getElementById('h-audio').textContent = 'ON';
+}
+
+function disableAudio() {
+  audioEnabled = false;
+  if (audioCtx && masterGain) masterGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.3);
+  if (hudVisible) document.getElementById('h-audio').textContent = 'OFF';
+}
+
+function toggleAudio() {
+  audioEnabled ? disableAudio() : enableAudio();
+}
+
+function updateAudio(state) {
+  if (!audioEnabled || !audioCtx) return;
+  const t = audioCtx.currentTime;
+  for (let i = 0; i < NUM_OSC; i++) {
+    const layer = state.layers[i % state.layers.length];
+    const vel = Math.abs(layer.angularVel);
+    const baseFreq = 55 + i * 55 + (state.masterHue / 360) * 200;
+    oscNodes[i].osc.frequency.setTargetAtTime(baseFreq + vel * 80, t, 0.1);
+    oscNodes[i].filter.frequency.setTargetAtTime(200 + state.satFlux * 2000, t, 0.15);
+    oscNodes[i].gain.gain.setTargetAtTime(0.04 * (0.5 + 0.5 * (layer.opacity || 0.8)), t, 0.1);
+  }
+}
+
+// ─── PALETTE GENERATORS ──────────────────────────────────────────────
+const HARMONY_TYPES = ['analogous','complementary','triadic','tetradic','split-complementary','square'];
+const PALETTE_FAMILIES = ['spectral','fabric','paint','heatmap','ui-semantic','neon','earth','jewel','pastel','monochrome'];
+
+function hsl2rgb(h, s, l) {
+  h = ((h % 360) + 360) % 360;
+  s /= 100; l /= 100;
+  const k = n => (n + h / 30) % 12;
+  const a = s * Math.min(l, 1 - l);
+  const f = n => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  return [Math.round(f(0)*255), Math.round(f(8)*255), Math.round(f(4)*255)];
+}
+
+function rgb2hex(r, g, b) {
+  return '#' + [r,g,b].map(v => v.toString(16).padStart(2,'0')).join('');
+}
+
+function hsl2hex(h, s, l) {
+  const [r,g,b] = hsl2rgb(h, s, l);
+  return rgb2hex(r, g, b);
+}
+
+function genHarmony(baseHue, type, saturation, lightness) {
+  const s = saturation, l = lightness;
+  switch(type) {
+    case 'analogous':
+      return [0,-30,30,-60,60,-90,90,-120].map(d => hsl2hex(baseHue+d, s, l));
+    case 'complementary':
+      return [0,180,30,210,-30,150,60,240].map(d => hsl2hex(baseHue+d, s, l));
+    case 'triadic':
+      return [0,120,240,60,180,300,30,150].map(d => hsl2hex(baseHue+d, s, l));
+    case 'tetradic':
+      return [0,90,180,270,45,135,225,315].map(d => hsl2hex(baseHue+d, s, l));
+    case 'split-complementary':
+      return [0,150,210,30,180,240,-30,120].map(d => hsl2hex(baseHue+d, s, l));
+    case 'square':
+      return [0,90,180,270,45,135,225,315].map(d => hsl2hex(baseHue+d, s*0.9, l));
+    default:
+      return [0,45,90,135,180,225,270,315].map(d => hsl2hex(baseHue+d, s, l));
+  }
+}
+
+function genSpecialPalette(family, baseHue) {
+  switch(family) {
+    case 'spectral':
+      return [0,30,60,120,180,240,270,300].map(h => hsl2hex(h, 90, 55));
+    case 'heatmap':
+      return [
+        hsl2hex(0,95,45), hsl2hex(15,95,50), hsl2hex(30,95,55),
+        hsl2hex(55,95,55), hsl2hex(90,80,55), hsl2hex(180,70,45),
+        hsl2hex(220,80,40), hsl2hex(260,85,35)
+      ];
+    case 'fabric':
+      return [
+        hsl2hex(baseHue,35,45), hsl2hex(baseHue+15,40,55), hsl2hex(baseHue+30,25,65),
+        hsl2hex(baseHue-20,50,35), hsl2hex(baseHue+60,30,50), hsl2hex(baseHue+120,45,40),
+        hsl2hex(baseHue-40,20,70), hsl2hex(baseHue+180,35,45)
+      ];
+    case 'paint':
+      return [
+        hsl2hex(baseHue,70,40), hsl2hex(baseHue+15,60,50), hsl2hex(baseHue+180,65,45),
+        hsl2hex(baseHue-30,80,35), hsl2hex(baseHue+90,55,55), hsl2hex(baseHue+45,75,42),
+        hsl2hex(baseHue+210,60,48), hsl2hex(baseHue-60,70,38)
+      ];
+    case 'ui-semantic':
+      return ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#f97316','#84cc16'];
+    case 'neon':
+      return [
+        hsl2hex(baseHue,100,60), hsl2hex(baseHue+72,100,60), hsl2hex(baseHue+144,100,60),
+        hsl2hex(baseHue+216,100,60), hsl2hex(baseHue+288,100,60),
+        hsl2hex(baseHue+36,100,65), hsl2hex(baseHue+108,100,65), hsl2hex(baseHue+180,100,65)
+      ];
+    case 'earth':
+      return [
+        hsl2hex(25,60,35), hsl2hex(35,55,45), hsl2hex(45,50,55),
+        hsl2hex(20,70,30), hsl2hex(15,65,40), hsl2hex(140,30,35),
+        hsl2hex(200,25,40), hsl2hex(30,40,60)
+      ];
+    case 'jewel':
+      return [
+        hsl2hex(baseHue,80,35), hsl2hex(baseHue+60,75,30), hsl2hex(baseHue+120,85,32),
+        hsl2hex(baseHue+180,78,28), hsl2hex(baseHue+240,82,35), hsl2hex(baseHue+300,75,33),
+        hsl2hex(baseHue+30,88,38), hsl2hex(baseHue+150,80,30)
+      ];
+    case 'pastel':
+      return [0,45,90,135,180,225,270,315].map(d => hsl2hex(baseHue+d, 55, 78));
+    case 'monochrome':
+      return [0,1,2,3,4,5,6,7].map(i => hsl2hex(baseHue, 60+i*5, 20+i*10));
+    default:
+      return genHarmony(baseHue, 'tetradic', 75, 55);
+  }
+}
+
+const BLEND_MODES = ['screen','screen','screen','overlay','hard-light','color-dodge','source-over','lighter'];
+const VORTEX_MODES = ['spiral','concentric','offset','interference','weave','radial-burst'];
+
+// ─── STATE ───────────────────────────────────────────────────────────
+let state = {};
+
+function rand(a, b) { return a + Math.random() * (b - a); }
+function randInt(a, b) { return Math.floor(rand(a, b + 1)); }
+function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+function randomize() {
+  const baseHue = rand(0, 360);
+  const harmony = pick(HARMONY_TYPES);
+  const family = pick(PALETTE_FAMILIES);
+  const saturation = rand(55, 95);
+  const lightness = rand(38, 65);
+
+  let palette;
+  if (Math.random() < 0.5) {
+    palette = genHarmony(baseHue, harmony, saturation, lightness);
+  } else {
+    palette = genSpecialPalette(family, baseHue);
+  }
+
+  const numLayers = randInt(5, 11);
+  const layers = [];
+  for (let i = 0; i < numLayers; i++) {
+    layers.push({
+      type: pick(VORTEX_MODES),
+      radius: rand(0.05, 0.52) * minDim,
+      radiusTarget: rand(0.05, 0.52) * minDim,
+      ringCount: randInt(3, 14),
+      angularVel: rand(-2.5, 2.5) * (Math.random() < 0.5 ? 1 : -1),
+      angularVelTarget: rand(-2.5, 2.5) * (Math.random() < 0.5 ? 1 : -1),
+      angle: rand(0, Math.PI * 2),
+      hueOffset: rand(0, 360),
+      hueOffsetTarget: rand(0, 360),
+      opacity: rand(0.55, 0.95),
+      opacityTarget: rand(0.55, 0.95),
+      offsetX: rand(-0.15, 0.15) * minDim,
+      offsetY: rand(-0.15, 0.15) * minDim,
+      offsetXTarget: rand(-0.15, 0.15) * minDim,
+      offsetYTarget: rand(-0.15, 0.15) * minDim,
+      paletteIndex: Math.floor(Math.random() * palette.length),
+      strokeWidth: rand(0.5, 4),
+      gradientType: pick(['radial','conic','linear']),
+      spiralTightness: rand(0.5, 3),
+      phaseShift: rand(0, Math.PI * 2),
+      harmonicMultiplier: pick([1, 1.5, 2, 3, 0.5, 0.75]),
+      blend: pick(BLEND_MODES),
+    });
+  }
+
+  state = {
+    masterHue: baseHue,
+    masterHueTarget: baseHue,
+    hueDrift: rand(0.02, 0.18),
+    satFlux: rand(0.3, 0.9),
+    satFluxTarget: rand(0.3, 0.9),
+    harmony,
+    family,
+    palette,
+    paletteTarget: palette,
+    layers,
+    numLayers,
+    time: 0,
+    spectralPhase: rand(0, Math.PI * 2),
+    globalBlend: pick(BLEND_MODES),
+    vortexMode: pick(VORTEX_MODES),
+    bgHue: rand(0, 360),
+    bgHueTarget: rand(0, 360),
+    transitionProgress: 0,
+    transitionDuration: rand(1.5, 4),
+  };
+}
+
+randomize();
+
+// ─── INTERPOLATION / EASING ──────────────────────────────────────────
+function lerp(a, b, t) { return a + (b - a) * t; }
+function lerpAngle(a, b, t) {
+  let diff = ((b - a) % 360 + 540) % 360 - 180;
+  return a + diff * t;
+}
+function easeInOut(t) { return t < 0.5 ? 2*t*t : -1+(4-2*t)*t; }
+
+// ─── DRAWING ─────────────────────────────────────────────────────────
+function hexToRgb(hex) {
+  const r = parseInt(hex.slice(1,3),16);
+  const g = parseInt(hex.slice(3,5),16);
+  const b = parseInt(hex.slice(5,7),16);
+  return [r,g,b];
+}
+
+function colWithAlpha(hex, alpha) {
+  const [r,g,b] = hexToRgb(hex);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function drawBackground(t) {
+  const bg1 = hsl2hex(state.bgHue, 25, 7);
+  const bg2 = hsl2hex(state.bgHue + 60, 20, 11);
+  const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, minDim * 0.85);
+  grad.addColorStop(0, bg2);
+  grad.addColorStop(1, bg1);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+}
+
+function drawSpiralLayer(layer, t) {
+  const ox = cx + layer.offsetX;
+  const oy = cy + layer.offsetY;
+  const pal = state.palette;
+  const pLen = pal.length;
+  const rings = layer.ringCount;
+  const maxR = layer.radius;
+  const tight = layer.spiralTightness;
+
+  ctx.save();
+  ctx.globalAlpha = layer.opacity;
+  ctx.globalCompositeOperation = layer.blend;
+
+  for (let r = 0; r < rings; r++) {
+    const frac = r / rings;
+    const baseR = maxR * (frac * 0.85 + 0.05);
+    const colIdx = Math.floor((r + layer.paletteIndex) % pLen);
+    const col2Idx = (colIdx + 1) % pLen;
+    const spectralShift = Math.sin(t * 0.5 + r * 0.4 + layer.phaseShift) * 0.5 + 0.5;
+
+    let grad;
+    if (layer.gradientType === 'conic') {
+      grad = ctx.createConicGradient(layer.angle + frac * Math.PI * 2 * tight, ox, oy);
+      const stops = 12;
+      for (let s = 0; s <= stops; s++) {
+        const sf = s / stops;
+        const ci = Math.floor((sf * pLen + r) % pLen);
+        grad.addColorStop(sf, colWithAlpha(pal[ci], 0.8 + spectralShift * 0.2));
+      }
+    } else {
+      grad = ctx.createRadialGradient(ox, oy, baseR * 0.5, ox, oy, baseR * 1.15);
+      grad.addColorStop(0, colWithAlpha(pal[colIdx], 0.0));
+      grad.addColorStop(0.4, colWithAlpha(pal[colIdx], 0.9 * spectralShift + 0.1));
+      grad.addColorStop(0.7, colWithAlpha(pal[col2Idx], 1.0));
+      grad.addColorStop(1.0, colWithAlpha(pal[colIdx], 0.0));
+    }
+
+    ctx.beginPath();
+    if (layer.gradientType === 'conic') {
+      ctx.arc(ox, oy, baseR, 0, Math.PI * 2);
+    } else {
+      // Spiral arc
+      const segments = 80;
+      for (let s = 0; s <= segments; s++) {
+        const sf = s / segments;
+        const angle = layer.angle + sf * Math.PI * 2 * tight + r * 0.3 + layer.phaseShift;
+        const r2 = baseR * (0.92 + 0.08 * Math.sin(sf * Math.PI * 4 + t));
+        const x = ox + Math.cos(angle) * r2;
+        const y = oy + Math.sin(angle) * r2;
+        s === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+    }
+
+    ctx.strokeStyle = grad;
+    ctx.lineWidth = layer.strokeWidth * (1.5 - frac * 0.8);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawConcentricLayer(layer, t) {
+  const ox = cx + layer.offsetX;
+  const oy = cy + layer.offsetY;
+  const pal = state.palette;
+  const pLen = pal.length;
+  const rings = layer.ringCount;
+  const maxR = layer.radius;
+
+  ctx.save();
+  ctx.globalAlpha = layer.opacity;
+  ctx.globalCompositeOperation = layer.blend;
+
+  for (let r = 0; r < rings; r++) {
+    const frac = r / rings;
+    const radius = maxR * (frac * 0.9 + 0.05);
+    const colIdx = (r + Math.floor(layer.paletteIndex)) % pLen;
+    const pulseR = radius * (1 + 0.03 * Math.sin(t * layer.harmonicMultiplier + r * 0.7));
+
+    const grad = ctx.createRadialGradient(ox, oy, pulseR * 0.85, ox, oy, pulseR * 1.12);
+    grad.addColorStop(0, colWithAlpha(pal[colIdx], 0));
+    grad.addColorStop(0.3, colWithAlpha(pal[colIdx], 0.95));
+    grad.addColorStop(0.6, colWithAlpha(pal[(colIdx+1)%pLen], 0.85));
+    grad.addColorStop(1, colWithAlpha(pal[colIdx], 0));
+
+    ctx.beginPath();
+    ctx.arc(ox, oy, pulseR, 0, Math.PI * 2);
+    ctx.strokeStyle = grad;
+    ctx.lineWidth = layer.strokeWidth * (2.5 - frac * 1.5);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawOffsetLayer(layer, t) {
+  const ox = cx + layer.offsetX;
+  const oy = cy + layer.offsetY;
+  const pal = state.palette;
+  const pLen = pal.length;
+  const rings = layer.ringCount;
+  const maxR = layer.radius;
+
+  ctx.save();
+  ctx.globalAlpha = layer.opacity;
+  ctx.globalCompositeOperation = layer.blend;
+
+  for (let r = 0; r < rings; r++) {
+    const frac = r / rings;
+    const radius = maxR * (frac * 0.85 + 0.08);
+    const colIdx = (r + Math.floor(layer.paletteIndex)) % pLen;
+    const wobble = Math.sin(t * layer.harmonicMultiplier + r * layer.phaseShift) * radius * 0.12;
+    const ox2 = ox + wobble * Math.cos(layer.angle * 1.3);
+    const oy2 = oy + wobble * Math.sin(layer.angle * 0.9);
+
+    const grad = ctx.createLinearGradient(
+      ox2 - radius, oy2 - radius,
+      ox2 + radius, oy2 + radius
+    );
+    grad.addColorStop(0, colWithAlpha(pal[colIdx], 0));
+    grad.addColorStop(0.2, colWithAlpha(pal[colIdx], 0.85));
+    grad.addColorStop(0.5, colWithAlpha(pal[(colIdx+2)%pLen], 1.0));
+    grad.addColorStop(0.8, colWithAlpha(pal[(colIdx+1)%pLen], 0.85));
+    grad.addColorStop(1, colWithAlpha(pal[colIdx], 0));
+
+    ctx.beginPath();
+    ctx.arc(ox2, oy2, radius, 0, Math.PI * 2);
+    ctx.strokeStyle = grad;
+    ctx.lineWidth = layer.strokeWidth * 1.8;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawInterferenceLayer(layer, t) {
+  const ox = cx + layer.offsetX;
+  const oy = cy + layer.offsetY;
+  const pal = state.palette;
+  const pLen = pal.length;
+  const rings = layer.ringCount;
+  const maxR = layer.radius;
+
+  ctx.save();
+  ctx.globalAlpha = layer.opacity;
+  ctx.globalCompositeOperation = layer.blend;
+
+  // Two offset interference centers
+  for (let wave = 0; wave < 2; wave++) {
+    const wx = ox + Math.cos(layer.angle + wave * Math.PI) * maxR * 0.22;
+    const wy = oy + Math.sin(layer.angle + wave * Math.PI) * maxR * 0.22;
+    for (let r = 0; r < rings; r++) {
+      const frac = r / rings;
+      const radius = maxR * (frac * 0.88 + 0.04);
+      const colIdx = (r + Math.floor(layer.paletteIndex) + wave * 3) % pLen;
+      const pulse = radius * (1 + 0.05 * Math.sin(t * 2 * layer.harmonicMultiplier + r + wave * 2.5));
+      const a = 0.7 + 0.3 * Math.sin(t + r + wave);
+
+      ctx.beginPath();
+      ctx.arc(wx, wy, pulse, 0, Math.PI * 2);
+      ctx.strokeStyle = colWithAlpha(pal[colIdx], a);
+      ctx.lineWidth = layer.strokeWidth;
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+function drawWeaveLayer(layer, t) {
+  const ox = cx + layer.offsetX;
+  const oy = cy + layer.offsetY;
+  const pal = state.palette;
+  const pLen = pal.length;
+  const rings = layer.ringCount;
+  const maxR = layer.radius;
+
+  ctx.save();
+  ctx.globalAlpha = layer.opacity;
+  ctx.globalCompositeOperation = layer.blend;
+
+  const spokes = rings;
+  for (let s = 0; s < spokes; s++) {
+    const angle0 = layer.angle + (s / spokes) * Math.PI * 2;
+    const colIdx = (s + Math.floor(layer.paletteIndex)) % pLen;
+    const grad = ctx.createLinearGradient(
+      ox, oy,
+      ox + Math.cos(angle0) * maxR,
+      oy + Math.sin(angle0) * maxR
+    );
+    grad.addColorStop(0, colWithAlpha(pal[colIdx], 0));
+    grad.addColorStop(0.3, colWithAlpha(pal[colIdx], 0.95));
+    grad.addColorStop(0.7, colWithAlpha(pal[(colIdx+2)%pLen], 0.85));
+    grad.addColorStop(1, colWithAlpha(pal[colIdx], 0));
+
+    ctx.beginPath();
+    ctx.moveTo(ox, oy);
+    // Bezier weave
+    const cpAngle = angle0 + 0.25 + Math.sin(t * layer.harmonicMultiplier + s) * 0.3;
+    const cpR = maxR * 0.6;
+    ctx.quadraticCurveTo(
+      ox + Math.cos(cpAngle) * cpR,
+      oy + Math.sin(cpAngle) * cpR,
+      ox + Math.cos(angle0) * maxR,
+      oy + Math.sin(angle0) * maxR
+    );
+    ctx.strokeStyle = grad;
+    ctx.lineWidth = layer.strokeWidth * 1.5;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawRadialBurstLayer(layer, t) {
+  const ox = cx + layer.offsetX;
+  const oy = cy + layer.offsetY;
+  const pal = state.palette;
+  const pLen = pal.length;
+  const rings = layer.ringCount;
+  const maxR = layer.radius;
+
+  ctx.save();
+  ctx.globalAlpha = layer.opacity;
+  ctx.globalCompositeOperation = layer.blend;
+
+  const spokes = rings * 2;
+  for (let s = 0; s < spokes; s++) {
+    const angle = layer.angle + (s / spokes) * Math.PI * 2 + Math.sin(t * 0.3) * 0.1;
+    const colIdx = (s + Math.floor(layer.paletteIndex)) % pLen;
+    const len = maxR * (0.4 + 0.6 * Math.abs(Math.sin(t * layer.harmonicMultiplier * 0.5 + s * 0.7)));
+
+    const grad = ctx.createLinearGradient(ox, oy, ox + Math.cos(angle)*len, oy + Math.sin(angle)*len);
+    grad.addColorStop(0, colWithAlpha(pal[colIdx], 0.0));
+    grad.addColorStop(0.1, colWithAlpha(pal[colIdx], 1.0));
+    grad.addColorStop(0.8, colWithAlpha(pal[(colIdx+1)%pLen], 0.75));
+    grad.addColorStop(1, colWithAlpha(pal[colIdx], 0.0));
+
+    ctx.beginPath();
+    ctx.moveTo(ox, oy);
+    ctx.lineTo(ox + Math.cos(angle) * len, oy + Math.sin(angle) * len);
+    ctx.strokeStyle = grad;
+    ctx.lineWidth = layer.strokeWidth * (0.8 + 0.5 * (s % 3 === 0 ? 1 : 0));
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawLayer(layer, t) {
+  switch(layer.type) {
+    case 'spiral':        drawSpiralLayer(layer, t); break;
+    case 'concentric':    drawConcentricLayer(layer, t); break;
+    case 'offset':        drawOffsetLayer(layer, t); break;
+    case 'interference':  drawInterferenceLayer(layer, t); break;
+    case 'weave':         drawWeaveLayer(layer, t); break;
+    case 'radial-burst':  drawRadialBurstLayer(layer, t); break;
+    default:              drawConcentricLayer(layer, t);
+  }
+}
+
+function drawSwatchRing(t) {
+  const pal = state.palette;
+  const n = pal.length;
+  const outerR = minDim * 0.46;
+  const innerR = minDim * 0.43;
+
+  ctx.save();
+  ctx.globalAlpha = 0.55 + 0.15 * Math.sin(t * 0.5);
+  ctx.globalCompositeOperation = 'lighter';
+
+  for (let i = 0; i < n; i++) {
+    const a0 = (i / n) * Math.PI * 2 + t * 0.06;
+    const a1 = ((i + 0.92) / n) * Math.PI * 2 + t * 0.06;
+    ctx.beginPath();
+    ctx.arc(cx, cy, outerR, a0, a1);
+    ctx.arc(cx, cy, innerR, a1, a0, true);
+    ctx.closePath();
+    ctx.fillStyle = pal[i];
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+// ─── MAIN LOOP ───────────────────────────────────────────────────────
+let lastTime = 0;
+let fps = 60;
+let frameCount = 0;
+let lastFpsTime = 0;
+
+function update(dt) {
+  const lerpSpeed = Math.min(dt * 0.8, 0.05);
+  const slowLerp = Math.min(dt * 0.2, 0.015);
+
+  state.masterHue = lerpAngle(state.masterHue, state.masterHueTarget, lerpSpeed);
+  state.satFlux = lerp(state.satFlux, state.satFluxTarget, lerpSpeed);
+  state.bgHue = lerpAngle(state.bgHue, state.bgHueTarget, slowLerp);
+
+  // Slowly drift master hue
+  state.masterHue = (state.masterHue + state.hueDrift * dt * 15) % 360;
+
+  // Update layers
+  for (const layer of state.layers) {
+    layer.angle += layer.angularVel * dt;
+    layer.angularVel = lerp(layer.angularVel, layer.angularVelTarget, lerpSpeed * 0.5);
+    layer.opacity = lerp(layer.opacity, layer.opacityTarget, lerpSpeed);
+    layer.radius = lerp(layer.radius, layer.radiusTarget, lerpSpeed);
+    layer.offsetX = lerp(layer.offsetX, layer.offsetXTarget, slowLerp);
+    layer.offsetY = lerp(layer.offsetY, layer.offsetYTarget, slowLerp);
+    layer.hueOffset = lerpAngle(layer.hueOffset, layer.hueOffsetTarget, slowLerp);
+    layer.paletteIndex = (layer.paletteIndex + 0.3 * dt) % state.palette.length;
+  }
+
+  state.time += dt;
+  state.spectralPhase += dt * 0.4;
+}
+
+function render(t) {
+  ctx.clearRect(0, 0, W, H);
+  drawBackground(t);
+
+  // Draw all layers
+  ctx.save();
+  ctx.globalCompositeOperation = state.globalBlend;
+  for (const layer of state.layers) {
+    drawLayer(layer, t);
+  }
+  ctx.restore();
+
+  drawSwatchRing(t);
+}
+
+function updateHUD() {
+  if (!hudVisible) return;
+  document.getElementById('h-fps').textContent = fps.toFixed(1);
+  document.getElementById('h-pal').textContent = state.family;
+  document.getElementById('h-harm').textContent = state.harmony;
+  document.getElementById('h-layers').textContent = state.numLayers;
+  document.getElementById('h-hue').textContent = state.masterHue.toFixed(1) + '°';
+  document.getElementById('h-drift').textContent = state.hueDrift.toFixed(3);
+  document.getElementById('h-sat').textContent = (state.satFlux * 100).toFixed(1) + '%';
+  const avgVel = state.layers.reduce((s,l) => s + Math.abs(l.angularVel), 0) / state.layers.length;
+  document.getElementById('h-ang').textContent = avgVel.toFixed(3) + ' r/s';
+  document.getElementById('h-vmode').textContent = state.vortexMode;
+  document.getElementById('h-blend').textContent = state.globalBlend;
+
+  // Update swatches
+  const pal = state.palette;
+  for (let i = 0; i < 8; i++) {
+    const el = document.getElementById('sw' + i);
+    if (el) el.style.background = pal[i % pal.length];
+  }
+}
+
+function loop(timestamp) {
+  const dt = Math.min((timestamp - lastTime) / 1000, 0.05);
+  lastTime = timestamp;
+  frameCount++;
+
+  if (timestamp - lastFpsTime > 500) {
+    fps = frameCount / ((timestamp - lastFpsTime) / 1000);
+    frameCount = 0;
+    lastFpsTime = timestamp;
+  }
+
+  update(dt);
+  render(state.time);
+  if (audioEnabled) updateAudio(state);
+  updateHUD();
+
+  requestAnimationFrame(loop);
+}
+
+requestAnimationFrame(ts => { lastTime = ts; lastFpsTime = ts; loop(ts); });
+
+// ─── INPUT HANDLERS ──────────────────────────────────────────────────
+function handleRandomize() {
+  randomize();
+}
+
+window.addEventListener('keydown', e => {
+  switch (e.key) {
+    case ' ':
+    case 'Space':
+      e.preventDefault();
+      handleRandomize();
+      break;
+    case 'h':
+    case 'H':
+      toggleHUD();
+      break;
+    case 's':
+    case 'S':
+      toggleAudio();
+      break;
+  }
+});
+
+canvas.addEventListener('click', handleRandomize);
+canvas.addEventListener('touchend', e => { e.preventDefault(); handleRandomize(); }, { passive: false });
+
+})();
+</script>
+</body>
+</html>

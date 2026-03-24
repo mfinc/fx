@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Hyperbolic Maze–Mechanism Resonance Engine</title>
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<meta name="description" content="Hyperbolic Maze–Mechanism Resonance Engine: a generative audiovisual HTML system combining hyperbolic mazes, recursive labyrinths, chaotic mechanical linkages, Penrose-like tilings, and physics-driven oscillatory structures synchronized with procedural sound.">
+
+<meta name="keywords" content="generative art, hyperbolic maze, mechanical linkage simulation, Penrose tiling, generative audiovisual engine, HTML canvas physics art, chaotic pendulum visualization, procedural graphics, algorithmic art">
+
+<style>
+html,body{
+margin:0;
+padding:0;
+overflow:hidden;
+background:black;
+}
+
+canvas{
+display:block;
+}
+</style>
+</head>
+
+<body>
+<canvas id="c"></canvas>
+
+<script>
+const canvas=document.getElementById("c")
+const ctx=canvas.getContext("2d")
+
+let W,H,centerX,centerY
+
+function resize(){
+W=canvas.width=window.innerWidth
+H=canvas.height=window.innerHeight
+centerX=W/2
+centerY=H/2
+}
+window.addEventListener("resize",resize)
+resize()
+
+let hud=false
+let sound=false
+
+let oscillators=[]
+let particles=[]
+let linkages=[]
+let mazeLines=[]
+let colorPhase=0
+let energy=0
+
+let audioCtx=null
+let masterGain=null
+
+function rand(a,b){return a+Math.random()*(b-a)}
+
+function reset(){
+
+mazeLines=[]
+particles=[]
+linkages=[]
+oscillators=[]
+energy=0
+
+const mazeCount=300
+
+for(let i=0;i<mazeCount;i++){
+mazeLines.push({
+x:rand(-1,1),
+y:rand(-1,1),
+a:rand(0,Math.PI*2),
+r:rand(.1,1),
+len:rand(.02,.12)
+})
+}
+
+const linkageCount=18
+
+for(let i=0;i<linkageCount;i++){
+linkages.push({
+a:rand(0,Math.PI*2),
+v:rand(-.02,.02),
+r:rand(80,260),
+arm:rand(20,90)
+})
+}
+
+const particleCount=400
+
+for(let i=0;i<particleCount;i++){
+particles.push({
+x:rand(0,W),
+y:rand(0,H),
+vx:rand(-.5,.5),
+vy:rand(-.5,.5),
+life:rand(50,200)
+})
+}
+
+const oscCount=12
+for(let i=0;i<oscCount;i++){
+oscillators.push({
+theta:rand(0,Math.PI),
+omega:rand(-.03,.03),
+length:rand(60,180)
+})
+}
+
+}
+
+function initAudio(){
+
+if(audioCtx) return
+
+audioCtx=new (window.AudioContext||window.webkitAudioContext)()
+
+masterGain=audioCtx.createGain()
+masterGain.gain.value=.25
+masterGain.connect(audioCtx.destination)
+
+}
+
+function updateAudio(){
+
+if(!sound) return
+
+const freq=120+energy*200
+
+if(!window.tone){
+window.tone=audioCtx.createOscillator()
+window.tone.type="sine"
+window.tone.frequency.value=freq
+window.tone.connect(masterGain)
+window.tone.start()
+}
+
+window.tone.frequency.value=freq
+
+}
+
+function stopAudio(){
+
+if(window.tone){
+window.tone.stop()
+window.tone.disconnect()
+window.tone=null
+}
+
+}
+
+function updatePhysics(){
+
+energy=0
+
+for(let o of oscillators){
+
+const g=.0009
+const a=-(g/o.length)*Math.sin(o.theta)
+
+o.omega+=a
+o.theta+=o.omega
+
+o.omega*=.999
+
+energy+=Math.abs(o.omega)
+
+}
+
+for(let l of linkages){
+
+l.a+=l.v
+l.v+=Math.sin(colorPhase*.01+l.a)*.0004
+l.v*=.999
+
+}
+
+for(let p of particles){
+
+p.x+=p.vx
+p.y+=p.vy
+
+p.vx+=Math.sin(p.y*.01+colorPhase*.02)*.02
+p.vy+=Math.cos(p.x*.01+colorPhase*.02)*.02
+
+p.vx*=.96
+p.vy*=.96
+
+p.life--
+
+if(p.life<0){
+p.x=rand(0,W)
+p.y=rand(0,H)
+p.life=rand(50,200)
+}
+
+}
+
+}
+
+function drawBackground(){
+
+ctx.fillStyle="rgba(0,0,0,.12)"
+ctx.fillRect(0,0,W,H)
+
+}
+
+function drawMaze(){
+
+ctx.lineWidth=1
+
+for(let m of mazeLines){
+
+const x=centerX+m.x*W*.45
+const y=centerY+m.y*H*.45
+
+const a=m.a+colorPhase*.002
+
+const x2=x+Math.cos(a)*m.len*W
+const y2=y+Math.sin(a)*m.len*H
+
+const hue=(colorPhase*2+m.r*360)%360
+
+ctx.strokeStyle=`hsla(${hue},90%,60%,.6)`
+
+ctx.beginPath()
+ctx.moveTo(x,y)
+ctx.lineTo(x2,y2)
+ctx.stroke()
+
+}
+
+}
+
+function drawLinkages(){
+
+for(let l of linkages){
+
+const x=centerX+Math.cos(l.a)*l.r
+const y=centerY+Math.sin(l.a)*l.r
+
+const x2=x+Math.cos(l.a*3)*l.arm
+const y2=y+Math.sin(l.a*3)*l.arm
+
+ctx.strokeStyle=`hsla(${(l.a*180/Math.PI+colorPhase)%360},80%,70%,.8)`
+ctx.lineWidth=2
+
+ctx.beginPath()
+ctx.moveTo(x,y)
+ctx.lineTo(x2,y2)
+ctx.stroke()
+
+ctx.beginPath()
+ctx.arc(x2,y2,3,0,Math.PI*2)
+ctx.fillStyle="white"
+ctx.fill()
+
+}
+
+}
+
+function drawOscillators(){
+
+for(let o of oscillators){
+
+const x=centerX
+const y=centerY
+
+const px=x+Math.sin(o.theta)*o.length
+const py=y+Math.cos(o.theta)*o.length
+
+ctx.strokeStyle="rgba(255,255,255,.25)"
+
+ctx.beginPath()
+ctx.moveTo(x,y)
+ctx.lineTo(px,py)
+ctx.stroke()
+
+ctx.beginPath()
+ctx.arc(px,py,4,0,Math.PI*2)
+ctx.fillStyle="white"
+ctx.fill()
+
+}
+
+}
+
+function drawParticles(){
+
+for(let p of particles){
+
+const hue=(p.x+p.y+colorPhase)%360
+
+ctx.fillStyle=`hsla(${hue},90%,60%,.7)`
+ctx.fillRect(p.x,p.y,2,2)
+
+}
+
+}
+
+function drawHUD(){
+
+if(!hud) return
+
+ctx.fillStyle="white"
+ctx.font="12px monospace"
+
+ctx.fillText("Hyperbolic Maze–Mechanism Resonance Engine",20,20)
+ctx.fillText("SPACE / CLICK / TAP: regenerate",20,40)
+ctx.fillText("H: toggle HUD",20,60)
+ctx.fillText("S: toggle sound",20,80)
+
+}
+
+function frame(){
+
+colorPhase++
+
+updatePhysics()
+updateAudio()
+
+drawBackground()
+drawMaze()
+drawLinkages()
+drawOscillators()
+drawParticles()
+drawHUD()
+
+requestAnimationFrame(frame)
+
+}
+
+window.addEventListener("keydown",e=>{
+
+if(e.code==="Space") reset()
+
+if(e.key==="h"||e.key==="H") hud=!hud
+
+if(e.key==="s"||e.key==="S"){
+
+sound=!sound
+
+if(sound){
+initAudio()
+}else{
+stopAudio()
+}
+
+}
+
+})
+
+canvas.addEventListener("click",reset)
+canvas.addEventListener("touchstart",reset)
+
+reset()
+frame()
+
+</script>
+
+</body>
+</html>

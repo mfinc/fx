@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>Hyperdimensional Pattern Dynamics Engine</title>
+<meta name="description" content="GPU-accelerated generative audiovisual engine: Penrose tilings, Islamic star patterns, Celtic knots, Voronoi diagrams, reaction-diffusion, hyperbolic geometry, and 4D–12D polytope projections hybridized with living physics — linkage mechanisms, fluid dynamics, spring-mass networks, wave interference — rendered as luminous sacred geometry.">
+<meta name="keywords" content="generative art, Penrose tiling, Islamic geometry, sacred geometry, WebGL, cellular automata, reaction diffusion, Voronoi, fractal, knot theory, tessellation, maze, algorithmic art, stained glass, ornamental geometry, living physics, polytope, 4D geometry, procedural audio, arabesque, Celtic knot, Mughal rosette">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;background:#000;overflow:hidden;touch-action:none}
+canvas{position:fixed;inset:0;width:100%;height:100%}
+#loader{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#000;font-family:'Courier New',monospace;color:rgba(255,255,255,.5);font-size:11px;letter-spacing:.2em;gap:16px;transition:opacity .6s}
+#loader-bar{width:180px;height:1px;background:rgba(255,255,255,.12);position:relative;overflow:hidden}
+#loader-fill{height:100%;width:0;background:rgba(255,255,255,.5);transition:width .3s}
+#hud{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;display:none;font-family:'Courier New',monospace}
+#hud-tl{position:absolute;top:14px;left:16px;font-size:10px;color:rgba(255,255,255,.7);line-height:2;letter-spacing:.06em}
+#hud-tl span{display:block}
+#hud-br{position:absolute;bottom:14px;right:16px;text-align:right;font-size:9px;color:rgba(255,255,255,.38);line-height:2;letter-spacing:.1em}
+#hud-br span{display:block}
+#hint{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);font-family:'Courier New',monospace;font-size:9px;color:rgba(255,255,255,.28);letter-spacing:.22em;pointer-events:none;transition:opacity 1.4s;white-space:nowrap}
+</style>
+</head>
+<body>
+<div id="loader">
+  <div>INITIALIZING ENGINE</div>
+  <div id="loader-bar"><div id="loader-fill"></div></div>
+</div>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div id="hud-tl">
+    <span id="hg">—</span>
+    <span id="hp">—</span>
+    <span id="hk">—</span>
+    <span id="hf">—</span>
+  </div>
+  <div id="hud-br">
+    <span>SPACE / TAP · regenerate</span>
+    <span>H · hud &nbsp; S · sound</span>
+  </div>
+</div>
+<div id="hint">SPACE &middot; TAP &middot; NEW UNIVERSE</div>
+
+<script>
+'use strict';
+// ═══════════════════════════════════════════════════════════
+//  HYPERDIMENSIONAL PATTERN DYNAMICS ENGINE  v3
+//  Architecture: single lean parametric shader — fast compile
+// ═══════════════════════════════════════════════════════════
+
+const canvas = document.getElementById('c');
+const gl = canvas.getContext('webgl', {antialias:false, alpha:false, preserveDrawingBuffer:false});
+if (!gl) { document.body.innerHTML = '<div style="color:#fff;padding:30px;font-family:monospace">WebGL unavailable</div>'; throw 0; }
+
+const PHI = 1.6180339887, PI = Math.PI, TAU = PI * 2;
+const rng = (a,b) => a + Math.random()*(b-a);
+const pick = a => a[0|Math.random()*a.length];
+
+let W, H, t = 0, lastMs = 0, fps = 60, fpsQ = [];
+let soundOn = false, hudOn = false;
+let AC = null, masterGain = null, oscBank = [], hintTmr;
+let sim = null, running = false;
+
+function resize() {
+  W = canvas.width  = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  gl.viewport(0, 0, W, H);
+}
+window.addEventListener('resize', resize); resize();
+
+// ── Loader progress ──────────────────────────────────────────
+function setProgress(p) {
+  document.getElementById('loader-fill').style.width = (p * 100) + '%';
+}
+function hideLoader() {
+  const el = document.getElementById('loader');
+  el.style.opacity = '0';
+  setTimeout(() => el.style.display = 'none', 700);
+}
+
+// ── Palettes ─────────────────────────────────────────────────
+const PALS = [
+  {n:'AURORA',      c:[[0,.82,.92],[.08,.28,1],[.52,0,.85],[0,1,.52],[.78,1,.18]]},
+  {n:'CORONA',      c:[[1,.58,.02],[1,.18,.08],[1,.92,.25],[.82,0,.28],[1,.35,.75]]},
+  {n:'ABYSSAL',     c:[[0,.18,.82],[0,.62,1],[0,.92,.72],[.18,0,.52],[0,.38,.28]]},
+  {n:'BISMUTH',     c:[[1,.38,.92],[.38,1,.82],[1,.82,.28],[.28,.38,1],[.92,.18,.38]]},
+  {n:'OBSIDIAN',    c:[[1,.28,0],[.82,0,.62],[1,.72,0],[.5,0,.08],[.18,0,.82]]},
+  {n:'CELADON',     c:[[.18,.82,.38],[.38,.92,.72],[.82,1,.48],[.08,.52,.28],[.62,.92,.18]]},
+  {n:'ARCTIC',      c:[[.72,.92,1],[.28,.72,1],[1,1,1],[.48,.82,.92],[.18,.52,.82]]},
+  {n:'RUBY',        c:[[.92,0,.18],[1,.48,0],[.82,0,.48],[1,.82,.08],[.42,0,.18]]},
+  {n:'GOTHIC',      c:[[0,0,.92],[.72,0,.08],[.92,.62,0],[0,.62,.08],[.52,0,.72]]},
+  {n:'NEON',        c:[[0,1,1],[1,0,1],[1,1,0],[0,1,.42],[1,0,.48]]},
+  {n:'COPPER',      c:[[.82,.42,.08],[.62,.28,0],[1,.62,.18],[.42,.2,0],[.92,.72,.28]]},
+  {n:'PLASMA',      c:[[.38,0,.82],[0,.82,.92],[.82,.38,1],[.08,.38,.52],[.62,.08,.42]]},
+  {n:'SAKURA',      c:[[1,.72,.82],[.92,.48,.72],[1,.92,.92],[.72,.28,.58],[.48,.12,.38]]},
+  {n:'ABSINTHE',    c:[[.28,1,.48],[.72,1,.18],[.18,.82,.58],[1,.98,.28],[.08,.52,.32]]},
+  {n:'VOID',        c:[[.08,0,.32],[.48,0,.92],[1,.28,.82],[.72,.08,1],[0,.82,1]]},
+  {n:'ALCHEMIC',    c:[[1,.92,.18],[.92,.62,0],[1,.72,.28],[.52,.32,0],[1,1,.72]]},
+  {n:'LAPIS',       c:[[.12,.18,.82],[0,.52,1],[.82,.92,1],[.28,.08,.62],[.72,.88,1]]},
+  {n:'IRON',        c:[[.72,.18,.08],[.52,.28,.12],[1,.48,.18],[.32,.12,.08],[.82,.62,.28]]},
+];
+
+// ── Mode names ────────────────────────────────────────────────
+const GNAMES = [
+  'PENROSE QUASICRYSTAL','AMMANN-BEENKER 8-FOLD','ISLAMIC STAR POLYGON',
+  'VORONOI LATTICE','HYPERBOLIC TILING','CELTIC KNOTWORK',
+  'POLYTOPE PROJECTION','GRAY-SCOTT DIFFUSION','CELLULAR AUTOMATA',
+  'APOLLONIAN GASKET','HILBERT SPACE-FILL','BRAID TOPOLOGY',
+  'TRUCHET NETWORK','PHYLLOTAXIS SPIRAL','LABYRINTH MAZE',
+  'ZELLIJ TESSELLATION','ARABESQUE WEAVE','ROSE RHODONEA',
+];
+const PNAMES = [
+  'PLANETARY GEARS','SPRING-MASS WAVE','WAVE INTERFERENCE',
+  'EM VECTOR FIELD','VORTEX TURBULENCE','REACTION-DIFFUSION',
+  'LINKAGE MECHANISM','PENDULUM CASCADE',
+];
+
+// ══════════════════════════════════════════════════════════════
+//  VERTEX SHADER
+// ══════════════════════════════════════════════════════════════
+const VS = `attribute vec2 a; void main(){ gl_Position = vec4(a,0.,1.); }`;
+
+// ══════════════════════════════════════════════════════════════
+//  FRAGMENT SHADER  — kept lean for fast GPU compile
+//  All geometry is parametric, driven by uMode (0-17) and
+//  uPhys (0-7). No giant if-else trees — uses float blending.
+// ══════════════════════════════════════════════════════════════
+const FS = `
+precision mediump float;
+
+uniform vec2  uRes;
+uniform float uTime;
+uniform float uMode;   // float 0-17, fractional = blend
+uniform float uPhys;   // float 0-7
+uniform float uScale;
+uniform float uCurv;
+uniform float uTurb;
+uniform float uEnergy;
+uniform float uDim;
+uniform float uSA, uSB, uSC;
+uniform float uPalShift;
+uniform vec3  uP0,uP1,uP2,uP3,uP4;
+
+#define PI  3.14159265
+#define TAU 6.28318530
+#define PHI 1.61803398
+
+// ── Utility ────────────────────────────────────────────────
+vec2 rot(vec2 p, float a){
+  float c=cos(a), s=sin(a);
+  return vec2(c*p.x-s*p.y, s*p.x+c*p.y);
+}
+float h21(vec2 p){
+  return fract(sin(dot(p+uSC, vec2(127.1,311.7)))*43758.5453);
+}
+vec2 h22(vec2 p){
+  p += uSC;
+  return fract(sin(vec2(dot(p,vec2(127.1,311.7)),dot(p,vec2(269.5,183.3))))*43758.5453);
+}
+float vnoise(vec2 p){
+  vec2 i=floor(p); vec2 f=fract(p); vec2 u=f*f*(3.-2.*f);
+  return mix(mix(h21(i),h21(i+vec2(1,0)),u.x),
+             mix(h21(i+vec2(0,1)),h21(i+vec2(1,1)),u.x),u.y);
+}
+float fbm(vec2 p){
+  float v=0.,a=.5;
+  for(int i=0;i<5;i++){v+=a*vnoise(p);p=p*2.1+.4;a*=.5;}
+  return v;
+}
+vec2 fold(vec2 p, float n){
+  float a=atan(p.y,p.x);
+  a=mod(a, TAU/n); a=abs(a-PI/n);
+  return length(p)*vec2(cos(a),sin(a));
+}
+float sdLine(vec2 p,vec2 a,vec2 b){
+  vec2 pa=p-a,ba=b-a;
+  float h=clamp(dot(pa,ba)/dot(ba,ba),0.,1.);
+  return length(pa-ba*h);
+}
+float myTanh(float x){
+  float e=exp(2.*clamp(x,-6.,6.));
+  return (e-1.)/(e+1.);
+}
+
+// ── Palette ─────────────────────────────────────────────────
+vec3 palGet(int i){
+  if(i==0) return uP0;
+  if(i==1) return uP1;
+  if(i==2) return uP2;
+  if(i==3) return uP3;
+  return uP4;
+}
+vec3 pal(float t){
+  t = fract(t + uPalShift);
+  float s = t*5.; int i = int(floor(s)); float f = fract(s);
+  int j = i+1; if(j>4) j=4;
+  return mix(palGet(i), palGet(j), smoothstep(0.,1.,f));
+}
+
+// ── Core geometry functions ─────────────────────────────────
+
+// 0: Penrose (5-fold de Bruijn projection)
+float gPenrose(vec2 p){
+  float f=1e9;
+  for(int k=0;k<5;k++){
+    float a=float(k)*TAU/5.;
+    f=min(f, abs(fract(dot(p,vec2(cos(a),sin(a)))+.5)-.5));
+  }
+  return f;
+}
+
+// 1: Ammann-Beenker (8-fold)
+float gAmmann(vec2 p){
+  float f=1e9;
+  for(int k=0;k<4;k++){
+    float a=float(k)*PI*.25;
+    f=min(f, abs(fract(dot(p,vec2(cos(a),sin(a)))+.5)-.5));
+  }
+  f=min(f, abs(fract(dot(p,normalize(vec2(1.,1.)))*.7071+.5)-.5));
+  f=min(f, abs(fract(dot(p,normalize(vec2(1.,-1.)))*.7071+.5)-.5));
+  return f;
+}
+
+// 2: Islamic star (n-fold, n driven by uSA)
+float gIslamic(vec2 p){
+  float n = 4. + floor(uSA*5.)*2.; // 4,6,8,10,12
+  p = fold(p, n);
+  float r=length(p), a=atan(p.y,p.x);
+  float inner=.26+.1*sin(a*n*2.);
+  float outer=.5+.08*cos(a*n);
+  float star=min(abs(r-outer), abs(r-inner));
+  float poly=abs(r - (.36+.08*cos(a*n*2.)));
+  return min(star, poly)*.6;
+}
+
+// 3: Voronoi edges
+float gVoronoi(vec2 p){
+  vec2 g=floor(p); vec2 f=fract(p);
+  float m1=9.,m2=9.;
+  for(int y=-2;y<=2;y++){for(int x=-2;x<=2;x++){
+    vec2 o=vec2(float(x),float(y));
+    vec2 r=o+h22(g+o)-f; float d=dot(r,r);
+    if(d<m1){m2=m1;m1=d;} else if(d<m2) m2=d;
+  }}
+  return sqrt(m2)-sqrt(m1);
+}
+
+// 4: Hyperbolic (Poincaré disk + inversion iteration)
+float gHyperbolic(vec2 p){
+  if(dot(p,p)>0.97) return 0.;
+  vec2 q=p;
+  for(int i=0;i<8;i++){
+    float l2=dot(q,q); if(l2<0.001) break;
+    q=q/l2; q=abs(q)-vec2(.48+uSB*.08);
+    q=rot(q, PI/float(i+3));
+  }
+  return gVoronoi(q*3.5);
+}
+
+// 5: Celtic knot
+float gCeltic(vec2 p){
+  float f=1e9; float nb=3.+uSA*4.;
+  for(float k=0.;k<7.;k++){
+    if(k>=nb) break;
+    float ph=k/nb*TAU+uSB*TAU;
+    float ox=sin(p.y*2.2+ph)*(.22+.1*cos(p.y+uSA));
+    float oy=cos(p.x*2.2+ph)*(.22+.1*sin(p.x+uSB));
+    float dx=abs(p.x-ox), dy=abs(p.y-oy);
+    f=min(f, min(dx,dy)-.04);
+    float cr=step(.88, abs(sin(p.x*2.2+ph))*abs(sin(p.y*2.2+ph)));
+    f=mix(f, abs(dx-dy)-.03, cr*.7);
+  }
+  return f;
+}
+
+// 6: Polytope projection (nD edges → 2D)
+float gPolytope(vec2 p){
+  float nd=4.+floor(uSB*9.); // 4-12D
+  float acc=0.;
+  float sc=.38;
+  for(float i=0.;i<12.;i++){
+    if(i>=nd) break;
+    float a1=i/nd*TAU+uTime*.065*(1.+i*.06)+uSA*TAU;
+    float a2=(i+1.)/nd*TAU+uTime*.05+uSB*TAU;
+    float b1=i/nd*PI+uTime*.036+uSC;
+    float b2=(i+1.)/nd*PI+uTime*.028;
+    vec2 v1=vec2(cos(a1+uDim)*sin(b1+uDim*.6), sin(a1+uDim)*cos(b1))*sc;
+    vec2 v2=vec2(cos(a2+uDim*.7)*sin(b2+uDim*.4), sin(a2+uDim*.25)*cos(b2))*sc;
+    float d=sdLine(p, v1, v2);
+    acc+=exp(-d*d*20.)*(.5+.5*sin(i+uTime*.25));
+  }
+  return acc/nd;
+}
+
+// 7: Gray-Scott reaction diffusion
+float gRD(vec2 p, float ph){
+  float u=fbm(p+vec2(ph*.06, uSA));
+  float v=fbm(p*1.3+vec2(-ph*.04, uSB));
+  float uv2=u*v*v;
+  float du=.2-uv2+.04*(1.-u)+fbm(p*.5+ph*.03)*.05;
+  float dv=uv2-.065*v+fbm(p*.65-ph*.025)*.03;
+  return fract(u+du-(v+dv)+.5);
+}
+
+// 8: Cellular automata
+float gCA(vec2 p, float ph){
+  vec2 g=floor(p); float v=0.;
+  for(int y=-1;y<=1;y++){for(int x=-1;x<=1;x++){
+    if(x==0&&y==0) continue;
+    v+=step(.5, h21(g+vec2(float(x),float(y))+vec2(ph*.09)));
+  }}
+  float self=step(.5, h21(g+vec2(ph*.09)));
+  float alive=step(2.9,v)*step(v,3.1);
+  float survive=self*(step(1.9,v)*step(v,3.1));
+  return mix(self, max(alive,survive), .5+.5*sin(ph*.25));
+}
+
+// 9: Apollonian
+float gApolloian(vec2 p){
+  float sc=1.;
+  for(int i=0;i<6;i++){p=abs(p)-vec2(.42+uSA*.08);float k=1.35/dot(p,p);p*=k;sc*=k;}
+  return abs(length(p)-.3)/sc;
+}
+
+// 10: Hilbert space-fill
+float gHilbert(vec2 p){
+  p=p*.5+.5; p=clamp(p,0.,1.); float acc=0.;
+  for(int i=0;i<6;i++){
+    p*=2.;
+    float qx=step(.5,p.x), qy=step(.5,p.y); float quad=qx+2.*qy;
+    if(quad==0.){p=vec2(p.y,p.x);}
+    else if(quad==1.){p.x-=1.;}
+    else if(quad==2.){p-=1.;}
+    else{p=vec2(2.-p.y,1.-p.x); p.y-=1.;}
+    acc+=h21(floor(p)+float(i)*3.7)*pow(.5,float(i));
+  }
+  return acc;
+}
+
+// 11: Braid
+float gBraid(vec2 p){
+  float f=1e9; float ns=3.+uSA*4.;
+  for(float k=0.;k<7.;k++){
+    if(k>=ns) break;
+    float ph=k/ns*TAU;
+    float ox=sin(p.y*1.8+ph+uTime*.2)*(.26+.12*cos(p.y*.5+k+uSB*TAU));
+    float oy=cos(p.x*1.4+ph-uTime*.15)*(.18+.09*sin(p.x*.65+k));
+    f=min(f, length(p-vec2(ox,oy))-.055);
+  }
+  return f;
+}
+
+// 12: Truchet
+float gTruchet(vec2 p){
+  vec2 g=floor(p); vec2 f=fract(p);
+  float hv=step(.5, h21(g));
+  float d1,d2;
+  if(hv>.5){d1=abs(length(f)-1.); d2=abs(length(f-vec2(1.))-1.);}
+  else     {d1=abs(length(f-vec2(0.,1.))-1.); d2=abs(length(f-vec2(1.,0.))-1.);}
+  return min(d1,d2);
+}
+
+// 13: Phyllotaxis
+float gPhyllo(vec2 p){
+  float n=floor(length(p)*10.*(1.+uSA*.5));
+  float ga=PHI*PHI*n; float ra=sqrt(max(n,0.))/(10.*(1.+uSA*.5));
+  vec2 seed=ra*vec2(cos(ga),sin(ga)); float d=length(p-seed);
+  for(float k=-2.;k<=2.;k++){
+    float gk=PHI*PHI*(n+k); float rk=sqrt(max(n+k,0.))/(10.*(1.+uSA*.5));
+    d=min(d, length(p-rk*vec2(cos(gk),sin(gk))));
+  }
+  return d*7.;
+}
+
+// 14: Maze
+float gMaze(vec2 p){
+  vec2 g=floor(p); vec2 f=fract(p);
+  float h1=step(.5,h21(g+vec2(.1,.2)));
+  float v1=step(.5,h21(g+vec2(.7,.3)));
+  float h2=step(.5,h21(g+vec2(1.1,.5)));
+  float hwall=abs(f.y-.5)-.05, vwall=abs(f.x-.5)-.05;
+  float d=mix(hwall,vwall,h1);
+  d=min(d, mix(hwall,vwall,v1)*.85);
+  d=min(d, mix(vwall,hwall,h2)*.7);
+  return abs(d);
+}
+
+// 15: Zellij / Moroccan girih
+float gZellij(vec2 p){
+  p=fold(p,10.);
+  float r=length(p), a=atan(p.y,p.x);
+  float star=abs(r-(.38+.12*cos(a*10.)));
+  float dec=abs(r-(.22+.08*sin(a*5.)));
+  return min(star,dec)*.75;
+}
+
+// 16: Arabesque (Islamic + Celtic hybrid)
+float gArabesque(vec2 p){
+  return gCeltic(p)*.5+gIslamic(fold(p,8.)*1.5)*.5;
+}
+
+// 17: Rose curve
+float gRose(vec2 p){
+  float n=2.+uSA*8.;
+  float r=length(p), a=atan(p.y,p.x);
+  float r1=abs(cos(n*.5*a))*.46, r2=abs(sin(n*.5*a+PI*.25))*.28;
+  return min(abs(r-r1), abs(r-r2))*.7;
+}
+
+// ── Physics modulations ──────────────────────────────────────
+
+// Gears
+float physGears(vec2 p, float ph){
+  float f=1e9; float ng=2.+floor(uSA*3.); float teeth=6.+floor(uSB*12.);
+  f=min(f, abs(length(p)-(.18+.018*cos(teeth*atan(p.y,p.x)+ph*.4)))-.012);
+  for(float i=0.;i<4.;i++){
+    if(i>=ng) break;
+    float a=i/ng*TAU; float dir=(mod(i,2.)<1.)?-1.:1.;
+    vec2 c=vec2(cos(a+ph*.13),sin(a+ph*.13))*.35;
+    vec2 dp=p-c; float ang=atan(dp.y,dp.x)+ph*dir*.55+a;
+    f=min(f, abs(length(dp)-(.12+.013*cos(teeth*.7*ang)))-.012);
+  }
+  return f;
+}
+
+// Spring wave
+float physWave(vec2 p){
+  float f=0.;
+  for(int i=0;i<6;i++){
+    float fi=float(i); float a=fi/6.*TAU+uSA*TAU;
+    vec2 src=vec2(cos(a+uTime*.08),sin(a+uTime*.065))*.4;
+    float d=length(p-src); float omega=2.+fi*.45+uSB;
+    f+=(1./(1.+fi*.2))*sin(d*omega*4.-uTime*(1.3+fi*.13))*exp(-d*(1.+uSA));
+  }
+  return f*.28+.5;
+}
+
+// Wave interference
+float physInterference(vec2 p){
+  float f=0.; float nw=3.+uSA*5.;
+  for(float i=0.;i<8.;i++){
+    if(i>=nw) break;
+    vec2 src=vec2(cos(i/nw*TAU+uSA*6.+uTime*.04),sin(i/nw*TAU+uSB*6.-uTime*.035))*.5;
+    f+=sin(length(p-src)*5.-uTime*1.8+i*1.4);
+  }
+  return f/nw+.5;
+}
+
+// EM field
+float physEM(vec2 p){
+  float f=0.;
+  for(int i=0;i<5;i++){
+    float fi=float(i); float a=fi/5.*TAU+uSA*TAU+uTime*.05;
+    vec2 src=vec2(cos(a),sin(a))*.43; vec2 d=p-src;
+    float r2=dot(d,d)+.01; float sgn=(mod(fi,2.)<1.)?1.:-1.;
+    f+=sgn*(d.x*d.y)/(r2*r2)*0.004;
+  }
+  return myTanh(f*2.)*.5+.5;
+}
+
+// Vortex displacement
+vec2 vortexDisp(vec2 p, float ph){
+  vec2 v=vec2(0.);
+  for(int i=0;i<5;i++){
+    float fi=float(i); float a=fi/5.*TAU+uSA*TAU+ph*.05;
+    vec2 c=vec2(cos(a),sin(a))*.42; vec2 d=p-c;
+    float r2=dot(d,d)+.006; float sgn=(mod(fi,2.)<1.)?1.:-1.;
+    float str=(.4+.4*sin(uSB*TAU+fi))*.036*uTurb;
+    v+=sgn*str*vec2(-d.y,d.x)/r2;
+  }
+  return v;
+}
+
+// ── Geometry sample with smooth blending ─────────────────────
+float geoSample(vec2 p, float ph){
+  // select which geometry using uMode, allow fractional blend
+  float mi=floor(uMode); float mf=fract(uMode);
+  float sc=uScale;
+  vec2 q=p*sc;
+
+  float fa=0., fb=0.;
+  int ma=int(mi), mb=int(mi)+1; if(mb>17) mb=0;
+
+  // geometry A
+  if(ma==0)  fa=gPenrose(q);
+  else if(ma==1) fa=gAmmann(q);
+  else if(ma==2) fa=gIslamic(q);
+  else if(ma==3) fa=gVoronoi(q);
+  else if(ma==4) fa=gHyperbolic(p);
+  else if(ma==5) fa=gCeltic(q);
+  else if(ma==6) fa=gPolytope(p);
+  else if(ma==7) fa=gRD(p*sc*.4, ph);
+  else if(ma==8) fa=gCA(q, ph);
+  else if(ma==9) fa=abs(gApolloian(q))*.5+.04;
+  else if(ma==10)fa=gHilbert(p*sc*.25);
+  else if(ma==11)fa=gBraid(q);
+  else if(ma==12)fa=gTruchet(q);
+  else if(ma==13)fa=gPhyllo(p);
+  else if(ma==14)fa=gMaze(q);
+  else if(ma==15)fa=gZellij(q);
+  else if(ma==16)fa=gArabesque(q);
+  else fa=gRose(p);
+
+  // geometry B (for blending during transition)
+  if(mb==0)  fb=gPenrose(q);
+  else if(mb==1) fb=gAmmann(q);
+  else if(mb==2) fb=gIslamic(q);
+  else if(mb==3) fb=gVoronoi(q);
+  else if(mb==4) fb=gHyperbolic(p);
+  else if(mb==5) fb=gCeltic(q);
+  else if(mb==6) fb=gPolytope(p);
+  else if(mb==7) fb=gRD(p*sc*.4, ph);
+  else if(mb==8) fb=gCA(q, ph);
+  else if(mb==9) fb=abs(gApolloian(q))*.5+.04;
+  else if(mb==10)fb=gHilbert(p*sc*.25);
+  else if(mb==11)fb=gBraid(q);
+  else if(mb==12)fb=gTruchet(q);
+  else if(mb==13)fb=gPhyllo(p);
+  else if(mb==14)fb=gMaze(q);
+  else if(mb==15)fb=gZellij(q);
+  else if(mb==16)fb=gArabesque(q);
+  else fb=gRose(p);
+
+  return mix(fa, fb, smoothstep(0.,1.,mf));
+}
+
+float physSample(vec2 p, float geo, float ph){
+  int pm=int(uPhys);
+  float mod2=0.;
+  if(pm==0) mod2=abs(physGears(p,ph))*.4;
+  else if(pm==1) mod2=physWave(p*.85)*.35;
+  else if(pm==2) mod2=physInterference(p*.75)*.4;
+  else if(pm==3) mod2=physEM(p)*.5;
+  else if(pm==4) mod2=fbm(p*uScale*.5+ph*.05)*.3;
+  else if(pm==5) mod2=gRD(p*uScale*.35,ph+1.2)*.45;
+  else if(pm==6){// linkage
+    vec2 lk=vec2(cos(ph*.32+uSA*TAU),sin(ph*.26+uSB*TAU))*.22;
+    mod2=abs(physGears(p+lk,ph))*.38;
+  }
+  else{// pendulum
+    float pend=0.;
+    for(int i=0;i<5;i++){
+      float fi=float(i); float ang=uSA*3.14+fi*.5+sin(ph*.36+fi)*(.08+fi*.05)*4.;
+      pend+=exp(-length(p-vec2(sin(ang),cos(ang))*(.26+fi*.065))*8.)*.2;
+    }
+    mod2=pend*.5;
+  }
+  return geo*.65+mod2*.35;
+}
+
+// ── Main ─────────────────────────────────────────────────────
+void main(){
+  vec2 uv=(gl_FragCoord.xy-.5*uRes)/min(uRes.x,uRes.y);
+  uv.x*=uRes.x/uRes.y;
+
+  // lens warp
+  float r2=dot(uv,uv);
+  uv*=1.+uCurv*r2*.18;
+
+  float ph=uTime+uSC*TAU;
+
+  // vortex displacement
+  vec2 p=uv+vortexDisp(uv,ph);
+
+  // three-layer sampling (slight rotation + scale variation)
+  float fa=geoSample(p, ph);
+  float fb=geoSample(rot(p,ph*.014)*.97, ph+1.88);
+  float fc=geoSample(p*.94+vec2(sin(ph*.06),cos(ph*.045))*.04, ph*.57+uSA);
+
+  float raw=fa*.54+fb*.28+fc*.18;
+  raw=physSample(p, raw, ph);
+  raw*=1.+uEnergy*.35;
+
+  // color
+  float t1=fract(raw+ph*.032);
+  float t2=fract(raw*PHI+ph*.025+.31);
+  float t3=fract(raw*.618-ph*.018+.67);
+
+  vec3 col=pal(t1)*(.58+.42*sin(raw*9.+ph*.7));
+  col+=pal(t2)*.35*abs(sin(raw*6.-ph*.45));
+  col+=pal(t3)*.17*(1.+.5*cos(raw*3.7+ph*.27));
+
+  // edge glow
+  float edge=pow(max(0.,1.-abs(raw-.5)*4.5),2.5);
+  col+=pal(t1+.3)*edge*1.3;
+
+  // spectral interference
+  float bnd=raw*uScale+ph;
+  col.r+=.10*sin(bnd*3.5+ph*.85);
+  col.g+=.08*sin(bnd*2.7+ph*.65+1.05);
+  col.b+=.12*sin(bnd*4.0+ph*1.02+2.09);
+
+  // pulse & vignette
+  col*=.84+.16*sin(ph*2.1+uSA*TAU);
+  col*=1.-r2*(.5+.25*uTurb);
+
+  // filmic tone
+  col=col/(col+.18)*(1.+col*.2);
+  col=clamp(col,0.,1.);
+  col=pow(col,vec3(.4545));
+  gl_FragColor=vec4(col,1.);
+}
+`;
+
+// ══════════════════════════════════════════════════════════════
+//  WebGL setup
+// ══════════════════════════════════════════════════════════════
+function mkShader(type, src) {
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+    console.error(gl.getShaderInfoLog(s)); return null;
+  }
+  return s;
+}
+function mkProg(fsSrc) {
+  const p = gl.createProgram();
+  gl.attachShader(p, mkShader(gl.VERTEX_SHADER, VS));
+  gl.attachShader(p, mkShader(gl.FRAGMENT_SHADER, fsSrc));
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) { console.error(gl.getProgramInfoLog(p)); return null; }
+  return p;
+}
+
+// Quad buffer
+const qBuf = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, qBuf);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,1,1]), gl.STATIC_DRAW);
+
+function bindQuad(prog) {
+  const loc = gl.getAttribLocation(prog, 'a');
+  gl.bindBuffer(gl.ARRAY_BUFFER, qBuf);
+  gl.enableVertexAttribArray(loc);
+  gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+}
+
+// ══════════════════════════════════════════════════════════════
+//  ASYNC SHADER COMPILE — non-blocking via setTimeout
+// ══════════════════════════════════════════════════════════════
+let prog = null;
+
+function compileAsync(cb) {
+  setProgress(0.1);
+  setTimeout(() => {
+    setProgress(0.5);
+    setTimeout(() => {
+      prog = mkProg(FS);
+      setProgress(1.0);
+      setTimeout(() => {
+        if (!prog) {
+          document.getElementById('loader').innerHTML = '<div style="color:#f55;font-family:monospace;padding:20px">Shader error — see console</div>';
+          return;
+        }
+        hideLoader();
+        cb();
+      }, 300);
+    }, 50);
+  }, 50);
+}
+
+// Uniforms
+let U = {};
+function initUniforms() {
+  ['uRes','uTime','uMode','uPhys','uScale','uCurv','uTurb','uEnergy',
+   'uDim','uSA','uSB','uSC','uPalShift','uP0','uP1','uP2','uP3','uP4'
+  ].forEach(n => U[n] = gl.getUniformLocation(prog, n));
+}
+
+// ══════════════════════════════════════════════════════════════
+//  SIMULATION STATE
+// ══════════════════════════════════════════════════════════════
+function newSim() {
+  const pal = pick(PALS);
+  const gi  = 0|(Math.random() * GNAMES.length);
+  const pi  = 0|(Math.random() * PNAMES.length);
+  return {
+    gi, gn: GNAMES[gi],
+    pi, pn: PNAMES[pi],
+    pal,
+    scale:    rng(2.5, 8),
+    curv:     rng(0, 1.8),
+    turb:     rng(0.1, 2.2),
+    energy:   rng(0.5, 1.8),
+    dim:      rng(0, TAU),
+    sA:       Math.random(),
+    sB:       Math.random(),
+    sC:       Math.random(),
+    palShift: Math.random(),
+    mode:     gi,         // float mode, can animate fractionally
+  };
+}
+
+function applyUniforms() {
+  gl.useProgram(prog);
+  gl.uniform2f(U.uRes, W, H);
+  gl.uniform1f(U.uTime, t);
+  gl.uniform1f(U.uMode, sim.mode);
+  gl.uniform1f(U.uPhys, sim.pi);
+  gl.uniform1f(U.uScale, sim.scale);
+  gl.uniform1f(U.uCurv, sim.curv);
+  gl.uniform1f(U.uTurb, sim.turb);
+  gl.uniform1f(U.uEnergy, sim.energy);
+  gl.uniform1f(U.uDim, sim.dim + t * 0.038);
+  gl.uniform1f(U.uSA, sim.sA);
+  gl.uniform1f(U.uSB, sim.sB);
+  gl.uniform1f(U.uSC, sim.sC);
+  gl.uniform1f(U.uPalShift, sim.palShift + t * 0.016);
+  gl.uniform3fv(U.uP0, sim.pal.c[0]);
+  gl.uniform3fv(U.uP1, sim.pal.c[1]);
+  gl.uniform3fv(U.uP2, sim.pal.c[2]);
+  gl.uniform3fv(U.uP3, sim.pal.c[3]);
+  gl.uniform3fv(U.uP4, sim.pal.c[4]);
+}
+
+// ══════════════════════════════════════════════════════════════
+//  RENDER LOOP
+// ══════════════════════════════════════════════════════════════
+function frame(ms) {
+  if (!running) return;
+  const dt = Math.min((ms - lastMs) / 1000, 0.08);
+  lastMs = ms; t += dt;
+  fpsQ.push(1 / Math.max(dt, 0.001));
+  if (fpsQ.length > 45) fpsQ.shift();
+  fps = (fpsQ.reduce((a,b) => a+b) / fpsQ.length) | 0;
+
+  applyUniforms();
+  bindQuad(prog);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+  if (soundOn) audioTick();
+  if (hudOn) hudTick();
+  requestAnimationFrame(frame);
+}
+
+// ══════════════════════════════════════════════════════════════
+//  AUDIO
+// ══════════════════════════════════════════════════════════════
+function buildAudio() {
+  if (AC) return;
+  AC = new (window.AudioContext || window.webkitAudioContext)();
+  masterGain = AC.createGain(); masterGain.gain.value = 0;
+  const comp = AC.createDynamicsCompressor();
+  comp.threshold.value = -18; comp.ratio.value = 4;
+  comp.connect(masterGain); masterGain.connect(AC.destination);
+
+  const base = 36.7 + sim.sA * 73.4;
+  const ratios = [1, PHI, 2, 2 * PHI];
+  ratios.forEach((r, i) => {
+    const o = AC.createOscillator();
+    o.type = i === 1 ? 'triangle' : 'sine';
+    const hz = base * r * (1 + sim.sB * 0.04 * i);
+    o.frequency.value = hz;
+    const g = AC.createGain(); g.gain.value = 0.12 / (i + 1);
+    o.connect(g); g.connect(comp); o.start();
+    oscBank.push({o, g, hz});
+  });
+  // LFO tremolo
+  const lfo = AC.createOscillator(); lfo.type = 'sine';
+  lfo.frequency.value = 0.08 + sim.sA * 0.28;
+  const lg = AC.createGain(); lg.gain.value = oscBank[0].g.gain.value * 0.3;
+  lfo.connect(lg); lg.connect(oscBank[0].g.gain); lfo.start();
+}
+
+function audioTick() {
+  if (!AC) return;
+  const now = AC.currentTime;
+  const mod = Math.sin(t * 0.24 + sim.sA) * 0.035;
+  oscBank.forEach((o, i) => {
+    o.o.frequency.setTargetAtTime(o.hz * (1 + mod * (i + 1) * 0.4), now, 0.2);
+  });
+}
+
+function setSoundOn(on) {
+  soundOn = on;
+  if (on) {
+    buildAudio();
+    if (AC.state === 'suspended') AC.resume();
+    masterGain.gain.setTargetAtTime(0.18, AC.currentTime, 0.3);
+  } else if (masterGain) {
+    masterGain.gain.setTargetAtTime(0, AC.currentTime, 0.4);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  HUD
+// ══════════════════════════════════════════════════════════════
+function hudTick() {
+  document.getElementById('hg').textContent = 'GEO  ' + sim.gn;
+  document.getElementById('hp').textContent = 'PHY  ' + sim.pn;
+  document.getElementById('hk').textContent = 'PAL  ' + sim.pal.n;
+  document.getElementById('hf').textContent = 'FPS  ' + fps;
+}
+
+// ══════════════════════════════════════════════════════════════
+//  CONTROLS
+// ══════════════════════════════════════════════════════════════
+function regenerate() {
+  sim = newSim(); t = 0;
+  if (soundOn && AC) {
+    const base = 36.7 + sim.sA * 73.4;
+    const ratios = [1, PHI, 2, 2*PHI];
+    oscBank.forEach((o, i) => {
+      o.hz = base * ratios[i];
+      o.o.frequency.setTargetAtTime(o.hz, AC.currentTime, 0.1);
+    });
+  }
+  if (hudOn) hudTick();
+  flashHint();
+}
+function toggleHUD() {
+  hudOn = !hudOn;
+  document.getElementById('hud').style.display = hudOn ? 'block' : 'none';
+  if (hudOn) hudTick();
+}
+function flashHint() {
+  const el = document.getElementById('hint');
+  el.style.opacity = '.6';
+  clearTimeout(hintTmr);
+  hintTmr = setTimeout(() => el.style.opacity = '0', 2800);
+}
+
+window.addEventListener('keydown', e => {
+  if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); regenerate(); }
+  if (e.key === 'h' || e.key === 'H') toggleHUD();
+  if (e.key === 's' || e.key === 'S') setSoundOn(!soundOn);
+});
+canvas.addEventListener('pointerdown', e => { e.preventDefault(); regenerate(); }, {passive:false});
+
+// ══════════════════════════════════════════════════════════════
+//  BOOT — compile async, then start
+// ══════════════════════════════════════════════════════════════
+sim = newSim();
+compileAsync(() => {
+  initUniforms();
+  running = true;
+  flashHint();
+  lastMs = performance.now();
+  requestAnimationFrame(frame);
+});
+</script>
+</body>
+</html>

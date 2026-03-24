@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Interactive 3D visualization of a procedurally generated hanging modular rack structure built from wire mesh grids, binder clips, metal rings, and suspension rods. Fully animated with a cinematic spiraling camera, real-time randomization, and metallic Three.js rendering.">
+<meta name="keywords" content="Three.js 3D visualization, procedural structure generator, hanging wire rack 3D, modular rack sculpture, interactive 3D art, binder clip structure, wire mesh grid animation, WebGL art, generative 3D design, cinematic camera Three.js, metallic material WebGL, browser 3D animation, procedural geometry, wire frame sculpture, real-time 3D randomizer">
+<title>Hanging Modular Rack Structure</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0a0c; overflow: hidden; font-family: 'Courier New', monospace; }
+  canvas { display: block; }
+  #hud {
+    display: none;
+    position: fixed;
+    top: 20px;
+    left: 20px;
+    background: rgba(0,0,0,0.75);
+    border: 1px solid rgba(180,180,200,0.3);
+    color: #c8ccd8;
+    padding: 16px 20px;
+    font-size: 11px;
+    line-height: 1.8;
+    max-width: 320px;
+    pointer-events: none;
+    letter-spacing: 0.05em;
+    backdrop-filter: blur(4px);
+  }
+  #hud.visible { display: block; }
+  #hud h2 {
+    font-size: 12px;
+    color: #e8eaf0;
+    margin-bottom: 8px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    border-bottom: 1px solid rgba(180,180,200,0.2);
+    padding-bottom: 6px;
+  }
+  #hud .param { color: #88ccee; }
+  #hud .section {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(180,180,200,0.15);
+    color: #8899aa;
+    font-size: 10px;
+  }
+  #hint {
+    position: fixed;
+    bottom: 18px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(180,180,200,0.45);
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    pointer-events: none;
+    text-transform: uppercase;
+  }
+</style>
+</head>
+<body>
+<div id="hud">
+  <h2>Structure Parameters</h2>
+  <div id="hud-params"></div>
+  <div class="section">
+    <div>[ H ] — toggle HUD</div>
+    <div>[ SPACE / CLICK ] — randomize</div>
+  </div>
+</div>
+<div id="hint">Space / Click — Randomize &nbsp;|&nbsp; H — HUD</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ─── Scene Setup ─────────────────────────────────────────────────────────────
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x090a0d);
+scene.fog = new THREE.FogExp2(0x090a0d, 0.022);
+
+const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 200);
+camera.position.set(0, 0, 22);
+camera.lookAt(0, 0, 0);
+
+// ─── Cinematic Camera System ──────────────────────────────────────────────────
+// The camera spirals around the structure using multiple overlapping sine waves
+// producing organic, unpredictable movement through azimuth, elevation, and radius.
+const camState = {
+  // Azimuth: primary rotation around Y axis
+  azFreq:    [0.07, 0.031, 0.013],   // Hz for each harmonic
+  azAmp:     [1.0, 0.45, 0.18],      // radians amplitude
+  azPhase:   [0, 1.3, 2.8],
+
+  // Elevation: up/down swing
+  elFreq:    [0.05, 0.023, 0.009],
+  elAmp:     [0.55, 0.28, 0.12],     // radians
+  elPhase:   [0.7, 2.1, 4.4],
+  elBase:    0.08,                    // slight upward bias
+
+  // Radius: in/out zoom
+  rFreq:     [0.04, 0.019, 0.008],
+  rAmp:      [4.5, 2.2, 1.0],
+  rPhase:    [1.2, 3.0, 0.4],
+  rBase:     16,                      // nominal distance
+
+  // Look-at drift: camera doesn't always look at dead center
+  lookFreq:  [0.038, 0.017],
+  lookAmp:   [0.6, 0.3],
+  lookPhase: [0.9, 2.5],
+
+  // FOV breathe
+  fovFreq:   [0.028, 0.011],
+  fovAmp:    [6, 3],
+  fovPhase:  [0.5, 3.1],
+  fovBase:   45,
+};
+
+function evalWaves(freqs, amps, phases, t) {
+  let v = 0;
+  for (let i = 0; i < freqs.length; i++) {
+    v += Math.sin(t * freqs[i] * Math.PI * 2 + phases[i]) * amps[i];
+  }
+  return v;
+}
+
+function updateCamera(t) {
+  const cs = camState;
+
+  const az  = evalWaves(cs.azFreq,  cs.azAmp,  cs.azPhase,  t);
+  const el  = cs.elBase + evalWaves(cs.elFreq,  cs.elAmp,  cs.elPhase,  t);
+  const r   = cs.rBase  + evalWaves(cs.rFreq,   cs.rAmp,   cs.rPhase,   t);
+  const elClamped = Math.max(-1.1, Math.min(1.25, el));
+  const rClamped  = Math.max(4.5, r);
+
+  // Spherical to Cartesian
+  const cosEl = Math.cos(elClamped);
+  camera.position.set(
+    Math.sin(az) * cosEl * rClamped,
+    Math.sin(elClamped) * rClamped,
+    Math.cos(az) * cosEl * rClamped
+  );
+
+  // Slightly drifting look-at target (wanders around structure center)
+  const lx = evalWaves(cs.lookFreq, cs.lookAmp, cs.lookPhase, t);
+  const ly = evalWaves(cs.lookFreq, [cs.lookAmp[0]*0.5, cs.lookAmp[1]*0.5], [cs.lookPhase[0]+1.0, cs.lookPhase[1]+1.0], t);
+  camera.lookAt(lx, ly, 0);
+
+  // FOV breathe for zoom feel
+  camera.fov = cs.fovBase + evalWaves(cs.fovFreq, cs.fovAmp, cs.fovPhase, t);
+  camera.updateProjectionMatrix();
+}
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(devicePixelRatio);
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.2;
+document.body.appendChild(renderer.domElement);
+
+// Lighting
+const ambient = new THREE.AmbientLight(0x334466, 0.6);
+scene.add(ambient);
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.4);
+dirLight.position.set(8, 12, 6);
+dirLight.castShadow = true;
+scene.add(dirLight);
+const fillLight = new THREE.DirectionalLight(0x4466aa, 0.5);
+fillLight.position.set(-6, -4, 8);
+scene.add(fillLight);
+const rimLight = new THREE.DirectionalLight(0x8899cc, 0.3);
+rimLight.position.set(0, -8, -6);
+scene.add(rimLight);
+
+// ─── State ───────────────────────────────────────────────────────────────────
+let pivotGroup = null;
+let params = {};
+let animData = [];
+let clock = new THREE.Clock();
+let hudVisible = false;
+
+// ─── Utilities ───────────────────────────────────────────────────────────────
+function rnd(min, max) { return min + Math.random() * (max - min); }
+function rndInt(min, max) { return Math.floor(rnd(min, max + 1)); }
+function randColor() {
+  const palettes = [
+    [0x8899bb, 0xaabbcc, 0x667788, 0x99aabb, 0xccddee],
+    [0xc0a060, 0x887740, 0xddcc88, 0xa08840, 0xe0d090],
+    [0x88aacc, 0x4466aa, 0x6688bb, 0x99bbdd, 0x334477],
+    [0xaaaaaa, 0x888888, 0xcccccc, 0x666666, 0xdddddd],
+    [0xcc8866, 0x994422, 0xeebb99, 0xaa6633, 0xff9966],
+  ];
+  const p = palettes[rndInt(0, palettes.length - 1)];
+  return p[rndInt(0, p.length - 1)];
+}
+
+// ─── Material Factory ────────────────────────────────────────────────────────
+function makeMat(color, rough, metal) {
+  return new THREE.MeshStandardMaterial({
+    color: color,
+    roughness: rough !== undefined ? rough : rnd(0.25, 0.65),
+    metalness: metal !== undefined ? metal : rnd(0.55, 0.95),
+  });
+}
+
+// ─── Wire Grid ───────────────────────────────────────────────────────────────
+function buildWireGrid(W, D, spacing, mat, curveAmt) {
+  const group = new THREE.Group();
+  const wireR = 0.018;
+  const cols = Math.round(W / spacing);
+  const rows = Math.round(D / spacing);
+
+  // Helper: tube between two points
+  function rod(x0, y0, z0, x1, y1, z1, r, m) {
+    const dir = new THREE.Vector3(x1 - x0, y1 - y0, z1 - z0);
+    const len = dir.length();
+    if (len < 0.001) return;
+    const geo = new THREE.CylinderGeometry(r, r, len, 5, 1);
+    const mesh = new THREE.Mesh(geo, m);
+    mesh.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
+    group.add(mesh);
+  }
+
+  // longitudinal wires (along Z)
+  for (let i = 0; i <= cols; i++) {
+    const x = -W / 2 + i * spacing;
+    for (let j = 0; j < rows; j++) {
+      const z0 = -D / 2 + j * spacing;
+      const z1 = z0 + spacing;
+      const t0 = j / rows;
+      const t1 = (j + 1) / rows;
+      const y0 = curveAmt * Math.sin(Math.PI * t0);
+      const y1 = curveAmt * Math.sin(Math.PI * t1);
+      rod(x, y0, z0, x, y1, z1, wireR, mat);
+    }
+  }
+  // lateral wires (along X)
+  for (let j = 0; j <= rows; j++) {
+    const z = -D / 2 + j * spacing;
+    const t = j / rows;
+    const y = curveAmt * Math.sin(Math.PI * t);
+    rod(-W / 2, y, z, W / 2, y, z, wireR, mat);
+  }
+  return group;
+}
+
+// ─── Binder Clip ─────────────────────────────────────────────────────────────
+function buildBinderClip(mat) {
+  const g = new THREE.Group();
+  const bW = 0.22, bH = 0.14, bD = 0.08;
+  // jaw body
+  const bodyGeo = new THREE.BoxGeometry(bW, bH, bD);
+  const body = new THREE.Mesh(bodyGeo, mat);
+  g.add(body);
+  // two handle loops
+  const torusGeo = new THREE.TorusGeometry(0.1, 0.015, 6, 12);
+  [-0.06, 0.06].forEach(xOff => {
+    const t = new THREE.Mesh(torusGeo, mat);
+    t.position.set(xOff, -0.14, 0);
+    t.rotation.x = Math.PI / 2;
+    g.add(t);
+  });
+  return g;
+}
+
+// ─── Ring (joint) ────────────────────────────────────────────────────────────
+function buildRing(r, mat) {
+  const geo = new THREE.TorusGeometry(r, 0.025, 8, 24);
+  return new THREE.Mesh(geo, mat);
+}
+
+// ─── Vertical Suspension Rod ─────────────────────────────────────────────────
+function buildSuspRod(len, radius, mat) {
+  const geo = new THREE.CylinderGeometry(radius, radius, len, 6);
+  return new THREE.Mesh(geo, mat);
+}
+
+// ─── Build Full Structure ─────────────────────────────────────────────────────
+function buildStructure(p) {
+  const root = new THREE.Group();
+  animData = [];
+
+  const mainColor = p.gridColor;
+  const clipColor = p.clipColor;
+  const ringColor = p.ringColor;
+  const rodColor  = p.rodColor;
+
+  const gridMat = makeMat(mainColor, 0.4, 0.85);
+  const clipMat = makeMat(clipColor, 0.35, 0.9);
+  const ringMat = makeMat(ringColor, 0.3, 0.95);
+  const rodMat  = makeMat(rodColor,  0.45, 0.8);
+
+  // ── Upper tier (large, curved) ──────────────────────────────────────────
+  const upperGrid = buildWireGrid(p.upperW, p.upperD, p.spacing, gridMat, p.upperCurve);
+  upperGrid.position.y = p.upperY;
+  root.add(upperGrid);
+
+  // ── Middle tier ─────────────────────────────────────────────────────────
+  const midGrid = buildWireGrid(p.midW, p.midD, p.spacing, gridMat, 0);
+  midGrid.position.y = p.midY;
+  root.add(midGrid);
+
+  // ── Lower tier ──────────────────────────────────────────────────────────
+  const lowGrid = buildWireGrid(p.lowW, p.lowD, p.spacing, gridMat, 0);
+  lowGrid.position.y = p.lowY;
+  root.add(lowGrid);
+
+  // ── Suspension columns: pairs of clips + rings + rods ───────────────────
+  const columnPositions = [];
+  for (let i = 0; i < p.numColumns; i++) {
+    const angle = (i / p.numColumns) * Math.PI * 2 + Math.PI / p.numColumns;
+    const r = p.upperW * 0.38;
+    columnPositions.push({
+      x: Math.cos(angle) * r,
+      z: Math.sin(angle) * r * (p.upperD / p.upperW),
+      angle
+    });
+  }
+
+  columnPositions.forEach((cp, idx) => {
+    const colGroup = new THREE.Group();
+    colGroup.position.set(cp.x, p.midY + 0.1, cp.z);
+
+    // rod from upper to mid
+    const rod1Len = p.upperY - p.midY - 0.2;
+    if (rod1Len > 0.3) {
+      const rod1 = buildSuspRod(rod1Len, 0.03, rodMat);
+      rod1.position.y = rod1Len / 2 + 0.05;
+      colGroup.add(rod1);
+
+      // ring at top joint
+      const ring1 = buildRing(p.ringRadius, ringMat);
+      ring1.position.y = rod1Len + 0.05;
+      ring1.rotation.x = Math.PI / 2;
+      colGroup.add(ring1);
+
+      // binder clip at upper attachment
+      const clip1 = buildBinderClip(clipMat);
+      clip1.position.y = rod1Len + 0.12;
+      clip1.rotation.y = cp.angle;
+      colGroup.add(clip1);
+    }
+
+    // rod from mid to lower
+    const rod2Len = p.midY - p.lowY - 0.15;
+    if (rod2Len > 0.2) {
+      const rod2 = buildSuspRod(rod2Len, 0.025, rodMat);
+      rod2.position.y = -rod2Len / 2 - 0.05;
+      colGroup.add(rod2);
+
+      const ring2 = buildRing(p.ringRadius * 0.8, ringMat);
+      ring2.position.y = -rod2Len - 0.05;
+      ring2.rotation.x = Math.PI / 2;
+      colGroup.add(ring2);
+
+      const clip2 = buildBinderClip(clipMat);
+      clip2.position.y = -rod2Len - 0.15;
+      clip2.rotation.y = cp.angle + 0.3;
+      colGroup.add(clip2);
+    }
+
+    root.add(colGroup);
+
+    // Store for animation
+    animData.push({
+      group: colGroup,
+      baseX: cp.x,
+      baseZ: cp.z,
+      phase: rnd(0, Math.PI * 2),
+      amp: p.swingAmp,
+      speed: p.swingSpeed,
+      type: 'column'
+    });
+  });
+
+  // ── Perimeter clips and flanges on upper tier ────────────────────────────
+  const flangePositions = [
+    { x: -p.upperW / 2, z: 0,          angle: -Math.PI / 2 },
+    { x:  p.upperW / 2, z: 0,          angle:  Math.PI / 2 },
+    { x: 0,             z: -p.upperD / 2, angle: Math.PI },
+    { x: 0,             z:  p.upperD / 2, angle: 0 },
+  ];
+  flangePositions.forEach(fp => {
+    const fg = new THREE.Group();
+    fg.position.set(fp.x, p.upperY + 0.05, fp.z);
+    fg.rotation.y = fp.angle;
+
+    // small flange grid
+    const fl = buildWireGrid(0.6, 0.5, p.spacing * 0.7, gridMat, 0);
+    fl.position.set(0.38, 0, 0);
+    fl.rotation.y = Math.PI / 2;
+    fg.add(fl);
+
+    // clip holding it
+    const cl = buildBinderClip(clipMat);
+    fg.add(cl);
+
+    root.add(fg);
+  });
+
+  // ── Upper tier oscillation ──────────────────────────────────────────────
+  animData.push({
+    group: upperGrid,
+    baseY: p.upperY,
+    phase: rnd(0, Math.PI * 2),
+    amp: p.oscAmp,
+    speed: p.oscSpeed,
+    type: 'oscillate'
+  });
+
+  // ── Auto-center ─────────────────────────────────────────────────────────
+  const box = new THREE.Box3().setFromObject(root);
+  const center = box.getCenter(new THREE.Vector3());
+  root.position.sub(center);
+
+  return root;
+}
+
+// ─── Randomize Parameters ────────────────────────────────────────────────────
+function randomizeParams() {
+  params = {
+    upperW:      rnd(5.5, 9),
+    upperD:      rnd(3.5, 6),
+    upperY:      rnd(2.5, 4.5),
+    upperCurve:  rnd(-0.6, -0.1),
+    midW:        rnd(3.5, 6),
+    midD:        rnd(2.5, 4),
+    midY:        rnd(-0.5, 1.5),
+    lowW:        rnd(2, 4),
+    lowD:        rnd(1.5, 3),
+    lowY:        rnd(-3.5, -2),
+    spacing:     rnd(0.22, 0.45),
+    numColumns:  rndInt(4, 8),
+    ringRadius:  rnd(0.14, 0.26),
+    swingAmp:    rnd(0.04, 0.18),
+    swingSpeed:  rnd(0.4, 1.2),
+    oscAmp:      rnd(0.02, 0.1),
+    oscSpeed:    rnd(0.3, 0.8),
+    rotSpeed:    rnd(0.15, 0.55),
+    gridColor:   randColor(),
+    clipColor:   randColor(),
+    ringColor:   randColor(),
+    rodColor:    randColor(),
+  };
+}
+
+// ─── Rebuild Scene ────────────────────────────────────────────────────────────
+function randomizeCamState() {
+  // Randomize all frequencies, amplitudes, phases for fresh flight path each build
+  function rp(n) { return Array.from({length:n}, () => rnd(0, Math.PI*2)); }
+  camState.azFreq   = [rnd(0.04,0.12), rnd(0.018,0.05), rnd(0.007,0.02)];
+  camState.azAmp    = [rnd(0.7,1.4),   rnd(0.3,0.6),    rnd(0.1,0.25)];
+  camState.azPhase  = rp(3);
+  camState.elFreq   = [rnd(0.03,0.09), rnd(0.012,0.04), rnd(0.005,0.015)];
+  camState.elAmp    = [rnd(0.3,0.8),   rnd(0.15,0.4),   rnd(0.05,0.18)];
+  camState.elPhase  = rp(3);
+  camState.elBase   = rnd(-0.1, 0.25);
+  camState.rFreq    = [rnd(0.025,0.07), rnd(0.01,0.03), rnd(0.004,0.012)];
+  camState.rAmp     = [rnd(3,6),        rnd(1.5,3.5),   rnd(0.5,1.5)];
+  camState.rPhase   = rp(3);
+  camState.rBase    = rnd(13, 20);
+  camState.lookFreq = [rnd(0.02,0.06), rnd(0.008,0.025)];
+  camState.lookAmp  = [rnd(0.3,0.9),   rnd(0.1,0.4)];
+  camState.lookPhase= rp(2);
+  camState.fovFreq  = [rnd(0.018,0.05), rnd(0.007,0.02)];
+  camState.fovAmp   = [rnd(4,10),       rnd(1.5,5)];
+  camState.fovPhase = rp(2);
+  camState.fovBase  = rnd(38, 58);
+}
+
+function rebuild() {
+  randomizeCamState();
+  if (pivotGroup) {
+    scene.remove(pivotGroup);
+    pivotGroup.traverse(o => {
+      if (o.geometry) o.geometry.dispose();
+      if (o.material) o.material.dispose();
+    });
+  }
+  randomizeParams();
+  const structure = buildStructure(params);
+  pivotGroup = new THREE.Group();
+  pivotGroup.add(structure);
+  scene.add(pivotGroup);
+  updateHUD();
+}
+
+// ─── HUD ─────────────────────────────────────────────────────────────────────
+function updateHUD() {
+  const el = document.getElementById('hud-params');
+  const p = params;
+  el.innerHTML = `
+    <span class="param">Grid Tiers</span> : upper ${p.upperW.toFixed(2)} × ${p.upperD.toFixed(2)}<br>
+    <span class="param">           </span>   mid ${p.midW.toFixed(2)} × ${p.midD.toFixed(2)}<br>
+    <span class="param">           </span>   low ${p.lowW.toFixed(2)} × ${p.lowD.toFixed(2)}<br>
+    <span class="param">Tier Spacing</span> : Y ${p.upperY.toFixed(2)} / ${p.midY.toFixed(2)} / ${p.lowY.toFixed(2)}<br>
+    <span class="param">Wire Spacing</span> : ${p.spacing.toFixed(3)}<br>
+    <span class="param">Upper Curve </span> : ${p.upperCurve.toFixed(3)}<br>
+    <span class="param">Columns     </span> : ${p.numColumns}<br>
+    <span class="param">Ring Radius </span> : ${p.ringRadius.toFixed(3)}<br>
+    <span class="param">Swing Amp   </span> : ${p.swingAmp.toFixed(3)}<br>
+    <span class="param">Swing Speed </span> : ${p.swingSpeed.toFixed(3)}<br>
+    <span class="param">Osc Amp     </span> : ${p.oscAmp.toFixed(3)}<br>
+    <span class="param">Osc Speed   </span> : ${p.oscSpeed.toFixed(3)}<br>
+    <span class="param">Rot Speed   </span> : ${p.rotSpeed.toFixed(3)} rad/s<br>
+    <span class="param">Cam Radius  </span> : base ${camState.rBase.toFixed(1)} ± ${camState.rAmp[0].toFixed(1)}<br>
+    <span class="param">Cam FOV     </span> : ${camState.fovBase.toFixed(1)}° ± ${camState.fovAmp[0].toFixed(1)}°
+  `;
+}
+
+// ─── Animation Loop ───────────────────────────────────────────────────────────
+let totalTime = 0;
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = clock.getDelta();
+  totalTime += dt;
+
+  // Spiraling camera
+  updateCamera(totalTime);
+
+  // Structure also slowly rotates for compound motion
+  if (pivotGroup) {
+    pivotGroup.rotation.y += params.rotSpeed * 0.35 * dt;
+  }
+
+  animData.forEach(ad => {
+    if (ad.type === 'column') {
+      const sway = Math.sin(totalTime * ad.speed + ad.phase) * ad.amp;
+      const swayZ = Math.cos(totalTime * ad.speed * 0.7 + ad.phase + 1.2) * ad.amp * 0.6;
+      ad.group.position.x = ad.baseX + sway;
+      ad.group.position.z = ad.baseZ + swayZ;
+    } else if (ad.type === 'oscillate') {
+      ad.group.position.y = ad.baseY + Math.sin(totalTime * ad.speed + ad.phase) * ad.amp;
+    }
+  });
+
+  renderer.render(scene, camera);
+}
+
+// ─── Events ───────────────────────────────────────────────────────────────────
+window.addEventListener('keydown', e => {
+  if (e.code === 'Space') { e.preventDefault(); rebuild(); }
+  if (e.code === 'KeyH') {
+    hudVisible = !hudVisible;
+    document.getElementById('hud').classList.toggle('visible', hudVisible);
+  }
+});
+renderer.domElement.addEventListener('click', rebuild);
+window.addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+rebuild();
+animate();
+</script>
+</body>
+</html>

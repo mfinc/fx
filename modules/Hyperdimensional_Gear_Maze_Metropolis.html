@@ -1,0 +1,985 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="description" content="Hyperdimensional Gear-Maze Metropolis: A generative audiovisual environment featuring interconnected gear systems, algorithmic mazes, quasicrystal tilings, and procedural synthesis — a real-time evolving mechanical universe.">
+<meta name="keywords" content="generative art, gear systems, maze algorithms, quasicrystal, procedural audio, WebGL, canvas, audiovisual, mechanical simulation">
+<meta name="author" content="Hyperdimensional Systems">
+<meta property="og:title" content="Hyperdimensional Gear-Maze Metropolis">
+<meta property="og:description" content="A colossal evolving mechanical metropolis of gears, mazes, and quasicrystal tilings with immersive procedural sound.">
+<meta property="og:type" content="website">
+<title>Hyperdimensional Gear-Maze Metropolis</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Courier New',monospace}
+canvas{display:block;position:fixed;top:0;left:0;width:100%;height:100%;cursor:crosshair}
+#hud{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;display:none;z-index:10}
+.hud-corner{position:absolute;color:rgba(0,255,180,0.85);font-size:11px;line-height:1.7;text-shadow:0 0 8px rgba(0,255,180,0.5)}
+.hud-tl{top:16px;left:16px}
+.hud-tr{top:16px;right:16px;text-align:right}
+.hud-bl{bottom:16px;left:16px}
+.hud-br{bottom:16px;right:16px;text-align:right}
+.hud-center{top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;opacity:0;animation:fadeHint 4s ease forwards}
+@keyframes fadeHint{0%{opacity:0}20%{opacity:1}80%{opacity:1}100%{opacity:0}}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div class="hud-corner hud-tl" id="htl"></div>
+  <div class="hud-corner hud-tr" id="htr"></div>
+  <div class="hud-corner hud-bl" id="hbl"></div>
+  <div class="hud-corner hud-br" id="hbr"></div>
+</div>
+<script>
+// ─── GLOBAL STATE ────────────────────────────────────────────────────────────
+const C = document.getElementById('c');
+const ctx = C.getContext('2d');
+let W, H, cx, cy, seed, frame = 0, t = 0;
+let hudOn = false, soundOn = false;
+let audioCtx = null, masterGain = null, resonators = [], oscBank = [];
+let universe = null;
+let fps = 60, lastFps = 60, fpsTimer = 0;
+
+// ─── SEEDED RNG ──────────────────────────────────────────────────────────────
+function mkRng(s){
+  let x=s^0xdeadbeef;
+  return ()=>{x^=x<<13;x^=x>>17;x^=x<<5;return((x>>>0)/4294967296)};
+}
+let rng = mkRng(Date.now());
+
+// ─── RESIZE ──────────────────────────────────────────────────────────────────
+function resize(){
+  W = C.width = window.innerWidth;
+  H = C.height = window.innerHeight;
+  cx = W/2; cy = H/2;
+}
+window.addEventListener('resize', ()=>{resize(); if(universe) universe.resize()});
+resize();
+
+// ─── COLOR SYSTEMS ───────────────────────────────────────────────────────────
+const PALETTES = [
+  // neon
+  (t,i)=>`hsl(${(t*60+i*137.5)%360},100%,${50+20*Math.sin(t+i)}%)`,
+  // spectral rainbow
+  (t,i)=>`hsl(${(t*30+i*50)%360},90%,55%)`,
+  // interference pattern
+  (t,i)=>{const h=(Math.sin(t*0.7+i*0.3)*180+Math.cos(t*0.4+i*0.6)*180+360)%360;return `hsl(${h},85%,${45+25*Math.sin(t*1.3+i)}%)`;},
+  // cool blue-green-violet
+  (t,i)=>`hsl(${180+80*Math.sin(t*0.5+i*0.2)},80%,${50+20*Math.cos(t+i*0.5)}%)`,
+  // fire-gold
+  (t,i)=>`hsl(${20+40*Math.abs(Math.sin(t*0.8+i*0.4))},95%,${40+30*Math.abs(Math.cos(t*1.2+i*0.3))}%)`,
+];
+
+// ─── MAZE GENERATORS ─────────────────────────────────────────────────────────
+class RecursiveMaze{
+  constructor(cols,rows,r){
+    this.cols=cols; this.rows=rows;
+    this.cells=new Uint8Array(cols*rows);
+    this.visited=new Uint8Array(cols*rows);
+    this.r=r;
+    this.generate();
+  }
+  idx(x,y){return y*this.cols+x}
+  generate(){
+    const r=this.r;
+    const stack=[[0,0]];
+    this.visited[0]=1;
+    const dirs=[[0,-1,1],[1,0,2],[0,1,4],[-1,0,8]];
+    while(stack.length){
+      const [x,y]=stack[stack.length-1];
+      const nd=dirs.filter(([dx,dy])=>{
+        const nx=x+dx,ny=y+dy;
+        return nx>=0&&nx<this.cols&&ny>=0&&ny<this.rows&&!this.visited[this.idx(nx,ny)];
+      });
+      if(!nd.length){stack.pop();continue}
+      const [dx,dy,bit]=nd[Math.floor(r()*nd.length)];
+      const nx=x+dx,ny=y+dy;
+      this.cells[this.idx(x,y)]|=bit;
+      const opp=[4,8,1,2];
+      this.cells[this.idx(nx,ny)]|=opp[Math.log2(bit)];
+      this.visited[this.idx(nx,ny)]=1;
+      stack.push([nx,ny]);
+    }
+  }
+  draw(ctx,ox,oy,cw,ch,clr,alpha){
+    ctx.save();
+    ctx.globalAlpha=alpha;
+    ctx.strokeStyle=clr;
+    ctx.lineWidth=0.7;
+    ctx.beginPath();
+    for(let y=0;y<this.rows;y++){
+      for(let x=0;x<this.cols;x++){
+        const c=this.cells[this.idx(x,y)];
+        const px=ox+x*cw, py=oy+y*ch;
+        if(!(c&2)){ctx.moveTo(px+cw,py);ctx.lineTo(px+cw,py+ch)}
+        if(!(c&4)){ctx.moveTo(px,py+ch);ctx.lineTo(px+cw,py+ch)}
+      }
+    }
+    ctx.moveTo(ox,oy);ctx.lineTo(ox+this.cols*cw,oy);
+    ctx.moveTo(ox,oy);ctx.lineTo(ox,oy+this.rows*ch);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+class CircularMaze{
+  constructor(rings,r){
+    this.rings=rings; this.r=r;
+    this.cells=[];
+    this.build();
+  }
+  build(){
+    const r=this.r;
+    for(let i=0;i<this.rings;i++){
+      const n=Math.max(6,Math.floor(6*(i+1)));
+      this.cells.push(new Array(n).fill(0));
+    }
+    // carve with DFS
+    const visited=this.cells.map(c=>new Array(c.length).fill(false));
+    const stack=[[0,0]];
+    visited[0][0]=true;
+    while(stack.length){
+      const [ring,seg]=stack[stack.length-1];
+      const segs=this.cells[ring].length;
+      const neighbors=[];
+      // CW/CCW neighbors
+      const cw=(seg+1)%segs, ccw=(seg-1+segs)%segs;
+      if(!visited[ring][cw]) neighbors.push([ring,cw,'cw']);
+      if(!visited[ring][ccw]) neighbors.push([ring,ccw,'ccw']);
+      // outward
+      if(ring+1<this.rings){
+        const n2=this.cells[ring+1].length;
+        const ratio=n2/segs;
+        const os=Math.floor(seg*ratio);
+        for(let k=0;k<Math.ceil(ratio);k++){
+          const s=(os+k)%n2;
+          if(!visited[ring+1][s]) neighbors.push([ring+1,s,'out']);
+        }
+      }
+      // inward
+      if(ring>0){
+        const n0=this.cells[ring-1].length;
+        const ratio=segs/n0;
+        const is=Math.floor(seg/ratio);
+        if(!visited[ring-1][is]) neighbors.push([ring-1,is,'in']);
+      }
+      if(!neighbors.length){stack.pop();continue}
+      const pick=neighbors[Math.floor(r()*neighbors.length)];
+      visited[pick[0]][pick[1]]=true;
+      stack.push([pick[0],pick[1]]);
+    }
+  }
+  draw(ctx,ox,oy,radius,clr,alpha){
+    ctx.save();
+    ctx.globalAlpha=alpha;
+    ctx.strokeStyle=clr;
+    ctx.lineWidth=0.8;
+    for(let i=0;i<this.rings;i++){
+      const n=this.cells[i].length;
+      const r0=(i/this.rings)*radius;
+      const r1=((i+1)/this.rings)*radius;
+      ctx.beginPath();
+      ctx.arc(ox,oy,r1,0,Math.PI*2);
+      ctx.stroke();
+      // segment lines
+      ctx.beginPath();
+      for(let j=0;j<n;j++){
+        const a0=(j/n)*Math.PI*2;
+        ctx.moveTo(ox+r0*Math.cos(a0),oy+r0*Math.sin(a0));
+        ctx.lineTo(ox+r1*Math.cos(a0),oy+r1*Math.sin(a0));
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+// ─── GEAR SYSTEMS ────────────────────────────────────────────────────────────
+class Gear{
+  constructor(x,y,r,teeth,angle,speed,color,type='spur'){
+    this.x=x; this.y=y; this.r=r; this.teeth=teeth;
+    this.angle=angle; this.speed=speed; this.color=color;
+    this.type=type; this.children=[];
+  }
+  addChild(g){this.children.push(g)}
+  update(dt){
+    this.angle+=this.speed*dt;
+    for(const c of this.children){
+      c.angle-=this.speed*(this.r/c.r)*dt;
+      c.update(dt);
+    }
+  }
+  draw(ctx,t,pal){
+    ctx.save();
+    ctx.translate(this.x,this.y);
+    ctx.rotate(this.angle);
+    const clr=pal(t,this.teeth);
+    ctx.strokeStyle=clr;
+    ctx.fillStyle=clr.replace('%)',',0.08)').replace('hsl(','hsla(');
+    ctx.lineWidth=1;
+    // draw gear
+    ctx.beginPath();
+    const toothH=this.r*0.18;
+    const toothW=Math.PI*2/this.teeth;
+    for(let i=0;i<this.teeth;i++){
+      const a=i*toothW;
+      const a1=a+toothW*0.2, a2=a+toothW*0.4;
+      const a3=a+toothW*0.6, a4=a+toothW*0.8;
+      ctx.lineTo(Math.cos(a)*this.r, Math.sin(a)*this.r);
+      ctx.lineTo(Math.cos(a1)*(this.r+toothH), Math.sin(a1)*(this.r+toothH));
+      ctx.lineTo(Math.cos(a2)*(this.r+toothH), Math.sin(a2)*(this.r+toothH));
+      ctx.lineTo(Math.cos(a3)*this.r, Math.sin(a3)*this.r);
+      ctx.lineTo(Math.cos(a4)*this.r, Math.sin(a4)*this.r);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    // hub
+    ctx.beginPath();
+    ctx.arc(0,0,this.r*0.25,0,Math.PI*2);
+    ctx.fillStyle=clr.replace('%)',',0.3)').replace('hsl(','hsla(');
+    ctx.fill();
+    ctx.stroke();
+    // spokes
+    ctx.beginPath();
+    for(let i=0;i<(this.type==='planet'?4:6);i++){
+      const a=i*Math.PI*2/(this.type==='planet'?4:6);
+      ctx.moveTo(Math.cos(a)*this.r*0.25,Math.sin(a)*this.r*0.25);
+      ctx.lineTo(Math.cos(a)*this.r*0.8,Math.sin(a)*this.r*0.8);
+    }
+    ctx.stroke();
+    ctx.restore();
+    for(const c of this.children) c.draw(ctx,t,pal);
+  }
+}
+
+class GearTrain{
+  constructor(x,y,r,count,rng,t,pal){
+    this.gears=[];
+    let px=x,py=y,pr=r;
+    let angle=0, dir=1;
+    for(let i=0;i<count;i++){
+      const nr=pr*(0.4+rng()*0.6);
+      const teeth=Math.floor(8+rng()*20);
+      const spd=dir*0.4*(pr/nr)*(0.5+rng());
+      const a=rng()*Math.PI*2;
+      const nx=px+(pr+nr+1)*Math.cos(a);
+      const ny=py+(pr+nr+1)*Math.sin(a);
+      const g=new Gear(nx,ny,nr,teeth,rng()*Math.PI*2,spd,pal(t,i));
+      if(i>0) this.gears[i-1].addChild(g);
+      this.gears.push(g);
+      px=nx; py=ny; pr=nr; dir=-dir;
+    }
+  }
+  update(dt){if(this.gears.length) this.gears[0].update(dt)}
+  draw(ctx,t,pal){if(this.gears.length) this.gears[0].draw(ctx,t,pal)}
+}
+
+class PlanetaryGear{
+  constructor(x,y,sunR,planR,nPlanets,rng,palFn,t){
+    this.x=x; this.y=y; this.sunR=sunR; this.planR=planR;
+    this.nP=nPlanets; this.angle=0; this.carrierAngle=0;
+    this.speed=0.3+rng()*0.4;
+    this.palFn=palFn; this.t=t;
+    this.rng=rng;
+    this.ringR=sunR+2*planR;
+  }
+  update(dt){
+    this.angle+=this.speed*dt;
+    this.carrierAngle+=this.speed*0.3*dt;
+  }
+  draw(ctx,t,pal){
+    ctx.save();
+    ctx.translate(this.x,this.y);
+    // ring gear
+    ctx.beginPath();
+    ctx.arc(0,0,this.ringR,0,Math.PI*2);
+    ctx.strokeStyle=pal(t,99);
+    ctx.lineWidth=2;
+    ctx.stroke();
+    // sun gear
+    ctx.save();
+    ctx.rotate(this.angle);
+    drawGearShape(ctx,0,0,this.sunR,12,pal(t,1));
+    ctx.restore();
+    // planets
+    for(let i=0;i<this.nP;i++){
+      const a=this.carrierAngle+i*(Math.PI*2/this.nP);
+      const px=(this.sunR+this.planR)*Math.cos(a);
+      const py=(this.sunR+this.planR)*Math.sin(a);
+      ctx.save();
+      ctx.rotate(a);
+      ctx.translate(this.sunR+this.planR,0);
+      ctx.rotate(-this.angle*(this.sunR/this.planR));
+      drawGearShape(ctx,0,0,this.planR,8,pal(t,i+5));
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+}
+
+function drawGearShape(ctx,x,y,r,teeth,clr){
+  ctx.save();
+  ctx.translate(x,y);
+  const th=r*0.2, tw=Math.PI*2/teeth;
+  ctx.beginPath();
+  for(let i=0;i<teeth;i++){
+    const a=i*tw;
+    ctx.lineTo(Math.cos(a)*r,Math.sin(a)*r);
+    ctx.lineTo(Math.cos(a+tw*0.25)*(r+th),Math.sin(a+tw*0.25)*(r+th));
+    ctx.lineTo(Math.cos(a+tw*0.75)*(r+th),Math.sin(a+tw*0.75)*(r+th));
+  }
+  ctx.closePath();
+  ctx.strokeStyle=clr;
+  ctx.lineWidth=1;
+  ctx.fillStyle=clr.replace('hsl(','hsla(').replace('%)',',0.1)');
+  ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.arc(0,0,r*0.2,0,Math.PI*2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+// ─── WORM GEAR ───────────────────────────────────────────────────────────────
+class WormGear{
+  constructor(x,y,r,rng,pal){
+    this.x=x; this.y=y; this.r=r;
+    this.angle=0; this.wAngle=0;
+    this.speed=rng()*0.6+0.2;
+    this.pal=pal; this.rng=rng;
+  }
+  update(dt){this.angle+=this.speed*dt; this.wAngle+=this.speed*4*dt}
+  draw(ctx,t,pal){
+    ctx.save();
+    ctx.translate(this.x,this.y);
+    // worm (helix)
+    ctx.save();
+    ctx.translate(-this.r*1.8,0);
+    ctx.rotate(this.wAngle);
+    for(let i=0;i<3;i++){
+      ctx.beginPath();
+      ctx.ellipse(0,0,this.r*0.25,this.r*0.8,0,i*Math.PI*2/3,(i+1)*Math.PI*2/3);
+      ctx.strokeStyle=pal(t,i*7);
+      ctx.lineWidth=3; ctx.stroke();
+    }
+    ctx.restore();
+    // wheel
+    ctx.save();
+    ctx.rotate(this.angle);
+    drawGearShape(ctx,0,0,this.r,16,pal(t,20));
+    ctx.restore();
+    ctx.restore();
+  }
+}
+
+// ─── GENEVA DRIVE ────────────────────────────────────────────────────────────
+class GenevaDrive{
+  constructor(x,y,r,slots,rng){
+    this.x=x; this.y=y; this.r=r; this.slots=slots;
+    this.driverAngle=0; this.wheelAngle=0;
+    this.speed=0.5+rng()*0.3;
+    this.rng=rng;
+    this.pinR=r*0.3;
+    this.d=r*1.8;
+  }
+  update(dt){
+    this.driverAngle+=this.speed*dt;
+    // approximate indexing
+    const phase=((this.driverAngle%(Math.PI*2))+Math.PI*2)%(Math.PI*2);
+    const segAngle=Math.PI*2/this.slots;
+    this.wheelAngle=-Math.floor(this.driverAngle/(Math.PI*2))*segAngle+
+      Math.sin(phase)*segAngle*0.5/(Math.PI)*2;
+  }
+  draw(ctx,t,pal){
+    ctx.save();
+    ctx.translate(this.x,this.y);
+    // driver disk
+    ctx.save();
+    ctx.translate(-this.d/2,0);
+    ctx.rotate(this.driverAngle);
+    ctx.beginPath(); ctx.arc(0,0,this.r,0,Math.PI*2);
+    ctx.strokeStyle=pal(t,3); ctx.lineWidth=1.5; ctx.stroke();
+    ctx.beginPath(); ctx.arc(this.r*0.7,0,this.pinR*0.4,0,Math.PI*2);
+    ctx.fillStyle=pal(t,10); ctx.fill();
+    ctx.restore();
+    // geneva wheel
+    ctx.save();
+    ctx.translate(this.d/2,0);
+    ctx.rotate(this.wheelAngle);
+    ctx.beginPath();
+    for(let i=0;i<this.slots;i++){
+      const a=i*(Math.PI*2/this.slots);
+      const x0=Math.cos(a)*this.r, y0=Math.sin(a)*this.r;
+      ctx.moveTo(0,0); ctx.lineTo(x0,y0);
+    }
+    ctx.strokeStyle=pal(t,15); ctx.lineWidth=1.5; ctx.stroke();
+    ctx.beginPath(); ctx.arc(0,0,this.r*0.15,0,Math.PI*2);
+    ctx.fillStyle=pal(t,20); ctx.fill();
+    ctx.restore();
+    ctx.restore();
+  }
+}
+
+// ─── CHAOTIC PENDULUM ─────────────────────────────────────────────────────────
+class ChaoticPendulum{
+  constructor(x,y,l1,l2,m1,m2,rng){
+    this.x=x; this.y=y;
+    this.l1=l1; this.l2=l2;
+    this.m1=m1; this.m2=m2;
+    this.a1=rng()*Math.PI; this.a2=rng()*Math.PI;
+    this.v1=0; this.v2=0;
+    this.g=9.8;
+    this.trail=[];
+    this.maxTrail=60;
+  }
+  update(dt){
+    const g=this.g, m1=this.m1, m2=this.m2, l1=this.l1, l2=this.l2;
+    const a1=this.a1, a2=this.a2, v1=this.v1, v2=this.v2;
+    const da=a1-a2;
+    const denom1=(2*m1+m2-m2*Math.cos(2*da));
+    const denom2=(l2/l1)*denom1;
+    const num1=-g*(2*m1+m2)*Math.sin(a1)-m2*g*Math.sin(a1-2*a2)
+              -2*Math.sin(da)*m2*(v2*v2*l2+v1*v1*l1*Math.cos(da));
+    const num2=2*Math.sin(da)*(v1*v1*l1*(m1+m2)+g*(m1+m2)*Math.cos(a1)+v2*v2*l2*m2*Math.cos(da));
+    const a1acc=num1/(l1*denom1);
+    const a2acc=num2/(l2*denom2);
+    this.v1+=a1acc*dt; this.v2+=a2acc*dt;
+    this.a1+=this.v1*dt; this.a2+=this.v2*dt;
+    const x2=this.x+Math.sin(this.a1)*this.l1;
+    const y2=this.y+Math.cos(this.a1)*this.l1;
+    const x3=x2+Math.sin(this.a2)*this.l2;
+    const y3=y2+Math.cos(this.a2)*this.l2;
+    this.trail.push([x3,y3]);
+    if(this.trail.length>this.maxTrail) this.trail.shift();
+  }
+  draw(ctx,t,pal){
+    const x1=this.x, y1=this.y;
+    const x2=x1+Math.sin(this.a1)*this.l1;
+    const y2=y1+Math.cos(this.a1)*this.l1;
+    const x3=x2+Math.sin(this.a2)*this.l2;
+    const y3=y2+Math.cos(this.a2)*this.l2;
+    // trail
+    if(this.trail.length>1){
+      ctx.beginPath();
+      ctx.moveTo(this.trail[0][0],this.trail[0][1]);
+      for(let i=1;i<this.trail.length;i++) ctx.lineTo(this.trail[i][0],this.trail[i][1]);
+      ctx.strokeStyle=pal(t,Math.floor(t*5));
+      ctx.globalAlpha=0.4; ctx.lineWidth=1; ctx.stroke(); ctx.globalAlpha=1;
+    }
+    ctx.strokeStyle=pal(t,3); ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.lineTo(x3,y3); ctx.stroke();
+    ctx.beginPath(); ctx.arc(x2,y2,4,0,Math.PI*2);
+    ctx.fillStyle=pal(t,7); ctx.fill();
+    ctx.beginPath(); ctx.arc(x3,y3,3,0,Math.PI*2);
+    ctx.fillStyle=pal(t,14); ctx.fill();
+  }
+}
+
+// ─── PARTICLES ───────────────────────────────────────────────────────────────
+class ParticleField{
+  constructor(n,rng){
+    this.n=n;
+    this.px=new Float32Array(n); this.py=new Float32Array(n);
+    this.vx=new Float32Array(n); this.vy=new Float32Array(n);
+    this.life=new Float32Array(n);
+    for(let i=0;i<n;i++) this.reset(i,rng);
+    this.rng=rng;
+  }
+  reset(i,r){
+    const r2=r||this.rng;
+    this.px[i]=(r2()*2-1)*W;
+    this.py[i]=(r2()*2-1)*H;
+    this.vx[i]=(r2()-0.5)*0.5;
+    this.vy[i]=(r2()-0.5)*0.5;
+    this.life[i]=0.5+r2()*0.5;
+  }
+  update(dt,attractors){
+    for(let i=0;i<this.n;i++){
+      this.life[i]-=dt*0.15;
+      if(this.life[i]<=0){this.reset(i);continue}
+      for(const [ax,ay,str] of attractors){
+        const dx=ax-this.px[i], dy=ay-this.py[i];
+        const d2=dx*dx+dy*dy+100;
+        const f=str/(d2);
+        this.vx[i]+=f*dx*dt*800;
+        this.vy[i]+=f*dy*dt*800;
+      }
+      this.vx[i]*=0.99; this.vy[i]*=0.99;
+      this.px[i]+=this.vx[i]*dt*60;
+      this.py[i]+=this.vy[i]*dt*60;
+    }
+  }
+  draw(ctx,t,pal){
+    for(let i=0;i<this.n;i++){
+      if(this.life[i]<=0) continue;
+      ctx.globalAlpha=this.life[i]*0.6;
+      ctx.fillStyle=pal(t,i*7);
+      ctx.fillRect(this.px[i]-1,this.py[i]-1,2,2);
+    }
+    ctx.globalAlpha=1;
+  }
+}
+
+// ─── TILING SYSTEMS ──────────────────────────────────────────────────────────
+function drawArchimedeanTiling(ctx,ox,oy,size,t,pal,alpha){
+  ctx.save(); ctx.globalAlpha=alpha;
+  const types=[[6],[3,3,3,3,6],[4,8,8],[3,4,6,4]];
+  // simplified: draw hex grid with overlaid triangles
+  const s=size;
+  ctx.lineWidth=0.5;
+  for(let row=-3;row<4;row++){
+    for(let col=-3;col<4;col++){
+      const x=ox+col*s*1.732+(row%2)*s*0.866;
+      const y=oy+row*s*1.5;
+      ctx.beginPath();
+      for(let i=0;i<6;i++){
+        const a=i*Math.PI/3;
+        const px=x+s*Math.cos(a), py=y+s*Math.sin(a);
+        i===0?ctx.moveTo(px,py):ctx.lineTo(px,py);
+      }
+      ctx.closePath();
+      ctx.strokeStyle=pal(t,row*13+col*7);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+function drawApollonianPacking(ctx,ox,oy,r,depth,t,pal,alpha){
+  ctx.save(); ctx.globalAlpha=alpha;
+  function circle(x,y,r2,d){
+    if(r2<1.5||d>depth) return;
+    ctx.beginPath(); ctx.arc(x,y,r2,0,Math.PI*2);
+    ctx.strokeStyle=pal(t,d*17+Math.floor(r2));
+    ctx.lineWidth=0.5; ctx.stroke();
+    const nr=r2*(1-1/2.414);
+    for(let i=0;i<3;i++){
+      const a=i*Math.PI*2/3+t*0.03;
+      circle(x+Math.cos(a)*(r2-nr),y+Math.sin(a)*(r2-nr),nr,d+1);
+    }
+  }
+  circle(ox,oy,r,0);
+  ctx.restore();
+}
+
+function drawOctagonalQuasicrystal(ctx,ox,oy,size,t,pal,alpha){
+  ctx.save(); ctx.globalAlpha=alpha;
+  ctx.lineWidth=0.6;
+  for(let i=0;i<8;i++){
+    const a=i*Math.PI/4+t*0.02;
+    for(let r=size*0.5;r<size*2;r+=size*0.4){
+      ctx.beginPath();
+      ctx.arc(ox+Math.cos(a)*r,oy+Math.sin(a)*r,size*0.3,0,Math.PI*2);
+      ctx.strokeStyle=pal(t,i*13+Math.floor(r));
+      ctx.stroke();
+    }
+  }
+  // octagon lattice
+  for(let row=-2;row<3;row++){
+    for(let col=-2;col<3;col++){
+      const x=ox+col*size*2.414, y=oy+row*size*2.414;
+      ctx.beginPath();
+      for(let k=0;k<8;k++){
+        const a=k*Math.PI/4+Math.PI/8;
+        const px=x+size*Math.cos(a), py=y+size*Math.sin(a);
+        k===0?ctx.moveTo(px,py):ctx.lineTo(px,py);
+      }
+      ctx.closePath();
+      ctx.strokeStyle=pal(t,row*11+col*7);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+// ─── DECORATIVE MOTIFS ───────────────────────────────────────────────────────
+function drawMuqarnas(ctx,x,y,r,t,pal,alpha){
+  ctx.save(); ctx.globalAlpha=alpha;
+  for(let i=0;i<8;i++){
+    const a=i*Math.PI/4+t*0.01;
+    for(let j=0;j<4;j++){
+      const r2=r*(0.3+j*0.2);
+      ctx.beginPath();
+      ctx.moveTo(x,y);
+      ctx.arc(x,y,r2,a,a+Math.PI/4);
+      ctx.closePath();
+      ctx.strokeStyle=pal(t,i*5+j*13);
+      ctx.lineWidth=0.7; ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+function drawArtNouveauVine(ctx,ox,oy,len,t,pal,alpha){
+  ctx.save(); ctx.globalAlpha=alpha;
+  ctx.lineWidth=1.2;
+  let x=ox,y=oy,angle=0;
+  ctx.beginPath(); ctx.moveTo(x,y);
+  for(let i=0;i<30;i++){
+    angle+=Math.sin(i*0.5+t*0.2)*0.4;
+    x+=Math.cos(angle)*(len/30);
+    y+=Math.sin(angle)*(len/30);
+    ctx.lineTo(x,y);
+    if(i%5===0){
+      ctx.save();
+      ctx.translate(x,y);
+      ctx.rotate(angle+Math.PI/2);
+      ctx.beginPath();
+      ctx.ellipse(0,0,4,8,0,0,Math.PI*2);
+      ctx.fillStyle=pal(t,i*7);
+      ctx.globalAlpha=alpha*0.6;
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+  ctx.strokeStyle=pal(t,15);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawGothicPattern(ctx,x,y,r,t,pal,alpha){
+  ctx.save(); ctx.globalAlpha=alpha;
+  // trefoil + pointed arch
+  for(let i=0;i<3;i++){
+    const a=i*Math.PI*2/3+t*0.02;
+    ctx.beginPath();
+    ctx.arc(x+Math.cos(a)*r*0.4, y+Math.sin(a)*r*0.4, r*0.35, 0, Math.PI*2);
+    ctx.strokeStyle=pal(t,i*13);
+    ctx.lineWidth=0.8; ctx.stroke();
+  }
+  // lancet arches
+  for(let i=0;i<4;i++){
+    const a=i*Math.PI/2+t*0.015;
+    const px=x+Math.cos(a)*r, py=y+Math.sin(a)*r;
+    ctx.beginPath();
+    ctx.moveTo(px-r*0.15,py+r*0.2);
+    ctx.quadraticCurveTo(px-r*0.15,py-r*0.15,px,py-r*0.25);
+    ctx.quadraticCurveTo(px+r*0.15,py-r*0.15,px+r*0.15,py+r*0.2);
+    ctx.strokeStyle=pal(t,i*11+5);
+    ctx.lineWidth=0.7; ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// ─── ROBOTIC LINKAGE ─────────────────────────────────────────────────────────
+class RoboticArm{
+  constructor(x,y,segments,rng){
+    this.base=[x,y];
+    this.segs=segments.map((l,i)=>({len:l,angle:rng()*Math.PI*2,speed:(rng()-0.5)*1.5}));
+  }
+  update(dt){
+    for(const s of this.segs) s.angle+=s.speed*dt;
+  }
+  draw(ctx,t,pal){
+    let [px,py]=this.base;
+    let cumAngle=0;
+    for(let i=0;i<this.segs.length;i++){
+      const s=this.segs[i];
+      cumAngle+=s.angle;
+      const nx=px+Math.cos(cumAngle)*s.len;
+      const ny=py+Math.sin(cumAngle)*s.len;
+      ctx.beginPath(); ctx.moveTo(px,py); ctx.lineTo(nx,ny);
+      ctx.strokeStyle=pal(t,i*13);
+      ctx.lineWidth=2-i*0.3; ctx.stroke();
+      ctx.beginPath(); ctx.arc(px,py,3-i*0.3,0,Math.PI*2);
+      ctx.fillStyle=pal(t,i*7+3); ctx.fill();
+      px=nx; py=ny;
+    }
+    ctx.beginPath(); ctx.arc(px,py,3,0,Math.PI*2);
+    ctx.fillStyle=pal(t,50); ctx.fill();
+  }
+  getEndPos(){
+    let [px,py]=this.base;
+    let cumAngle=0;
+    for(const s of this.segs){cumAngle+=s.angle;px+=Math.cos(cumAngle)*s.len;py+=Math.sin(cumAngle)*s.len}
+    return [px,py];
+  }
+}
+
+// ─── AUDIO ENGINE ─────────────────────────────────────────────────────────────
+function initAudio(){
+  if(audioCtx) return;
+  audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+  masterGain = audioCtx.createGain();
+  masterGain.gain.value = 0.12;
+  masterGain.connect(audioCtx.destination);
+  // resonator bank
+  const freqs=[55,110,165,220,275,330];
+  for(const f of freqs){
+    const osc=audioCtx.createOscillator();
+    const g=audioCtx.createGain();
+    const filt=audioCtx.createBiquadFilter();
+    filt.type='bandpass'; filt.frequency.value=f; filt.Q.value=15;
+    osc.type='sawtooth'; osc.frequency.value=f;
+    g.gain.value=0.02+Math.random()*0.02;
+    osc.connect(filt); filt.connect(g); g.connect(masterGain);
+    osc.start();
+    resonators.push({osc,g,filt,base:f});
+  }
+  // harmonic oscillators
+  const harmonics=[1,2,3,4,5,6,7,8];
+  const baseFreq=27.5;
+  for(const h of harmonics){
+    const osc=audioCtx.createOscillator();
+    const g=audioCtx.createGain();
+    osc.type=h%2===0?'sine':'triangle';
+    osc.frequency.value=baseFreq*h;
+    g.gain.value=0.01/(h*h);
+    osc.connect(g); g.connect(masterGain);
+    osc.start();
+    oscBank.push({osc,g,h});
+  }
+}
+
+function updateAudio(t,energy){
+  if(!audioCtx||!soundOn) return;
+  for(const r of resonators){
+    r.filt.frequency.setTargetAtTime(r.base*(1+0.1*Math.sin(t*0.3)),audioCtx.currentTime,0.1);
+    r.g.gain.setTargetAtTime(0.01+energy*0.03,audioCtx.currentTime,0.05);
+  }
+  for(const o of oscBank){
+    const m=1+0.05*Math.sin(t*o.h*0.1);
+    o.osc.frequency.setTargetAtTime(27.5*o.h*m,audioCtx.currentTime,0.1);
+  }
+}
+
+// ─── UNIVERSE ─────────────────────────────────────────────────────────────────
+class Universe{
+  constructor(){
+    seed=Date.now();
+    rng=mkRng(seed);
+    this.palIdx=Math.floor(rng()*PALETTES.length);
+    this.pal=PALETTES[this.palIdx];
+    this.bgHue=Math.floor(rng()*360);
+    this.build();
+  }
+  build(){
+    const r=rng;
+    this.gearTrains=[];
+    this.planetaryGears=[];
+    this.wormGears=[];
+    this.genevaDrives=[];
+    this.pendulums=[];
+    this.particles=new ParticleField(Math.min(300,Math.floor(W*H/4000)),r);
+    this.arms=[];
+    this.mazes=[];
+    this.circularMazes=[];
+    this.vinePaths=[];
+    this.motifPositions=[];
+
+    const gridN=Math.floor(3+r()*3);
+    const gw=W/gridN, gh=H/gridN;
+
+    for(let row=0;row<gridN;row++){
+      for(let col=0;col<gridN;col++){
+        const x=col*gw+gw/2, y=row*gh+gh/2;
+        const type=Math.floor(r()*6);
+        if(type===0){
+          this.gearTrains.push(new GearTrain(x,y,gw*0.15,3+Math.floor(r()*3),r,t,this.pal));
+        } else if(type===1){
+          this.planetaryGears.push(new PlanetaryGear(x,y,gw*0.1,gw*0.06,3,r,this.pal,t));
+        } else if(type===2){
+          this.wormGears.push(new WormGear(x,y,gw*0.1,r,this.pal));
+        } else if(type===3){
+          this.genevaDrives.push(new GenevaDrive(x,y,gw*0.12,4+Math.floor(r()*4),r));
+        } else if(type===4){
+          const cols=Math.floor(4+r()*6), rows=Math.floor(4+r()*6);
+          this.mazes.push({m:new RecursiveMaze(cols,rows,r),x:x-gw*0.45,y:y-gh*0.45,w:gw*0.9,h:gh*0.9,alpha:0.3+r()*0.3});
+        } else {
+          this.circularMazes.push({m:new CircularMaze(4+Math.floor(r()*4),r),x,y,r:Math.min(gw,gh)*0.4,alpha:0.25+r()*0.25});
+        }
+        this.motifPositions.push({x,y,r:Math.min(gw,gh)*0.3,type:Math.floor(r()*4)});
+      }
+    }
+
+    // pendulums
+    for(let i=0;i<4+Math.floor(r()*4);i++){
+      this.pendulums.push(new ChaoticPendulum(
+        r()*W, r()*H*0.5,
+        50+r()*80, 40+r()*60,
+        1+r()*2, 1+r()*2, r
+      ));
+    }
+
+    // arms
+    for(let i=0;i<6+Math.floor(r()*6);i++){
+      const segs=[30+r()*40,20+r()*30,15+r()*20];
+      this.arms.push(new RoboticArm(r()*W,r()*H,segs,r));
+    }
+
+    // vine paths for Art Nouveau
+    for(let i=0;i<8+Math.floor(r()*8);i++){
+      this.vinePaths.push({x:r()*W,y:r()*H,len:80+r()*120});
+    }
+
+    this.energy=0;
+    this.attractors=this.arms.slice(0,3).map(a=>a.getEndPos().concat([0.5]));
+  }
+  resize(){
+    // reposition particles
+    for(let i=0;i<this.particles.n;i++) this.particles.reset(i,rng);
+  }
+  update(dt){
+    t+=dt;
+    frame++;
+    for(const g of this.gearTrains) g.update(dt);
+    for(const p of this.planetaryGears) p.update(dt);
+    for(const w of this.wormGears) w.update(dt);
+    for(const g of this.genevaDrives) g.update(dt);
+    for(const p of this.pendulums) p.update(dt);
+    for(const a of this.arms) a.update(dt);
+    // update attractors
+    this.attractors=this.arms.slice(0,3).map(a=>{const ep=a.getEndPos();return[ep[0],ep[1],0.5]});
+    this.particles.update(dt,this.attractors);
+    this.energy=Math.abs(Math.sin(t*0.7))+Math.abs(Math.cos(t*0.4));
+    if(soundOn) updateAudio(t,this.energy);
+  }
+  draw(){
+    const pal=this.pal;
+    // background
+    const grad=ctx.createRadialGradient(cx,cy,0,cx,cy,Math.max(W,H));
+    const bh=this.bgHue;
+    grad.addColorStop(0,`hsl(${bh},20%,5%)`);
+    grad.addColorStop(0.5,`hsl(${(bh+30)%360},15%,3%)`);
+    grad.addColorStop(1,`hsl(${(bh+60)%360},10%,2%)`);
+    ctx.fillStyle=grad;
+    ctx.fillRect(0,0,W,H);
+
+    // tiling layer
+    ctx.save();
+    ctx.translate(cx,cy);
+    drawArchimedeanTiling(ctx,0,0,Math.min(W,H)*0.08,t,pal,0.08);
+    drawOctagonalQuasicrystal(ctx,0,0,Math.min(W,H)*0.07,t,pal,0.07);
+    drawApollonianPacking(ctx,0,0,Math.min(W,H)*0.45,5,t,pal,0.1);
+    ctx.restore();
+
+    // mazes
+    for(const mz of this.mazes){
+      mz.m.draw(ctx,mz.x,mz.y,mz.w/mz.m.cols,mz.h/mz.m.rows,pal(t,mz.x),mz.alpha*(0.5+0.5*Math.sin(t*0.3)));
+    }
+    for(const mz of this.circularMazes){
+      mz.m.draw(ctx,mz.x,mz.y,mz.r,pal(t,mz.x),mz.alpha*(0.5+0.5*Math.cos(t*0.4)));
+    }
+
+    // decorative motifs
+    for(const m of this.motifPositions){
+      const a=0.07+0.05*Math.sin(t*0.2+m.x);
+      if(m.type===0) drawMuqarnas(ctx,m.x,m.y,m.r,t,pal,a);
+      else if(m.type===1) drawArtNouveauVine(ctx,m.x,m.y,m.r*2,t,pal,a);
+      else if(m.type===2) drawGothicPattern(ctx,m.x,m.y,m.r,t,pal,a);
+    }
+
+    // vine paths
+    for(const v of this.vinePaths) drawArtNouveauVine(ctx,v.x,v.y,v.len,t,pal,0.2);
+
+    // particles
+    this.particles.draw(ctx,t,pal);
+
+    // robotic arms
+    for(const a of this.arms) a.draw(ctx,t,pal);
+
+    // pendulums
+    for(const p of this.pendulums) p.draw(ctx,t,pal);
+
+    // gears
+    for(const g of this.gearTrains) g.draw(ctx,t,pal);
+    for(const p of this.planetaryGears) p.draw(ctx,t,pal);
+    for(const w of this.wormGears) w.draw(ctx,t,pal);
+    for(const g of this.genevaDrives) g.draw(ctx,t,pal);
+
+    // scan lines overlay
+    ctx.save();
+    ctx.globalAlpha=0.025;
+    for(let y=0;y<H;y+=4){
+      ctx.fillStyle='#000';
+      ctx.fillRect(0,y,W,2);
+    }
+    ctx.restore();
+
+    // chromatic vignette
+    const vig=ctx.createRadialGradient(cx,cy,Math.min(W,H)*0.3,cx,cy,Math.max(W,H));
+    vig.addColorStop(0,'rgba(0,0,0,0)');
+    vig.addColorStop(1,'rgba(0,0,0,0.6)');
+    ctx.fillStyle=vig; ctx.fillRect(0,0,W,H);
+  }
+}
+
+// ─── RENDER LOOP ──────────────────────────────────────────────────────────────
+let last=0;
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt=Math.min((now-last)/1000,0.05);
+  last=now;
+  if(!universe) return;
+  universe.update(dt);
+  universe.draw();
+  // fps
+  fpsTimer+=dt;
+  if(fpsTimer>=0.5){
+    fps=Math.round(1/dt);
+    fpsTimer=0;
+    if(hudOn) updateHUD();
+  }
+}
+
+function updateHUD(){
+  document.getElementById('htl').innerHTML=
+    `GEAR-MAZE METROPOLIS<br>SEED: ${seed}<br>FRAME: ${frame}`;
+  document.getElementById('htr').innerHTML=
+    `FPS: ${fps}<br>HUD: ON [H]<br>SOUND: ${soundOn?'ON':'OFF'} [S]`;
+  document.getElementById('hbl').innerHTML=
+    `GEARS: ${universe.gearTrains.length+universe.planetaryGears.length}<br>`+
+    `PENDULUMS: ${universe.pendulums.length}<br>PARTICLES: ${universe.particles.n}`;
+  document.getElementById('hbr').innerHTML=
+    `SPACE/TAP: NEW UNIVERSE<br>H: HUD  S: SOUND`;
+}
+
+// ─── INIT ─────────────────────────────────────────────────────────────────────
+function init(){
+  universe=new Universe();
+  requestAnimationFrame(loop);
+}
+
+function restart(){
+  universe=new Universe();
+  frame=0; t=0;
+  if(hudOn) updateHUD();
+}
+
+// ─── INPUT ────────────────────────────────────────────────────────────────────
+window.addEventListener('keydown',e=>{
+  if(e.code==='Space'){e.preventDefault();restart()}
+  if(e.key==='h'||e.key==='H'){
+    hudOn=!hudOn;
+    document.getElementById('hud').style.display=hudOn?'block':'none';
+    if(hudOn) updateHUD();
+  }
+  if(e.key==='s'||e.key==='S'){
+    soundOn=!soundOn;
+    if(soundOn){
+      initAudio();
+      if(audioCtx&&audioCtx.state==='suspended') audioCtx.resume();
+      if(masterGain) masterGain.gain.setTargetAtTime(0.12,audioCtx.currentTime,0.1);
+    } else {
+      if(masterGain&&audioCtx) masterGain.gain.setTargetAtTime(0,audioCtx.currentTime,0.1);
+    }
+    if(hudOn) updateHUD();
+  }
+});
+
+let tapTimer=null;
+C.addEventListener('click',()=>{
+  if(tapTimer){clearTimeout(tapTimer);tapTimer=null;restart()}
+  else tapTimer=setTimeout(()=>{tapTimer=null},300);
+});
+C.addEventListener('touchstart',e=>{e.preventDefault();restart()},{passive:false});
+
+// ─── LAUNCH ───────────────────────────────────────────────────────────────────
+window.addEventListener('load',()=>{
+  resize();
+  init();
+});
+</script>
+</body>
+</html>

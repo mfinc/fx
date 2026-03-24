@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+
+<meta charset="UTF-8">
+<title>Hilbert Curve Pendulum Galaxy — Generative Fractal Physics Simulation</title>
+
+<meta name="description" content="Hilbert Curve Pendulum Galaxy is an advanced generative audiovisual simulation combining Hilbert space-filling curves, chaotic pendulum systems, gravitational motion and synchronized audio synthesis to create a luminous fractal mechanical galaxy of evolving energy trails and harmonic sound.">
+
+<meta name="keywords" content="
+hilbert curve generative art,
+fractal physics simulation,
+pendulum chaos visualization,
+generative audiovisual art,
+computational art engine,
+algorithmic art simulation,
+fractal mechanical systems,
+chaotic pendulum dynamics,
+space filling curve visualization,
+interactive generative graphics,
+mathematical art simulation,
+webgl generative art,
+audiovisual generative systems,
+fractal animation
+">
+
+<style>
+
+html,body{
+margin:0;
+overflow:hidden;
+background:black;
+font-family:monospace;
+}
+
+canvas{
+display:block;
+}
+
+#hud{
+position:fixed;
+top:12px;
+left:12px;
+color:white;
+font-size:12px;
+background:rgba(0,0,0,.35);
+padding:10px;
+border-radius:8px;
+display:none;
+line-height:1.5;
+}
+
+</style>
+</head>
+
+<body>
+
+<canvas id="canvas"></canvas>
+<div id="hud"></div>
+
+<script>
+
+const canvas=document.getElementById("canvas")
+const ctx=canvas.getContext("2d")
+const hud=document.getElementById("hud")
+
+let W,H
+
+function resize(){
+W=canvas.width=window.innerWidth
+H=canvas.height=window.innerHeight
+}
+window.addEventListener("resize",resize)
+resize()
+
+/* ---------- globals ---------- */
+
+let nodes=[]
+let trails=[]
+let palette=[]
+let gradients=[]
+let order
+let size
+
+let hudOn=false
+let soundOn=false
+
+let audioCtx=null
+let oscillators=[]
+let gains=[]
+let noise
+
+/* ---------- utils ---------- */
+
+const rand=(a=1,b=0)=>Math.random()*(a-b)+b
+
+function randInt(a,b){
+return Math.floor(rand(a,b))
+}
+
+/* ---------- color system ---------- */
+
+function randomPalette(){
+
+palette=[]
+
+let base=rand(360)
+
+let count=randInt(8,4)
+
+for(let i=0;i<count;i++){
+
+palette.push(
+`hsl(${(base+rand(360))%360},
+${rand(95,55)}%,
+${rand(75,35)}%)`
+)
+
+}
+
+}
+
+function randomGradients(){
+
+gradients=[]
+
+for(let i=0;i<palette.length;i++){
+
+let g=ctx.createLinearGradient(
+rand(W),rand(H),
+rand(W),rand(H)
+)
+
+g.addColorStop(0,palette[i])
+g.addColorStop(1,palette[(i+1)%palette.length])
+
+gradients.push(g)
+
+}
+
+}
+
+/* ---------- hilbert ---------- */
+
+function hilbert(index,order){
+
+let x=0,y=0
+let n=1<<order
+
+for(let s=1;s<n;s*=2){
+
+let rx=1&(index>>1)
+let ry=1&(index^rx)
+
+if(ry==0){
+if(rx==1){
+x=s-1-x
+y=s-1-y
+}
+let t=x
+x=y
+y=t
+}
+
+x+=s*rx
+y+=s*ry
+index>>=2
+
+}
+
+return {x,y}
+
+}
+
+/* ---------- node ---------- */
+
+class Node{
+
+constructor(x,y){
+
+this.baseX=x
+this.baseY=y
+
+this.x=x
+this.y=y
+
+this.vx=rand(.6,-.6)
+this.vy=rand(.6,-.6)
+
+this.mass=rand(2.5,.5)
+
+this.angle=rand(Math.PI*2)
+this.angVel=rand(.1,-.1)
+
+this.length=rand(60,10)
+
+this.trail=[]
+
+}
+
+update(){
+
+let g=.03
+
+this.angVel+=-g*Math.sin(this.angle)
+
+this.angle+=this.angVel
+
+this.x=this.baseX+Math.sin(this.angle)*this.length
+this.y=this.baseY+Math.cos(this.angle)*this.length
+
+}
+
+gravity(other){
+
+let dx=other.x-this.x
+let dy=other.y-this.y
+
+let d=Math.sqrt(dx*dx+dy*dy)+.001
+
+let f=.08*this.mass*other.mass/(d*d)
+
+this.vx+=f*dx/d
+this.vy+=f*dy/d
+
+}
+
+move(){
+
+this.x+=this.vx
+this.y+=this.vy
+
+this.vx*=.99
+this.vy*=.99
+
+}
+
+draw(i){
+
+let col=palette[i%palette.length]
+
+ctx.strokeStyle=col
+ctx.lineWidth=1.5
+
+ctx.beginPath()
+ctx.moveTo(this.baseX,this.baseY)
+ctx.lineTo(this.x,this.y)
+ctx.stroke()
+
+this.trail.push({x:this.x,y:this.y})
+
+if(this.trail.length>40) this.trail.shift()
+
+ctx.beginPath()
+
+for(let j=0;j<this.trail.length;j++){
+
+let p=this.trail[j]
+
+if(j==0) ctx.moveTo(p.x,p.y)
+else ctx.lineTo(p.x,p.y)
+
+}
+
+ctx.strokeStyle=gradients[i%gradients.length]
+ctx.stroke()
+
+ctx.fillStyle=col
+ctx.beginPath()
+ctx.arc(this.x,this.y,2.5,0,Math.PI*2)
+ctx.fill()
+
+}
+
+}
+
+/* ---------- audio ---------- */
+
+function initAudio(){
+
+audioCtx=new (window.AudioContext||window.webkitAudioContext)()
+
+oscillators=[]
+gains=[]
+
+nodes.forEach(n=>{
+
+let osc=audioCtx.createOscillator()
+let gain=audioCtx.createGain()
+
+osc.type=["sine","triangle","sawtooth"][randInt(3,0)]
+
+osc.frequency.value=rand(500,60)
+
+gain.gain.value=0
+
+osc.connect(gain)
+gain.connect(audioCtx.destination)
+
+osc.start()
+
+oscillators.push(osc)
+gains.push(gain)
+
+})
+
+}
+
+/* ---------- generation ---------- */
+
+function generate(){
+
+nodes=[]
+
+randomPalette()
+randomGradients()
+
+order=randInt(7,3)
+size=1<<order
+
+let scaleX=W/size
+let scaleY=H/size
+
+let count=1<<(order*2)
+
+for(let i=0;i<count;i++){
+
+let p=hilbert(i,order)
+
+let x=(p.x+.5)*scaleX
+let y=(p.y+.5)*scaleY
+
+nodes.push(new Node(x,y))
+
+}
+
+if(soundOn){
+
+if(audioCtx){
+oscillators.forEach(o=>o.stop())
+}
+
+initAudio()
+
+}
+
+}
+
+/* ---------- audio update ---------- */
+
+function updateAudio(){
+
+if(!soundOn||!audioCtx) return
+
+nodes.forEach((n,i)=>{
+
+let osc=oscillators[i]
+let g=gains[i]
+
+let freq=Math.abs(n.angVel)*900+80
+osc.frequency.value=freq
+
+let amp=Math.min(Math.abs(n.vx)+Math.abs(n.vy),1)*.02
+g.gain.value=amp
+
+})
+
+}
+
+/* ---------- render ---------- */
+
+function step(){
+
+ctx.fillStyle="rgba(0,0,0,.18)"
+ctx.fillRect(0,0,W,H)
+
+ctx.globalCompositeOperation="lighter"
+
+for(let i=0;i<nodes.length;i++){
+
+let n=nodes[i]
+
+n.update()
+
+if(i<nodes.length-1){
+n.gravity(nodes[i+1])
+}
+
+n.move()
+
+n.draw(i)
+
+}
+
+ctx.globalCompositeOperation="source-over"
+
+updateAudio()
+
+if(hudOn){
+
+hud.style.display="block"
+
+hud.innerHTML=`
+Hilbert Curve Pendulum Galaxy<br>
+nodes: ${nodes.length}<br>
+order: ${order}<br>
+palette size: ${palette.length}<br>
+sound: ${soundOn}
+`
+
+}else{
+
+hud.style.display="none"
+
+}
+
+requestAnimationFrame(step)
+
+}
+
+/* ---------- controls ---------- */
+
+function regenerate(){
+generate()
+}
+
+document.addEventListener("keydown",e=>{
+
+if(e.code==="Space") regenerate()
+
+if(e.key==="h"||e.key==="H"){
+hudOn=!hudOn
+}
+
+if(e.key==="s"||e.key==="S"){
+
+soundOn=!soundOn
+
+if(soundOn && !audioCtx){
+initAudio()
+}
+
+if(!soundOn && audioCtx){
+oscillators.forEach(o=>o.stop())
+audioCtx=null
+}
+
+}
+
+})
+
+canvas.addEventListener("click",regenerate)
+canvas.addEventListener("touchstart",regenerate)
+
+generate()
+step()
+
+</script>
+
+</body>
+</html>

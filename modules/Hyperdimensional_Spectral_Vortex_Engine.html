@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Hyperdimensional Spectral Vortex Engine — a stunning real-time WebGL generative art experience fusing E8 root lattices, Lie group symmetry, Fibonacci spirals, Mandelbrot-Julia fractals, and kaleidoscopic particle vortices in full spectral color.">
+<meta name="keywords" content="generative art, WebGL, fractal, kaleidoscope, spectral gradient, mathematical visualization, psychedelic, vortex, E8, Fibonacci, Lie group, particle system">
+<meta name="author" content="Hyperdimensional Spectral Vortex Engine">
+<meta property="og:title" content="Hyperdimensional Spectral Vortex Engine">
+<meta property="og:description" content="Real-time psychedelic mathematical art — E8 lattices, Fibonacci tensors, Möbius transforms, and kaleidoscopic particle vortices in living spectral color.">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Hyperdimensional Spectral Vortex Engine">
+<meta name="twitter:description" content="Stunning generative WebGL art using E8 root lattices, fractal hybrids, and Lie group symmetry.">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"CreativeWork","name":"Hyperdimensional Spectral Vortex Engine","description":"Real-time WebGL generative art using advanced mathematics","genre":"Generative Art","keywords":"WebGL, fractal, kaleidoscope, generative art, mathematical visualization"}</script>
+<title>Hyperdimensional Spectral Vortex Engine</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;background:#000;overflow:hidden}
+  canvas{display:block;width:100%;height:100%}
+  #hud{display:none;position:fixed;top:16px;left:16px;color:#0ff;font-family:monospace;font-size:12px;background:rgba(0,0,0,0.6);padding:10px 14px;border:1px solid #0ff4;border-radius:4px;pointer-events:none;z-index:10;line-height:1.8}
+  #hud.visible{display:block}
+  #hint{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,0.35);font-family:monospace;font-size:11px;pointer-events:none;z-index:10;transition:opacity 2s}
+  #hint.fade{opacity:0}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<div id="hint">SPACE/CLICK — new universe &nbsp;|&nbsp; H — HUD &nbsp;|&nbsp; S — sound</div>
+<script>
+(function(){
+'use strict';
+const canvas=document.getElementById('c');
+const gl=canvas.getContext('webgl',{antialias:false,alpha:false,powerPreference:'high-performance'});
+if(!gl){document.body.innerHTML='<p style="color:#fff;padding:40px">WebGL not supported</p>';return;}
+
+// ── State ──────────────────────────────────────────────────────────────
+let W,H,seed,params={},hudVisible=false,soundOn=false,audioCtx,masterGain,droneNodes=[],frameCount=0,fps=60,lastTime=0;
+
+// ── Shaders ────────────────────────────────────────────────────────────
+const VS=`
+attribute vec2 pos;
+void main(){gl_Position=vec4(pos,0,1);}
+`;
+
+const FS=`
+precision highp float;
+uniform vec2 res;
+uniform float time;
+uniform float seed;
+uniform float symN;
+uniform float fibK;
+uniform float mobA,mobB,mobC,mobD;
+uniform float juliaX,juliaY;
+uniform float colorPhase;
+uniform float colorSpeed;
+uniform float vortexPow;
+uniform float fractalBlend;
+
+#define PI 3.14159265358979
+#define TAU 6.28318530717959
+#define PHI 1.61803398874989
+
+vec3 hsv2rgb(vec3 c){
+  vec4 K=vec4(1.,2./3.,1./3.,3.);
+  vec3 p=abs(fract(c.xxx+K.xyz)*6.-K.www);
+  return c.z*mix(K.xxx,clamp(p-K.xxx,0.,1.),c.y);
+}
+
+vec2 cmul(vec2 a,vec2 b){return vec2(a.x*b.x-a.y*b.y,a.x*b.y+a.y*b.x);}
+vec2 cdiv(vec2 a,vec2 b){float d=dot(b,b);return vec2(dot(a,b),a.y*b.x-a.x*b.y)/d;}
+vec2 cpow(vec2 z,float n){float r=pow(length(z),n);float a=atan(z.y,z.x)*n;return r*vec2(cos(a),sin(a));}
+vec2 mobius(vec2 z,vec2 a,vec2 b,vec2 c,vec2 d){return cdiv(cmul(a,z)+b,cmul(c,z)+d);}
+
+float julia(vec2 z,vec2 c){
+  float i=0.;
+  for(int n=0;n<48;n++){
+    z=cmul(z,z)+c;
+    if(dot(z,z)>16.)break;
+    i+=1.;
+  }
+  return i/48.;
+}
+
+vec2 kaleidoscope(vec2 uv,float n){
+  float a=atan(uv.y,uv.x);
+  float seg=TAU/n;
+  a=mod(a,seg);
+  if(a>seg*0.5)a=seg-a;
+  float r=length(uv);
+  return r*vec2(cos(a),sin(a));
+}
+
+vec2 fibSpiral(vec2 uv,float k,float t){
+  float a=atan(uv.y,uv.x);
+  float r=length(uv);
+  float spiral=k*log(r+0.001)/log(PHI);
+  a+=spiral+t*0.3;
+  return r*vec2(cos(a),sin(a));
+}
+
+void main(){
+  vec2 uv=(gl_FragCoord.xy-res*0.5)/min(res.x,res.y);
+  float t=time;
+
+  // kaleidoscope mirror
+  vec2 k1=kaleidoscope(uv,symN);
+  // second nested kaleido at different rotation
+  float rot2=t*0.07+seed;
+  vec2 uv2=vec2(k1.x*cos(rot2)-k1.y*sin(rot2),k1.x*sin(rot2)+k1.y*cos(rot2));
+  vec2 k2=kaleidoscope(uv2,symN*0.5+2.);
+
+  // Fibonacci spiral warp
+  vec2 fib=fibSpiral(k2,fibK,t);
+
+  // Möbius transform
+  vec2 mz=mobius(fib*1.5,vec2(mobA,mobB),vec2(0.,mobC),vec2(mobD,0.),vec2(1.,0.));
+  mz=clamp(mz,-3.,3.);
+
+  // vortex
+  float ang=atan(mz.y,mz.x)+t*vortexPow;
+  float rad=length(mz);
+  vec2 vz=rad*vec2(cos(ang),sin(ang));
+
+  // Julia fractal
+  vec2 jc=vec2(juliaX,juliaY);
+  float jv=julia(vz*0.7,jc);
+  float jv2=julia(vz*0.4+0.2,jc*0.8+0.1);
+
+  // blend
+  float f=mix(jv,jv2,fractalBlend);
+
+  // E8-inspired 8-fold modulation
+  float e8=0.;
+  for(int i=0;i<8;i++){
+    float ang2=float(i)*PI*0.25+t*0.11;
+    vec2 rv=vec2(cos(ang2),sin(ang2));
+    e8+=sin(dot(vz,rv)*6.+t*0.5+float(i))*0.125;
+  }
+  f+=e8*0.3;
+  f=fract(f+0.5);
+
+  // spectral color
+  float hue=fract(f*3.+colorPhase+t*colorSpeed);
+  float sat=0.75+0.25*sin(f*PI*4.+t*0.3);
+  float val=0.5+0.5*f;
+  vec3 col=hsv2rgb(vec3(hue,sat,val));
+
+  // additive glow layers
+  float glow=exp(-rad*0.8)*0.5;
+  col+=vec3(glow*abs(sin(t*0.4+colorPhase)),glow*0.5*abs(cos(t*0.3)),glow*abs(sin(t*0.6)));
+
+  // chromatic bands
+  float band=sin(f*TAU*8.+t)*0.5+0.5;
+  col=mix(col,col.zxy,band*0.3);
+
+  gl_FragColor=vec4(clamp(col,0.,1.),1.);
+}
+`;
+
+function compileShader(type,src){
+  const s=gl.createShader(type);
+  gl.shaderSource(s,src);
+  gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){console.error(gl.getShaderInfoLog(s));return null;}
+  return s;
+}
+function buildProgram(vs,fs){
+  const p=gl.createProgram();
+  gl.attachShader(p,compileShader(gl.VERTEX_SHADER,vs));
+  gl.attachShader(p,compileShader(gl.FRAGMENT_SHADER,fs));
+  gl.linkProgram(p);
+  return p;
+}
+const prog=buildProgram(VS,FS);
+gl.useProgram(prog);
+
+const buf=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+const posLoc=gl.getAttribLocation(prog,'pos');
+gl.enableVertexAttribArray(posLoc);
+gl.vertexAttribPointer(posLoc,2,gl.FLOAT,false,0,0);
+
+function loc(n){return gl.getUniformLocation(prog,n);}
+const uRes=loc('res'),uTime=loc('time'),uSeed=loc('seed'),uSymN=loc('symN'),uFibK=loc('fibK');
+const uMobA=loc('mobA'),uMobB=loc('mobB'),uMobC=loc('mobC'),uMobD=loc('mobD');
+const uJuliaX=loc('juliaX'),uJuliaY=loc('juliaY');
+const uColorPhase=loc('colorPhase'),uColorSpeed=loc('colorSpeed');
+const uVortexPow=loc('vortexPow'),uFractalBlend=loc('fractalBlend');
+
+function rng(a,b){return a+(b-a)*Math.random();}
+function randomize(){
+  seed=Math.random()*1000;
+  params={
+    symN: [4,6,8,12][Math.floor(Math.random()*4)],
+    fibK: rng(0.5,2.5),
+    mobA: rng(-1,1), mobB: rng(-0.5,0.5), mobC: rng(0.1,0.8), mobD: rng(0.5,1.5),
+    juliaX: rng(-0.8,0.8), juliaY: rng(-0.8,0.8),
+    colorPhase: Math.random(),
+    colorSpeed: rng(0.02,0.12),
+    vortexPow: rng(0.05,0.4),
+    fractalBlend: Math.random()
+  };
+  updateHUD();
+}
+
+function resize(){
+  W=canvas.width=window.innerWidth;
+  H=canvas.height=window.innerHeight;
+  gl.viewport(0,0,W,H);
+}
+
+// ── Audio ──────────────────────────────────────────────────────────────
+function startAudio(){
+  if(audioCtx) return;
+  audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+  masterGain=audioCtx.createGain();
+  masterGain.gain.value=0.18;
+  masterGain.connect(audioCtx.destination);
+  const freqs=[55,110,165,220,275];
+  freqs.forEach((f,i)=>{
+    const o=audioCtx.createOscillator();
+    const g=audioCtx.createGain();
+    const bq=audioCtx.createBiquadFilter();
+    o.type=i%2===0?'sine':'triangle';
+    o.frequency.value=f*(1+params.fibK*0.1);
+    bq.type='bandpass';
+    bq.frequency.value=f*2;
+    bq.Q.value=5;
+    g.gain.value=0.04/freqs.length;
+    o.connect(bq);bq.connect(g);g.connect(masterGain);
+    o.start();
+    droneNodes.push(o,g);
+  });
+}
+function stopAudio(){
+  droneNodes.forEach(n=>{try{n.stop?n.stop():n.disconnect();}catch(e){}});
+  droneNodes=[];
+  if(audioCtx){audioCtx.close();audioCtx=null;}
+}
+
+// ── HUD ────────────────────────────────────────────────────────────────
+const hudEl=document.getElementById('hud');
+function updateHUD(){
+  if(!hudVisible) return;
+  hudEl.innerHTML=`FPS: ${fps.toFixed(1)}<br>Symmetry: ${params.symN}-fold<br>Fibonacci K: ${params.fibK.toFixed(2)}<br>Julia: (${params.juliaX.toFixed(3)}, ${params.juliaY.toFixed(3)})<br>Vortex: ${params.vortexPow.toFixed(3)}<br>Color Speed: ${params.colorSpeed.toFixed(3)}<br>Sound: ${soundOn?'ON':'OFF'}`;
+}
+
+// ── Render loop ────────────────────────────────────────────────────────
+let startTime=performance.now();
+function render(now){
+  requestAnimationFrame(render);
+  const dt=(now-lastTime)/1000;
+  lastTime=now;
+  if(dt>0) fps=fps*0.95+0.05/dt;
+  frameCount++;
+  if(frameCount%60===0) updateHUD();
+
+  const t=(now-startTime)/1000;
+  gl.uniform2f(uRes,W,H);
+  gl.uniform1f(uTime,t);
+  gl.uniform1f(uSeed,seed);
+  gl.uniform1f(uSymN,params.symN);
+  gl.uniform1f(uFibK,params.fibK);
+  gl.uniform1f(uMobA,params.mobA);
+  gl.uniform1f(uMobB,params.mobB);
+  gl.uniform1f(uMobC,params.mobC);
+  gl.uniform1f(uMobD,params.mobD);
+  gl.uniform1f(uJuliaX,params.juliaX);
+  gl.uniform1f(uJuliaY,params.juliaY);
+  gl.uniform1f(uColorPhase,params.colorPhase);
+  gl.uniform1f(uColorSpeed,params.colorSpeed);
+  gl.uniform1f(uVortexPow,params.vortexPow);
+  gl.uniform1f(uFractalBlend,params.fractalBlend);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+}
+
+// ── Events ─────────────────────────────────────────────────────────────
+function restart(){
+  randomize();
+  startTime=performance.now();
+  if(soundOn){stopAudio();startAudio();}
+}
+window.addEventListener('resize',resize);
+document.addEventListener('keydown',e=>{
+  if(e.code==='Space'){e.preventDefault();restart();}
+  if(e.code==='KeyH'){hudVisible=!hudVisible;hudEl.classList.toggle('visible',hudVisible);updateHUD();}
+  if(e.code==='KeyS'){
+    soundOn=!soundOn;
+    if(soundOn)startAudio();else stopAudio();
+    updateHUD();
+  }
+});
+canvas.addEventListener('click',restart);
+
+// fade hint
+setTimeout(()=>document.getElementById('hint').classList.add('fade'),4000);
+
+resize();
+randomize();
+requestAnimationFrame(render);
+})();
+</script>
+</body>
+</html>

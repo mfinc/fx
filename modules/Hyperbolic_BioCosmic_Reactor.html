@@ -1,0 +1,896 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Hyperbolic BioCosmic Reactor — Generative Math Art</title>
+<meta name="description" content="A living mathematical universe synthesizing hyperbolic tilings, Newton fractals, Barnsley ferns, chaotic attractors, and quaternion harmonics into a real-time generative visual-audio experience.">
+<meta name="keywords" content="generative art, hyperbolic geometry, Newton fractal, Barnsley fern, Lotka-Volterra, Van der Pol oscillator, Duffing equation, quaternion, conformal map, chaos theory, WebGL, canvas art, mathematical visualization, domain coloring, IFS fractal">
+<meta name="author" content="Hyperbolic BioCosmic Reactor">
+<meta property="og:title" content="Hyperbolic BioCosmic Reactor">
+<meta property="og:description" content="Real-time synthesis of hyperbolic geometry, Newton fractals, IFS systems, and chaotic differential equations into a transcendent audio-visual experience.">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="robots" content="index, follow">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background: #000;
+    font-family: 'Courier New', monospace;
+  }
+  canvas {
+    display: block;
+    width: 100vw !important;
+    height: 100vh !important;
+    position: fixed;
+    top: 0; left: 0;
+  }
+  #hud {
+    position: fixed;
+    top: 16px; left: 16px;
+    color: rgba(255,255,255,0.75);
+    font-size: 11px;
+    line-height: 1.7;
+    pointer-events: none;
+    display: none;
+    text-shadow: 0 0 8px rgba(0,0,0,0.9);
+    z-index: 10;
+    background: rgba(0,0,0,0.35);
+    padding: 10px 14px;
+    border-left: 1px solid rgba(255,255,255,0.2);
+  }
+  #hint {
+    position: fixed;
+    bottom: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(255,255,255,0.3);
+    font-size: 10px;
+    pointer-events: none;
+    letter-spacing: 2px;
+    z-index: 10;
+    transition: opacity 2s;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<div id="hint">SPACE / TAP — RANDOMIZE &nbsp;|&nbsp; H — HUD &nbsp;|&nbsp; S — SOUND</div>
+
+<script>
+(function(){
+'use strict';
+
+// ─── Canvas setup ──────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const hud = document.getElementById('hud');
+const hint = document.getElementById('hint');
+let W, H, CX, CY;
+
+function resize(){
+  W = canvas.width  = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  CX = W/2; CY = H/2;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// Fade hint
+setTimeout(()=>{ hint.style.opacity='0'; }, 5000);
+
+// ─── Global state ──────────────────────────────────────────────────────────
+let STATE = {};
+let HUD_ON = false;
+let SOUND_ON = false;
+let audioCtx = null;
+let analyser = null;
+let fftData = null;
+let masterGain = null;
+let oscBank = [];
+let t = 0;
+let frame = 0;
+let lastTime = 0;
+
+// ─── Math utilities ────────────────────────────────────────────────────────
+const TAU = Math.PI * 2;
+const sq = x => x*x;
+const clamp = (x,a,b) => x<a?a:x>b?b:x;
+const lerp = (a,b,t) => a + (b-a)*t;
+const frac = x => x - Math.floor(x);
+const rand = (a=0,b=1) => a + Math.random()*(b-a);
+const randInt = (a,b) => Math.floor(rand(a,b+1));
+const pick = arr => arr[randInt(0, arr.length-1)];
+const sin = Math.sin, cos = Math.cos, atan2 = Math.atan2, sqrt = Math.sqrt, abs = Math.abs, pow = Math.pow, PI = Math.PI;
+
+// Fast sin approximation (Bhaskara I)
+function fsin(x){
+  x = x % TAU; if(x<0) x+=TAU;
+  const p = x > PI;
+  if(p) x -= PI;
+  const s = 16*x*(PI-x)/(5*PI*PI - 4*x*(PI-x));
+  return p ? -s : s;
+}
+function fcos(x){ return fsin(x + PI/2); }
+
+// Complex multiply
+function cmul(ar,ai,br,bi){ return [ar*br - ai*bi, ar*bi + ai*br]; }
+function cdiv(ar,ai,br,bi){
+  const d = br*br+bi*bi;
+  return [(ar*br+ai*bi)/d, (ai*br-ar*bi)/d];
+}
+function cabs(r,i){ return sqrt(r*r+i*i); }
+function cpow(r,i,n){
+  const m = pow(cabs(r,i), n);
+  const a = atan2(i,r)*n;
+  return [m*cos(a), m*sin(a)];
+}
+
+// ─── CIELAB utilities ──────────────────────────────────────────────────────
+function srgb_to_lab(r,g,b){
+  let R=r/255, G=g/255, B=b/255;
+  R = R>0.04045?(((R+0.055)/1.055)**2.4):R/12.92;
+  G = G>0.04045?(((G+0.055)/1.055)**2.4):G/12.92;
+  B = B>0.04045?(((B+0.055)/1.055)**2.4):B/12.92;
+  let X=(R*0.4124+G*0.3576+B*0.1805)/0.95047;
+  let Y=(R*0.2126+G*0.7152+B*0.0722)/1.00000;
+  let Z=(R*0.0193+G*0.1192+B*0.9505)/1.08883;
+  const f=v=>v>0.008856?v**(1/3):7.787*v+16/116;
+  X=f(X);Y=f(Y);Z=f(Z);
+  return [116*Y-16, 500*(X-Y), 200*(Y-Z)];
+}
+
+function lab_to_srgb(L,a,b){
+  let Y=(L+16)/116, X=a/500+Y, Z=Y-b/200;
+  X=0.95047*(X**3>0.008856?X**3:(X-16/116)/7.787);
+  Y=1.00000*(Y**3>0.008856?Y**3:(Y-16/116)/7.787);
+  Z=1.08883*(Z**3>0.008856?Z**3:(Z-16/116)/7.787);
+  let R=X*3.2406+Y*-1.5372+Z*-0.4986;
+  let G=X*-0.9689+Y*1.8758+Z*0.0415;
+  let Bl=X*0.0557+Y*-0.2040+Z*1.0570;
+  const gc=v=>clamp(Math.round((v>0.0031308?1.055*v**(1/2.4)-0.055:12.92*v)*255),0,255);
+  return [gc(R),gc(G),gc(Bl)];
+}
+
+// ─── Color palette system ──────────────────────────────────────────────────
+function mkPalette(){
+  const schemes = ['gradient','spectral','banded','flowing','harmonized','domain','euler'];
+  const scheme = pick(schemes);
+  const nStops = randInt(3,8);
+  const stops = [];
+  // Randomize in Lab space for perceptual richness
+  for(let i=0;i<nStops;i++){
+    const L = rand(20, 95);
+    const A = rand(-80, 80);
+    const B2 = rand(-80, 80);
+    const rgb = lab_to_srgb(L,A,B2);
+    stops.push({r:rgb[0],g:rgb[1],b:rgb[2]});
+  }
+  // gamma
+  const gamma = rand(0.7, 2.2);
+  return {scheme, stops, gamma, hueShift: rand(0, TAU), satBoost: rand(0.7, 1.5)};
+}
+
+function palColor(pal, v, phase=0){
+  // v in [0,1], phase adds temporal flow
+  v = frac(v + phase);
+  const s = pal.stops;
+  const n = s.length;
+  const scaled = v * (n-1);
+  const i = Math.floor(scaled) % n;
+  const j = (i+1) % n;
+  const f = scaled - Math.floor(scaled);
+  // smooth step
+  const sf = f*f*(3-2*f);
+  const r = lerp(s[i].r, s[j].r, sf);
+  const g = lerp(s[i].g, s[j].g, sf);
+  const b = lerp(s[i].b, s[j].b, sf);
+  // gamma correction
+  const gc = x => clamp(Math.round(pow(x/255, pal.gamma)*255),0,255);
+  return `rgb(${gc(r)},${gc(g)},${gc(b)})`;
+}
+
+function domainColor(re,im, pal, t2){
+  const r2 = cabs(re,im);
+  const theta = atan2(im,re);
+  const hue = frac((theta/TAU) + t2*0.05 + pal.hueShift/(TAU));
+  const mag = frac(Math.log(r2+1)*0.3 + t2*0.02);
+  return palColor(pal, (hue*0.7 + mag*0.3), t2*0.01);
+}
+
+// ─── Quaternion utils ──────────────────────────────────────────────────────
+function qmul(a,b){
+  return [
+    a[0]*b[0]-a[1]*b[1]-a[2]*b[2]-a[3]*b[3],
+    a[0]*b[1]+a[1]*b[0]+a[2]*b[3]-a[3]*b[2],
+    a[0]*b[2]-a[1]*b[3]+a[2]*b[0]+a[3]*b[1],
+    a[0]*b[3]+a[1]*b[2]-a[2]*b[1]+a[3]*b[0]
+  ];
+}
+function qrot(v, axis, angle){
+  const h = angle/2;
+  const sh = sin(h), ch = cos(h);
+  const q = [ch, axis[0]*sh, axis[1]*sh, axis[2]*sh];
+  const qi = [ch, -axis[0]*sh, -axis[1]*sh, -axis[2]*sh];
+  const p = [0, v[0], v[1], v[2]];
+  const r = qmul(qmul(q,p),qi);
+  return [r[1],r[2],r[3]];
+}
+
+// ─── Hyperbolic geometry (Poincaré disk) ───────────────────────────────────
+function hypAdd(u,v){
+  // Möbius addition in Poincaré disk
+  const [ur,ui]=[u[0],u[1]], [vr,vi]=[v[0],v[1]];
+  const u2=ur*ur+ui*ui, v2=vr*vr+vi*vi;
+  const num_r=(1+2*(ur*vr+ui*vi)+v2)*ur+(1-u2)*vr;
+  const num_i=(1+2*(ur*vr+ui*vi)+v2)*ui+(1-u2)*vi;
+  const den=1+2*(ur*vr+ui*vi)+u2*v2;
+  return [num_r/den, num_i/den];
+}
+
+function poincareToCanvas(pr,pi){
+  const scale = Math.min(W,H)*0.47;
+  return [CX + pr*scale, CY + pi*scale];
+}
+
+// ─── Schwarz-Christoffel approximation ────────────────────────────────────
+function schwartzMap(re,im,t2){
+  // Approximate S-C map as composition of Joukowski + rotation
+  const s = fsin(t2*0.3);
+  const [p1,p2] = cmul(re,im, fcos(s), fsin(s));
+  // Joukowski
+  const r2 = p1*p1+p2*p2;
+  if(r2 < 1e-10) return [0,0];
+  return [p1 + p1/r2, p2 - p2/r2];
+}
+
+// ─── Newton fractal ────────────────────────────────────────────────────────
+function newtonIter(re,im, degree, roots){
+  // Newton's method for z^n - 1 = 0
+  const MAX=8;
+  for(let i=0;i<MAX;i++){
+    // f = z^n - 1, f' = n*z^(n-1)
+    const [fr,fi] = cpow(re,im,degree);
+    const fr1=fr-1, fi1=fi;
+    const [dr,di] = cpow(re,im,degree-1);
+    const ndr=degree*dr, ndi=degree*di;
+    const [qr,qi] = cdiv(fr1,fi1,ndr,ndi);
+    re -= qr; im -= qi;
+    // check convergence to a root
+    for(let j=0;j<roots.length;j++){
+      const dx=re-roots[j][0], dy=im-roots[j][1];
+      if(dx*dx+dy*dy < 1e-6) return [j/(roots.length-1), i/MAX];
+    }
+  }
+  return [0.5, 1];
+}
+
+function makeRoots(degree){
+  const r=[];
+  for(let i=0;i<degree;i++){
+    const a = (TAU*i)/degree;
+    r.push([cos(a),sin(a)]);
+  }
+  return r;
+}
+
+// ─── IFS Barnsley fern variants ────────────────────────────────────────────
+const IFS_PRESETS = [
+  // Barnsley fern
+  {transforms:[
+    {a:0,b:0,c:0,d:0.16,e:0,f:0,p:0.01},
+    {a:0.85,b:0.04,c:-0.04,d:0.85,e:0,f:1.6,p:0.85},
+    {a:0.2,b:-0.26,c:0.23,d:0.22,e:0,f:1.6,p:0.07},
+    {a:-0.15,b:0.28,c:0.26,d:0.24,e:0,f:0.44,p:0.07}
+  ]},
+  // Sierpinski variant
+  {transforms:[
+    {a:0.5,b:0,c:0,d:0.5,e:0,f:0,p:0.33},
+    {a:0.5,b:0,c:0,d:0.5,e:0.5,f:0,p:0.33},
+    {a:0.5,b:0,c:0,d:0.5,e:0.25,f:0.5,p:0.34}
+  ]},
+  // Dragon variant
+  {transforms:[
+    {a:0.5,b:-0.5,c:0.5,d:0.5,e:0,f:0,p:0.5},
+    {a:-0.5,b:-0.5,c:0.5,d:-0.5,e:1,f:0,p:0.5}
+  ]},
+  // Coral
+  {transforms:[
+    {a:0.307692,b:0,c:0,d:0.307692,e:0.692308,f:0.769231,p:0.1},
+    {a:0.307692,b:0,c:0,d:0.307692,e:0.307692,f:0.384615,p:0.1},
+    {a:0.923077,b:0.153846,c:-0.153846,d:0.923077,e:0,f:0,p:0.8}
+  ]}
+];
+
+class IFSSystem {
+  constructor(preset){
+    this.transforms = preset.transforms;
+    this.probs = [];
+    let cum=0;
+    for(const t of this.transforms){ cum+=t.p; this.probs.push(cum); }
+    this.x=0; this.y=0;
+    this.points=[];
+    this.maxPts = Math.min(1200, Math.floor(W*H/4000));
+    // warm up
+    for(let i=0;i<100;i++) this.step();
+  }
+  step(){
+    const r=Math.random();
+    let tr=this.transforms[0];
+    for(let i=0;i<this.probs.length;i++){
+      if(r<=this.probs[i]){ tr=this.transforms[i]; break; }
+    }
+    const nx=tr.a*this.x + tr.b*this.y + tr.e;
+    const ny=tr.c*this.x + tr.d*this.y + tr.f;
+    this.x=nx; this.y=ny;
+  }
+  update(n=20){
+    for(let i=0;i<n;i++){
+      this.step();
+      if(this.points.length >= this.maxPts) this.points.shift();
+      this.points.push([this.x, this.y]);
+    }
+  }
+}
+
+// ─── Differential systems ──────────────────────────────────────────────────
+class DiffSystem {
+  constructor(){
+    this.reset();
+  }
+  reset(){
+    this.lv_x = rand(0.5, 2);   // prey
+    this.lv_y = rand(0.1, 0.5); // predator
+    this.lv_a = rand(0.8,1.5); this.lv_b = rand(0.2,0.6);
+    this.lv_c = rand(0.5,1.2); this.lv_d = rand(0.1,0.4);
+    
+    this.vdp_x = rand(-2,2); this.vdp_v = rand(-2,2);
+    this.vdp_mu = rand(0.5, 3.5);
+    
+    this.duf_x = rand(-1,1); this.duf_v = rand(-1,1);
+    this.duf_alpha = rand(-1.2,-0.5);
+    this.duf_beta  = rand(0.5, 1.5);
+    this.duf_delta = rand(0.1, 0.5);
+    this.duf_gamma = rand(0.2, 0.5);
+    this.duf_omega = rand(0.8, 1.5);
+    
+    this.history = [];
+    this.maxHist = 600;
+    this.dt = 0.016;
+    this.dufT = 0;
+  }
+  step(dt){
+    // Lotka-Volterra
+    const dx_lv = this.lv_a*this.lv_x - this.lv_b*this.lv_x*this.lv_y;
+    const dy_lv = this.lv_d*this.lv_x*this.lv_y - this.lv_c*this.lv_y;
+    this.lv_x = clamp(this.lv_x + dx_lv*dt, 0.01, 10);
+    this.lv_y = clamp(this.lv_y + dy_lv*dt, 0.01, 10);
+    
+    // Van der Pol
+    const vdp_xd = this.vdp_v;
+    const vdp_vd = this.vdp_mu*(1-this.vdp_x*this.vdp_x)*this.vdp_v - this.vdp_x;
+    this.vdp_x += vdp_xd*dt;
+    this.vdp_v += vdp_vd*dt;
+    
+    // Duffing
+    this.dufT += dt;
+    const duf_xd = this.duf_v;
+    const duf_vd = -this.duf_delta*this.duf_v - this.duf_alpha*this.duf_x
+                   - this.duf_beta*pow(this.duf_x,3)
+                   + this.duf_gamma*cos(this.duf_omega*this.dufT);
+    this.duf_x += duf_xd*dt;
+    this.duf_v += duf_vd*dt;
+    
+    this.history.push([this.lv_x, this.lv_y, this.vdp_x, this.duf_x]);
+    if(this.history.length > this.maxHist) this.history.shift();
+  }
+  
+  // Returns composite signal in [-1,1] for audio
+  signal(){
+    return clamp(this.vdp_x*0.3 + this.duf_x*0.3 + (this.lv_x-1)*0.2, -1, 1);
+  }
+}
+
+// ─── Audio system ──────────────────────────────────────────────────────────
+function initAudio(){
+  if(audioCtx) return;
+  audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+  masterGain = audioCtx.createGain();
+  masterGain.gain.value = SOUND_ON ? 0.12 : 0;
+  analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 256;
+  fftData = new Uint8Array(analyser.frequencyBinCount);
+  masterGain.connect(analyser);
+  analyser.connect(audioCtx.destination);
+}
+
+function buildOscBank(){
+  if(!audioCtx) return;
+  oscBank.forEach(o=>{ try{ o.osc.stop(); }catch(e){} });
+  oscBank=[];
+  const harmonics = [1,2,3,5,7,11,13];
+  const baseFreq = rand(55, 220);
+  harmonics.forEach((h,i)=>{
+    const osc = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    osc.type = pick(['sine','triangle','sawtooth']);
+    osc.frequency.value = baseFreq * h;
+    g.gain.value = 0.04 / (i+1);
+    osc.connect(g);
+    g.connect(masterGain);
+    osc.start();
+    oscBank.push({osc,g, baseFreq: baseFreq*h, idx:i});
+  });
+}
+
+function updateAudio(diff){
+  if(!audioCtx || !SOUND_ON) return;
+  const sig = diff.signal();
+  const lvMod = clamp(diff.lv_x/3, 0.1, 2);
+  oscBank.forEach((o,i)=>{
+    const phase = t*(0.1+i*0.07) + sig*2;
+    const freq = o.baseFreq * (1 + 0.02*fsin(phase)*lvMod);
+    o.osc.frequency.setTargetAtTime(freq, audioCtx.currentTime, 0.05);
+    const vol = 0.04/(i+1) * (0.5 + 0.5*fsin(t*0.3 + i));
+    o.g.gain.setTargetAtTime(vol, audioCtx.currentTime, 0.1);
+  });
+  if(analyser) analyser.getByteFrequencyData(fftData);
+}
+
+// ─── Particle system ───────────────────────────────────────────────────────
+class Particle {
+  constructor(){
+    this.reset();
+  }
+  reset(){
+    this.angle = rand(0, TAU);
+    this.r = rand(0, 0.85);
+    this.vr = rand(-0.001, 0.001);
+    this.va = rand(-0.01, 0.01);
+    this.life = rand(0.4,1);
+    this.decay = rand(0.002, 0.008);
+    this.size = rand(1,3);
+    this.colorOffset = Math.random();
+  }
+  update(diff){
+    this.angle += this.va + diff.vdp_x*0.002;
+    this.r += this.vr + diff.duf_x*0.0005;
+    this.life -= this.decay;
+    if(this.life <= 0 || this.r > 1 || this.r < 0) this.reset();
+  }
+}
+
+// ─── Kaleidoscope renderer ─────────────────────────────────────────────────
+function drawKaleidoscope(ctx, pal, t2, diff, fftD, symmetry){
+  const arms = symmetry;
+  const angle_step = TAU / arms;
+  ctx.save();
+  ctx.translate(CX, CY);
+  
+  const scale = Math.min(W,H)*0.45;
+  const histLen = diff.history.length;
+  if(histLen < 2){ ctx.restore(); return; }
+  
+  for(let arm=0; arm<arms; arm++){
+    ctx.save();
+    ctx.rotate(arm * angle_step);
+    
+    ctx.beginPath();
+    for(let i=0; i<histLen; i++){
+      const h = diff.history[i];
+      // Map LV to radial, VdP/Duff to angular
+      const r = clamp(h[0]/5 * scale, 0, scale);
+      const a = h[2]*0.8 + h[3]*0.4 + t2*0.1;
+      const x = r * fcos(a);
+      const y = r * fsin(a);
+      if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    }
+    const alpha = clamp(0.15 + 0.1*fsin(t2*0.7 + arm), 0.05, 0.4);
+    ctx.strokeStyle = palColor(pal, arm/arms + t2*0.03);
+    ctx.globalAlpha = alpha;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+// ─── Hyperbolic tiling ─────────────────────────────────────────────────────
+function drawHyperbolic(ctx, pal, t2, symmetry){
+  const depth = 3;
+  const scale = Math.min(W,H)*0.47;
+  const p = symmetry, q = 3; // {p,q} tiling
+  const rot = TAU/p;
+  
+  function drawTile(pr, pi, depth2, colorIdx){
+    if(depth2<=0) return;
+    const [cx2,cy2] = poincareToCanvas(pr,pi);
+    const mag = cabs(pr,pi);
+    if(mag > 0.97) return;
+    
+    const r_px = (1-mag)*scale*0.12;
+    if(r_px < 1) return;
+    
+    ctx.beginPath();
+    ctx.arc(cx2, cy2, r_px, 0, TAU);
+    ctx.fillStyle = palColor(pal, frac(colorIdx + t2*0.02));
+    ctx.globalAlpha = 0.5*(1-mag);
+    ctx.fill();
+    
+    // Generate children via Möbius transform
+    for(let i=0; i<p; i++){
+      const a = rot*i + t2*0.05;
+      const [nr,ni] = hypAdd([pr,pi], [cos(a)*0.45, sin(a)*0.45]);
+      if(cabs(nr,ni)<0.96){
+        drawTile(nr, ni, depth2-1, colorIdx + i/p);
+      }
+    }
+  }
+  
+  ctx.save();
+  // Draw disk boundary
+  ctx.beginPath();
+  ctx.arc(CX,CY, scale, 0, TAU);
+  ctx.strokeStyle = palColor(pal, t2*0.01);
+  ctx.globalAlpha = 0.15;
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+  
+  for(let i=0; i<p; i++){
+    const a = (TAU*i)/p + t2*0.03;
+    const [pr,pi2] = [cos(a)*0.4, sin(a)*0.4];
+    drawTile(pr, pi2, depth, i/p);
+  }
+  ctx.restore();
+}
+
+// ─── Newton fractal (pixelated, low-res) ──────────────────────────────────
+function drawNewtonFractal(offCtx, pal, t2, degree, roots, W2, H2){
+  const step = 8; // low-res for performance
+  for(let py=0; py<H2; py+=step){
+    for(let px=0; px<W2; px+=step){
+      const re = (px-W2/2)/(W2*0.25) + fcos(t2*0.07)*0.3;
+      const im = (py-H2/2)/(H2*0.25) + fsin(t2*0.05)*0.3;
+      const [rootIdx, iters] = newtonIter(re, im, degree, roots);
+      const v = rootIdx * 0.7 + iters * 0.3;
+      offCtx.fillStyle = palColor(pal, frac(v + t2*0.015));
+      offCtx.globalAlpha = 0.55 * (1-iters*0.5);
+      offCtx.fillRect(px, py, step, step);
+    }
+  }
+}
+
+// ─── IFS drawing ───────────────────────────────────────────────────────────
+function drawIFS(ctx, ifs, pal, t2, symmetry){
+  if(ifs.points.length < 2) return;
+  const scale = Math.min(W,H)*0.22;
+  const arms = symmetry;
+  const angle_step = TAU/arms;
+  
+  ctx.save();
+  ctx.translate(CX, CY);
+  
+  for(let arm=0; arm<arms; arm++){
+    ctx.save();
+    ctx.rotate(arm*angle_step + t2*0.02);
+    
+    ifs.points.forEach((p2,i)=>{
+      const x = p2[0]*scale - scale*0.3;
+      const y = -p2[1]*scale + scale*0.8;
+      const v = frac(i/ifs.points.length + t2*0.04);
+      ctx.beginPath();
+      ctx.arc(x, y, 1, 0, TAU);
+      ctx.fillStyle = palColor(pal, v);
+      ctx.globalAlpha = 0.6;
+      ctx.fill();
+    });
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+// ─── Domain coloring overlay ───────────────────────────────────────────────
+function drawDomainColoring(offCtx, pal, t2, W2, H2){
+  const step = 12;
+  for(let py=0; py<H2; py+=step){
+    for(let px=0; px<W2; px+=step){
+      const re = (px-W2/2)/(W2*0.3);
+      const im = (py-H2/2)/(H2*0.3);
+      // Euler: e^(re+i*im) = e^re * (cos(im)+i*sin(im))
+      const er = Math.exp(clamp(re,-3,3));
+      const cr = er*cos(im + t2*0.1);
+      const ci = er*sin(im + t2*0.1);
+      // Apply S-C transform
+      const [sr,si] = schwartzMap(cr,ci,t2);
+      const col = domainColor(sr,si,pal,t2);
+      offCtx.fillStyle = col;
+      offCtx.globalAlpha = 0.12;
+      offCtx.fillRect(px,py,step,step);
+    }
+  }
+}
+
+// ─── Quaternion harmonic field ─────────────────────────────────────────────
+function drawQuaternionField(ctx, pal, t2, diff, symmetry){
+  const N = Math.min(80, Math.floor(W*H/8000));
+  const arms = symmetry;
+  const angle_step = TAU/arms;
+  
+  ctx.save();
+  ctx.translate(CX, CY);
+  
+  const axis = [fsin(t2*0.17), fcos(t2*0.13), fsin(t2*0.09)];
+  const axl = sqrt(axis[0]**2+axis[1]**2+axis[2]**2)||1;
+  axis[0]/=axl; axis[1]/=axl; axis[2]/=axl;
+  
+  for(let arm=0; arm<arms; arm++){
+    ctx.save();
+    ctx.rotate(arm*angle_step);
+    
+    for(let i=0; i<N; i++){
+      const u = i/N;
+      const angle = u*TAU*3 + t2*0.2 + diff.vdp_x*0.3;
+      const scale2 = Math.min(W,H)*(0.1 + 0.35*u);
+      const v3 = [cos(angle)*scale2, sin(angle)*scale2, fsin(u*10+t2)*scale2*0.3];
+      const qangle = t2*0.4 + diff.lv_x*0.5;
+      const rv = qrot(v3, axis, qangle);
+      const x = rv[0], y = rv[1];
+      const sz = 2 + 3*abs(fsin(u*15+t2));
+      ctx.beginPath();
+      ctx.arc(x, y, sz, 0, TAU);
+      ctx.fillStyle = palColor(pal, frac(u + t2*0.03));
+      ctx.globalAlpha = 0.5*(1-u*0.5);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+// ─── FFT visualizer ring ───────────────────────────────────────────────────
+function drawFFTRing(ctx, pal, t2, fftD){
+  if(!fftD) return;
+  const R = Math.min(W,H)*0.38;
+  const N = fftD.length;
+  ctx.save();
+  ctx.translate(CX,CY);
+  ctx.beginPath();
+  for(let i=0;i<N;i++){
+    const a = (i/N)*TAU - PI/2;
+    const mag = fftD[i]/255;
+    const r = R + mag*Math.min(W,H)*0.1;
+    const x = cos(a)*r, y = sin(a)*r;
+    if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+  }
+  ctx.closePath();
+  ctx.strokeStyle = palColor(pal, t2*0.02);
+  ctx.globalAlpha = 0.4;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.restore();
+}
+
+// ─── STATE initialization ──────────────────────────────────────────────────
+function randomize(){
+  const palette = mkPalette();
+  const symmetry = pick([3,4,5,6,7,8,9,12]);
+  const newtonDegree = randInt(3,7);
+  const ifsPreset = pick(IFS_PRESETS);
+  
+  STATE = {
+    palette,
+    symmetry,
+    newtonDegree,
+    newtonRoots: makeRoots(newtonDegree),
+    ifs: new IFSSystem(ifsPreset),
+    diff: new DiffSystem(),
+    particles: Array.from({length: Math.min(200, Math.floor(W*H/3000))}, ()=>new Particle()),
+    bgMode: pick(['fade','clear','trail']),
+    bgAlpha: rand(0.02, 0.12),
+    layers: shuffle([0,1,2,3,4,5]),
+    flowPhase: rand(0, TAU),
+    rotSpeed: rand(-0.005, 0.005),
+    zoomPulse: rand(0, TAU),
+    startTime: performance.now()
+  };
+  
+  if(audioCtx && SOUND_ON){
+    buildOscBank();
+  }
+}
+
+function shuffle(a){ 
+  for(let i=a.length-1;i>0;i--){ 
+    const j=randInt(0,i); [a[i],a[j]]=[a[j],a[i]]; 
+  } 
+  return a; 
+}
+
+// ─── Off-screen canvas for heavy layers ───────────────────────────────────
+const offCanvas = document.createElement('canvas');
+const offCtx = offCanvas.getContext('2d');
+function resizeOff(){
+  offCanvas.width  = Math.floor(W/2);
+  offCanvas.height = Math.floor(H/2);
+}
+resizeOff();
+window.addEventListener('resize', resizeOff);
+
+// ─── Main render loop ──────────────────────────────────────────────────────
+function render(now){
+  requestAnimationFrame(render);
+  
+  const dt = Math.min((now - lastTime)/1000, 0.05);
+  lastTime = now;
+  t = (now - STATE.startTime) / 1000;
+  frame++;
+  
+  const { palette:pal, symmetry, newtonDegree, newtonRoots, ifs, diff, particles } = STATE;
+  
+  // Update simulation
+  diff.step(dt);
+  ifs.update(15);
+  particles.forEach(p=>p.update(diff));
+  
+  // Audio
+  if(SOUND_ON) updateAudio(diff);
+  
+  // FFT data (or dummy)
+  const fftD = (SOUND_ON && fftData) ? fftData : null;
+  
+  // ── Background ──
+  ctx.globalAlpha = STATE.bgAlpha;
+  ctx.fillStyle = '#000005';
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.fillRect(0,0,W,H);
+  ctx.globalAlpha = 1;
+  
+  // ── Off-screen: Newton + Domain ──
+  const OW = offCanvas.width, OH = offCanvas.height;
+  offCtx.clearRect(0,0,OW,OH);
+  offCtx.globalAlpha=1;
+  
+  // Newton fractal (every 2 frames for perf)
+  if(frame % 2 === 0){
+    drawNewtonFractal(offCtx, pal, t, newtonDegree, newtonRoots, OW, OH);
+  }
+  // Domain coloring overlay
+  if(frame % 3 === 0){
+    drawDomainColoring(offCtx, pal, t, OW, OH);
+  }
+  
+  // Blit off-screen to main canvas
+  ctx.save();
+  ctx.globalAlpha = 0.35;
+  ctx.globalCompositeOperation = 'screen';
+  ctx.drawImage(offCanvas, 0, 0, W, H);
+  ctx.restore();
+  ctx.globalCompositeOperation = 'source-over';
+  
+  // ── Layers in randomized order ──
+  STATE.layers.forEach(layerId => {
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+    
+    switch(layerId){
+      case 0: // Hyperbolic tiling
+        drawHyperbolic(ctx, pal, t, symmetry);
+        break;
+      case 1: // Kaleidoscope / differential
+        drawKaleidoscope(ctx, pal, t, diff, fftD, symmetry);
+        break;
+      case 2: // IFS fern/fractal
+        drawIFS(ctx, ifs, pal, t, symmetry);
+        break;
+      case 3: // Quaternion field
+        drawQuaternionField(ctx, pal, t, diff, symmetry);
+        break;
+      case 4: // Particles
+        ctx.save();
+        const pscale = Math.min(W,H)*0.47;
+        particles.forEach(p=>{
+          const px = CX + p.r*pscale*cos(p.angle);
+          const py = CY + p.r*pscale*sin(p.angle);
+          ctx.beginPath();
+          ctx.arc(px,py, p.size,0,TAU);
+          ctx.fillStyle = palColor(pal, frac(p.colorOffset + t*0.04));
+          ctx.globalAlpha = p.life*0.7;
+          ctx.fill();
+        });
+        ctx.restore();
+        break;
+      case 5: // FFT ring
+        if(fftD) drawFFTRing(ctx, pal, t, fftD);
+        break;
+    }
+  });
+  
+  // ── Central bloom ──
+  ctx.save();
+  const bloomR = Math.min(W,H)*(0.04 + 0.02*fsin(t*2.3));
+  const grd = ctx.createRadialGradient(CX,CY,0,CX,CY,bloomR);
+  grd.addColorStop(0, palColor(pal, t*0.05));
+  grd.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.globalAlpha = 0.6;
+  ctx.globalCompositeOperation = 'screen';
+  ctx.fillStyle = grd;
+  ctx.beginPath();
+  ctx.arc(CX,CY,bloomR,0,TAU);
+  ctx.fill();
+  ctx.restore();
+  
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 1;
+  
+  // ── HUD ──
+  if(HUD_ON){
+    const lines = [
+      `HYPERBOLIC BIOCOSMIC REACTOR`,
+      `─────────────────────────────`,
+      `t: ${t.toFixed(2)}s  frame: ${frame}`,
+      `symmetry: ${symmetry}  newton: z^${newtonDegree}`,
+      `palette: ${pal.scheme}  γ: ${pal.gamma.toFixed(2)}`,
+      `LV prey: ${diff.lv_x.toFixed(3)}  pred: ${diff.lv_y.toFixed(3)}`,
+      `VdP x: ${diff.vdp_x.toFixed(3)}  μ: ${diff.vdp_mu.toFixed(2)}`,
+      `Duff x: ${diff.duf_x.toFixed(3)}  α: ${diff.duf_alpha.toFixed(2)}`,
+      `IFS pts: ${ifs.points.length}`,
+      `particles: ${particles.length}`,
+      `sound: ${SOUND_ON ? 'ON' : 'OFF'}`,
+      `─────────────────────────────`,
+      `SPACE/TAP: randomize`,
+      `H: toggle HUD  S: sound`
+    ];
+    hud.innerHTML = lines.join('<br>');
+    hud.style.display = 'block';
+  } else {
+    hud.style.display = 'none';
+  }
+}
+
+// ─── Input handling ────────────────────────────────────────────────────────
+function doRandomize(){
+  randomize();
+  // Brief flash
+  ctx.fillStyle='rgba(255,255,255,0.06)';
+  ctx.fillRect(0,0,W,H);
+}
+
+window.addEventListener('keydown', e=>{
+  switch(e.code){
+    case 'Space':
+      e.preventDefault();
+      doRandomize();
+      break;
+    case 'KeyH':
+      HUD_ON = !HUD_ON;
+      break;
+    case 'KeyS':
+      SOUND_ON = !SOUND_ON;
+      if(SOUND_ON){
+        initAudio();
+        if(audioCtx.state==='suspended') audioCtx.resume();
+        buildOscBank();
+        masterGain.gain.setTargetAtTime(0.12, audioCtx.currentTime, 0.2);
+      } else {
+        if(masterGain) masterGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.3);
+      }
+      break;
+  }
+});
+
+canvas.addEventListener('click', ()=>doRandomize());
+canvas.addEventListener('touchend', e=>{ e.preventDefault(); doRandomize(); }, {passive:false});
+
+// ─── Boot ──────────────────────────────────────────────────────────────────
+randomize();
+lastTime = performance.now();
+requestAnimationFrame(render);
+
+})();
+</script>
+</body>
+</html>

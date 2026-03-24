@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Hyperbolic Mechanical Kaleidoscope Engine</title>
+
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+
+<meta name="description" content="Hyperbolic Mechanical Kaleidoscope Engine – generative audiovisual simulation blending hyperbolic tilings, mechanical linkages, pendulum networks, chaotic attractors, spring membranes, and evolving color systems.">
+
+<meta name="keywords" content="generative art, hyperbolic tiling, penrose, kaleidoscope, mechanical simulation, pendulum network, spring physics, generative audio, WebAudio, generative geometry, audiovisual engine">
+
+<style>
+html,body{
+margin:0;
+padding:0;
+overflow:hidden;
+background:black;
+touch-action:manipulation;
+}
+
+canvas{
+display:block;
+}
+
+#hud{
+position:fixed;
+top:10px;
+left:10px;
+color:#0f0;
+font-family:monospace;
+font-size:12px;
+white-space:pre;
+pointer-events:none;
+display:none;
+}
+</style>
+</head>
+
+<body>
+
+<canvas id="c"></canvas>
+<div id="hud"></div>
+
+<script>
+"use strict";
+
+const canvas=document.getElementById("c");
+const ctx=canvas.getContext("2d",{alpha:false});
+const hud=document.getElementById("hud");
+
+let W,H,cx,cy;
+
+function resize(){
+W=canvas.width=window.innerWidth;
+H=canvas.height=window.innerHeight;
+cx=W/2;
+cy=H/2;
+}
+window.addEventListener("resize",resize);
+resize();
+
+function rand(a=1,b=0){return b+Math.random()*(a-b);}
+function randi(a,b){return Math.floor(rand(a,b));}
+
+function randomLayerPalette(){
+let base=rand(360);
+let drift=rand(.05,.005);
+let sat=rand(100,60);
+let light=rand(70,40);
+
+return{
+base,drift,sat,light,
+color(t,offset=0){
+return `hsl(${(base+t*drift*100+offset)%360},${sat}%,${light}%)`;
+}
+};
+}
+
+class Pendulum{
+constructor(x,y,l){
+this.x=x;
+this.y=y;
+this.l=l;
+this.angle=rand(Math.PI*2);
+this.vel=rand(.6,-.6);
+}
+
+step(dt){
+const g=.4;
+const acc=(-g/this.l)*Math.sin(this.angle);
+this.vel+=acc*dt;
+this.angle+=this.vel*dt;
+}
+
+draw(color){
+let px=this.x+Math.sin(this.angle)*this.l;
+let py=this.y+Math.cos(this.angle)*this.l;
+
+ctx.strokeStyle=color;
+ctx.fillStyle=color;
+
+ctx.beginPath();
+ctx.moveTo(this.x,this.y);
+ctx.lineTo(px,py);
+ctx.stroke();
+
+ctx.beginPath();
+ctx.arc(px,py,4,0,Math.PI*2);
+ctx.fill();
+}
+}
+
+class Gear{
+constructor(x,y,r){
+this.x=x;
+this.y=y;
+this.r=r;
+this.rot=rand(Math.PI*2);
+this.speed=rand(.7,-.7);
+}
+
+step(dt){
+this.rot+=this.speed*dt;
+}
+
+draw(color){
+ctx.save();
+ctx.translate(this.x,this.y);
+ctx.rotate(this.rot);
+
+ctx.strokeStyle=color;
+
+ctx.beginPath();
+ctx.arc(0,0,this.r,0,Math.PI*2);
+ctx.stroke();
+
+let teeth=14;
+
+for(let i=0;i<teeth;i++){
+let a=i*Math.PI*2/teeth;
+
+ctx.beginPath();
+ctx.moveTo(Math.cos(a)*this.r,Math.sin(a)*this.r);
+ctx.lineTo(Math.cos(a)*(this.r+6),Math.sin(a)*(this.r+6));
+ctx.stroke();
+}
+
+ctx.restore();
+}
+}
+
+class SpringNode{
+constructor(x,y){
+this.x=x;
+this.y=y;
+this.vx=0;
+this.vy=0;
+}
+
+step(dt){
+this.vx*=0.99;
+this.vy*=0.99;
+this.x+=this.vx*dt;
+this.y+=this.vy*dt;
+}
+}
+
+class Spring{
+constructor(a,b,l){
+this.a=a;
+this.b=b;
+this.l=l;
+}
+
+step(){
+let dx=this.b.x-this.a.x;
+let dy=this.b.y-this.a.y;
+
+let d=Math.hypot(dx,dy)+.0001;
+let f=(d-this.l)*.02;
+
+let fx=dx/d*f;
+let fy=dy/d*f;
+
+this.a.vx+=fx;
+this.a.vy+=fy;
+
+this.b.vx-=fx;
+this.b.vy-=fy;
+}
+
+draw(color){
+ctx.strokeStyle=color;
+
+ctx.beginPath();
+ctx.moveTo(this.a.x,this.a.y);
+ctx.lineTo(this.b.x,this.b.y);
+ctx.stroke();
+}
+}
+
+let audioCtx=null;
+let oscillators=[];
+let gains=[];
+let soundEnabled=false;
+
+function createAudio(){
+audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+
+for(let i=0;i<6;i++){
+let osc=audioCtx.createOscillator();
+let g=audioCtx.createGain();
+
+osc.type="sine";
+osc.frequency.value=rand(600,120);
+
+g.gain.value=0;
+
+osc.connect(g);
+g.connect(audioCtx.destination);
+
+osc.start();
+
+oscillators.push(osc);
+gains.push(g);
+}
+}
+
+function updateAudio(){
+if(!soundEnabled||!audioCtx)return;
+
+for(let i=0;i<oscillators.length;i++){
+oscillators[i].frequency.value=rand(600,120);
+gains[i].gain.value=rand(.03,.005);
+}
+}
+
+function createWorld(){
+
+let pendulums=[];
+let gears=[];
+let nodes=[];
+let springs=[];
+
+let pCount=randi(20,40);
+
+for(let i=0;i<pCount;i++){
+pendulums.push(new Pendulum(rand(W),rand(H),rand(100,20)));
+}
+
+let gCount=randi(10,18);
+
+for(let i=0;i<gCount;i++){
+gears.push(new Gear(rand(W),rand(H),rand(35,10)));
+}
+
+let nCount=randi(20,40);
+
+for(let i=0;i<nCount;i++){
+nodes.push(new SpringNode(rand(W),rand(H)));
+}
+
+for(let i=0;i<nCount*1.5;i++){
+let a=nodes[randi(nodes.length)];
+let b=nodes[randi(nodes.length)];
+springs.push(new Spring(a,b,rand(120,30)));
+}
+
+return{
+pendulums,
+gears,
+nodes,
+springs,
+symmetry:randi(4,10),
+
+palettes:{
+tiling:randomLayerPalette(),
+springs:randomLayerPalette(),
+pendulums:randomLayerPalette(),
+gears:randomLayerPalette(),
+particles:randomLayerPalette()
+}
+};
+}
+
+let world=createWorld();
+
+function drawTiling(t){
+let p=world.palettes.tiling;
+ctx.strokeStyle=p.color(t);
+
+let s=world.symmetry;
+
+for(let i=0;i<s;i++){
+ctx.save();
+ctx.translate(cx,cy);
+ctx.rotate(i*Math.PI*2/s);
+
+ctx.beginPath();
+
+for(let a=0;a<Math.PI*2;a+=Math.PI/6){
+let r=200+80*Math.sin(a*5+t);
+ctx.lineTo(Math.cos(a)*r,Math.sin(a)*r);
+}
+
+ctx.closePath();
+ctx.stroke();
+
+ctx.restore();
+}
+}
+
+function step(dt){
+for(let p of world.pendulums)p.step(dt);
+for(let g of world.gears)g.step(dt);
+for(let s of world.springs)s.step();
+for(let n of world.nodes)n.step(dt);
+
+updateAudio();
+}
+
+function draw(t){
+
+ctx.fillStyle="rgba(0,0,0,0.18)";
+ctx.fillRect(0,0,W,H);
+
+drawTiling(t);
+
+let springColor=world.palettes.springs.color(t,40);
+
+for(let s of world.springs)s.draw(springColor);
+
+ctx.fillStyle=springColor;
+
+for(let n of world.nodes){
+ctx.beginPath();
+ctx.arc(n.x,n.y,2,0,Math.PI*2);
+ctx.fill();
+}
+
+let pColor=world.palettes.pendulums.color(t,120);
+
+for(let p of world.pendulums)p.draw(pColor);
+
+let gColor=world.palettes.gears.color(t,200);
+
+for(let g of world.gears)g.draw(gColor);
+
+let particleColor=world.palettes.particles.color(t,260);
+
+ctx.fillStyle=particleColor;
+
+for(let i=0;i<20;i++){
+let x=rand(W);
+let y=rand(H);
+
+ctx.beginPath();
+ctx.arc(x,y,1.5,0,Math.PI*2);
+ctx.fill();
+}
+}
+
+let last=0;
+let fps=0;
+let hudVisible=false;
+
+function loop(t){
+
+let dt=(t-last)/16;
+last=t;
+
+fps=1000/(dt*16);
+
+let time=t*0.001;
+
+step(dt);
+draw(time);
+
+if(hudVisible){
+
+hud.style.display="block";
+
+hud.textContent=
+`FPS ${fps.toFixed(1)}
+Pendulums ${world.pendulums.length}
+Gears ${world.gears.length}
+Nodes ${world.nodes.length}
+Springs ${world.springs.length}
+Symmetry ${world.symmetry}
+Sound ${soundEnabled?"ON":"OFF"}`;
+
+}else{
+hud.style.display="none";
+}
+
+requestAnimationFrame(loop);
+}
+
+requestAnimationFrame(loop);
+
+function restart(){
+world=createWorld();
+}
+
+window.addEventListener("keydown",e=>{
+
+if(e.code==="Space")restart();
+
+if(e.key==="h"||e.key==="H")hudVisible=!hudVisible;
+
+if(e.key==="s"||e.key==="S"){
+
+soundEnabled=!soundEnabled;
+
+if(soundEnabled){
+
+if(!audioCtx)createAudio();
+audioCtx.resume();
+
+}else{
+
+if(audioCtx){
+for(let g of gains)g.gain.value=0;
+}
+
+}
+
+}
+
+});
+
+window.addEventListener("click",restart);
+window.addEventListener("touchstart",restart);
+
+</script>
+</body>
+</html>

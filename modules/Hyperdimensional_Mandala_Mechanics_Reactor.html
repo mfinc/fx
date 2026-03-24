@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hyperdimensional Mandala–Mechanics Reactor</title>
+<meta name="description" content="A continuously evolving audiovisual reactor merging Hindu yantra symmetries, Buddhist mandala geometry, Islamic star tilings, Celtic knot lattices, and Mughal rosette ornamentation with high-precision engineering simulations driven by Euler–Lagrange equations, Hamiltonian systems, and Runge–Kutta integration, rendered with hyperbolic tilings, quasicrystal lattices, Apollonian circle packings, Fibonacci spirals, and fractal carpets, synchronized with procedural modal synthesis soundscapes.">
+<meta name="keywords" content="mandala, yantra, sacred geometry, Islamic tiling, Celtic knot, Stewart platform, gyroscope, planetary gear, Hamiltonian, Euler-Lagrange, Runge-Kutta, hyperbolic tiling, quasicrystal, Apollonian packing, Fibonacci spiral, Sierpinski fractal, modal synthesis, audiovisual art, generative art, procedural animation">
+<meta name="author" content="Hyperdimensional Reactor">
+<meta property="og:title" content="Hyperdimensional Mandala–Mechanics Reactor">
+<meta property="og:description" content="Sacred geometry meets precision engineering in a mesmerizing audiovisual universe.">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Courier New',monospace}
+  canvas{display:block;position:fixed;top:0;left:0;width:100%!important;height:100%!important}
+  #hud{position:fixed;top:16px;left:16px;color:rgba(255,220,100,0.85);font-size:11px;line-height:1.7;pointer-events:none;display:none;text-shadow:0 0 8px rgba(255,180,0,0.8)}
+  #hint{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);color:rgba(255,200,80,0.45);font-size:10px;letter-spacing:2px;pointer-events:none;transition:opacity 2s}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<div id="hint">SPACE / CLICK · RESET &nbsp;|&nbsp; H · HUD &nbsp;|&nbsp; S · SOUND</div>
+<script>
+(()=>{
+'use strict';
+const C=document.getElementById('c'),ctx=C.getContext('2d');
+const HUD=document.getElementById('hud'),HINT=document.getElementById('hint');
+let W,H,CX,CY,t=0,dt=0.016,frame=0;
+let hudOn=false,soundOn=false;
+let audioCtx=null,masterGain=null,osc=[],reson=[];
+let params={};
+let pal=[];
+
+// ── resize ──────────────────────────────────────────────────────────────────
+function resize(){
+  W=C.width=window.innerWidth;
+  H=C.height=window.innerHeight;
+  CX=W/2;CY=H/2;
+}
+window.addEventListener('resize',resize);resize();
+
+// ── palette factory ──────────────────────────────────────────────────────────
+function makePalette(){
+  const base=Math.random()*360;
+  const schemes=[
+    ()=>[base,base+30,base+60,base+180,base+210,base+240],
+    ()=>[base,base+120,base+240,base+60,base+180,base+300],
+    ()=>[base,base+30,base+150,base+180,base+270,base+330],
+    ()=>[base,base+45,base+90,base+135,base+225,base+315],
+  ];
+  const angles=schemes[Math.floor(Math.random()*schemes.length)]();
+  return angles.map(a=>{
+    const h=(a%360+360)%360;
+    const s=55+Math.random()*40;
+    const l=40+Math.random()*30;
+    return`hsl(${h.toFixed(1)},${s.toFixed(1)}%,${l.toFixed(1)}%)`;
+  });
+}
+
+// ── colour cycling ───────────────────────────────────────────────────────────
+function cyc(i,phase=0,sat=80,light=60){
+  const h=(params.hueShift+i*params.hueSpread+phase*137.5+t*params.hueSpeed)%360;
+  return`hsla(${((h%360)+360)%360},${sat}%,${light}%,`;
+}
+
+// ── randomised params ────────────────────────────────────────────────────────
+function initParams(){
+  params={
+    sym:      [4,5,6,7,8,9,10,12,16][Math.floor(Math.random()*9)],
+    layers:   4+Math.floor(Math.random()*5),
+    R:        Math.min(W,H)*0.44,
+    hueShift: Math.random()*360,
+    hueSpread:15+Math.random()*50,
+    hueSpeed: 5+Math.random()*25,
+    rotSpeed: 0.12+Math.random()*0.4,
+    // Euler–Lagrange / Hamiltonian state
+    theta1:   Math.random()*Math.PI*2,
+    theta2:   Math.random()*Math.PI*2,
+    omega1:   (Math.random()-0.5)*2,
+    omega2:   (Math.random()-0.5)*2,
+    // gyro cluster
+    gyroN:    3+Math.floor(Math.random()*5),
+    gyroSpeed:0.5+Math.random()*2,
+    // pendulum lattice
+    pendN:    5+Math.floor(Math.random()*8),
+    pendK:    0.4+Math.random()*1.5,
+    // Fibonacci
+    fibAngle: (137.5+Math.random()*2-1)*Math.PI/180,
+    fibN:     60+Math.floor(Math.random()*120),
+    // fractal
+    fracDepth:4+Math.floor(Math.random()*3),
+    // gear
+    gearTeeth:6+Math.floor(Math.random()*12),
+    gearRatio:2+Math.floor(Math.random()*4),
+    // misc
+    noiseAmp: 0.02+Math.random()*0.08,
+    bloomAmt: 0.15+Math.random()*0.25,
+  };
+  pal=makePalette();
+  // init pendulum spring lattice positions
+  params.pend=Array.from({length:params.pendN},(_,i)=>({
+    a:(2*Math.PI*i/params.pendN),
+    v:0,
+    r:params.R*(0.3+0.4*Math.random())
+  }));
+  // init RK4 state: double pendulum (Lagrangian chaos)
+  params.q=[params.theta1,params.theta2];
+  params.p=[params.omega1*4,params.omega2*2];
+  // Apollonian circle seeds
+  params.apollo=buildApollonian(3);
+}
+
+// ── Apollonian circle packing (3 levels) ────────────────────────────────────
+function buildApollonian(depth){
+  const circles=[];
+  function recurse(cx,cy,r,d){
+    if(d>depth||r<3)return;
+    circles.push({cx,cy,r});
+    const nr=r*0.382;
+    const ang=t*0.01;
+    for(let i=0;i<3;i++){
+      const a=ang+i*Math.PI*2/3;
+      recurse(cx+Math.cos(a)*(r-nr),cy+Math.sin(a)*(r-nr),nr,d+1);
+    }
+  }
+  const R0=Math.min(W,H)*0.42;
+  recurse(0,0,R0,0);
+  return circles;
+}
+
+// ── RK4 Hamiltonian double-pendulum ──────────────────────────────────────────
+function hamiltonianDerivs(q,p){
+  const [t1,t2]=q,[p1,p2]=p;
+  const m1=1,m2=1,l1=1,l2=1,g=9.8;
+  const dt12=t1-t2;
+  const denom1=m1+m2-m2*Math.cos(dt12)*Math.cos(dt12);
+  const dq1=(p1-p2*Math.cos(dt12))/(l1*denom1);
+  const dq2=((m1+m2)*p2-m2*p1*Math.cos(dt12))/(m2*l2*denom1);
+  const dp1=-(m1+m2)*g*l1*Math.sin(t1)-l1*(dq1*p2-dq2*p1)*Math.sin(dt12);
+  const dp2=-m2*g*l2*Math.sin(t2)+l2*(dq1*p2-dq2*p1)*Math.sin(dt12);
+  return[[dq1,dq2],[dp1,dp2]];
+}
+function rk4Step(){
+  const h=dt*0.5;
+  const {q,p}=params;
+  const [k1q,k1p]=hamiltonianDerivs(q,p);
+  const q2=q.map((v,i)=>v+h*k1q[i]);
+  const p2=p.map((v,i)=>v+h*k1p[i]);
+  const [k2q,k2p]=hamiltonianDerivs(q2,p2);
+  const q3=q.map((v,i)=>v+h*k2q[i]);
+  const p3=p.map((v,i)=>v+h*k2p[i]);
+  const [k3q,k3p]=hamiltonianDerivs(q3,p3);
+  const q4=q.map((v,i)=>v+dt*k3q[i]);
+  const p4=p.map((v,i)=>v+dt*k3p[i]);
+  const [k4q,k4p]=hamiltonianDerivs(q4,p4);
+  params.q=q.map((v,i)=>v+dt*(k1q[i]+2*k2q[i]+2*k3q[i]+k4q[i])/6);
+  params.p=p.map((v,i)=>v+dt*(k1p[i]+2*k2p[i]+2*k3p[i]+k4p[i])/6);
+}
+
+// ── Pendulum spring lattice (constraint stabilisation) ───────────────────────
+function stepPendula(){
+  const k=params.pendK,pr=params.pend;
+  pr.forEach((p,i)=>{
+    const n=pr[(i+1)%pr.length];
+    const spring=(n.a-p.a-2*Math.PI/params.pendN)*k;
+    p.v+=(spring-p.a*0.1)*dt;
+    p.v*=0.995;
+    p.a+=p.v*dt;
+  });
+}
+
+// ── Audio engine ─────────────────────────────────────────────────────────────
+function initAudio(){
+  if(audioCtx)return;
+  audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+  masterGain=audioCtx.createGain();
+  masterGain.gain.value=0.18;
+  const compressor=audioCtx.createDynamicsCompressor();
+  masterGain.connect(compressor);
+  compressor.connect(audioCtx.destination);
+  // modal resonator bank
+  const freqs=[55,110,165,220,330,440,550,660];
+  freqs.forEach((f,i)=>{
+    const o=audioCtx.createOscillator();
+    const g=audioCtx.createGain();
+    const filter=audioCtx.createBiquadFilter();
+    o.type=['sine','triangle','sine','sine'][i%4];
+    o.frequency.value=f;
+    filter.type='bandpass';
+    filter.frequency.value=f;
+    filter.Q.value=8+Math.random()*20;
+    g.gain.value=0;
+    o.connect(filter);
+    filter.connect(g);
+    g.connect(masterGain);
+    o.start();
+    osc.push({o,g,filter,base:f,phase:Math.random()*Math.PI*2});
+  });
+}
+function updateAudio(){
+  if(!soundOn||!audioCtx)return;
+  const now=audioCtx.currentTime;
+  osc.forEach((r,i)=>{
+    const mod=0.5+0.5*Math.sin(t*0.3+r.phase+params.q[0]);
+    const freq=r.base*(1+0.15*Math.sin(t*0.15+i));
+    r.o.frequency.setTargetAtTime(freq,now,0.1);
+    r.g.gain.setTargetAtTime(0.015*mod,now,0.08);
+  });
+}
+function toggleSound(){
+  soundOn=!soundOn;
+  if(soundOn){
+    initAudio();
+    if(audioCtx.state==='suspended')audioCtx.resume();
+  } else {
+    if(masterGain)masterGain.gain.setTargetAtTime(0,audioCtx.currentTime,0.1);
+    setTimeout(()=>{
+      if(!soundOn&&masterGain)masterGain.gain.value=0;
+    },500);
+  }
+  if(soundOn&&masterGain)masterGain.gain.setTargetAtTime(0.18,audioCtx.currentTime,0.3);
+}
+
+// ── Drawing helpers ───────────────────────────────────────────────────────────
+function polygon(n,r,phase=0){
+  ctx.beginPath();
+  for(let i=0;i<=n;i++){
+    const a=phase+i*Math.PI*2/n;
+    i===0?ctx.moveTo(Math.cos(a)*r,Math.sin(a)*r):ctx.lineTo(Math.cos(a)*r,Math.sin(a)*r);
+  }
+}
+function star(n,r1,r2,phase=0){
+  ctx.beginPath();
+  for(let i=0;i<n*2;i++){
+    const a=phase+i*Math.PI/n;
+    const r=i%2===0?r1:r2;
+    i===0?ctx.moveTo(Math.cos(a)*r,Math.sin(a)*r):ctx.lineTo(Math.cos(a)*r,Math.sin(a)*r);
+  }
+  ctx.closePath();
+}
+function symDraw(fn,n=params.sym){
+  for(let i=0;i<n;i++){
+    ctx.save();
+    ctx.rotate(i*Math.PI*2/n);
+    fn(i);
+    ctx.restore();
+  }
+}
+function glow(color,blur=20){
+  ctx.shadowColor=color;ctx.shadowBlur=blur;
+}
+function noGlow(){ctx.shadowBlur=0;}
+
+// ── Layer 0 : Background — Sierpinski carpet + hyperbolic tiling ─────────────
+function drawBackground(){
+  ctx.save();
+  ctx.translate(CX,CY);
+  // hyperbolic-like tiling: concentric rotated polygons
+  const N=8,sym=params.sym;
+  for(let ring=1;ring<=N;ring++){
+    const r=params.R*ring/N;
+    const alpha=0.06+0.04*Math.sin(t*0.2+ring);
+    const col=cyc(ring*3,ring,70,20);
+    ctx.strokeStyle=col+alpha+')';
+    ctx.lineWidth=0.5;
+    glow(col+0.4+')',6);
+    polygon(sym,r,t*params.rotSpeed*0.1*(ring%2===0?1:-1));
+    ctx.stroke();
+  }
+  noGlow();
+  // Sierpinski-like recursive squares
+  function sierp(x,y,sz,d){
+    if(d>params.fracDepth||sz<4)return;
+    const a=0.03+0.02*Math.sin(t*0.1);
+    ctx.strokeStyle=cyc(d*7,d,60,35)+a+')';
+    ctx.lineWidth=0.4;
+    ctx.strokeRect(x-sz/2,y-sz/2,sz,sz);
+    const s3=sz/3;
+    for(let i=0;i<3;i++)for(let j=0;j<3;j++){
+      if(i===1&&j===1)continue;
+      sierp(x+(i-1)*s3,y+(j-1)*s3,s3,d+1);
+    }
+  }
+  ctx.save();ctx.rotate(t*0.012);
+  sierp(0,0,params.R*0.9,0);
+  ctx.restore();
+  ctx.restore();
+}
+
+// ── Layer 1 : Quasicrystal + Penrose-like lattice ────────────────────────────
+function drawQuasicrystal(){
+  ctx.save();ctx.translate(CX,CY);
+  const N=10,R=params.R*0.85;
+  ctx.lineWidth=0.5;
+  for(let i=0;i<N;i++){
+    const a=i*Math.PI/N+t*0.04;
+    const col=cyc(i*5,0,75,50);
+    ctx.strokeStyle=col+0.08+')';
+    // rhombus lattice lines
+    for(let k=-12;k<=12;k++){
+      const d=k*R/12;
+      ctx.beginPath();
+      ctx.moveTo(-R*Math.cos(a)+d*Math.sin(a),-R*Math.sin(a)-d*Math.cos(a));
+      ctx.lineTo( R*Math.cos(a)+d*Math.sin(a), R*Math.sin(a)-d*Math.cos(a));
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+// ── Layer 2 : Apollonian circle packing ──────────────────────────────────────
+function drawApollonian(){
+  ctx.save();ctx.translate(CX,CY);
+  ctx.rotate(t*0.015);
+  params.apollo.forEach((c,i)=>{
+    const col=cyc(i*4,1,80,55);
+    ctx.strokeStyle=col+0.25+')';
+    ctx.lineWidth=0.6;
+    glow(col+0.5+')',8);
+    ctx.beginPath();
+    ctx.arc(c.cx,c.cy,c.r,0,Math.PI*2);
+    ctx.stroke();
+  });
+  noGlow();
+  ctx.restore();
+}
+
+// ── Layer 3 : Fibonacci spiral maze ──────────────────────────────────────────
+function drawFibonacci(){
+  ctx.save();ctx.translate(CX,CY);
+  const N=params.fibN,phi=params.fibAngle;
+  ctx.lineWidth=0.8;
+  for(let i=0;i<N;i++){
+    const r=Math.sqrt(i)*params.R/Math.sqrt(N);
+    const a=i*phi+t*0.06;
+    const x=Math.cos(a)*r,y=Math.sin(a)*r;
+    const col=cyc(i*2,2,85,60);
+    ctx.fillStyle=col+(0.5+0.4*Math.sin(t+i*0.3))+')';
+    glow(col+0.7+')',12);
+    ctx.beginPath();
+    ctx.arc(x,y,1.5+1.5*Math.sin(t*2+i*0.5),0,Math.PI*2);
+    ctx.fill();
+  }
+  noGlow();
+  ctx.restore();
+}
+
+// ── Layer 4 : Islamic star tiling ────────────────────────────────────────────
+function drawIslamicTiling(){
+  ctx.save();ctx.translate(CX,CY);
+  const sym=params.sym,R=params.R;
+  for(let ring=1;ring<=5;ring++){
+    const r=R*ring*0.18;
+    ctx.save();ctx.rotate(t*params.rotSpeed*(ring%2===0?1:-1)*0.3);
+    const col=cyc(ring*8,3,90,65);
+    ctx.strokeStyle=col+0.7+')';
+    ctx.lineWidth=1.2;
+    glow(col+0.9+')',15);
+    star(sym,r,r*0.55,Math.PI/sym);
+    ctx.stroke();
+    // interlace inner star
+    ctx.strokeStyle=cyc(ring*8+4,3,70,50)+0.5+')';
+    ctx.lineWidth=0.6;
+    star(sym,r*0.82,r*0.38,0);
+    ctx.stroke();
+    ctx.restore();
+  }
+  noGlow();
+  ctx.restore();
+}
+
+// ── Layer 5 : Celtic knot lattice ────────────────────────────────────────────
+function drawCelticKnot(){
+  ctx.save();ctx.translate(CX,CY);
+  const sym=params.sym,R=params.R*0.75;
+  symDraw(k=>{
+    const col=cyc(k*6,4,80,55);
+    ctx.strokeStyle=col+0.6+')';
+    ctx.lineWidth=2;
+    glow(col+0.8+')',10);
+    // over-under braided loops
+    for(let j=0;j<3;j++){
+      const r1=R*(0.25+j*0.2);
+      const r2=R*(0.35+j*0.2);
+      const phase=t*params.rotSpeed*(j%2===0?1:-1)*0.5;
+      ctx.beginPath();
+      for(let a=0;a<=Math.PI*2+0.01;a+=0.05){
+        const pulsate=1+0.08*Math.sin(a*sym+t+j);
+        const r=(r1+r2)/2+((r2-r1)/2)*Math.sin(a*sym*2+phase);
+        const x=Math.cos(a)*r*pulsate,y=Math.sin(a)*r*pulsate;
+        a===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+      }
+      ctx.stroke();
+    }
+  });
+  noGlow();
+  ctx.restore();
+}
+
+// ── Layer 6 : Hindu Yantra (Sri Yantra–like triangles) ───────────────────────
+function drawYantra(){
+  ctx.save();ctx.translate(CX,CY);
+  const R=params.R*0.65;
+  // 9 interlocking triangles
+  for(let i=0;i<9;i++){
+    const r=R*(0.3+i*0.08);
+    const up=i%2===0;
+    const rot=t*params.rotSpeed*(up?1:-1)*0.2+i*0.15;
+    ctx.save();ctx.rotate(rot);
+    const col=cyc(i*11,5,85,60);
+    ctx.strokeStyle=col+0.65+')';
+    ctx.lineWidth=1.5-i*0.1;
+    glow(col+0.8+')',12);
+    polygon(3,r,up?0:Math.PI);
+    ctx.stroke();
+    ctx.restore();
+  }
+  // Bindu (central point)
+  const bc=cyc(0,5,100,90);
+  ctx.fillStyle=bc+'1)';
+  glow(bc+'1)',30);
+  ctx.beginPath();ctx.arc(0,0,4,0,Math.PI*2);ctx.fill();
+  noGlow();
+  ctx.restore();
+}
+
+// ── Layer 7 : Buddhist mandala rings ─────────────────────────────────────────
+function drawBuddhistMandala(){
+  ctx.save();ctx.translate(CX,CY);
+  const sym=params.sym,R=params.R;
+  for(let ring=1;ring<=6;ring++){
+    const r=R*ring*0.14;
+    const n=sym*ring;
+    symDraw(k=>{
+      const a=k*Math.PI*2/n+t*params.rotSpeed*0.15*(ring%2?1:-1);
+      const x=Math.cos(a)*r,y=Math.sin(a)*r;
+      const sz=r*0.25;
+      const col=cyc(ring*9+k,6,80,60);
+      ctx.fillStyle=col+0.5+')';
+      glow(col+0.7+')',8);
+      // lotus petal shape
+      ctx.save();ctx.translate(x,y);ctx.rotate(a+Math.PI/2);
+      ctx.beginPath();
+      ctx.ellipse(0,0,sz*0.3,sz*0.6,0,0,Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+    },n);
+  }
+  noGlow();
+  ctx.restore();
+}
+
+// ── Layer 8 : Mughal rosette ornamentation ───────────────────────────────────
+function drawMughalRosette(){
+  ctx.save();ctx.translate(CX,CY);
+  const sym=params.sym,R=params.R*0.55;
+  symDraw(k=>{
+    const baseA=k*Math.PI*2/sym;
+    for(let j=0;j<4;j++){
+      const r=R*(0.15+j*0.22);
+      const a=baseA+j*Math.PI/sym+t*0.08*(j%2===0?1:-1);
+      const col=cyc(k*7+j*3,7,90,65);
+      ctx.fillStyle=col+0.35+')';
+      ctx.strokeStyle=col+0.6+')';
+      ctx.lineWidth=0.8;
+      glow(col+0.5+')',6);
+      ctx.save();ctx.translate(Math.cos(a)*r,Math.sin(a)*r);
+      ctx.rotate(a);
+      // rosette petal
+      ctx.beginPath();
+      ctx.ellipse(0,0,r*0.12,r*0.28,0,0,Math.PI*2);
+      ctx.fill();ctx.stroke();
+      ctx.restore();
+    }
+  });
+  noGlow();
+  ctx.restore();
+}
+
+// ── Layer 9 : Stewart platform + spherical linkage ───────────────────────────
+function drawStewartPlatform(){
+  ctx.save();ctx.translate(CX,CY);
+  const R=params.R*0.5;
+  const baseR=R*0.85,platR=R*0.55;
+  const baseN=6,platN=6;
+  const bAngle=t*params.rotSpeed*0.1;
+  const pAngle=t*params.rotSpeed*0.17+params.q[0]*0.3;
+  const pTilt=0.12*Math.sin(t*0.4+params.q[1]);
+  // base hexagon
+  const bPts=Array.from({length:baseN},(_,i)=>{
+    const a=bAngle+i*Math.PI*2/baseN;
+    return{x:Math.cos(a)*baseR,y:Math.sin(a)*baseR};
+  });
+  // platform hexagon (tilted via Euler angles)
+  const pPts=Array.from({length:platN},(_,i)=>{
+    const a=pAngle+i*Math.PI*2/platN;
+    return{
+      x:Math.cos(a)*platR+pTilt*baseR*0.3,
+      y:Math.sin(a)*platR*Math.cos(pTilt*2)
+    };
+  });
+  // struts
+  for(let i=0;i<6;i++){
+    const b=bPts[i],p=pPts[(i+1)%platN];
+    const col=cyc(i*10,8,80,60);
+    ctx.strokeStyle=col+0.7+')';
+    ctx.lineWidth=1.5;
+    glow(col+0.9+')',10);
+    ctx.beginPath();ctx.moveTo(b.x,b.y);ctx.lineTo(p.x,p.y);ctx.stroke();
+    // joint spheres
+    ctx.fillStyle=col+'1)';
+    ctx.beginPath();ctx.arc(b.x,b.y,3,0,Math.PI*2);ctx.fill();
+    ctx.beginPath();ctx.arc(p.x,p.y,3,0,Math.PI*2);ctx.fill();
+  }
+  // platform & base outlines
+  ctx.strokeStyle=cyc(0,8,60,80)+0.4+')';ctx.lineWidth=1;
+  ctx.beginPath();bPts.forEach((p,i)=>i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y));ctx.closePath();ctx.stroke();
+  ctx.strokeStyle=cyc(30,8,70,80)+0.4+')';
+  ctx.beginPath();pPts.forEach((p,i)=>i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y));ctx.closePath();ctx.stroke();
+  noGlow();
+  ctx.restore();
+}
+
+// ── Layer 10 : Planetary gear assembly ───────────────────────────────────────
+function drawPlanetaryGear(){
+  ctx.save();ctx.translate(CX,CY);
+  const R=params.R*0.38;
+  const nPlanets=3+((params.sym-1)%4);
+  const sunR=R*0.22,planR=R*0.16,ringR=R*0.92;
+  const sunAngle=t*params.rotSpeed*params.gearRatio;
+  const carrierAngle=t*params.rotSpeed;
+  // ring gear
+  ctx.strokeStyle=cyc(0,9,70,50)+0.3+')';
+  ctx.lineWidth=3;
+  ctx.beginPath();ctx.arc(0,0,ringR,0,Math.PI*2);ctx.stroke();
+  drawGearTeeth(0,0,ringR,params.gearTeeth*params.gearRatio,carrierAngle,false);
+  // sun gear
+  const col=cyc(20,9,90,70);
+  ctx.strokeStyle=col+0.8+')';ctx.lineWidth=2;
+  glow(col+'1)',15);
+  ctx.beginPath();ctx.arc(0,0,sunR,0,Math.PI*2);ctx.stroke();
+  drawGearTeeth(0,0,sunR,params.gearTeeth,-sunAngle,true);
+  noGlow();
+  // planets
+  for(let i=0;i<nPlanets;i++){
+    const a=carrierAngle+i*Math.PI*2/nPlanets;
+    const cx=(ringR-planR*2)*0.5*Math.cos(a);
+    const cy=(ringR-planR*2)*0.5*Math.sin(a);
+    const pc=cyc(i*15+40,9,85,65);
+    ctx.strokeStyle=pc+0.8+')';
+    ctx.lineWidth=1.5;
+    glow(pc+0.9+')',10);
+    ctx.beginPath();ctx.arc(cx,cy,planR,0,Math.PI*2);ctx.stroke();
+    drawGearTeeth(cx,cy,planR,params.gearTeeth,sunAngle*params.gearRatio+i,true);
+    noGlow();
+  }
+  ctx.restore();
+}
+function drawGearTeeth(cx,cy,r,n,phase,inner){
+  const h=r*0.12*(inner?1:-1);
+  ctx.lineWidth=0.8;
+  ctx.strokeStyle=ctx.strokeStyle.replace(/[\d.]+\)$/,'0.4)');
+  for(let i=0;i<n;i++){
+    const a1=phase+i*Math.PI*2/n;
+    const a2=a1+Math.PI/n*0.5;
+    const a3=a1+Math.PI/n;
+    ctx.beginPath();
+    ctx.moveTo(cx+Math.cos(a1)*r,cy+Math.sin(a1)*r);
+    ctx.lineTo(cx+Math.cos(a2)*(r+h),cy+Math.sin(a2)*(r+h));
+    ctx.lineTo(cx+Math.cos(a3)*r,cy+Math.sin(a3)*r);
+    ctx.stroke();
+  }
+}
+
+// ── Layer 11 : Gyroscopic rotor cluster ──────────────────────────────────────
+function drawGyroCluster(){
+  ctx.save();ctx.translate(CX,CY);
+  const N=params.gyroN,R=params.R*0.3;
+  for(let i=0;i<N;i++){
+    const orbitA=t*0.12+i*Math.PI*2/N;
+    const orbitR=R*(0.4+0.5*((i%3)/3));
+    const cx=Math.cos(orbitA)*orbitR,cy=Math.sin(orbitA)*orbitR;
+    const spinA=t*params.gyroSpeed*(i%2===0?1:-1)*(1+i*0.2);
+    const rr=R*0.18;
+    ctx.save();ctx.translate(cx,cy);
+    // gyro ring
+    const col=cyc(i*20,10,85,60);
+    ctx.strokeStyle=col+0.7+')';
+    ctx.lineWidth=2;
+    glow(col+'1)',12);
+    // outer ring
+    ctx.beginPath();ctx.ellipse(0,0,rr,rr*0.35,spinA,0,Math.PI*2);ctx.stroke();
+    // inner ring (precession axis)
+    ctx.beginPath();ctx.ellipse(0,0,rr*0.6,rr,spinA+Math.PI/2,0,Math.PI*2);ctx.stroke();
+    // rotor disk
+    ctx.fillStyle=col+0.2+')';
+    ctx.beginPath();ctx.arc(0,0,rr*0.3,0,Math.PI*2);ctx.fill();ctx.stroke();
+    noGlow();
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+// ── Layer 12 : Double pendulum Lagrangian trace ───────────────────────────────
+function drawPendulumTrace(){
+  ctx.save();ctx.translate(CX,CY);
+  const L=params.R*0.28;
+  const [t1,t2]=params.q;
+  const x1=Math.sin(t1)*L,y1=Math.cos(t1)*L;
+  const x2=x1+Math.sin(t2)*L*0.65,y2=y1+Math.cos(t2)*L*0.65;
+  // rods
+  const col1=cyc(0,11,90,70);
+  ctx.strokeStyle=col1+0.8+')';ctx.lineWidth=2;
+  glow(col1+'1)',15);
+  ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(x1,y1);ctx.stroke();
+  ctx.strokeStyle=cyc(40,11,90,70)+0.8+')';
+  ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();
+  // joints
+  [0,0,x1,y1,x2,y2].forEach((_,i,a)=>{
+    if(i%2===0){
+      const jc=cyc(i*15,11,100,90);
+      ctx.fillStyle=jc+'1)';
+      glow(jc+'1)',20);
+      ctx.beginPath();ctx.arc(a[i],a[i+1],i===0?5:4-(i>1?1:0),0,Math.PI*2);ctx.fill();
+    }
+  });
+  noGlow();
+  ctx.restore();
+}
+
+// ── Layer 13 : Particle filament field ───────────────────────────────────────
+const particles=[];
+function initParticles(){
+  particles.length=0;
+  const N=120;
+  for(let i=0;i<N;i++){
+    const a=Math.random()*Math.PI*2;
+    const r=Math.random()*params.R;
+    particles.push({
+      x:Math.cos(a)*r,y:Math.sin(a)*r,
+      vx:(Math.random()-0.5)*0.8,vy:(Math.random()-0.5)*0.8,
+      life:Math.random(),hue:Math.random()*360,sz:1+Math.random()*2
+    });
+  }
+}
+function drawParticles(){
+  ctx.save();ctx.translate(CX,CY);
+  particles.forEach(p=>{
+    p.life+=dt*0.15;
+    if(p.life>1){p.life=0;const a=Math.random()*Math.PI*2;const r=params.R*(0.2+Math.random()*0.8);p.x=Math.cos(a)*r;p.y=Math.sin(a)*r;}
+    const alpha=Math.sin(p.life*Math.PI)*0.7;
+    // swirl velocity field
+    const rx=p.x/params.R,ry=p.y/params.R;
+    const fieldA=Math.atan2(ry,rx)+t*0.3;
+    p.vx+=Math.cos(fieldA)*0.05-rx*0.02;
+    p.vy+=Math.sin(fieldA)*0.05-ry*0.02;
+    p.vx*=0.97;p.vy*=0.97;
+    p.x+=p.vx;p.y+=p.vy;
+    const h=(p.hue+t*30)%360;
+    const col=`hsla(${h},90%,70%,${alpha})`;
+    glow(col,12);
+    ctx.fillStyle=col;
+    ctx.beginPath();ctx.arc(p.x,p.y,p.sz,0,Math.PI*2);ctx.fill();
+  });
+  noGlow();
+  ctx.restore();
+}
+
+// ── Layer 14 : Luminous interference rings ────────────────────────────────────
+function drawInterferenceRings(){
+  ctx.save();ctx.translate(CX,CY);
+  const N=16;
+  for(let i=0;i<N;i++){
+    const r=params.R*(i/N)*(0.95+0.05*Math.sin(t+i));
+    const wave=Math.sin(t*2-i*0.5)*0.5+0.5;
+    const alpha=(0.05+0.1*wave)*(1-i/N);
+    const col=cyc(i*7,12,80,55);
+    ctx.strokeStyle=col+alpha+')';
+    ctx.lineWidth=0.5+wave*1.5;
+    ctx.beginPath();ctx.arc(0,0,r,0,Math.PI*2);ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// ── Central radiance / bloom ──────────────────────────────────────────────────
+function drawBloom(){
+  ctx.save();ctx.translate(CX,CY);
+  const R=params.R*0.12;
+  const g=ctx.createRadialGradient(0,0,0,0,0,R);
+  const bc=cyc(0,13,100,85);
+  g.addColorStop(0,bc+0.5+')');
+  g.addColorStop(0.3,bc+0.2+')');
+  g.addColorStop(1,bc+0+')');
+  ctx.fillStyle=g;
+  ctx.beginPath();ctx.arc(0,0,R,0,Math.PI*2);ctx.fill();
+  ctx.restore();
+}
+
+// ── Motion blur / persistence ─────────────────────────────────────────────────
+function applyBlur(){
+  ctx.fillStyle=`rgba(0,0,0,${0.18+params.bloomAmt*0.2})`;
+  ctx.fillRect(0,0,W,H);
+}
+
+// ── HUD update ────────────────────────────────────────────────────────────────
+function updateHUD(){
+  if(!hudOn)return;
+  HUD.innerHTML=
+    `T: ${t.toFixed(2)}<br>`+
+    `SYM: ${params.sym} | LAYERS: ${params.layers}<br>`+
+    `q₁: ${params.q[0].toFixed(3)} q₂: ${params.q[1].toFixed(3)}<br>`+
+    `p₁: ${params.p[0].toFixed(3)} p₂: ${params.p[1].toFixed(3)}<br>`+
+    `GYRO: ${params.gyroN} | GEARS: ${params.gearTeeth}×${params.gearRatio}<br>`+
+    `PEND: ${params.pendN} K=${params.pendK.toFixed(2)}<br>`+
+    `FPS: ~60 | SOUND: ${soundOn?'ON':'OFF'}`;
+}
+
+// ── Reset ─────────────────────────────────────────────────────────────────────
+function reset(){
+  t=0;frame=0;
+  initParams();
+  params.apollo=buildApollonian(3);
+  initParticles();
+}
+
+// ── Main render loop ──────────────────────────────────────────────────────────
+function render(){
+  requestAnimationFrame(render);
+  // physics steps
+  rk4Step();
+  stepPendula();
+  updateAudio();
+  // draw
+  applyBlur();
+  drawBackground();
+  drawQuasicrystal();
+  drawApollonian();
+  drawInterferenceRings();
+  drawFibonacci();
+  drawIslamicTiling();
+  drawCelticKnot();
+  drawBuddhistMandala();
+  drawMughalRosette();
+  drawYantra();
+  drawStewartPlatform();
+  drawPlanetaryGear();
+  drawGyroCluster();
+  drawParticles();
+  drawPendulumTrace();
+  drawBloom();
+  updateHUD();
+  t+=dt;
+  frame++;
+  // periodic rebuild of Apollonian packing (slow, every 8s)
+  if(frame%480===0){params.apollo=buildApollonian(3);}
+}
+
+// ── Input handling ────────────────────────────────────────────────────────────
+function handleReset(){reset();}
+window.addEventListener('keydown',e=>{
+  if(e.key===' '){e.preventDefault();handleReset();}
+  if(e.key==='h'||e.key==='H'){hudOn=!hudOn;HUD.style.display=hudOn?'block':'none';}
+  if(e.key==='s'||e.key==='S'){toggleSound();}
+});
+window.addEventListener('click',handleReset);
+window.addEventListener('touchstart',e=>{e.preventDefault();handleReset();},{passive:false});
+
+// ── Hint fade ─────────────────────────────────────────────────────────────────
+setTimeout(()=>{HINT.style.opacity='0';},4000);
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+reset();
+render();
+})();
+</script>
+</body>
+</html>

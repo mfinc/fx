@@ -1,0 +1,1111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hyperbolic Ornament Physics Engine — Non-Euclidean Generative Art</title>
+<meta name="description" content="A real-time generative audiovisual engine fusing hyperbolic tilings, Klein-bottle mazes, Möbius labyrinths, 4D hypercube projections with mechanical simulations, Islamic geometric ornamentation, Byzantine mosaics, Celtic knots, and spectral audio synthesis.">
+<meta name="keywords" content="generative art, hyperbolic geometry, non-euclidean, Islamic geometric art, Byzantine mosaic, Celtic knot, Gothic tracery, Mughal inlay, particle simulation, WebGL, audiovisual, interactive art">
+<meta name="author" content="Hyperbolic Ornament Physics Engine">
+<meta property="og:title" content="Hyperbolic Ornament Physics Engine">
+<meta property="og:description" content="Non-Euclidean generative audiovisual art: hyperbolic tilings, mechanical simulations, and decorative ornamentation fused in real-time.">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Hyperbolic Ornament Physics Engine">
+<meta name="robots" content="index, follow">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000}
+canvas{display:block;position:fixed;top:0;left:0;width:100%;height:100%}
+#hud{position:fixed;top:16px;left:16px;font-family:'Courier New',monospace;font-size:11px;color:rgba(255,255,255,0.7);line-height:1.8;pointer-events:none;display:none;text-shadow:0 0 8px rgba(0,0,0,0.9)}
+#hint{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);font-family:'Courier New',monospace;font-size:11px;color:rgba(255,255,255,0.4);pointer-events:none;white-space:nowrap}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<div id="hint">SPACE/TAP — regenerate &nbsp;|&nbsp; H — HUD &nbsp;|&nbsp; S — sound</div>
+<script>
+const canvas=document.getElementById('c');
+const ctx=canvas.getContext('2d');
+const hud=document.getElementById('hud');
+let W,H,CX,CY,R;
+let soundOn=false,hudOn=false;
+let audioCtx=null,masterGain=null,drones=[],osc=[];
+let frame=0,seed=Math.random()*99999|0;
+let animId=null;
+
+// --- STATE ---
+let S={
+  tilingType:0, // 0=hyperbolic 1=toroidal 2=klein 3=mobius 4=4dhypercube
+  ornamentStyle:0, // 0=islamic 1=byzantine 2=celtic 3=gothic 4=mughal
+  colorMode:0, // 0=spectral 1=luminous 2=kaleidoscope 3=interference
+  mechType:0, // 0=gears 1=robot 2=cam 3=planetary
+  p:[], // particles
+  gears:[],
+  arms:[],
+  cams:[],
+  vortices:[],
+  baseHue:0,
+  rotSpeed:0,
+  complexity:0,
+  symmetry:0,
+  time:0,
+  energy:0
+};
+
+function rng(s){
+  s=Math.sin(s)*43758.5453123;
+  return s-Math.floor(s);
+}
+
+function seededRandom(){
+  seed=(seed*9301+49297)%233280;
+  return seed/233280;
+}
+
+function resize(){
+  W=canvas.width=window.innerWidth;
+  H=canvas.height=window.innerHeight;
+  CX=W/2;CY=H/2;
+  R=Math.min(W,H)*0.45;
+}
+
+// ============ INITIALIZATION ============
+function init(){
+  if(animId)cancelAnimationFrame(animId);
+  seed=(Math.random()*999999)|0;
+  frame=0;
+
+  S.tilingType=Math.floor(seededRandom()*5);
+  S.ornamentStyle=Math.floor(seededRandom()*5);
+  S.colorMode=Math.floor(seededRandom()*4);
+  S.mechType=Math.floor(seededRandom()*4);
+  S.baseHue=seededRandom()*360;
+  S.rotSpeed=(seededRandom()*0.004+0.001)*(seededRandom()<0.5?1:-1);
+  S.complexity=Math.floor(seededRandom()*4+3);
+  S.symmetry=Math.floor(seededRandom()*4+3)*2;
+  S.time=0;
+  S.energy=0;
+
+  initParticles();
+  initGears();
+  initArms();
+  initCams();
+  initVortices();
+
+  if(soundOn) initAudio();
+
+  loop();
+}
+
+// ============ PARTICLES (SPH-like) ============
+function initParticles(){
+  S.p=[];
+  const N=120;
+  for(let i=0;i<N;i++){
+    const a=seededRandom()*Math.PI*2;
+    const r=seededRandom()*R*0.8;
+    S.p.push({
+      x:CX+Math.cos(a)*r,
+      y:CY+Math.sin(a)*r,
+      vx:(seededRandom()-0.5)*2,
+      vy:(seededRandom()-0.5)*2,
+      life:seededRandom(),
+      hue:seededRandom()*360,
+      size:seededRandom()*4+1,
+      mass:seededRandom()+0.5
+    });
+  }
+}
+
+// ============ GEARS ============
+function initGears(){
+  S.gears=[];
+  const N=S.complexity+2;
+  const baseR=R*0.12;
+  for(let i=0;i<N;i++){
+    const a=(i/N)*Math.PI*2;
+    const dist=R*(0.25+seededRandom()*0.3);
+    const teeth=Math.floor(seededRandom()*12+6);
+    S.gears.push({
+      x:CX+Math.cos(a)*dist,
+      y:CY+Math.sin(a)*dist,
+      r:baseR*(seededRandom()*0.8+0.4),
+      teeth,
+      angle:seededRandom()*Math.PI*2,
+      speed:S.rotSpeed*(seededRandom()*2+0.5)*(seededRandom()<0.5?1:-1),
+      hue:S.baseHue+i*30
+    });
+  }
+}
+
+// ============ ROBOT ARMS ============
+function initArms(){
+  S.arms=[];
+  const N=3;
+  for(let i=0;i<N;i++){
+    const baseA=(i/N)*Math.PI*2;
+    S.arms.push({
+      x:CX+Math.cos(baseA)*R*0.3,
+      y:CY+Math.sin(baseA)*R*0.3,
+      segments:[
+        {len:R*0.15,angle:seededRandom()*Math.PI*2,speed:S.rotSpeed*(seededRandom()+0.3)},
+        {len:R*0.10,angle:seededRandom()*Math.PI*2,speed:S.rotSpeed*(seededRandom()+0.2)*1.5},
+        {len:R*0.07,angle:seededRandom()*Math.PI*2,speed:S.rotSpeed*(seededRandom()+0.1)*2}
+      ],
+      hue:S.baseHue+i*60
+    });
+  }
+}
+
+// ============ CAMS ============
+function initCams(){
+  S.cams=[];
+  const N=4;
+  for(let i=0;i<N;i++){
+    const a=(i/N)*Math.PI*2+seededRandom();
+    S.cams.push({
+      x:CX+Math.cos(a)*R*0.5,
+      y:CY+Math.sin(a)*R*0.5,
+      r:R*(0.06+seededRandom()*0.05),
+      eccentricity:seededRandom()*0.5+0.2,
+      angle:seededRandom()*Math.PI*2,
+      speed:S.rotSpeed*(seededRandom()*3+1),
+      followerY:0,
+      hue:S.baseHue+i*45+120
+    });
+  }
+}
+
+// ============ VORTICES ============
+function initVortices(){
+  S.vortices=[];
+  const N=5;
+  for(let i=0;i<N;i++){
+    S.vortices.push({
+      x:CX+(seededRandom()-0.5)*R*1.2,
+      y:CY+(seededRandom()-0.5)*R*1.2,
+      strength:(seededRandom()-0.5)*8,
+      life:seededRandom()*200+100
+    });
+  }
+}
+
+// ============ AUDIO ============
+function initAudio(){
+  if(!audioCtx){
+    audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+    masterGain=audioCtx.createGain();
+    masterGain.gain.value=0.15;
+    masterGain.connect(audioCtx.destination);
+  }
+  stopAudio();
+
+  const modalFreqs=[110,138.6,165,220,261.6,330,440];
+  drones=[];
+  for(let i=0;i<3;i++){
+    const o=audioCtx.createOscillator();
+    const g=audioCtx.createGain();
+    const f=audioCtx.createBiquadFilter();
+    f.type='bandpass';
+    f.frequency.value=modalFreqs[i]*Math.pow(2,S.baseHue/360);
+    f.Q.value=8;
+    o.type=['sine','triangle','sawtooth'][i];
+    o.frequency.value=modalFreqs[i];
+    g.gain.value=0.05/(i+1);
+    o.connect(f);f.connect(g);g.connect(masterGain);
+    o.start();
+    drones.push({osc:o,gain:g,filter:f,base:modalFreqs[i]});
+  }
+}
+
+function stopAudio(){
+  drones.forEach(d=>{try{d.osc.stop();}catch(e){}});
+  drones=[];
+}
+
+function updateAudio(){
+  if(!soundOn||!audioCtx||drones.length===0)return;
+  const e=S.energy*0.01+0.5;
+  drones.forEach((d,i)=>{
+    d.osc.frequency.setTargetAtTime(d.base*(1+e*0.1+Math.sin(S.time*0.003+i)*0.05),audioCtx.currentTime,0.1);
+    d.filter.frequency.setTargetAtTime(d.base*(1+e*2),audioCtx.currentTime,0.2);
+  });
+}
+
+// ============ COLOR ============
+function getColor(t,a=1){
+  const h=(S.baseHue+t*360)%360;
+  switch(S.colorMode){
+    case 0: return `hsla(${h},90%,60%,${a})`;
+    case 1:{
+      const l=50+25*Math.sin(t*Math.PI*2);
+      return `hsla(${h},80%,${l}%,${a})`;
+    }
+    case 2:{
+      const h2=(h+180)%360;
+      const mix=Math.sin(t*Math.PI*4)*0.5+0.5;
+      const hf=h*mix+h2*(1-mix);
+      return `hsla(${hf},95%,65%,${a})`;
+    }
+    case 3:{
+      const v=Math.sin(t*Math.PI*8+S.time*0.02)*0.5+0.5;
+      return `hsla(${h},70%,${40+v*40}%,${a})`;
+    }
+  }
+  return `hsla(${h},80%,60%,${a})`;
+}
+
+// ============ HYPERBOLIC TILING ============
+function drawHyperbolicTiling(){
+  const n=S.complexity+2, m=4;
+  const layers=5;
+  ctx.save();
+  ctx.translate(CX,CY);
+
+  // Poincare disk boundary
+  ctx.beginPath();
+  ctx.arc(0,0,R,0,Math.PI*2);
+  const bg=ctx.createRadialGradient(0,0,0,0,0,R);
+  bg.addColorStop(0,getColor(0.1,0.3));
+  bg.addColorStop(1,getColor(0.8,0.05));
+  ctx.fillStyle=bg;
+  ctx.fill();
+
+  // Draw hyperbolic geodesics (hyperbolic lines = circles orthogonal to boundary)
+  const sym=S.symmetry;
+  for(let s=0;s<sym;s++){
+    ctx.save();
+    ctx.rotate(s*(Math.PI*2/sym)+S.time*S.rotSpeed);
+    for(let layer=1;layer<=layers;layer++){
+      const t=layer/layers;
+      const r=R*t*0.9;
+      // Hyperbolic reflection pattern
+      for(let k=0;k<n;k++){
+        const a1=(k/n)*Math.PI*2;
+        const a2=((k+1)/n)*Math.PI*2;
+        const x1=r*Math.cos(a1),y1=r*Math.sin(a1);
+        const x2=r*Math.cos(a2),y2=r*Math.sin(a2);
+
+        // Hyperbolic geodesic between x1,y1 and x2,y2
+        const d1=x1*x1+y1*y1, d2=x2*x2+y2*y2;
+        const denom=2*(x1*(y2-0)-x2*(y1-0));
+        if(Math.abs(denom)<0.001){
+          ctx.beginPath();
+          ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);
+        } else {
+          const cx2=(d1*(y2-0)-d2*(y1-0))/denom;
+          const cy2=(d2*(x1-0)-d1*(x2-0))/denom;
+          const cr=Math.sqrt((x1-cx2)**2+(y1-cy2)**2);
+          const ang1=Math.atan2(y1-cy2,x1-cx2);
+          const ang2=Math.atan2(y2-cy2,x2-cx2);
+          ctx.beginPath();
+          ctx.arc(cx2,cy2,cr,ang1,ang2);
+        }
+        ctx.strokeStyle=getColor(t+k/n,0.5+0.3*Math.sin(S.time*0.02+k));
+        ctx.lineWidth=0.8+layer*0.2;
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
+  ctx.restore();
+}
+
+// ============ TOROIDAL LABYRINTH ============
+function drawToroidalLabyrinth(){
+  ctx.save();
+  ctx.translate(CX,CY);
+  const N=S.complexity*3+6;
+  const layers=8;
+
+  for(let l=0;l<layers;l++){
+    const r=R*(l+1)/(layers+1);
+    const t=l/layers;
+    for(let i=0;i<N;i++){
+      const a=(i/N)*Math.PI*2+S.time*S.rotSpeed*(l%2===0?1:-1)+l*0.3;
+      const a2=a+Math.PI*2/N;
+      const x1=Math.cos(a)*r,y1=Math.sin(a)*r;
+      const x2=Math.cos(a2)*r,y2=Math.sin(a2)*r;
+      const x3=Math.cos(a2)*(r+R/(layers+1))*0.85;
+      const y3=Math.sin(a2)*(r+R/(layers+1))*0.85;
+
+      if(i%3!==0){
+        ctx.beginPath();
+        ctx.moveTo(x1,y1);
+        ctx.quadraticCurveTo(x2*1.1,y2*1.1,x3,y3);
+        ctx.strokeStyle=getColor(t+i/N,0.6);
+        ctx.lineWidth=1.2;
+        ctx.stroke();
+      }
+      // Radial spokes
+      if(i%(Math.max(1,Math.floor(N/S.symmetry)))===0){
+        const or=r+R/(layers+1)*0.5;
+        ctx.beginPath();
+        ctx.moveTo(x1,y1);
+        ctx.lineTo(Math.cos(a)*or,Math.sin(a)*or);
+        ctx.strokeStyle=getColor(t,0.4);
+        ctx.lineWidth=0.8;
+        ctx.stroke();
+      }
+    }
+  }
+  ctx.restore();
+}
+
+// ============ KLEIN BOTTLE MAZE ============
+function drawKleinMaze(){
+  ctx.save();
+  ctx.translate(CX,CY);
+  const N=40;
+  const M=20;
+  for(let i=0;i<N;i++){
+    const u=(i/N)*Math.PI*2;
+    const points=[];
+    for(let j=0;j<M;j++){
+      const v=(j/M)*Math.PI*2+S.time*0.005;
+      // Klein bottle parametric (immersed in 3D, project to 2D)
+      const a=u,b=v;
+      let x,y;
+      if(a<Math.PI){
+        x=-2/15*Math.cos(a)*(3*Math.cos(b)-30*Math.sin(a)+90*Math.pow(Math.cos(a),4)*Math.sin(a)-60*Math.pow(Math.cos(a),6)*Math.sin(a)+5*Math.cos(a)*Math.cos(b)*Math.sin(a));
+        y=-1/15*Math.sin(a)*(3*Math.cos(b)-3*Math.cos(a)*Math.cos(a)*Math.cos(b)-48*Math.pow(Math.cos(a),4)*Math.cos(b)+48*Math.pow(Math.cos(a),6)*Math.cos(b)-60*Math.sin(a)+5*Math.cos(a)*Math.cos(b)*Math.sin(a)-5*Math.pow(Math.cos(a),3)*Math.cos(b)*Math.sin(a)-80*Math.pow(Math.cos(a),5)*Math.cos(b)*Math.sin(a)+80*Math.pow(Math.cos(a),7)*Math.cos(b)*Math.sin(a));
+      } else {
+        x=-2/15*Math.cos(a)*(3*Math.cos(b)-30*Math.sin(a)+90*Math.pow(Math.cos(a),4)*Math.sin(a)-60*Math.pow(Math.cos(a),6)*Math.sin(a)+5*Math.cos(a)*Math.cos(b)*Math.sin(a));
+        y=-1/15*Math.sin(a)*(3*Math.cos(b)-3*Math.pow(Math.cos(a),2)*Math.cos(b)-48*Math.pow(Math.cos(a),4)*Math.cos(b)+48*Math.pow(Math.cos(a),6)*Math.cos(b)-60*Math.sin(a)+5*Math.cos(a)*Math.cos(b)*Math.sin(a)-5*Math.pow(Math.cos(a),3)*Math.cos(b)*Math.sin(a)-80*Math.pow(Math.cos(a),5)*Math.cos(b)*Math.sin(a)+80*Math.pow(Math.cos(a),7)*Math.cos(b)*Math.sin(a));
+      }
+      const scale=R*0.35;
+      points.push([x*scale,y*scale]);
+    }
+    ctx.beginPath();
+    ctx.moveTo(points[0][0],points[0][1]);
+    for(let p=1;p<points.length;p++){
+      ctx.lineTo(points[p][0],points[p][1]);
+    }
+    ctx.strokeStyle=getColor(i/N,0.4);
+    ctx.lineWidth=0.8;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// ============ MOBIUS LABYRINTH ============
+function drawMobiusLabyrinth(){
+  ctx.save();
+  ctx.translate(CX,CY);
+  const strips=S.complexity+2;
+  for(let s=0;s<strips;s++){
+    const offset=s/strips;
+    const N=200;
+    ctx.beginPath();
+    for(let i=0;i<=N;i++){
+      const t=(i/N)*Math.PI*2;
+      const halfTwist=1+s;
+      const twist=halfTwist*t/2;
+      const width=R*0.08;
+      const rr=R*(0.3+offset*0.5);
+      const x=(rr+width*Math.cos(twist))*Math.cos(t);
+      const y=(rr+width*Math.cos(twist))*Math.sin(t);
+      if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    }
+    ctx.strokeStyle=getColor(offset+S.time*0.001,0.5);
+    ctx.lineWidth=1+s*0.3;
+    ctx.stroke();
+
+    // Inner edge
+    ctx.beginPath();
+    for(let i=0;i<=N;i++){
+      const t=(i/N)*Math.PI*2;
+      const halfTwist=1+s;
+      const twist=halfTwist*t/2+Math.PI;
+      const width=R*0.08;
+      const rr=R*(0.3+offset*0.5);
+      const x=(rr+width*Math.cos(twist))*Math.cos(t);
+      const y=(rr+width*Math.cos(twist))*Math.sin(t);
+      if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    }
+    ctx.strokeStyle=getColor(offset+0.5+S.time*0.001,0.3);
+    ctx.lineWidth=0.6;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// ============ 4D HYPERCUBE ============
+function draw4DHypercube(){
+  ctx.save();
+  ctx.translate(CX,CY);
+  const t=S.time*0.008;
+  const t2=S.time*0.005;
+  const t3=S.time*0.003;
+
+  // 16 vertices of tesseract in 4D
+  const verts4=[];
+  for(let i=0;i<16;i++){
+    verts4.push([
+      (i&1)?1:-1,
+      (i&2)?1:-1,
+      (i&4)?1:-1,
+      (i&8)?1:-1
+    ]);
+  }
+
+  // 4D rotation matrices (multiple planes)
+  function rot4(v,t1,t2,t3,t4){
+    const [x,y,z,w]=v;
+    const c1=Math.cos(t1),s1=Math.sin(t1);
+    const c2=Math.cos(t2),s2=Math.sin(t2);
+    const c3=Math.cos(t3),s3=Math.sin(t3);
+    const c4=Math.cos(t4),s4=Math.sin(t4);
+    const x2=c1*x-s1*y, y2=s1*x+c1*y;
+    const z2=c2*z-s2*w, w2=s2*z+c2*w;
+    const x3=c3*x2-s3*z2, z3=s3*x2+c3*z2;
+    const y3=c4*y2-s4*w2, w3=s4*y2+c4*w2;
+    return [x3,y3,z3,w3];
+  }
+
+  // Project 4D to 2D (perspective)
+  function proj4(v){
+    const [x,y,z,w]=v;
+    const d=2.5, d2=3;
+    const scale3=d/(d+z);
+    const px=x*scale3, py=y*scale3, pz=z*scale3;
+    const scale2=d2/(d2+pz);
+    return [px*scale2*R*0.35, py*scale2*R*0.35];
+  }
+
+  const projected=verts4.map(v=>proj4(rot4(v,t,t*0.7,t2,t3)));
+
+  // Draw edges (vertices that differ in exactly 1 bit)
+  for(let i=0;i<16;i++){
+    for(let j=i+1;j<16;j++){
+      const diff=i^j;
+      if(diff&&(diff&(diff-1))===0){ // exactly one bit different
+        const [x1,y1]=projected[i];
+        const [x2,y2]=projected[j];
+        const depth=(verts4[i][2]+verts4[j][2])*0.25+0.5;
+        ctx.beginPath();
+        ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);
+        ctx.strokeStyle=getColor(depth+i/16,0.6+depth*0.3);
+        ctx.lineWidth=1+depth;
+        ctx.stroke();
+      }
+    }
+  }
+
+  // Draw vertices
+  projected.forEach(([x,y],i)=>{
+    ctx.beginPath();
+    ctx.arc(x,y,3,0,Math.PI*2);
+    ctx.fillStyle=getColor(i/16,0.9);
+    ctx.fill();
+  });
+
+  ctx.restore();
+}
+
+// ============ ORNAMENT OVERLAYS ============
+function drawIslamicGeometry(){
+  ctx.save();
+  ctx.translate(CX,CY);
+  const N=S.symmetry;
+  const rings=4;
+  for(let ring=0;ring<rings;ring++){
+    const r=R*(0.2+ring*0.2);
+    const t=ring/rings;
+    ctx.save();
+    ctx.rotate(S.time*S.rotSpeed*(ring%2===0?1:-1)+ring*Math.PI/N);
+    for(let i=0;i<N;i++){
+      const a=(i/N)*Math.PI*2;
+      const x=Math.cos(a)*r, y=Math.sin(a)*r;
+      // Star polygon
+      const star=N/2|0;
+      const ri=r*0.12;
+      ctx.beginPath();
+      for(let k=0;k<star*2;k++){
+        const ka=(k/star)*Math.PI+a;
+        const kr=k%2===0?ri:ri*0.45;
+        const kx=x+Math.cos(ka)*kr, ky=y+Math.sin(ka)*kr;
+        if(k===0) ctx.moveTo(kx,ky); else ctx.lineTo(kx,ky);
+      }
+      ctx.closePath();
+      ctx.strokeStyle=getColor(t+i/N,0.6);
+      ctx.lineWidth=0.8;
+      ctx.stroke();
+      if(ring%2===0){
+        ctx.fillStyle=getColor(t+i/N+0.3,0.15);
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+function drawByzantineMosaic(){
+  ctx.save();
+  ctx.translate(CX,CY);
+  const N=S.symmetry;
+  const bands=6;
+  for(let b=0;b<bands;b++){
+    const r=R*(b+1)/(bands+1);
+    const tiles=N*(b+2);
+    for(let i=0;i<tiles;i++){
+      const a=(i/tiles)*Math.PI*2+S.time*S.rotSpeed*(b%2===0?0.5:-0.5);
+      const a2=a+Math.PI*2/tiles;
+      const r2=r+R/(bands+1)*0.7;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(a)*r,Math.sin(a)*r);
+      ctx.lineTo(Math.cos(a)*r2,Math.sin(a)*r2);
+      ctx.lineTo(Math.cos(a2)*r2,Math.sin(a2)*r2);
+      ctx.lineTo(Math.cos(a2)*r,Math.sin(a2)*r);
+      ctx.closePath();
+      const col=getColor((b+i)/(bands*tiles)+S.time*0.0003,0.4);
+      ctx.fillStyle=col;
+      ctx.fill();
+      ctx.strokeStyle=getColor(b/bands,0.7);
+      ctx.lineWidth=0.5;
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+function drawCelticKnot(){
+  ctx.save();
+  ctx.translate(CX,CY);
+  const N=S.symmetry;
+  const strands=3+S.complexity%3;
+
+  for(let s=0;s<strands;s++){
+    const offset=s/strands;
+    const pts=[];
+    const steps=200;
+    for(let i=0;i<=steps;i++){
+      const t=(i/steps)*Math.PI*2;
+      const freq=N/2;
+      const r=R*(0.3+0.2*Math.cos(freq*t+offset*Math.PI*2));
+      const rot=t+S.time*S.rotSpeed*(s%2===0?1:-1);
+      pts.push([Math.cos(rot)*r, Math.sin(rot)*r]);
+    }
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0],pts[0][1]);
+    for(let i=1;i<pts.length-2;i++){
+      const mx=(pts[i][0]+pts[i+1][0])/2;
+      const my=(pts[i][1]+pts[i+1][1])/2;
+      ctx.quadraticCurveTo(pts[i][0],pts[i][1],mx,my);
+    }
+    ctx.strokeStyle=getColor(offset+S.time*0.0005,0.7);
+    ctx.lineWidth=2.5;
+    ctx.lineCap='round';
+    ctx.stroke();
+
+    // Inner shadow strand
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0],pts[0][1]);
+    for(let i=1;i<pts.length-2;i++){
+      const mx=(pts[i][0]+pts[i+1][0])/2;
+      const my=(pts[i][1]+pts[i+1][1])/2;
+      ctx.quadraticCurveTo(pts[i][0],pts[i][1],mx,my);
+    }
+    ctx.strokeStyle=getColor(offset+0.5+S.time*0.0005,0.4);
+    ctx.lineWidth=1;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawGothicTracery(){
+  ctx.save();
+  ctx.translate(CX,CY);
+  const N=S.symmetry;
+  const layers=5;
+
+  for(let l=0;l<layers;l++){
+    const r=R*(0.1+l*0.18);
+    ctx.save();
+    ctx.rotate(l*Math.PI/N+S.time*S.rotSpeed*(l%2===0?1:-1));
+    for(let i=0;i<N;i++){
+      const a=(i/N)*Math.PI*2;
+      const a2=((i+0.5)/N)*Math.PI*2;
+      const x1=Math.cos(a)*r, y1=Math.sin(a)*r;
+      const x2=Math.cos(a2)*(r+R*0.1), y2=Math.sin(a2)*(r+R*0.1);
+      const x3=Math.cos(a+Math.PI/N)*(r+R*0.18), y3=Math.sin(a+Math.PI/N)*(r+R*0.18);
+
+      // Pointed arch
+      ctx.beginPath();
+      ctx.moveTo(x1,y1);
+      ctx.quadraticCurveTo(x2*1.05,y2*1.05,x3,y3);
+      ctx.quadraticCurveTo(x2*0.97,y2*0.97,x1,y1);
+      ctx.strokeStyle=getColor(l/layers+i/N,0.55);
+      ctx.lineWidth=0.8;
+      ctx.stroke();
+      ctx.fillStyle=getColor(l/layers+i/N+0.2,0.1);
+      ctx.fill();
+
+      // Trefoil
+      const tc=R*0.025;
+      const tx=Math.cos(a+Math.PI/N)*(r+R*0.09);
+      const ty=Math.sin(a+Math.PI/N)*(r+R*0.09);
+      for(let k=0;k<3;k++){
+        const ta=(k/3)*Math.PI*2;
+        ctx.beginPath();
+        ctx.arc(tx+Math.cos(ta)*tc*0.7,ty+Math.sin(ta)*tc*0.7,tc,0,Math.PI*2);
+        ctx.strokeStyle=getColor(l/layers,0.5);
+        ctx.lineWidth=0.6;
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+function drawMughalInlay(){
+  ctx.save();
+  ctx.translate(CX,CY);
+  const N=S.symmetry;
+  const petals=12;
+
+  ctx.save();
+  ctx.rotate(S.time*S.rotSpeed*0.5);
+  for(let i=0;i<petals;i++){
+    const a=(i/petals)*Math.PI*2;
+    const r=R*0.35;
+    ctx.save();
+    ctx.rotate(a);
+    ctx.beginPath();
+    ctx.ellipse(0,r,r*0.12,r*0.25,0,0,Math.PI*2);
+    ctx.strokeStyle=getColor(i/petals,0.6);
+    ctx.fillStyle=getColor(i/petals,0.12);
+    ctx.lineWidth=0.8;
+    ctx.fill();ctx.stroke();
+    ctx.restore();
+  }
+  ctx.restore();
+
+  for(let ring=1;ring<=4;ring++){
+    const r=R*ring*0.18;
+    const dots=N*ring;
+    ctx.save();
+    ctx.rotate(S.time*S.rotSpeed*(ring%2===0?0.3:-0.3)+ring);
+    for(let i=0;i<dots;i++){
+      const a=(i/dots)*Math.PI*2;
+      const x=Math.cos(a)*r, y=Math.sin(a)*r;
+      ctx.beginPath();
+      const sz=R*(0.018-ring*0.002);
+      ctx.rect(x-sz,y-sz,sz*2,sz*2);
+      ctx.save();
+      ctx.translate(x,y);
+      ctx.rotate(Math.PI/4+S.time*0.01);
+      ctx.rect(-sz,-sz,sz*2,sz*2);
+      ctx.restore();
+      ctx.strokeStyle=getColor(i/dots+ring*0.2,0.7);
+      ctx.lineWidth=0.7;
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+// ============ MECHANICAL SYSTEMS ============
+function drawGears(){
+  S.gears.forEach((g,i)=>{
+    g.angle+=g.speed;
+    ctx.save();
+    ctx.translate(g.x,g.y);
+    ctx.rotate(g.angle);
+
+    const n=g.teeth;
+    const outerR=g.r;
+    const innerR=outerR*0.75;
+
+    ctx.beginPath();
+    for(let t=0;t<n*2;t++){
+      const a=(t/(n*2))*Math.PI*2;
+      const r=t%2===0?outerR:innerR;
+      const x=Math.cos(a)*r, y=Math.sin(a)*r;
+      if(t===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    }
+    ctx.closePath();
+    ctx.strokeStyle=getColor(g.hue/360,0.8);
+    ctx.lineWidth=1;
+    ctx.fillStyle=getColor(g.hue/360,0.12);
+    ctx.fill();ctx.stroke();
+
+    // Hub
+    ctx.beginPath();
+    ctx.arc(0,0,outerR*0.2,0,Math.PI*2);
+    ctx.fillStyle=getColor(g.hue/360+0.3,0.5);
+    ctx.fill();
+
+    // Spokes
+    for(let s=0;s<4;s++){
+      const sa=(s/4)*Math.PI*2;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(sa)*outerR*0.2,Math.sin(sa)*outerR*0.2);
+      ctx.lineTo(Math.cos(sa)*innerR*0.9,Math.sin(sa)*innerR*0.9);
+      ctx.strokeStyle=getColor(g.hue/360,0.5);
+      ctx.lineWidth=0.8;
+      ctx.stroke();
+    }
+    ctx.restore();
+  });
+}
+
+function drawRobotArms(){
+  S.arms.forEach((arm,ai)=>{
+    let cx=arm.x, cy=arm.y;
+    let cumAngle=0;
+    ctx.save();
+    arm.segments.forEach((seg,si)=>{
+      seg.angle+=seg.speed;
+      cumAngle+=seg.angle;
+      const ex=cx+Math.cos(cumAngle)*seg.len;
+      const ey=cy+Math.sin(cumAngle)*seg.len;
+
+      // Link
+      ctx.beginPath();
+      ctx.moveTo(cx,cy);
+      ctx.lineTo(ex,ey);
+      ctx.strokeStyle=getColor(ai/3+si*0.1,0.7);
+      ctx.lineWidth=3-si;
+      ctx.lineCap='round';
+      ctx.stroke();
+
+      // Joint
+      ctx.beginPath();
+      ctx.arc(cx,cy,4-si,0,Math.PI*2);
+      ctx.fillStyle=getColor(ai/3+si*0.2+0.5,0.9);
+      ctx.fill();
+
+      cx=ex;cy=ey;
+    });
+    // End effector
+    ctx.beginPath();
+    ctx.arc(cx,cy,3,0,Math.PI*2);
+    ctx.fillStyle=getColor(ai/3+0.7,1);
+    ctx.fill();
+    ctx.restore();
+  });
+}
+
+function drawCams(){
+  S.cams.forEach((cam,ci)=>{
+    cam.angle+=cam.speed;
+    const ecc=cam.eccentricity;
+    cam.followerY=cam.r*(1+ecc*Math.cos(cam.angle));
+
+    ctx.save();
+    ctx.translate(cam.x,cam.y);
+
+    // Cam profile
+    ctx.beginPath();
+    for(let i=0;i<=60;i++){
+      const a=(i/60)*Math.PI*2;
+      const r=cam.r*(1+ecc*Math.cos(a+cam.angle));
+      const x=Math.cos(a+cam.angle)*r;
+      const y=Math.sin(a+cam.angle)*r;
+      if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    }
+    ctx.closePath();
+    ctx.strokeStyle=getColor(ci/4,0.8);
+    ctx.lineWidth=1;
+    ctx.fillStyle=getColor(ci/4,0.15);
+    ctx.fill();ctx.stroke();
+
+    // Follower
+    const fy=-cam.followerY-cam.r*0.5;
+    ctx.beginPath();
+    ctx.moveTo(-cam.r*0.2,fy);
+    ctx.lineTo(cam.r*0.2,fy);
+    ctx.lineTo(cam.r*0.2,-cam.r*2);
+    ctx.lineTo(-cam.r*0.2,-cam.r*2);
+    ctx.closePath();
+    ctx.strokeStyle=getColor(ci/4+0.5,0.7);
+    ctx.lineWidth=0.8;
+    ctx.stroke();
+
+    ctx.restore();
+  });
+}
+
+function drawPlanetaryDifferential(){
+  ctx.save();
+  ctx.translate(CX,CY);
+  const t=S.time;
+  const sunR=R*0.06;
+  const ringR=R*0.25;
+  const planetR=R*0.05;
+  const N=4;
+
+  // Ring gear
+  ctx.beginPath();
+  ctx.arc(0,0,ringR,0,Math.PI*2);
+  ctx.strokeStyle=getColor(0.1,0.5);
+  ctx.lineWidth=3;
+  ctx.stroke();
+  for(let i=0;i<24;i++){
+    const a=(i/24)*Math.PI*2+t*S.rotSpeed*0.3;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(a)*(ringR-4),Math.sin(a)*(ringR-4));
+    ctx.lineTo(Math.cos(a)*(ringR+2),Math.sin(a)*(ringR+2));
+    ctx.strokeStyle=getColor(0.1,0.4);
+    ctx.lineWidth=1;
+    ctx.stroke();
+  }
+
+  // Sun gear
+  ctx.save();
+  ctx.rotate(t*S.rotSpeed*2);
+  ctx.beginPath();
+  for(let i=0;i<16;i++){
+    const a=(i/16)*Math.PI*2;
+    const r=i%2===0?sunR:sunR*0.7;
+    if(i===0) ctx.moveTo(Math.cos(a)*r,Math.sin(a)*r);
+    else ctx.lineTo(Math.cos(a)*r,Math.sin(a)*r);
+  }
+  ctx.closePath();
+  ctx.strokeStyle=getColor(0.6,0.8);
+  ctx.fillStyle=getColor(0.6,0.15);
+  ctx.fill();ctx.stroke();
+  ctx.restore();
+
+  // Planet gears
+  for(let i=0;i<N;i++){
+    const pa=(i/N)*Math.PI*2+t*S.rotSpeed;
+    const px=Math.cos(pa)*(ringR-planetR)*0.75;
+    const py=Math.sin(pa)*(ringR-planetR)*0.75;
+    ctx.save();
+    ctx.translate(px,py);
+    ctx.rotate(-t*S.rotSpeed*3+i*Math.PI/2);
+    ctx.beginPath();
+    for(let k=0;k<12;k++){
+      const a=(k/12)*Math.PI*2;
+      const r=k%2===0?planetR:planetR*0.72;
+      if(k===0) ctx.moveTo(Math.cos(a)*r,Math.sin(a)*r);
+      else ctx.lineTo(Math.cos(a)*r,Math.sin(a)*r);
+    }
+    ctx.closePath();
+    ctx.strokeStyle=getColor(i/N+0.3,0.8);
+    ctx.fillStyle=getColor(i/N+0.3,0.15);
+    ctx.fill();ctx.stroke();
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+// ============ PARTICLES ============
+function updateParticles(){
+  let totalKE=0;
+  S.p.forEach(p=>{
+    // Vortex influence
+    S.vortices.forEach(v=>{
+      const dx=p.x-v.x, dy=p.y-v.y;
+      const d2=dx*dx+dy*dy+1;
+      const f=v.strength/(d2*0.1);
+      p.vx-=dy*f*0.001;
+      p.vy+=dx*f*0.001;
+    });
+
+    // Central attraction
+    const dx=p.x-CX, dy=p.y-CY;
+    const d=Math.sqrt(dx*dx+dy*dy)+1;
+    p.vx-=dx*0.0003;
+    p.vy-=dy*0.0003;
+
+    // Noise / turbulence
+    const nx=Math.sin(p.x*0.01+S.time*0.003)*0.4;
+    const ny=Math.cos(p.y*0.01+S.time*0.003)*0.4;
+    p.vx+=nx;p.vy+=ny;
+
+    // Damping
+    p.vx*=0.98;p.vy*=0.98;
+
+    p.x+=p.vx;p.y+=p.vy;
+    p.life=(p.life+0.002)%1;
+    p.hue=(p.hue+0.3)%360;
+
+    // Boundary
+    if(p.x<0||p.x>W) p.vx*=-0.5;
+    if(p.y<0||p.y>H) p.vy*=-0.5;
+    p.x=Math.max(0,Math.min(W,p.x));
+    p.y=Math.max(0,Math.min(H,p.y));
+
+    totalKE+=p.vx*p.vx+p.vy*p.vy;
+  });
+
+  S.energy=totalKE*0.5;
+
+  // Update vortices
+  S.vortices.forEach(v=>{
+    v.life--;
+    if(v.life<=0){
+      v.x=CX+(Math.random()-0.5)*R*1.2;
+      v.y=CY+(Math.random()-0.5)*R*1.2;
+      v.strength=(Math.random()-0.5)*8;
+      v.life=Math.random()*200+100;
+    }
+  });
+}
+
+function drawParticles(){
+  S.p.forEach(p=>{
+    const alpha=0.3+0.5*Math.sin(p.life*Math.PI);
+    ctx.beginPath();
+    ctx.arc(p.x,p.y,p.size*(0.5+p.life*0.5),0,Math.PI*2);
+    ctx.fillStyle=getColor(p.hue/360,alpha);
+    ctx.fill();
+
+    // Velocity trail
+    ctx.beginPath();
+    ctx.moveTo(p.x,p.y);
+    ctx.lineTo(p.x-p.vx*4,p.y-p.vy*4);
+    ctx.strokeStyle=getColor(p.hue/360,alpha*0.4);
+    ctx.lineWidth=0.5;
+    ctx.stroke();
+  });
+}
+
+// ============ SYMMETRY MIRROR ============
+function applySymmetryMirror(fn){
+  const sym=S.symmetry;
+  for(let i=0;i<sym;i++){
+    ctx.save();
+    ctx.translate(CX,CY);
+    ctx.rotate(i*(Math.PI*2/sym)+S.time*S.rotSpeed*0.1);
+    if(i%2===0) ctx.scale(1,1); else ctx.scale(1,-1);
+    ctx.translate(-CX,-CY);
+    fn();
+    ctx.restore();
+  }
+}
+
+// ============ BACKGROUND ============
+function drawBackground(){
+  // Deep space background
+  const bg=ctx.createRadialGradient(CX,CY,0,CX,CY,R*1.4);
+  bg.addColorStop(0,getColor(0.05,0.25));
+  bg.addColorStop(0.5,getColor(0.15,0.1));
+  bg.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=bg;
+  ctx.fillRect(0,0,W,H);
+
+  // Harmonic interference stripes (if mode 3)
+  if(S.colorMode===3){
+    for(let i=0;i<8;i++){
+      const phase=i/8*Math.PI*2+S.time*0.005;
+      const stripeGrad=ctx.createLinearGradient(0,0,W*Math.cos(phase),H*Math.sin(phase));
+      stripeGrad.addColorStop(0,getColor(i/8,0.04));
+      stripeGrad.addColorStop(0.5,getColor(i/8+0.5,0.02));
+      stripeGrad.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=stripeGrad;
+      ctx.fillRect(0,0,W,H);
+    }
+  }
+}
+
+// ============ HUD ============
+function updateHUD(){
+  if(!hudOn){hud.style.display='none';return;}
+  hud.style.display='block';
+  const tilingNames=['Hyperbolic Poincaré','Toroidal Labyrinth','Klein Bottle Maze','Möbius Labyrinth','4D Hypercube'];
+  const ornamentNames=['Islamic Geometric','Byzantine Mosaic','Celtic Knot','Gothic Tracery','Mughal Inlay'];
+  const colorNames=['Spectral Rainbow','Luminous Flow','Kaleidoscope','Harmonic Stripes'];
+  const mechNames=['Gear Train','Robot Arms','Cam & Follower','Planetary Diff'];
+  hud.innerHTML=
+    `TILING: ${tilingNames[S.tilingType]}<br>`+
+    `ORNAMENT: ${ornamentNames[S.ornamentStyle]}<br>`+
+    `COLOR: ${colorNames[S.colorMode]}<br>`+
+    `MECHANICAL: ${mechNames[S.mechType]}<br>`+
+    `SYMMETRY: ${S.symmetry}-fold<br>`+
+    `ENERGY: ${S.energy.toFixed(1)}<br>`+
+    `FRAME: ${frame}<br>`+
+    `SOUND: ${soundOn?'ON':'OFF'}`;
+}
+
+// ============ MAIN LOOP ============
+function loop(){
+  S.time=frame;
+  frame++;
+
+  // Fade trail
+  ctx.fillStyle='rgba(0,0,0,0.18)';
+  ctx.fillRect(0,0,W,H);
+
+  drawBackground();
+
+  // Tiling layer
+  switch(S.tilingType){
+    case 0: drawHyperbolicTiling(); break;
+    case 1: drawToroidalLabyrinth(); break;
+    case 2: drawKleinMaze(); break;
+    case 3: drawMobiusLabyrinth(); break;
+    case 4: draw4DHypercube(); break;
+  }
+
+  // Ornament layer (with symmetry)
+  applySymmetryMirror(()=>{
+    switch(S.ornamentStyle){
+      case 0: drawIslamicGeometry(); break;
+      case 1: drawByzantineMosaic(); break;
+      case 2: drawCelticKnot(); break;
+      case 3: drawGothicTracery(); break;
+      case 4: drawMughalInlay(); break;
+    }
+  });
+
+  // Mechanical systems
+  switch(S.mechType){
+    case 0: drawGears(); break;
+    case 1: drawRobotArms(); break;
+    case 2: drawCams(); break;
+    case 3: drawPlanetaryDifferential(); break;
+  }
+
+  // Particles
+  updateParticles();
+  drawParticles();
+
+  // Audio sync
+  if(soundOn) updateAudio();
+
+  updateHUD();
+
+  animId=requestAnimationFrame(loop);
+}
+
+// ============ INPUT ============
+function toggleSound(){
+  soundOn=!soundOn;
+  if(soundOn){
+    if(!audioCtx) initAudio();
+    else if(drones.length===0) initAudio();
+    if(audioCtx&&audioCtx.state==='suspended') audioCtx.resume();
+  } else {
+    stopAudio();
+  }
+}
+
+document.addEventListener('keydown',e=>{
+  if(e.code==='Space'){e.preventDefault();init();}
+  if(e.key==='h'||e.key==='H'){hudOn=!hudOn;updateHUD();}
+  if(e.key==='s'||e.key==='S'){toggleSound();}
+});
+
+canvas.addEventListener('click',()=>init());
+canvas.addEventListener('touchend',e=>{e.preventDefault();init();},{passive:false});
+
+window.addEventListener('resize',()=>{
+  resize();
+});
+
+// ============ START ============
+resize();
+init();
+</script>
+</body>
+</html>

@@ -1,0 +1,1005 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<title>Hyperdimensional Fractal Plasma Storm – WebGL Generative Art</title>
+<meta name="description" content="Real-time WebGL generative art combining Mandelbrot/Julia fractals, Lorenz strange attractors, reaction-diffusion Turing patterns, Möbius transformations, 4D hypersphere stereographic projection, FM audio synthesis, and 50 000-particle Navier-Stokes systems with full-spectrum chromatic coloring.">
+<meta name="keywords" content="fractal,WebGL,Mandelbrot,Julia set,Lorenz attractor,reaction diffusion,Möbius transformation,4D hypersphere,generative art,plasma,FM synthesis,Perlin noise,simplex noise,Chebyshev polynomials,Coxeter group,kaleidoscope">
+<meta name="author" content="Hyperdimensional Fractal Plasma Storm">
+<meta name="robots" content="index,follow">
+<meta name="theme-color" content="#000000">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Hyperdimensional Fractal Plasma Storm">
+<meta property="og:description" content="Real-time WebGL generative art with fractals, strange attractors, 4D projections, and adaptive FM audio synthesis.">
+<meta property="og:url" content="https://fractalplasma.example.com/">
+<meta property="og:image" content="https://fractalplasma.example.com/preview.jpg">
+<meta property="og:site_name" content="Fractal Plasma Storm">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Hyperdimensional Fractal Plasma Storm">
+<meta name="twitter:description" content="Real-time WebGL generative art: fractals, attractors, 4D projections, FM synthesis.">
+<link rel="canonical" href="https://fractalplasma.example.com/">
+<script type="application/ld+json">
+{
+  "@context":"https://schema.org",
+  "@type":"CreativeWork",
+  "name":"Hyperdimensional Fractal Plasma Storm",
+  "description":"Interactive real-time WebGL generative art combining Mandelbrot and Julia set fractals, Lorenz strange attractors, reaction-diffusion Turing patterns, Möbius transformations, 4D hypersphere stereographic projection, and FM audio synthesis.",
+  "genre":"Generative Art",
+  "keywords":"fractal,WebGL,attractor,generative art,plasma storm",
+  "creator":{"@type":"Organization","name":"Fractal Plasma Storm"},
+  "license":"https://creativecommons.org/licenses/by/4.0/",
+  "interactivityType":"mixed",
+  "educationalUse":"Art",
+  "learningResourceType":"simulation"
+}
+</script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;background:#000;overflow:hidden;touch-action:none;-webkit-user-select:none;user-select:none}
+canvas{display:block;width:100vw!important;height:100vh!important;cursor:crosshair}
+#hud{display:none;position:fixed;top:0;left:0;right:0;z-index:20;padding:10px 16px 12px;
+  background:rgba(0,0,8,0.82);color:#6ff;font:11px/1.75 'Courier New',Courier,monospace;
+  pointer-events:none;border-bottom:1px solid rgba(80,255,255,0.18);
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+#hud .ht{color:#e0a0ff;font-size:13px;font-weight:bold;letter-spacing:2px;margin-bottom:3px}
+#hud .hi{color:#0ff}
+#hud .hg{color:#5f8}
+#hud .hr{color:#f86}
+#hud .hy{color:#ff6}
+#hud .row{display:flex;flex-wrap:wrap;gap:0 24px}
+#hud .col{min-width:280px}
+#toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);
+  background:rgba(0,0,16,0.88);color:#e8f0ff;font:12px/1 'Courier New',monospace;
+  padding:7px 18px;border-radius:20px;border:1px solid rgba(120,180,255,0.3);
+  opacity:0;transition:opacity .4s;pointer-events:none;white-space:nowrap;z-index:30}
+#hint{position:fixed;bottom:18px;right:18px;color:rgba(180,220,255,0.35);
+  font:10px/1.9 'Courier New',monospace;pointer-events:none;text-align:right;z-index:10}
+</style>
+</head>
+<body>
+<main role="main">
+  <canvas id="c" role="img" aria-label="Hyperdimensional fractal plasma storm — a real-time WebGL generative art animation combining fractal mathematics, strange attractors, and particle systems"></canvas>
+</main>
+<aside id="hud" role="complementary" aria-label="Real-time animation parameters HUD"></aside>
+<div id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
+<footer id="hint" role="contentinfo" aria-label="Keyboard shortcuts">
+  SPACE / Click → Reseed<br>H → HUD&nbsp;&nbsp;S → Sound
+</footer>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════
+   HYPERDIMENSIONAL FRACTAL PLASMA STORM
+   WebGL generative art engine
+   ═══════════════════════════════════════════════════════════════ */
+'use strict';
+
+// ─── DEVICE DETECTION ────────────────────────────────────────────────────────
+const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)
+  || Math.min(screen.width,screen.height) < 600;
+const MAX_PARTICLES = isMobile ? 18000 : 52000;
+const MAX_VORTICES = 6;
+
+// ─── CANVAS / GL ──────────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const gl = canvas.getContext('webgl',{antialias:false,alpha:false,depth:false,stencil:false,
+  powerPreference:'high-performance',preserveDrawingBuffer:false})
+  || canvas.getContext('experimental-webgl',{antialias:false,alpha:false});
+
+if(!gl){
+  document.body.innerHTML='<p style="color:#f77;padding:40px;font-family:monospace;font-size:16px">'+
+  '⚠ WebGL is not available in this browser.</p>';
+  throw new Error('No WebGL');
+}
+
+// ─── VERTEX SHADER: FULLSCREEN QUAD ──────────────────────────────────────────
+const VS_QUAD = `
+attribute vec2 aPos;
+void main(){ gl_Position = vec4(aPos,0.0,1.0); }
+`;
+
+// ─── FRAGMENT SHADER: FRACTAL ENGINE ─────────────────────────────────────────
+const FS_MAIN = `
+precision highp float;
+
+uniform float uTime;
+uniform vec2  uRes;
+uniform float uFractalType;
+uniform vec2  uJuliaC;
+uniform float uZoom;
+uniform vec2  uCenter;
+uniform float uMobiusT;
+uniform float uMobiusSpd;
+uniform float uColorSpd;
+uniform float uColorOff;
+uniform float uWarpStr;
+uniform float uNoiseOct;
+uniform float uSymmetry;
+uniform float uPower;
+uniform float uLorenzScl;
+uniform float u4DA;
+uniform float u4DB;
+uniform float uChebyN;
+uniform float uSat;
+uniform float uBri;
+uniform float uSeed;
+uniform float uRdSpd;
+uniform float uNScale1;
+uniform float uNScale2;
+uniform float uHueShift;
+uniform float uHueRange;
+uniform float uLorenzS;
+uniform float uLorenzR;
+uniform float uLorenzB;
+uniform float uAttrBlend;
+uniform float uBloomScl;
+uniform float uWarpIter;
+uniform float uKalidoMirror;
+
+/* ── COMPLEX ARITHMETIC ── */
+vec2 cmul(vec2 a,vec2 b){ return vec2(a.x*b.x-a.y*b.y, a.x*b.y+a.y*b.x); }
+vec2 cdiv(vec2 a,vec2 b){ float d=dot(b,b)+1e-12; return vec2(dot(a,b),a.y*b.x-a.x*b.y)/d; }
+vec2 cpow(vec2 z,float pw){
+  if(dot(z,z)<1e-14) return vec2(0.0);
+  float r=pow(length(z),pw), a=atan(z.y,z.x)*pw;
+  return r*vec2(cos(a),sin(a));
+}
+/* Möbius: (az+b)/(cz+d) */
+vec2 mobius(vec2 z,vec2 a,vec2 b,vec2 c,vec2 d){
+  return cdiv(cmul(a,z)+b, cmul(c,z)+d);
+}
+/* Euler: e^z */
+vec2 cexp(vec2 z){ return exp(z.x)*vec2(cos(z.y),sin(z.y)); }
+
+/* ── HASH / NOISE ── */
+float h1(vec2 p){ return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453); }
+float h1f(float fn){ return fract(sin(fn)*43758.5453); }
+
+float gnoise(vec2 p){
+  vec2 i=floor(p),f=fract(p),u=f*f*(3.0-2.0*f);
+  return mix(mix(h1(i),h1(i+vec2(1,0)),u.x),
+             mix(h1(i+vec2(0,1)),h1(i+vec2(1,1)),u.x),u.y)*2.0-1.0;
+}
+/* FBM — fractional Brownian motion */
+float fbm(vec2 p,float oct){
+  float v=0.0,a=0.5,f=1.0,tot=0.0;
+  for(int i=0;i<7;i++){
+    if(float(i)>=oct) break;
+    v+=a*gnoise(p*f); tot+=a; f*=2.17; a*=0.47;
+  }
+  return v/tot;
+}
+/* Simplex-like via rotated gradient noise */
+float snoise(vec2 p){
+  const float K1=0.366025,K2=0.211324;
+  vec2 i=floor(p+(p.x+p.y)*K1);
+  vec2 a=p-i+(i.x+i.y)*K2;
+  float m=step(a.y,a.x);
+  vec2 o=vec2(m,1.0-m);
+  vec2 b=a-o+K2, c=a-1.0+2.0*K2;
+  vec3 h=max(0.5-vec3(dot(a,a),dot(b,b),dot(c,c)),0.0);
+  vec3 nd=h*h*h*h*vec3(dot(a,vec2(h1(i)-0.5,h1(i+vec2(0,1))-0.5)),
+                       dot(b,vec2(h1(i+o)-0.5,h1(i+o+vec2(0,1))-0.5)),
+                       dot(c,vec2(h1(i+1.0)-0.5,h1(i+vec2(1,2))-0.5)));
+  return dot(nd,vec3(70.0));
+}
+
+/* ── LORENZ WARP (Euler integration in shader) ── */
+vec2 lorenzWarp(vec2 p,float sigma,float rho,float beta,float scl){
+  vec3 q=vec3(p.x*8.0,p.y*8.0,rho*0.8);
+  float dt=0.004;
+  for(int i=0;i<10;i++){
+    float dx=sigma*(q.y-q.x);
+    float dy=q.x*(rho-q.z)-q.y;
+    float dz=q.x*q.y-beta*q.z;
+    q+=vec3(dx,dy,dz)*dt;
+  }
+  return q.xy*scl;
+}
+
+/* ── 4-D HYPERSPHERE SHADOW ── */
+vec2 hypershadow(vec2 uv,float t1,float t2){
+  float a=uv.x*2.09,b=uv.y*2.09;
+  vec4 p4=vec4(sin(a)*cos(b),sin(a)*sin(b),cos(a),0.0);
+  /* XW plane rotation */
+  float c1=cos(t1),s1=sin(t1);
+  vec4 q; q.x=c1*p4.x+s1*p4.w; q.y=p4.y; q.z=p4.z; q.w=-s1*p4.x+c1*p4.w;
+  /* YZ plane rotation */
+  float c2=cos(t2),s2=sin(t2);
+  vec4 r; r.x=q.x; r.y=c2*q.y+s2*q.z; r.z=-s2*q.y+c2*q.z; r.w=q.w;
+  /* Stereographic projection from S^3 */
+  float w=max(0.05,1.0-r.w*0.5);
+  return r.xy/w;
+}
+
+/* ── COXETER/KALEIDOSCOPE SYMMETRY ── */
+vec2 symmetrize(vec2 uv,float sym,float mirror){
+  if(sym<1.5) return uv;
+  float r=length(uv);
+  float a=atan(uv.y,uv.x);
+  float sector=6.28318/sym;
+  a=mod(a+12.56637,sector);
+  if(mirror>0.5 && a>sector*0.5) a=sector-a;
+  return r*vec2(cos(a),sin(a));
+}
+
+/* ── MÖBIUS CYCLING ── */
+vec2 mobiusCycle(vec2 z,float t){
+  vec2 ma=vec2(cos(t),sin(t));
+  vec2 mb=vec2(-sin(t)*0.18,cos(t)*0.18);
+  vec2 mc=vec2(sin(t)*0.08,0.0);
+  vec2 md=vec2(1.0,0.0);
+  return mobius(z,ma,mb,mc,md);
+}
+
+/* ── CHEBYSHEV POLYNOMIAL T_n(x) via trigonometric identity ── */
+float cheby(float x,float deg){
+  return cos(deg*acos(clamp(x,-1.0,1.0)));
+}
+
+/* ── HSV → RGB ── */
+vec3 hsv2rgb(vec3 c){
+  vec3 p=abs(fract(c.xxx+vec3(0.0,2.0/3.0,1.0/3.0))*6.0-3.0);
+  return c.z*mix(vec3(1.0),clamp(p-1.0,0.0,1.0),c.y);
+}
+
+/* ── SPECTRAL HSV + EULER PHASE + CHEBYSHEV + SMOOTHSTEP ── */
+vec3 spectralColor(float t,float phase,float hueShift,float hueRange,float sat,float bri,float chebyN){
+  /* Euler's formula phase portrait: e^(it) -> cos(t)+i·sin(t) */
+  float euler=cos(t*6.28318+phase);
+  /* Chebyshev polynomial banding */
+  float band=cheby(euler,chebyN);
+  /* Smoothstep sigmoid interpolation */
+  float sval=smoothstep(-1.0,1.0,band);
+  /* Map to hue via combined Fourier/Chebyshev decomposition */
+  float hue=fract(sval*hueRange + t*0.6 + hueShift + phase*0.1592);
+  /* Breathing brightness with Chebyshev overtone */
+  float breathe=0.75+0.25*cheby(sin(t*3.14159+phase),3.0);
+  return hsv2rgb(vec3(hue,sat,bri*breathe*smoothstep(0.0,1.0,sval)));
+}
+
+/* ── REACTION-DIFFUSION APPROXIMATION (Turing pattern) ── */
+float rdPattern(vec2 p,float t,float spd){
+  float s1=snoise(p*7.0+vec2(0.0,t*spd));
+  float s2=snoise(p*3.5+vec2(t*spd*0.6,0.0));
+  float s3=gnoise(p*14.0-vec2(t*spd*0.4));
+  return smoothstep(-0.2,0.2,sin(s1*4.0)*cos(s2*4.0)+s3*0.3);
+}
+
+/* ── FRACTAL ITERATION ── */
+const int MAXITER=128;
+
+float evalFractal(vec2 uv,float type,vec2 jc,float power){
+  vec2 z,c;
+  if(type<0.5){      /* Mandelbrot */
+    z=vec2(0.0); c=uv;
+  } else if(type<1.5){ /* Julia */
+    z=uv; c=jc;
+  } else if(type<2.5){ /* Burning Ship */
+    z=vec2(0.0); c=uv;
+  } else {           /* Tricorn/Mandelbar */
+    z=vec2(0.0); c=uv;
+  }
+  for(int i=0;i<MAXITER;i++){
+    /* Burning Ship: fold negative axes */
+    if(type>=1.5&&type<2.5) z=abs(z);
+    /* Tricorn: conjugate */
+    if(type>=2.5) z=vec2(z.x,-z.y);
+    z=cpow(z,power)+c;
+    float r2=dot(z,z);
+    if(r2>1024.0){
+      /* Smooth escape time — Munafo smoothing */
+      float escVal=float(i)+1.0-log2(log2(sqrt(r2)));
+      return escVal;
+    }
+  }
+  return -1.0;
+}
+
+/* ── MAIN ── */
+void main(){
+  vec2 uv=(gl_FragCoord.xy-uRes*0.5)/min(uRes.x,uRes.y);
+
+  /* Zoom + pan */
+  uv=uv/uZoom+uCenter;
+
+  /* 4-D hypersphere stereographic shadow injection */
+  vec2 hyp=hypershadow(uv*0.28,u4DA+uTime*0.071,u4DB+uTime*0.053);
+  uv+=hyp*0.038;
+
+  /* Coxeter/kaleidoscope symmetry */
+  vec2 suv=symmetrize(uv,uSymmetry,uKalidoMirror);
+
+  /* Möbius transformation cycling */
+  float mt=uMobiusT+uTime*uMobiusSpd;
+  suv=mobiusCycle(suv*0.5,mt)*2.0;
+
+  /* FBM domain warping (Perlin+simplex combined) */
+  vec2 wuv=suv;
+  float oct=uNoiseOct;
+  for(int wi=0;wi<3;wi++){
+    if(float(wi)>=uWarpIter) break;
+    float seed=uSeed+float(wi)*13.7;
+    float wx=fbm(wuv*uNScale1+vec2(seed,1.3)+uTime*0.041,oct)
+            +snoise(wuv*uNScale2*1.5+uTime*0.028)*0.3;
+    float wy=fbm(wuv*uNScale2+vec2(1.7,seed)+uTime*0.039,oct)
+            +snoise(wuv*uNScale1*1.3+uTime*0.033)*0.3;
+    wuv+=vec2(wx,wy)*uWarpStr*(0.7/float(wi+1));
+  }
+
+  /* Lorenz strange attractor warp */
+  vec2 lw=lorenzWarp(wuv,uLorenzS,uLorenzR,uLorenzB,uLorenzScl);
+  wuv+=lw*uAttrBlend;
+
+  /* Fractal evaluation */
+  float esc=evalFractal(wuv,uFractalType,uJuliaC,uPower);
+
+  vec3 col;
+  if(esc<0.0){
+    /* Interior: subtle Lorenz-modulated glow */
+    float ig=fbm(wuv*2.5+uTime*0.025,3.0)*0.5+0.5;
+    float ig2=rdPattern(wuv,uTime,uRdSpd)*0.3;
+    col=hsv2rgb(vec3(uHueShift+ig2*0.1, 0.45, 0.06*ig+0.03));
+  } else {
+    float t=esc/float(MAXITER);
+    float phase=uColorOff+uTime*uColorSpd;
+
+    /* Primary spectral color */
+    col=spectralColor(t,phase,uHueShift,uHueRange,uSat,uBri,uChebyN);
+
+    /* Chromatic edge banding — rotating spectrum */
+    float edge=fract(t*uBloomScl*10.0+uTime*uColorSpd*0.3);
+    vec3 edgeCol=spectralColor(edge,phase+1.5708,fract(uHueShift+0.33),
+                                uHueRange,0.75,0.32,max(1.0,uChebyN-2.0));
+    col+=edgeCol;
+
+    /* Reaction-diffusion Turing pattern overlay */
+    float rd=rdPattern(wuv*1.8,uTime,uRdSpd);
+    vec3 rdCol=hsv2rgb(vec3(fract(uHueShift+0.5+rd*0.2),0.9,rd*0.35));
+    col=mix(col,col+rdCol,0.18);
+
+    /* Fourier decomposition of escape → harmonic color shift */
+    float harm=sin(esc*0.3)*cos(esc*0.19)*0.5+0.5;
+    col+=hsv2rgb(vec3(fract(uHueShift+0.618+harm*uHueRange),0.7,harm*0.15));
+
+    col=clamp(col,0.0,1.0);
+  }
+
+  gl_FragColor=vec4(col,1.0);
+}
+`;
+
+// ─── PARTICLE VERTEX SHADER ───────────────────────────────────────────────────
+const VS_PART = `
+precision mediump float;
+attribute vec2  aPos;
+attribute float aHue;
+attribute float aLife;
+varying float vHue;
+varying float vLife;
+void main(){
+  vHue=aHue; vLife=aLife;
+  gl_Position=vec4(aPos,0.0,1.0);
+  gl_PointSize=clamp(3.5*aLife,0.8,4.5);
+}
+`;
+
+// ─── PARTICLE FRAGMENT SHADER ─────────────────────────────────────────────────
+const FS_PART = `
+precision mediump float;
+varying float vHue;
+varying float vLife;
+vec3 hsv2rgb(vec3 c){
+  vec3 p=abs(fract(c.xxx+vec3(0.0,2.0/3.0,1.0/3.0))*6.0-3.0);
+  return c.z*mix(vec3(1.0),clamp(p-1.0,0.0,1.0),c.y);
+}
+void main(){
+  vec2 d=gl_PointCoord-0.5;
+  float r=dot(d,d)*4.0;
+  if(r>1.0) discard;
+  float a=(1.0-r)*(1.0-r)*vLife*0.85;
+  vec3 col=hsv2rgb(vec3(vHue,0.88,1.0));
+  gl_FragColor=vec4(col,a);
+}
+`;
+
+// ─── GL HELPERS ───────────────────────────────────────────────────────────────
+function compileShader(src,type){
+  const s=gl.createShader(type);
+  gl.shaderSource(s,src); gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){
+    const log=gl.getShaderInfoLog(s)||'(no log)';
+    const typeName=type===gl.VERTEX_SHADER?'VERTEX':'FRAGMENT';
+    console.error(`[${typeName} SHADER ERROR]\n${log}`);
+    // Annotate source with line numbers for easier debugging
+    const lines=src.split('\n');
+    const annotated=lines.map((l,i)=>`${String(i+1).padStart(4,' ')}: ${l}`).join('\n');
+    console.error('--- Shader source ---\n'+annotated);
+    // Surface error on screen
+    const errDiv=document.createElement('div');
+    errDiv.style.cssText='position:fixed;top:0;left:0;right:0;bottom:0;background:#0a0010;color:#f77;'+
+      'font:12px/1.6 Courier New,monospace;padding:20px;overflow:auto;z-index:9999;white-space:pre-wrap;';
+    errDiv.textContent=`⚠ WebGL ${typeName} SHADER COMPILATION ERROR\n\n${log}\n\nCheck the browser console for annotated source.`;
+    document.body.appendChild(errDiv);
+    gl.deleteShader(s);
+    return null;
+  }
+  return s;
+}
+function createProgram(vs,fs){
+  const vShader=compileShader(vs,gl.VERTEX_SHADER);
+  const fShader=compileShader(fs,gl.FRAGMENT_SHADER);
+  if(!vShader||!fShader){ console.error('Aborting program link — shader(s) failed to compile.'); return null; }
+  const p=gl.createProgram();
+  gl.attachShader(p,vShader);
+  gl.attachShader(p,fShader);
+  gl.linkProgram(p);
+  if(!gl.getProgramParameter(p,gl.LINK_STATUS)){
+    console.error('Link error:',gl.getProgramInfoLog(p)); return null;
+  }
+  gl.deleteShader(vShader); gl.deleteShader(fShader);
+  return p;
+}
+function cacheUniforms(prog,names){
+  const u={};
+  names.forEach(n=>u[n]=gl.getUniformLocation(prog,n));
+  return u;
+}
+
+// ─── GL PROGRAMS ──────────────────────────────────────────────────────────────
+let progMain, uMain, progPart, uPart;
+let vboQuad, vboPart;
+
+function initGL(){
+  progMain=createProgram(VS_QUAD,FS_MAIN);
+  progPart=createProgram(VS_PART,FS_PART);
+
+  uMain=cacheUniforms(progMain,[
+    'uTime','uRes','uFractalType','uJuliaC','uZoom','uCenter',
+    'uMobiusT','uMobiusSpd','uColorSpd','uColorOff','uWarpStr',
+    'uNoiseOct','uSymmetry','uPower','uLorenzScl',
+    'u4DA','u4DB','uChebyN','uSat','uBri','uSeed',
+    'uRdSpd','uNScale1','uNScale2','uHueShift','uHueRange',
+    'uLorenzS','uLorenzR','uLorenzB','uAttrBlend','uBloomScl',
+    'uWarpIter','uKalidoMirror'
+  ]);
+
+  const quadVerts=new Float32Array([-1,-1,1,-1,-1,1,1,1]);
+  vboQuad=gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER,vboQuad);
+  gl.bufferData(gl.ARRAY_BUFFER,quadVerts,gl.STATIC_DRAW);
+
+  vboPart=gl.createBuffer();
+}
+
+// ─── PARTICLES ────────────────────────────────────────────────────────────────
+let pPos,pVel,pLife,pMaxLife,pHue,pRenderBuf;
+let numParticles=0;
+
+// Navier-Stokes point vortices (Biot-Savart in 2D — divergence-free)
+let vortices=[];
+function seedVortices(){
+  vortices=[];
+  for(let i=0;i<MAX_VORTICES;i++){
+    const ang=(i/MAX_VORTICES)*Math.PI*2;
+    vortices.push({
+      ox:Math.cos(ang)*R(0.25,0.6),
+      oy:Math.sin(ang)*R(0.25,0.6),
+      strength:R(-3e-4,3e-4),
+      orbitSpd:R(-0.5,0.5),
+      phase:R(0,Math.PI*2)
+    });
+  }
+}
+function updateVortices(t){
+  for(let i=0;i<vortices.length;i++){
+    const v=vortices[i];
+    const a=(i/vortices.length)*Math.PI*2+t*v.orbitSpd+v.phase;
+    const r=Math.sqrt(v.ox*v.ox+v.oy*v.oy);
+    v.x=Math.cos(a)*r; v.y=Math.sin(a)*r;
+  }
+}
+function nsVelocity(x,y){
+  let vx=0,vy=0;
+  for(const v of vortices){
+    const dx=x-v.x, dy=y-v.y;
+    const r2=dx*dx+dy*dy+8e-4;
+    const s=v.strength/r2;
+    vx-=dy*s; vy+=dx*s;
+  }
+  return [vx,vy];
+}
+
+function resetParticle(i){
+  const ang=Math.random()*Math.PI*2;
+  const r=Math.random()*0.92;
+  pPos[i*2]=Math.cos(ang)*r;
+  pPos[i*2+1]=Math.sin(ang)*r;
+  const spd=3e-4+Math.random()*1.5e-3;
+  const dir=Math.random()*Math.PI*2;
+  pVel[i*2]=Math.cos(dir)*spd;
+  pVel[i*2+1]=Math.sin(dir)*spd;
+  pLife[i]=0.85+Math.random()*0.15;
+  pMaxLife[i]=0.8+Math.random()*3.5;
+  pHue[i]=Math.random();
+}
+
+function initParticles(n){
+  numParticles=n;
+  pPos=new Float32Array(n*2);
+  pVel=new Float32Array(n*2);
+  pLife=new Float32Array(n);
+  pMaxLife=new Float32Array(n);
+  pHue=new Float32Array(n);
+  pRenderBuf=new Float32Array(n*4);
+  for(let i=0;i<n;i++){
+    resetParticle(i);
+    pLife[i]=Math.random(); // stagger
+  }
+  gl.bindBuffer(gl.ARRAY_BUFFER,vboPart);
+  gl.bufferData(gl.ARRAY_BUFFER,pRenderBuf,gl.DYNAMIC_DRAW);
+}
+
+function updateParticles(dt,t){
+  const n=numParticles;
+  const hSpd=params.colorPaletteSpeed||0.12;
+  updateVortices(t);
+
+  for(let i=0;i<n;i++){
+    let x=pPos[i*2],y=pPos[i*2+1];
+    let vx=pVel[i*2],vy=pVel[i*2+1];
+
+    // NS velocity field (Biot-Savart point vortices)
+    const [fx,fy]=nsVelocity(x,y);
+    vx+=fx; vy+=fy;
+
+    // Gentle spiral attractor + Coriolis
+    const r=Math.sqrt(x*x+y*y)+1e-5;
+    const ang=Math.atan2(y,x);
+    const attract=4e-5;
+    vx-=Math.cos(ang)*attract*r;
+    vy-=Math.sin(ang)*attract*r;
+    vx-=y*1.2e-4; vy+=x*1.2e-4; // rotation
+
+    // Drag
+    vx*=0.992; vy*=0.992;
+    x+=vx; y+=vy;
+
+    // Coxeter-like symmetry kaleidoscope trail effect:
+    // reflect particle hue based on angular sector
+    const symN=params.symmetryOrder||1;
+    const sector=Math.PI*2/symN;
+    const partSector=Math.floor(((ang+Math.PI*2)%( Math.PI*2))/sector);
+    pHue[i]=fract(pHue[i]+hSpd*dt*0.012+(partSector%2===0?0:0.5/symN));
+
+    pLife[i]-=dt/pMaxLife[i];
+    if(pLife[i]<=0||r>1.05){
+      resetParticle(i);
+      x=pPos[i*2]; y=pPos[i*2+1];
+    }
+
+    pPos[i*2]=x; pPos[i*2+1]=y;
+    pVel[i*2]=vx; pVel[i*2+1]=vy;
+
+    pRenderBuf[i*4]=x;
+    pRenderBuf[i*4+1]=y;
+    pRenderBuf[i*4+2]=pHue[i];
+    pRenderBuf[i*4+3]=Math.max(0,pLife[i]);
+  }
+  gl.bindBuffer(gl.ARRAY_BUFFER,vboPart);
+  gl.bufferSubData(gl.ARRAY_BUFFER,0,pRenderBuf);
+}
+
+function fract(x){ return x-Math.floor(x); }
+
+// ─── PARAMETERS ───────────────────────────────────────────────────────────────
+let params={};
+const R=(a,b)=>a+Math.random()*(b-a);
+const RI=(a,b)=>Math.floor(R(a,b+1));
+
+const FRACTAL_NAMES=['Mandelbrot','Julia','Burning Ship','Tricorn'];
+const MODE_NAMES=['Plasma Storm','Inferno Vortex','Celestial Tide','Acid Bloom',
+                  'Quantum Abyss','Nova Cascade','Deep Neon','Prismatic Fire'];
+const PALETTE_NAMES=['Spectral','Chromatic','Prismatic','Iridescent','Thermographic'];
+
+function seedParams(){
+  const fType=RI(0,3);
+  params={
+    fractalType:fType,
+    fractalName:FRACTAL_NAMES[fType],
+    modeName:MODE_NAMES[RI(0,MODE_NAMES.length-1)],
+    paletteName:PALETTE_NAMES[RI(0,PALETTE_NAMES.length-1)],
+    juliaC:[R(-0.9,0.4),R(-0.75,0.75)],
+    zoom:R(0.55,2.8),
+    centerX:R(-0.6,0.6),
+    centerY:R(-0.45,0.45),
+    power:R(1.85,3.6),
+    colorSpeed:R(0.08,0.55),
+    colorOffset:R(0,Math.PI*2),
+    colorPaletteSpeed:R(0.04,0.38),
+    warpStrength:R(0.08,0.75),
+    noiseOctaves:RI(2,6),
+    noiseScale1:R(1.2,4.5),
+    noiseScale2:R(1.8,5.5),
+    warpIterations:RI(1,3),
+    symmetryOrder:RI(1,8),
+    kalidoMirror:Math.random()>0.4?1:0,
+    lorenzScale:R(0.008,0.09),
+    lorenzSigma:R(7,15),
+    lorenzRho:R(22,34),
+    lorenzBeta:R(1.8,3.8),
+    attractorBlend:R(0.02,0.28),
+    angle4DA:R(0,Math.PI*2),
+    angle4DB:R(0,Math.PI*2),
+    mobiusT:R(0,Math.PI*2),
+    mobiusSpeed:R(0.008,0.07),
+    chebyN:R(2,9),
+    saturation:R(0.62,1.0),
+    brightness:R(0.72,1.0),
+    hueShift:Math.random(),
+    hueRange:R(0.35,1.0),
+    bloomScale:R(0.6,2.2),
+    rdSpeed:R(0.04,0.32),
+    seed:Math.random()*10000,
+    baseFreq:R(36,210),
+    fmRatio:R(0.5,4.2),
+    fmDepth:R(1.5,9.0),
+    particleCount:MAX_PARTICLES,
+  };
+}
+
+// ─── ADAPTIVE RESOLUTION ─────────────────────────────────────────────────────
+let adaptScale=isMobile?0.42:0.68;
+let canvasW=0,canvasH=0;
+
+function resize(){
+  const w=Math.round(window.innerWidth*adaptScale*(window.devicePixelRatio||1));
+  const h=Math.round(window.innerHeight*adaptScale*(window.devicePixelRatio||1));
+  if(canvas.width!==w||canvas.height!==h){
+    canvas.width=w; canvas.height=h;
+    canvasW=w; canvasH=h;
+  }
+}
+
+// ─── AUDIO ────────────────────────────────────────────────────────────────────
+let audioCtx=null,audioReady=false,soundOn=false;
+let audioRefs={osc:[],gain:[],timers:[]};
+
+function cleanAudio(){
+  audioRefs.timers.forEach(t=>clearTimeout(t));
+  audioRefs.osc.forEach(o=>{try{o.stop(0);o.disconnect();}catch(e){}});
+  audioRefs.gain.forEach(g=>{try{g.disconnect();}catch(e){}});
+  audioRefs={osc:[],gain:[],timers:[]};
+}
+
+function buildAudioGraph(){
+  if(!audioCtx) return;
+  cleanAudio();
+  const ctx=audioCtx;
+  const p=params;
+  const base=p.baseFreq||110;
+  const fmR=p.fmRatio||2;
+  const fmD=p.fmDepth||4;
+
+  const master=ctx.createGain();
+  master.gain.setValueAtTime(0.11,ctx.currentTime);
+  master.connect(ctx.destination);
+  audioRefs.gain.push(master);
+
+  // Main FM drone
+  const mod=ctx.createOscillator();
+  mod.type='sine';
+  mod.frequency.value=base*fmR;
+  const modGain=ctx.createGain();
+  modGain.gain.value=base*fmD;
+  mod.connect(modGain);
+  audioRefs.osc.push(mod); audioRefs.gain.push(modGain);
+
+  const carrier=ctx.createOscillator();
+  carrier.type='sine';
+  carrier.frequency.value=base;
+  modGain.connect(carrier.frequency);
+  const lpf=ctx.createBiquadFilter();
+  lpf.type='lowpass'; lpf.frequency.value=1800; lpf.Q.value=2.5;
+  carrier.connect(lpf); lpf.connect(master);
+  audioRefs.osc.push(carrier); audioRefs.gain.push(lpf);
+
+  // Fibonacci harmonic overtones (φ = 1.618...)
+  const PHI=1.6180339887;
+  const fibs=[1,PHI,PHI*PHI,PHI*PHI*PHI,PHI*PHI*PHI*PHI];
+  fibs.forEach((ratio,i)=>{
+    const osc=ctx.createOscillator();
+    osc.type=i%2===0?'sine':'triangle';
+    osc.frequency.value=base*ratio;
+    const g=ctx.createGain();
+    g.gain.value=0.045/(i+1);
+    osc.connect(g); g.connect(master);
+    osc.start();
+    audioRefs.osc.push(osc); audioRefs.gain.push(g);
+  });
+
+  mod.start(); carrier.start();
+
+  // Sub-bass pad
+  const sub=ctx.createOscillator();
+  sub.type='sine';
+  sub.frequency.value=base*0.5;
+  const subG=ctx.createGain();
+  subG.gain.value=0.08;
+  sub.connect(subG); subG.connect(master);
+  sub.start();
+  audioRefs.osc.push(sub); audioRefs.gain.push(subG);
+
+  // Percussive transients (Fourier-decomposed noise bursts)
+  const hitBuf=ctx.createBuffer(1,Math.round(ctx.sampleRate*0.12),ctx.sampleRate);
+  const hd=hitBuf.getChannelData(0);
+  for(let i=0;i<hd.length;i++){
+    // Fourier sum of Fibonacci-tuned partials as percussive burst
+    hd[i]=(Math.sin(i*base*0.0001)*0.4+
+            Math.sin(i*base*PHI*0.0001)*0.3+
+            (Math.random()-0.5)*0.3)
+           *Math.exp(-i/(hd.length*0.15));
+  }
+
+  function spawnHit(){
+    if(!soundOn||!audioCtx||audioCtx.state==='suspended') return;
+    try{
+      const src=ctx.createBufferSource();
+      src.buffer=hitBuf;
+      const env=ctx.createGain();
+      env.gain.setValueAtTime(0.06,ctx.currentTime);
+      env.gain.exponentialRampToValueAtTime(1e-4,ctx.currentTime+0.12);
+      const hpf=ctx.createBiquadFilter();
+      hpf.type='highpass';
+      hpf.frequency.value=300+Math.random()*2200;
+      src.connect(hpf); hpf.connect(env); env.connect(master);
+      src.start();
+    }catch(e){}
+    const t=setTimeout(spawnHit,(0.6+Math.random()*2.8)*1000);
+    audioRefs.timers.push(t);
+  }
+  const ht=setTimeout(spawnHit,800);
+  audioRefs.timers.push(ht);
+
+  // Adaptive FM modulation from fractal escape values
+  let lastEscVal=0.5;
+  function adaptAudio(){
+    if(!soundOn||!audioCtx||audioCtx.state==='suspended') return;
+    try{
+      const ct=ctx.currentTime;
+      const drift=Math.sin(Date.now()*0.0004)*0.15;
+      carrier.frequency.setTargetAtTime(base*(1+lastEscVal*0.35+drift),ct,0.8);
+      mod.frequency.setTargetAtTime(base*fmR*(1+drift*0.5),ct,1.2);
+      master.gain.setTargetAtTime(0.08+lastEscVal*0.05,ct,2.0);
+    }catch(e){}
+    const t=setTimeout(adaptAudio,250);
+    audioRefs.timers.push(t);
+  }
+  adaptAudio();
+}
+
+function startAudio(){
+  if(!audioCtx){
+    audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+    buildAudioGraph();
+  } else if(audioCtx.state==='suspended'){
+    audioCtx.resume().then(()=>{
+      if(!audioReady){buildAudioGraph();audioReady=true;}
+    });
+  }
+  audioReady=true;
+}
+function stopAudio(){ if(audioCtx&&audioCtx.state==='running') audioCtx.suspend(); }
+function rebuildAudio(){
+  if(!soundOn||!audioCtx) return;
+  stopAudio();
+  audioCtx.resume().then(()=>buildAudioGraph());
+}
+
+// ─── HUD ─────────────────────────────────────────────────────────────────────
+const hudEl=document.getElementById('hud');
+let hudVisible=false;
+
+function updateHUD(){
+  if(!hudVisible) return;
+  const p=params;
+  const jc=p.juliaC||[0,0];
+  hudEl.innerHTML=`
+<div class="ht">◈ HYPERDIMENSIONAL FRACTAL PLASMA STORM ◈</div>
+<div class="row">
+<div class="col">
+<span class="hi">Mode</span>: ${p.fractalName} / ${p.modeName} / ${p.paletteName}<br>
+<span class="hi">Fractal</span>: Type=${p.fractalType} | Power=${p.power.toFixed(3)} | Zoom=${p.zoom.toFixed(3)}<br>
+<span class="hi">Julia C</span>: (${jc[0].toFixed(4)}, ${jc[1].toFixed(4)}) | Center=(${p.centerX.toFixed(3)},${p.centerY.toFixed(3)})<br>
+<span class="hi">Color</span>: Spd=${p.colorSpeed.toFixed(2)} | Off=${p.colorOffset.toFixed(2)} | Hue=${p.hueShift.toFixed(2)}<br>
+<span class="hg">Chebyshev</span>: N=${p.chebyN.toFixed(1)} | Bloom=${p.bloomScale.toFixed(2)} | Range=${p.hueRange.toFixed(2)}<br>
+<span class="hg">Sat</span>=${p.saturation.toFixed(2)} | <span class="hg">Bri</span>=${p.brightness.toFixed(2)}<br>
+</div>
+<div class="col">
+<span class="hy">Noise</span>: Octaves=${p.noiseOctaves} | WarpStr=${p.warpStrength.toFixed(2)} | Iter=${p.warpIterations}<br>
+<span class="hy">Scales</span>: ${p.noiseScale1.toFixed(2)} / ${p.noiseScale2.toFixed(2)} | RD spd=${p.rdSpeed.toFixed(2)}<br>
+<span class="hy">Lorenz</span>: σ=${p.lorenzSigma.toFixed(1)} ρ=${p.lorenzRho.toFixed(1)} β=${p.lorenzBeta.toFixed(2)}<br>
+<span class="hy">Attractor</span>: Scale=${p.lorenzScale.toFixed(4)} | Blend=${p.attractorBlend.toFixed(2)}<br>
+<span class="hy">4D</span>: α=${p.angle4DA.toFixed(2)} β=${p.angle4DB.toFixed(2)} | Möbius spd=${p.mobiusSpeed.toFixed(3)}<br>
+<span class="hy">Symmetry</span>: N=${p.symmetryOrder} | Mirror=${p.kalidoMirror?'ON':'OFF'}<br>
+</div>
+</div>
+<span class="hr">FPS: ${Math.round(fpsSmooth)} | Particles: ${numParticles.toLocaleString()} | Res: ${canvasW}×${canvasH} | Scale: ${adaptScale.toFixed(2)}</span>
+| <span class="hi">Audio</span>: ${soundOn?'ON 🔊':'OFF 🔇'} | Base ${(p.baseFreq||110).toFixed(0)}Hz | FM×${(p.fmRatio||2).toFixed(2)} | φ-harmonics
+  `.trim();
+}
+
+// ─── TOAST ────────────────────────────────────────────────────────────────────
+const toastEl=document.getElementById('toast');
+let toastTimer=null;
+function toast(msg,dur=2200){
+  toastEl.textContent=msg;
+  toastEl.style.opacity='1';
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>toastEl.style.opacity='0',dur);
+}
+
+// ─── RESEED ───────────────────────────────────────────────────────────────────
+function reseed(){
+  seedParams();
+  seedVortices();
+  initParticles(params.particleCount);
+  if(soundOn) rebuildAudio();
+  toast(`✦ ${params.fractalName} · ${params.modeName} · Sym:${params.symmetryOrder}×`);
+}
+
+// ─── RENDER LOOP ─────────────────────────────────────────────────────────────
+let frameCount=0,fpsSmooth=60,lastTime=0,startTime=null;
+
+function setUniform1f(u,v){ if(u)gl.uniform1f(u,v); }
+function setUniform2f(u,x,y){ if(u)gl.uniform2f(u,x,y); }
+
+function render(now){
+  requestAnimationFrame(render);
+  if(!progMain||!progPart) return; // shader compilation failed — error shown on screen
+
+  if(!startTime) startTime=now;
+  const elapsed=(now-startTime)*0.001;
+  const dt=Math.min((now-lastTime)*0.001,0.05);
+  lastTime=now;
+
+  const instFPS=dt>0?1/dt:60;
+  fpsSmooth=fpsSmooth*0.93+instFPS*0.07;
+  frameCount++;
+
+  // Adaptive resolution every 90 frames
+  if(frameCount%90===0){
+    if(fpsSmooth<30&&adaptScale>0.28) adaptScale=Math.max(0.28,adaptScale-0.06);
+    else if(fpsSmooth>52&&adaptScale<(isMobile?0.75:1.0)) adaptScale=Math.min(isMobile?0.75:1.0,adaptScale+0.03);
+    resize();
+  }
+
+  gl.viewport(0,0,canvas.width,canvas.height);
+
+  // ── DRAW FRACTAL QUAD ──
+  gl.useProgram(progMain);
+  gl.bindBuffer(gl.ARRAY_BUFFER,vboQuad);
+  const aPosMain=gl.getAttribLocation(progMain,'aPos');
+  gl.enableVertexAttribArray(aPosMain);
+  gl.vertexAttribPointer(aPosMain,2,gl.FLOAT,false,0,0);
+
+  const p=params;
+  setUniform1f(uMain.uTime,elapsed);
+  setUniform2f(uMain.uRes,canvas.width,canvas.height);
+  setUniform1f(uMain.uFractalType,p.fractalType||0);
+  setUniform2f(uMain.uJuliaC,...(p.juliaC||[0,0]));
+  setUniform1f(uMain.uZoom,p.zoom||1);
+  setUniform2f(uMain.uCenter,p.centerX||0,p.centerY||0);
+  setUniform1f(uMain.uMobiusT,p.mobiusT||0);
+  setUniform1f(uMain.uMobiusSpd,p.mobiusSpeed||0.03);
+  setUniform1f(uMain.uColorSpd,p.colorSpeed||0.2);
+  setUniform1f(uMain.uColorOff,p.colorOffset||0);
+  setUniform1f(uMain.uWarpStr,p.warpStrength||0.3);
+  setUniform1f(uMain.uNoiseOct,p.noiseOctaves||4);
+  setUniform1f(uMain.uSymmetry,p.symmetryOrder||1);
+  setUniform1f(uMain.uPower,p.power||2);
+  setUniform1f(uMain.uLorenzScl,p.lorenzScale||0.04);
+  setUniform1f(uMain.u4DA,p.angle4DA||0);
+  setUniform1f(uMain.u4DB,p.angle4DB||0);
+  setUniform1f(uMain.uChebyN,p.chebyN||5);
+  setUniform1f(uMain.uSat,p.saturation||0.9);
+  setUniform1f(uMain.uBri,p.brightness||0.9);
+  setUniform1f(uMain.uSeed,p.seed||0);
+  setUniform1f(uMain.uRdSpd,p.rdSpeed||0.12);
+  setUniform1f(uMain.uNScale1,p.noiseScale1||2.5);
+  setUniform1f(uMain.uNScale2,p.noiseScale2||3.5);
+  setUniform1f(uMain.uHueShift,p.hueShift||0);
+  setUniform1f(uMain.uHueRange,p.hueRange||1.0);
+  setUniform1f(uMain.uLorenzS,p.lorenzSigma||10);
+  setUniform1f(uMain.uLorenzR,p.lorenzRho||28);
+  setUniform1f(uMain.uLorenzB,p.lorenzBeta||2.667);
+  setUniform1f(uMain.uAttrBlend,p.attractorBlend||0.1);
+  setUniform1f(uMain.uBloomScl,p.bloomScale||1.0);
+  setUniform1f(uMain.uWarpIter,p.warpIterations||1);
+  setUniform1f(uMain.uKalidoMirror,p.kalidoMirror||0);
+
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+
+  // ── UPDATE & DRAW PARTICLES ──
+  updateParticles(dt,elapsed);
+
+  gl.useProgram(progPart);
+  gl.bindBuffer(gl.ARRAY_BUFFER,vboPart);
+
+  const aPartPos=gl.getAttribLocation(progPart,'aPos');
+  const aPartHue=gl.getAttribLocation(progPart,'aHue');
+  const aPartLife=gl.getAttribLocation(progPart,'aLife');
+  gl.enableVertexAttribArray(aPartPos);
+  gl.enableVertexAttribArray(aPartHue);
+  gl.enableVertexAttribArray(aPartLife);
+  const stride=16; // 4 floats * 4 bytes
+  gl.vertexAttribPointer(aPartPos,2,gl.FLOAT,false,stride,0);
+  gl.vertexAttribPointer(aPartHue,1,gl.FLOAT,false,stride,8);
+  gl.vertexAttribPointer(aPartLife,1,gl.FLOAT,false,stride,12);
+
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.SRC_ALPHA,gl.ONE); // additive bloom
+  gl.drawArrays(gl.POINTS,0,numParticles);
+  gl.disable(gl.BLEND);
+
+  // ── HUD ──
+  updateHUD();
+}
+
+// ─── EVENT HANDLERS ───────────────────────────────────────────────────────────
+document.addEventListener('keydown',e=>{
+  switch(e.code){
+    case 'Space':
+      e.preventDefault();
+      reseed();
+      break;
+    case 'KeyH':
+      hudVisible=!hudVisible;
+      hudEl.style.display=hudVisible?'block':'none';
+      if(hudVisible) updateHUD();
+      toast('HUD '+(hudVisible?'ON':'OFF'));
+      break;
+    case 'KeyS':
+      soundOn=!soundOn;
+      if(soundOn){ startAudio(); toast('Sound ON 🔊'); }
+      else { stopAudio(); toast('Sound OFF 🔇'); }
+      break;
+  }
+});
+
+canvas.addEventListener('click',()=>{
+  // Resume AudioContext on user gesture if needed
+  if(soundOn&&audioCtx&&audioCtx.state==='suspended') audioCtx.resume();
+  reseed();
+});
+
+canvas.addEventListener('touchend',e=>{
+  e.preventDefault();
+  if(soundOn&&audioCtx&&audioCtx.state==='suspended') audioCtx.resume();
+  reseed();
+});
+
+window.addEventListener('resize',resize);
+
+// Handle visibility change for audio
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden&&audioCtx) audioCtx.suspend();
+  else if(!document.hidden&&soundOn&&audioCtx) audioCtx.resume();
+});
+
+// ─── INIT ─────────────────────────────────────────────────────────────────────
+seedParams();
+seedVortices();
+resize();
+initGL();
+initParticles(params.particleCount);
+
+// Initial greeting
+toast('◈ PLASMA STORM · SPACE/Click=Reseed · H=HUD · S=Sound',3500);
+
+// Kick off render loop
+requestAnimationFrame(render);
+</script>
+</body>
+</html>

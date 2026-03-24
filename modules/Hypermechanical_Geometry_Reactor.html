@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Hypermechanical Geometry Reactor</title>
+<meta name="description" content="A generative physics-driven mathematical art engine producing endlessly evolving mechanical geometry universes featuring Penrose tilings, tessellations, sacred geometry, and hyperdimensional polytopes animated by real-time physics simulations.">
+<meta name="keywords" content="generative art, mathematical art, Penrose tiling, tessellation, WebGL, physics simulation, sacred geometry, fractal, cellular automata, reaction diffusion, mechanical geometry, algorithmic art, procedural art">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000}
+canvas{display:block;position:fixed;top:0;left:0;width:100%;height:100%}
+#hud{display:none;position:fixed;top:14px;left:14px;color:rgba(160,255,200,.9);font:11px/1.8 'Courier New',monospace;pointer-events:none;text-shadow:0 0 6px #0f8;z-index:9}
+#keys{position:fixed;bottom:12px;right:14px;color:rgba(160,200,255,.45);font:10px/1.9 'Courier New',monospace;pointer-events:none;text-align:right;z-index:9}
+#err{display:none;position:fixed;top:0;left:0;width:100%;padding:20px;color:#f55;font:13px/1.6 monospace;background:rgba(0,0,0,.9);z-index:99;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<div id="keys">SPACE / TAP — new universe &nbsp;|&nbsp; H — hud &nbsp;|&nbsp; S — sound</div>
+<div id="err"></div>
+<script>
+(function(){"use strict";
+
+const canvas=document.getElementById('c');
+const hudEl=document.getElementById('hud');
+const errEl=document.getElementById('err');
+let W=0,H=0,gl=null,prog=null,aBuf=null,uLoc={};
+let seed=0,t0=0,params={};
+let soundOn=false,hudOn=false;
+let audioCtx=null,gainNode=null,oscList=[];
+let lastFPS=60,fpsA=0,fpsN=0,fpsLast=0;
+
+function rf(a,b){return a+Math.random()*(b-a);}
+function ri(a,b){return a+(Math.random()*(b-a+1)|0);}
+function pick(a){return a[Math.random()*a.length|0];}
+
+function newParams(){
+  seed=Math.random()*99999|0;
+  params={
+    tileType:ri(0,17),
+    physType:ri(0,11),
+    palType:ri(0,14),
+    symOrder:pick([3,4,5,6,7,8,10,12]),
+    latticeK:rf(0.4,2.8),
+    turbulence:rf(0.05,1.8),
+    hybridMix:rf(0.0,1.0),
+    waveFreq:rf(0.4,5.0),
+  };
+  t0=performance.now();
+}
+
+// Vertex shader
+const VS=`attribute vec2 a;void main(){gl_Position=vec4(a,0.,1.);}`;
+
+// Fragment shader — pure WebGL 1.0, no extensions required
+const FS=`
+precision highp float;
+uniform vec2  uRes;
+uniform float uTime,uSeed,uPal,uTileType,uPhysType,uSym,uScale,uTurb,uHybrid;
+#define PI  3.14159265358979
+#define TAU 6.28318530717959
+#define PHI 1.61803398874989
+
+float h11(float n){return fract(sin(n)*43758.5453);}
+float h21(vec2 p){p=fract(p*vec2(127.1,311.7));p+=dot(p,p+19.19);return fract(p.x*p.y);}
+vec2  h22(vec2 p){return fract(sin(vec2(dot(p,vec2(127.1,311.7)),dot(p,vec2(269.5,183.3))))*43758.5453);}
+
+float noise(vec2 p){
+  vec2 i=floor(p),f=fract(p)*fract(p)*(3.-2.*fract(p));
+  return mix(mix(h21(i),h21(i+vec2(1,0)),f.x),mix(h21(i+vec2(0,1)),h21(i+vec2(1,1)),f.x),f.y);
+}
+float fbm(vec2 p){float v=0.,a=.5;for(int i=0;i<5;i++){v+=a*noise(p);p=p*2.1+vec2(1.3,.7);a*=.5;}return v;}
+mat2 rot(float a){float c=cos(a),s=sin(a);return mat2(c,-s,s,c);}
+
+// ── tiling ──────────────────────────────────────────────────────────────────
+float penrose(vec2 p){
+  float best=9.;
+  for(int k=0;k<10;k++){
+    float a=TAU*float(k)/5.;
+    vec2 d=vec2(cos(a),sin(a));
+    float proj=dot(p,d)+sin(dot(p,d*PHI)+uTime*.15)*.25;
+    best=min(best,abs(fract(proj+.5)-.5));
+  }
+  return clamp(best*2.5,0.,1.);
+}
+float ammann(vec2 p){
+  float best=9.,sq=.70710678;
+  for(int k=0;k<8;k++){
+    float a=TAU*float(k)/8.;
+    vec2 d=vec2(cos(a),sin(a));
+    float proj=dot(p,d)+sin(float(k)+uTime*.12)*.18;
+    best=min(best,abs(fract(proj+.5)-.5));
+  }
+  return clamp(best*2.5,0.,1.);
+}
+float voronoiD(vec2 p){
+  vec2 i=floor(p),f=fract(p);float d=8.;
+  for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){
+    vec2 g=vec2(float(x),float(y));
+    vec2 o=.5+.5*sin(uTime*.3+TAU*h22(i+g+floor(uSeed)*.01));
+    d=min(d,length(g+o-f));
+  }
+  return clamp(d,0.,1.);
+}
+float voronoiE(vec2 p){
+  vec2 i=floor(p),f=fract(p);float d1=8.,d2=8.;
+  for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){
+    vec2 g=vec2(float(x),float(y));
+    vec2 o=.5+.5*sin(uTime*.25+TAU*h22(i+g+floor(uSeed)*.01));
+    float dd=length(g+o-f);
+    if(dd<d1){d2=d1;d1=dd;}else if(dd<d2)d2=dd;
+  }
+  return clamp((d2-d1)*3.,0.,1.);
+}
+float apollonian(vec2 p){
+  vec2 q=p;
+  for(int i=0;i<7;i++)q=abs(q)/max(dot(q,q),.0001)-1.;
+  return abs(sin(length(q)*3.+uTime*.4));
+}
+float hyperbolicT(vec2 p,float sym){
+  if(dot(p,p)>.96)return .5+.5*sin(uTime*.5);
+  vec2 q=p;
+  for(int i=0;i<5;i++){
+    float a=TAU/sym*float(i);
+    vec2 c=vec2(cos(a),sin(a))*.58;
+    vec2 d=q-c;q=q-2./max(dot(d,d),.001)*d*.18;
+  }
+  return abs(sin(length(q)*sym+uTime*.2));
+}
+float islamicStar(vec2 p,float n){
+  float best=9.;
+  for(int k=0;k<12;k++){
+    float f=float(k);if(f>=n)break;
+    float a=TAU*f/n+uTime*.08;
+    vec2 d=vec2(cos(a),sin(a));
+    best=min(best,abs(dot(p,d)-floor(dot(p,d)+.5)));
+  }
+  return clamp(best*3.,0.,1.);
+}
+float celticKnot(vec2 p){
+  vec2 q=p;float d=0.;
+  for(int i=0;i<4;i++){q=abs(q)-1.;q*=rot(PI*.25+uTime*.04);d+=sin(length(q)*4.+uTime*.2)*.25;}
+  return clamp(abs(d)+.1,0.,1.);
+}
+float hilbert(vec2 p){
+  vec2 q=p;float v=0.;
+  for(int i=0;i<6;i++){
+    float f=float(i);q*=rot(f*PI/3.+uTime*.025);
+    v+=sin(q.x*exp2(f)*.5+uTime*.15)*sin(q.y*exp2(f)*.5+uTime*.19);
+    q=fract(q*2.)-.5;
+  }
+  return clamp(abs(v)*.3+.35,0.,1.);
+}
+float reactionDiff(vec2 p){
+  float u=fbm(p+vec2(uTime*.09,0.));
+  float v=fbm(p*1.7+vec2(0.,uTime*.11)+floor(uSeed)*.01);
+  return abs(sin(u*8.-v*12.+uTime*.5));
+}
+float gearLattice(vec2 p,float n){
+  vec2 cell=floor(p),f=fract(p)-.5;
+  float phase=h21(cell+floor(uSeed)*.01)*TAU+(h21(cell*1.3+floor(uSeed)*.01)*2.-1.)*uTime*2.;
+  float r=length(f),a=atan(f.y,f.x)+phase;
+  float teeth=abs(sin(a*n*.5));
+  float ring=smoothstep(.41,.39,r)-smoothstep(.26,.24,r);
+  return clamp(ring+smoothstep(.36,.43,r+teeth*.1)*.5,0.,1.);
+}
+float mughal(vec2 p,float n){
+  float r=length(p),a=atan(p.y,p.x);
+  float petals=abs(cos(a*n+uTime*.12))*.5+.5;
+  float rings=abs(sin(r*8.-uTime*2.));
+  return clamp((petals*rings+abs(cos(a*n*2.+uTime*1.3))*.3)*.7,0.,1.);
+}
+float korean(vec2 p){
+  float v=0.;
+  for(int i=0;i<6;i++){
+    float f=float(i);
+    vec2 c=vec2(cos(TAU*f/6.),sin(TAU*f/6.))*.5;
+    float r=length(p-c);
+    v+=abs(sin(r*6.-uTime+f*1.1))*exp(-r*2.);
+  }
+  return clamp(v*.5,0.,1.);
+}
+float chineseWin(vec2 p){
+  vec2 q=fract(p)-.5;
+  float d=abs(q.x)+abs(q.y);
+  float cr=min(abs(q.x),abs(q.y));
+  float dg=min(abs(q.x-q.y),abs(q.x+q.y))*.707;
+  float ci=abs(length(q)-.3);
+  return abs(sin((d+cr*2.+dg+ci)*12.+uTime*2.));
+}
+float hdProj(vec2 p,float dim){
+  vec3 q=vec3(p,sin(uTime*.4));float v=0.;
+  for(int i=0;i<12;i++){
+    float f=float(i);if(f>=dim)break;
+    float a1=TAU*f/dim+uTime*.07,a2=TAU*f/dim*PHI+uTime*.05;
+    v+=abs(sin(dot(q,vec3(cos(a1),sin(a1),cos(a2)))*4.+uTime+f*.7));
+  }
+  return clamp(v/max(dim,1.),0.,1.);
+}
+float fractalSub(vec2 p){
+  vec2 q=p;float v=0.;
+  for(int i=0;i<7;i++){
+    q=abs(q);q*=rot(PI/float(i+2)+uTime*.012);
+    q=fract(q*1.5+.5)*2.-1.;v+=length(q)*pow(.7,float(i));
+  }
+  return abs(sin(v*3.+uTime));
+}
+float waveInt(vec2 p){
+  float v=0.;
+  for(int i=0;i<7;i++){float f=float(i);float a=TAU*f/7.+uTime*.04;v+=sin(dot(p,vec2(cos(a),sin(a)))*(3.+f*1.2)-uTime*(1.5+f*.35));}
+  return abs(v)/7.;
+}
+float cellAuto(vec2 p){
+  vec2 i=floor(p);float v=0.;
+  for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){
+    vec2 g=i+vec2(float(x),float(y));
+    float alive=step(.5,h21(g+floor(uSeed)*.01+floor(uTime*1.3)*.17));
+    v+=alive*exp(-float(x*x+y*y)*2.);
+  }
+  return fract(v*.7+uTime*.2);
+}
+
+float getTile(vec2 p,float type){
+  p*=uScale*1.8;
+  float t=mod(type,18.);
+  if(t<1.) return penrose(p);
+  if(t<2.) return ammann(p);
+  if(t<3.) return voronoiD(p);
+  if(t<4.) return voronoiE(p);
+  if(t<5.) return apollonian(p*.5);
+  if(t<6.) return hyperbolicT(p*.7,uSym);
+  if(t<7.) return islamicStar(p,uSym);
+  if(t<8.) return celticKnot(p);
+  if(t<9.) return hilbert(p*.7);
+  if(t<10.)return reactionDiff(p*.8);
+  if(t<11.)return gearLattice(p*1.3,uSym);
+  if(t<12.)return mughal(p*.8,uSym);
+  if(t<13.)return korean(p);
+  if(t<14.)return chineseWin(p*1.2);
+  if(t<15.)return hdProj(p*.6,uSym);
+  if(t<16.)return fractalSub(p*.5);
+  if(t<17.)return waveInt(p*1.2);
+  return cellAuto(p*1.5);
+}
+
+// ── physics ──────────────────────────────────────────────────────────────────
+float gyro(vec2 p){
+  float r=length(p),a=atan(p.y,p.x);
+  return abs(sin(a*3.+r*5.-uTime*4.)*cos(r*8.+uTime*2.5));
+}
+float vortexF(vec2 p,float n){
+  float v=0.;
+  for(int i=0;i<8;i++){
+    float f=float(i);if(f>=n)break;
+    vec2 c=vec2(cos(TAU*f/n+uTime*.2),sin(TAU*f/n+uTime*.15))*.6;
+    vec2 d=p-c;float r=length(d);
+    float th=atan(d.y,d.x)+uTime*(1.+f*.1);
+    v+=sin(th*3.+r*8.-uTime*(2.+f*.3))*exp(-r*3.);
+  }
+  return abs(v);
+}
+float springMass(vec2 p){
+  float v=0.;
+  for(int i=0;i<6;i++){
+    float f=float(i);
+    vec2 c=vec2(cos(TAU*f/6.+uTime*.3),sin(TAU*f/6.+uTime*.3))*.5;
+    float osc=sin(uTime*(1.+f*.4)+f*1.1)*.15;
+    v+=exp(-length(p-c-osc)*8.);
+  }
+  return clamp(v,0.,1.);
+}
+float linkage(vec2 p){
+  float a1=sin(uTime*1.1)*1.2,a2=cos(uTime*.75+1.3)*.9;
+  vec2 j1=vec2(cos(a1),sin(a1))*.4;
+  vec2 j2=j1+vec2(cos(a1+a2),sin(a1+a2))*.35;
+  float d=min(length(p),min(length(p-j1),length(p-j2)));
+  d=min(d,abs(length(p)-.4));
+  d=min(d,abs(length(p-j1)-.35));
+  return smoothstep(.07,.01,d);
+}
+float stewart(vec2 p){
+  float v=0.;
+  for(int i=0;i<6;i++){
+    float f=float(i),a=TAU*f/6.;
+    float len=.5+sin(uTime+f)*.15;
+    vec2 top=vec2(cos(a+uTime*.2),sin(a+uTime*.2))*.3;
+    vec2 bot=vec2(cos(a),sin(a))*.5;
+    vec2 dir=top-bot;
+    float proj=clamp(dot(p-bot,dir)/max(dot(dir,dir),.0001),0.,1.);
+    v+=exp(-length(p-bot-dir*proj)*20.*len);
+  }
+  return clamp(v*.3,0.,1.);
+}
+
+float getPhys(vec2 p,float type){
+  p*=uScale*1.5;
+  float t=mod(type,12.);
+  if(t<1.) return gyro(p);
+  if(t<2.) return stewart(p);
+  if(t<3.) return vortexF(p,uSym);
+  if(t<4.) return springMass(p);
+  if(t<5.) return waveInt(p*1.3);
+  if(t<6.) return linkage(p);
+  if(t<7.) return reactionDiff(p);
+  if(t<8.) return gearLattice(p*1.1,uSym);
+  if(t<9.) return apollonian(p*.4);
+  if(t<10.)return hilbert(p*.8);
+  if(t<11.)return voronoiD(p*.9);
+  return clamp(fbm(p+uTime*.1),0.,1.);
+}
+
+// ── palette ──────────────────────────────────────────────────────────────────
+vec3 pal(float t,float id){
+  t=fract(t);
+  float p=floor(mod(id,15.));
+  vec3 a,b,c,d;
+  if(p<1.) {a=vec3(.5,.4,.2);b=vec3(.5,.4,.3);c=vec3(1.,1.,.5);d=vec3(0.,.25,.6);}
+  else if(p<2.){a=vec3(.4,.5,.6);b=vec3(.5,.4,.5);c=vec3(1.,1.,1.);d=vec3(0.,.33,.67);}
+  else if(p<3.){a=vec3(.5,.2,.1);b=vec3(.5,.4,.2);c=vec3(2.,1.5,1.);d=vec3(.5,.2,.25);}
+  else if(p<4.){a=vec3(.1,.4,.5);b=vec3(.3,.5,.4);c=vec3(1.5,1.,1.5);d=vec3(.2,.5,.7);}
+  else if(p<5.){a=vec3(.2,.1,.4);b=vec3(.4,.3,.5);c=vec3(1.,1.5,2.);d=vec3(.3,.1,.8);}
+  else if(p<6.){a=vec3(.5,.5,.5);b=vec3(.5,.5,.5);c=vec3(1.,.7,.4);d=vec3(0.,.15,.2);}
+  else if(p<7.){a=vec3(.3,.5,.6);b=vec3(.3,.3,.4);c=vec3(.8,1.,1.2);d=vec3(.5,.6,.7);}
+  else if(p<8.){a=vec3(.4,.3,.1);b=vec3(.5,.4,.2);c=vec3(1.5,1.,.5);d=vec3(0.,.1,.4);}
+  else if(p<9.){a=vec3(.05,.2,.35);b=vec3(.2,.3,.4);c=vec3(.8,1.2,1.5);d=vec3(.1,.3,.6);}
+  else if(p<10.){a=vec3(.5,.5,.5);b=vec3(.5,.5,.5);c=vec3(1.,1.,1.);d=vec3(0.,.33,.67);}
+  else if(p<11.){a=vec3(.1,.5,.1);b=vec3(.3,.5,.1);c=vec3(2.,1.5,.5);d=vec3(0.,.2,.5);}
+  else if(p<12.){a=vec3(.5,.3,.3);b=vec3(.5,.4,.4);c=vec3(1.,.8,.6);d=vec3(.3,.2,.1);}
+  else if(p<13.){a=vec3(.3,.1,.5);b=vec3(.4,.2,.5);c=vec3(1.5,.5,2.);d=vec3(.5,0.,.5);}
+  else if(p<14.){a=vec3(.1,.2,.4);b=vec3(.2,.3,.5);c=vec3(.8,1.,1.5);d=vec3(.1,.2,.4);}
+  else{
+    a=vec3(h11(uSeed),h11(uSeed+1.),h11(uSeed+2.))*.5+.2;
+    b=vec3(h11(uSeed+3.),h11(uSeed+4.),h11(uSeed+5.))*.4;
+    c=vec3(h11(uSeed+6.),h11(uSeed+7.),h11(uSeed+8.))*1.5+.5;
+    d=vec3(h11(uSeed+9.),h11(uSeed+10.),h11(uSeed+11.));
+  }
+  return a+b*cos(TAU*(c*t+d));
+}
+
+void main(){
+  vec2 uv=(gl_FragCoord.xy-uRes*.5)/min(uRes.x,uRes.y);
+
+  // global transform
+  uv*=rot(uTime*.022+sin(uTime*.07)*.35);
+  uv*=1.+.03*sin(uTime*.19);
+
+  // turbulence warp
+  vec2 wp=uv+vec2(fbm(uv*2.+vec2(uTime*.11,0.)+uSeed*.01)-.5,
+                  fbm(uv*2.+vec2(0.,uTime*.09)+uSeed*.01+7.3)-.5)*uTurb*.18;
+
+  // vortex warp
+  float vr=length(wp),va=atan(wp.y,wp.x);
+  wp+=vec2(-sin(va),cos(va))*uTurb*.1*sin(vr*6.-uTime*1.3)*exp(-vr*1.2);
+
+  // patterns
+  float tile =getTile(wp,uTileType);
+  float tile2=getTile(wp*rot(.7+uTime*.008),mod(uTileType+5.,18.));
+  float mixed=mix(tile,tile2,uHybrid);
+  float phys =getPhys(wp,uPhysType);
+
+  float val=clamp(mixed*.65+phys*.35,0.,1.);
+  val=pow(val,.72);
+
+  // radial energy
+  float er=1.-smoothstep(0.,1.35,length(uv));
+  val*=.32+.68*er;
+
+  // edge glow via offset sample (no dFdx)
+  float ep=.008;
+  float tE=getTile(wp+vec2(ep,0.),uTileType);
+  float edge=clamp(abs(tile-tE)*35.,0.,1.);
+
+  // colour
+  float ct=val*.7+uTime*.032+length(uv)*.18;
+  vec3 col=pal(ct,uPal);
+  vec3 ecol=pal(ct+.5,uPal);
+  col=mix(col*.75,ecol*1.85,edge*.55);
+  col+=pal(val*.5+uTime*.045,uPal+2.)*edge*.6;
+
+  // vignette
+  col*=er*er*1.2+.07;
+
+  // gamma
+  col=pow(max(col,vec3(0.)),vec3(.45));
+  gl_FragColor=vec4(clamp(col,0.,1.),1.);
+}
+`;
+
+function compileShader(type,src){
+  const s=gl.createShader(type);
+  gl.shaderSource(s,src);gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))
+    throw new Error((type===gl.VERTEX_SHADER?'VS':'FS')+': '+gl.getShaderInfoLog(s));
+  return s;
+}
+function initGL(){
+  gl=canvas.getContext('webgl',{antialias:false,powerPreference:'high-performance'})
+    ||canvas.getContext('experimental-webgl');
+  if(!gl){showErr('WebGL not supported.');return false;}
+  try{
+    const vs=compileShader(gl.VERTEX_SHADER,VS);
+    const fs=compileShader(gl.FRAGMENT_SHADER,FS);
+    prog=gl.createProgram();
+    gl.attachShader(prog,vs);gl.attachShader(prog,fs);gl.linkProgram(prog);
+    if(!gl.getProgramParameter(prog,gl.LINK_STATUS))
+      throw new Error('Link: '+gl.getProgramInfoLog(prog));
+  }catch(e){showErr(e.message);return false;}
+  gl.useProgram(prog);
+  aBuf=gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER,aBuf);
+  gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+  const a=gl.getAttribLocation(prog,'a');
+  gl.enableVertexAttribArray(a);
+  gl.vertexAttribPointer(a,2,gl.FLOAT,false,0,0);
+  ['uRes','uTime','uSeed','uPal','uTileType','uPhysType','uSym','uScale','uTurb','uHybrid']
+    .forEach(n=>{uLoc[n]=gl.getUniformLocation(prog,n);});
+  return true;
+}
+
+function resize(){
+  W=canvas.width=window.innerWidth;
+  H=canvas.height=window.innerHeight;
+  if(gl)gl.viewport(0,0,W,H);
+}
+function showErr(m){errEl.style.display='block';errEl.textContent=m;}
+
+function frame(now){
+  requestAnimationFrame(frame);
+  if(!gl||!prog)return;
+  const dt=now-(frame._p||now);frame._p=now;
+  fpsA+=1000/Math.max(dt,1);fpsN++;
+  if(now-fpsLast>600){lastFPS=fpsA/fpsN|0;fpsA=fpsN=0;fpsLast=now;}
+  const t=(now-t0)*.001;
+  gl.useProgram(prog);
+  gl.uniform2f(uLoc.uRes,W,H);
+  gl.uniform1f(uLoc.uTime,t);
+  gl.uniform1f(uLoc.uSeed,seed);
+  gl.uniform1f(uLoc.uPal,params.palType);
+  gl.uniform1f(uLoc.uTileType,params.tileType);
+  gl.uniform1f(uLoc.uPhysType,params.physType);
+  gl.uniform1f(uLoc.uSym,params.symOrder);
+  gl.uniform1f(uLoc.uScale,params.latticeK);
+  gl.uniform1f(uLoc.uTurb,params.turbulence);
+  gl.uniform1f(uLoc.uHybrid,params.hybridMix);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+  if(hudOn)updateHUD(t);
+  if(soundOn&&audioCtx)updateSound(t);
+}
+
+const TNAMES=['Penrose','Ammann–Beenker','Voronoi','Delaunay','Apollonian','Hyperbolic','Islamic Star','Celtic Knot','Hilbert','React-Diff','Gear Lattice','Mughal','Korean','Chinese Win','HD Proj','Fractal','Wave','Cellular'];
+const PNAMES=['Gyroscope','Stewart','Vortex','Spring-Mass','Wave','Linkage','React-Diff','Gear','Apollonian','Hilbert','Voronoi','FBM'];
+const CNAMES=['Sacred Gold','Cyan-Mag','Fire','Biolum','Jewel','Iridescent','Nordic Ice','Alchemical','Deep Ocean','Prismatic','Radioactive','Rose Gold','Ultraviolet','Blueprint','Random'];
+function updateHUD(t){
+  hudEl.innerHTML='<b>HYPERMECHANICAL GEOMETRY REACTOR</b><br>'
+    +'FPS: '+lastFPS+' &nbsp; T: '+t.toFixed(1)+'s &nbsp; SEED: '+seed+'<br>'
+    +'TILE: '+TNAMES[params.tileType%18]+'<br>'
+    +'PHYSICS: '+PNAMES[params.physType%12]+'<br>'
+    +'PALETTE: '+CNAMES[Math.min(params.palType,14)]+'<br>'
+    +'SYM: '+params.symOrder+' SCALE: '+params.latticeK.toFixed(2)+'<br>'
+    +'TURB: '+params.turbulence.toFixed(2)+' HYBRID: '+params.hybridMix.toFixed(2)+'<br>'
+    +'SOUND: '+(soundOn?'ON':'OFF');
+}
+
+function initAudio(){
+  if(audioCtx)return;
+  try{
+    audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+    gainNode=audioCtx.createGain();gainNode.gain.value=0;gainNode.connect(audioCtx.destination);
+    [55,110,165,220,330,440].forEach(f=>{
+      const o=audioCtx.createOscillator(),g=audioCtx.createGain();
+      o.type='sine';o.frequency.value=f*(0.98+Math.random()*.04);
+      g.gain.value=0.07/6;o.connect(g);g.connect(gainNode);o.start();
+      oscList.push({o,g});
+    });
+  }catch(e){}
+}
+let lastST=0;
+function updateSound(t){
+  if(!audioCtx||t-lastST<0.08)return;
+  lastST=t;if(audioCtx.state==='suspended')audioCtx.resume();
+  const bases=[55,110,165,220,330,440];
+  oscList.forEach(({o,g},i)=>{
+    o.frequency.setTargetAtTime(bases[i]*(1+.02*Math.sin(t*(.3+i*.11)+i))*(params.waveFreq*.18+.9),audioCtx.currentTime,.6);
+    g.gain.setTargetAtTime((.05+.03*Math.sin(t*(.5+i*.2)))/6,audioCtx.currentTime,.4);
+  });
+}
+function toggleSound(){
+  soundOn=!soundOn;
+  if(soundOn){initAudio();if(audioCtx&&audioCtx.state==='suspended')audioCtx.resume();if(gainNode)gainNode.gain.setTargetAtTime(.2,audioCtx.currentTime,.3);}
+  else if(gainNode)gainNode.gain.setTargetAtTime(0,audioCtx.currentTime,.4);
+}
+
+window.addEventListener('resize',resize);
+window.addEventListener('keydown',e=>{
+  if(e.code==='Space'){e.preventDefault();newParams();}
+  if(e.code==='KeyH'){hudOn=!hudOn;hudEl.style.display=hudOn?'block':'none';}
+  if(e.code==='KeyS')toggleSound();
+});
+canvas.addEventListener('click',newParams);
+canvas.addEventListener('touchstart',e=>{e.preventDefault();newParams();},{passive:false});
+
+resize();newParams();
+if(initGL())requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

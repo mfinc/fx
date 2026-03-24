@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+
+<title>Hyperdimensional Post-Human Category Collapse | Infinity-Groupoid Generative Simulation</title>
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<meta name="description" content="Advanced generative audiovisual simulation of hyperdimensional post-human evolution. CRISPR mutation, neural augmentation, and category-theoretic infinity-groupoids collapse the boundaries between organism, machine, and mathematical structure. Fully randomized audiovisual universes regenerate interactively.">
+
+<meta name="keywords" content="
+generative art,
+hyperdimensional visualization,
+post human simulation,
+category theory visualization,
+infinity groupoid,
+transhuman art,
+CRISPR mutation simulation,
+cybernetic evolution art,
+procedural audiovisual engine,
+generative geometry,
+mathematical visualization,
+topological art,
+algorithmic sound synthesis,
+interactive generative simulation
+">
+
+<style>
+
+html,body{
+margin:0;
+padding:0;
+background:black;
+overflow:hidden;
+font-family:monospace;
+}
+
+canvas{
+display:block;
+}
+
+#hud{
+position:fixed;
+top:12px;
+left:12px;
+color:#00ffff;
+font-size:12px;
+background:rgba(0,0,0,0.35);
+padding:10px;
+border-radius:6px;
+display:none;
+}
+
+</style>
+</head>
+
+<body>
+
+<canvas id="canvas"></canvas>
+
+<div id="hud">
+<b>Hyperdimensional Post-Human Category Collapse</b><br>
+SPACE / CLICK / TAP → Regenerate Universe<br>
+H → Toggle HUD<br>
+S → Toggle Sound
+</div>
+
+<script>
+
+const canvas=document.getElementById("canvas")
+const ctx=canvas.getContext("2d")
+
+let W,H
+
+function resize(){
+W=canvas.width=window.innerWidth
+H=canvas.height=window.innerHeight
+}
+
+window.addEventListener("resize",resize)
+resize()
+
+function rand(a=1,b=0){
+return Math.random()*(a-b)+b
+}
+
+let params
+let particles=[]
+
+function regenerate(){
+
+params={
+
+particleCount:Math.floor(rand(800,2000)),
+layers:Math.floor(rand(2,6)),
+speed:rand(0.1,1.2),
+symmetry:Math.floor(rand(3,14)),
+warp:rand(0.4,3.2),
+fieldScale:rand(0.0005,0.003),
+rotation:rand(-0.01,0.01),
+noiseStrength:rand(0.2,2),
+trailAlpha:rand(0.03,0.12)
+
+}
+
+particles=[]
+
+for(let i=0;i<params.particleCount;i++){
+
+particles.push({
+
+x:rand(W),
+y:rand(H),
+
+vx:rand(-1,1),
+vy:rand(-1,1),
+
+phase:rand(Math.PI*2),
+spin:rand(-0.1,0.1),
+
+size:rand(0.4,2.5),
+
+hue:Math.random()*360,
+sat:rand(60,100),
+light:rand(40,70)
+
+})
+
+}
+
+initSound()
+
+}
+
+function vectorField(x,y,t){
+
+let s=params.fieldScale
+
+let nx=Math.sin(y*s*params.warp+t*0.2)
+let ny=Math.cos(x*s*params.warp-t*0.15)
+
+nx+=Math.sin((x+y)*s*params.noiseStrength)
+ny+=Math.cos((x-y)*s*params.noiseStrength)
+
+return {x:nx,y:ny}
+
+}
+
+let time=0
+
+function update(){
+
+time+=0.01
+
+ctx.fillStyle=`rgba(0,0,0,${params.trailAlpha})`
+ctx.fillRect(0,0,W,H)
+
+ctx.save()
+ctx.translate(W/2,H/2)
+ctx.rotate(time*params.rotation)
+
+let totalEnergy=0
+
+for(let p of particles){
+
+let field=vectorField(p.x,p.y,time)
+
+p.vx+=field.x*0.02
+p.vy+=field.y*0.02
+
+p.x+=p.vx*params.speed
+p.y+=p.vy*params.speed
+
+let dx=p.x-W/2
+let dy=p.y-H/2
+
+let r=Math.sqrt(dx*dx+dy*dy)
+
+let theta=Math.atan2(dy,dx)
+
+theta+=Math.sin(r*0.01+p.phase)*params.warp
+
+let px=Math.cos(theta)*r
+let py=Math.sin(theta)*r
+
+for(let k=0;k<params.symmetry;k++){
+
+let a=(Math.PI*2/params.symmetry)*k
+
+let rx=px*Math.cos(a)-py*Math.sin(a)
+let ry=px*Math.sin(a)+py*Math.cos(a)
+
+ctx.fillStyle=`hsl(${p.hue},${p.sat}%,${p.light}%)`
+
+ctx.beginPath()
+ctx.arc(rx,ry,p.size,0,Math.PI*2)
+ctx.fill()
+
+}
+
+p.phase+=0.02
+
+totalEnergy+=Math.abs(p.vx)+Math.abs(p.vy)
+
+}
+
+ctx.restore()
+
+updateAudio(totalEnergy)
+
+requestAnimationFrame(update)
+
+}
+
+let audioCtx
+let osc1,osc2,filter,gain
+
+let soundOn=false
+
+function initSound(){
+
+if(!audioCtx)
+audioCtx=new (window.AudioContext||window.webkitAudioContext)()
+
+if(osc1) osc1.stop()
+if(osc2) osc2.stop()
+
+osc1=audioCtx.createOscillator()
+osc2=audioCtx.createOscillator()
+
+filter=audioCtx.createBiquadFilter()
+gain=audioCtx.createGain()
+
+osc1.type=["sine","triangle","sawtooth"][Math.floor(rand(3))]
+osc2.type=["sine","triangle","sawtooth"][Math.floor(rand(3))]
+
+osc1.frequency.value=rand(60,400)
+osc2.frequency.value=rand(40,200)
+
+filter.type="lowpass"
+filter.frequency.value=rand(500,3000)
+
+gain.gain.value=soundOn?0.2:0
+
+osc1.connect(filter)
+osc2.connect(filter)
+
+filter.connect(gain)
+gain.connect(audioCtx.destination)
+
+osc1.start()
+osc2.start()
+
+}
+
+function updateAudio(energy){
+
+if(!soundOn) return
+
+let e=energy/particles.length
+
+osc1.frequency.value=80+e*200
+osc2.frequency.value=40+e*120
+
+filter.frequency.value=500+e*4000
+
+}
+
+function toggleSound(){
+
+soundOn=!soundOn
+
+if(gain)
+gain.gain.value=soundOn?0.2:0
+
+}
+
+const hud=document.getElementById("hud")
+
+function toggleHUD(){
+hud.style.display=hud.style.display==="none"?"block":"none"
+}
+
+window.addEventListener("keydown",e=>{
+
+if(e.code==="Space") regenerate()
+
+if(e.key==="h"||e.key==="H") toggleHUD()
+
+if(e.key==="s"||e.key==="S") toggleSound()
+
+})
+
+window.addEventListener("click",regenerate)
+window.addEventListener("touchstart",regenerate)
+
+regenerate()
+update()
+
+</script>
+
+</body>
+</html>

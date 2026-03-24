@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Hyperbolic Fractal Bloom Reactor</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="description" content="Hyperbolic Fractal Bloom Reactor — a full-screen rotating kaleidoscopic fractal spectacle blending IFS, L-systems, Mandelbrot/Julia hybrids, Feigenbaum cascades, orthogonal polynomials, Gaussian fields, ray-marched implicit surfaces, and procedural audio synthesis.">
+<meta name="keywords" content="fractal, hyperbolic geometry, kaleidoscope, mandelbrot, julia, raymarching, GLSL, procedural audio, spectral synthesis, domain coloring, WebGL">
+<meta name="author" content="Hyperbolic Fractal Bloom Reactor">
+<meta property="og:title" content="Hyperbolic Fractal Bloom Reactor">
+<meta property="og:description" content="Interactive rotating kaleidoscopic fractal reactor with adaptive shaders and procedural sound engine.">
+<meta property="og:type" content="website">
+<style>
+html,body{
+  margin:0;
+  padding:0;
+  overflow:hidden;
+  background:black;
+  touch-action:manipulation;
+  font-family:monospace;
+}
+canvas{
+  display:block;
+}
+#hud{
+  position:fixed;
+  top:10px;
+  left:10px;
+  color:#00ffff;
+  font-size:12px;
+  background:rgba(0,0,0,0.4);
+  padding:6px 10px;
+  border:1px solid #00ffff;
+  display:none;
+  z-index:10;
+}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="hud"></div>
+
+<script>
+const canvas = document.getElementById("gl");
+const gl = canvas.getContext("webgl2",{antialias:false});
+if(!gl){ alert("WebGL2 required."); }
+
+let DPR = Math.min(window.devicePixelRatio || 1, 2);
+function resize(){
+  canvas.width = innerWidth * DPR;
+  canvas.height = innerHeight * DPR;
+  canvas.style.width = innerWidth+"px";
+  canvas.style.height = innerHeight+"px";
+  gl.viewport(0,0,canvas.width,canvas.height);
+}
+window.addEventListener("resize",resize);
+resize();
+
+const vert = `#version 300 es
+precision highp float;
+layout(location=0) in vec2 position;
+out vec2 vUV;
+void main(){
+  vUV = position*0.5+0.5;
+  gl_Position = vec4(position,0.0,1.0);
+}`;
+
+const frag = `#version 300 es
+precision highp float;
+out vec4 fragColor;
+in vec2 vUV;
+
+uniform vec2 uRes;
+uniform float uTime;
+uniform float uSeed;
+uniform float uSym;
+uniform float uDetail;
+
+float hash(float n){ return fract(sin(n)*43758.5453123); }
+
+mat2 rot(float a){
+  float c=cos(a), s=sin(a);
+  return mat2(c,-s,s,c);
+}
+
+vec2 hyperbolic(vec2 p){
+  float r = length(p);
+  p /= (1.0 + r*r);
+  return p;
+}
+
+vec2 elliptic(vec2 p){
+  float r = length(p);
+  p /= (1.0 - 0.5*r*r);
+  return p;
+}
+
+vec3 domainColor(vec2 z){
+  float a = atan(z.y,z.x);
+  float m = log(length(z)+1.0);
+  return 0.5 + 0.5*cos(vec3(0.0,2.0,4.0)+a+m*2.0);
+}
+
+float mandelJulia(vec2 c){
+  vec2 z = c;
+  vec2 k = vec2(sin(uSeed*2.1),cos(uSeed*1.7))*0.4;
+  float iter = 0.0;
+  for(int i=0;i<200;i++){
+    if(float(i)>uDetail) break;
+    z = vec2(z.x*z.x - z.y*z.y,2.0*z.x*z.y)+k;
+    if(dot(z,z)>4.0) break;
+    iter++;
+  }
+  return iter/uDetail;
+}
+
+float chebyshev(float x){ return cos(acos(x)*3.0); }
+float legendre(float x){ return 0.5*(3.0*x*x-1.0); }
+
+float gaussian(vec2 p){
+  return exp(-dot(p,p)*4.0);
+}
+
+float sdf(vec3 p){
+  float r = length(p)-1.0;
+  float s = sin(p.x*3.0+uTime)+sin(p.y*3.0);
+  return r + s*0.1;
+}
+
+float raymarch(vec3 ro, vec3 rd){
+  float t=0.0;
+  for(int i=0;i<64;i++){
+    if(float(i)>uDetail) break;
+    vec3 p = ro + rd*t;
+    float d = sdf(p);
+    if(d<0.001) return t;
+    t += d;
+  }
+  return -1.0;
+}
+
+void main(){
+  vec2 uv = (vUV*2.0-1.0);
+  uv.x *= uRes.x/uRes.y;
+
+  float angle = uTime*0.2;
+  uv *= rot(angle);
+
+  float seg = 3.14159/uSym;
+  float a = atan(uv.y,uv.x);
+  float r = length(uv);
+  a = abs(mod(a,seg*2.0)-seg);
+  uv = vec2(cos(a),sin(a))*r;
+
+  if(hash(uSeed)>0.5) uv = hyperbolic(uv);
+  else uv = elliptic(uv);
+
+  float m = mandelJulia(uv*1.5);
+
+  float poly = chebyshev(uv.x)+legendre(uv.y);
+  float g = gaussian(uv);
+
+  vec3 ro = vec3(0.0,0.0,-3.0);
+  vec3 rd = normalize(vec3(uv,1.5));
+  float t = raymarch(ro,rd);
+  float shape = t>0.0?exp(-t*0.2):0.0;
+
+  vec3 col = domainColor(uv*(1.0+m*2.0));
+  col *= 0.6+0.4*sin(poly*3.0+uTime);
+  col += g*0.5;
+  col += shape*vec3(1.0,0.6,0.2);
+
+  col = pow(col,vec3(0.8));
+  fragColor = vec4(col,1.0);
+}`;
+
+function compile(type,src){
+  const s = gl.createShader(type);
+  gl.shaderSource(s,src);
+  gl.compileShader(s);
+  return s;
+}
+const program = gl.createProgram();
+gl.attachShader(program,compile(gl.VERTEX_SHADER,vert));
+gl.attachShader(program,compile(gl.FRAGMENT_SHADER,frag));
+gl.linkProgram(program);
+gl.useProgram(program);
+
+const quad = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,quad);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([
+ -1,-1,1,-1,-1,1,1,1
+]),gl.STATIC_DRAW);
+gl.enableVertexAttribArray(0);
+gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
+
+const uRes = gl.getUniformLocation(program,"uRes");
+const uTime = gl.getUniformLocation(program,"uTime");
+const uSeed = gl.getUniformLocation(program,"uSeed");
+const uSym = gl.getUniformLocation(program,"uSym");
+const uDetail = gl.getUniformLocation(program,"uDetail");
+
+let seed = Math.random()*1000;
+let sym = 3+Math.floor(Math.random()*8);
+let detail = 120;
+
+function randomize(){
+  seed = Math.random()*1000;
+  sym = 3+Math.floor(Math.random()*10);
+  detail = 80 + Math.random()*120;
+}
+canvas.addEventListener("click",randomize);
+window.addEventListener("keydown",e=>{
+  if(e.code==="Space") randomize();
+  if(e.key==="h"||e.key==="H"){
+    const hud=document.getElementById("hud");
+    hud.style.display = hud.style.display==="none"?"block":"none";
+  }
+  if(e.key==="s"||e.key==="S") toggleAudio();
+});
+
+let start = performance.now();
+function render(){
+  let t = (performance.now()-start)/1000;
+  gl.uniform2f(uRes,canvas.width,canvas.height);
+  gl.uniform1f(uTime,t);
+  gl.uniform1f(uSeed,seed);
+  gl.uniform1f(uSym,sym);
+  gl.uniform1f(uDetail,detail);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+  requestAnimationFrame(render);
+}
+render();
+
+/* ================= AUDIO ENGINE ================= */
+let audioCtx=null, master=null, analyser=null;
+function toggleAudio(){
+  if(!audioCtx){
+    audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+    master = audioCtx.createGain();
+    master.gain.value=0.3;
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize=2048;
+    master.connect(analyser);
+    analyser.connect(audioCtx.destination);
+
+    const osc = audioCtx.createOscillator();
+    const mod = audioCtx.createOscillator();
+    const modGain = audioCtx.createGain();
+    osc.type="sine";
+    mod.type="triangle";
+    mod.frequency.value=seed%200+50;
+    modGain.gain.value=50;
+    mod.connect(modGain);
+    modGain.connect(osc.frequency);
+
+    const filter = audioCtx.createBiquadFilter();
+    filter.type="lowpass";
+    filter.frequency.value=800;
+
+    osc.connect(filter);
+    filter.connect(master);
+
+    osc.start();
+    mod.start();
+  }else{
+    audioCtx.close();
+    audioCtx=null;
+  }
+}
+
+/* ================= HUD ================= */
+const hud=document.getElementById("hud");
+function updateHUD(){
+  hud.innerHTML=
+  "Hyperbolic Fractal Bloom Reactor<br>"+
+  "SPACE / Click: Randomize<br>"+
+  "S: Toggle Audio<br>"+
+  "H: Toggle HUD<br>"+
+  "Symmetry: "+sym+"<br>"+
+  "Detail: "+detail.toFixed(0);
+  requestAnimationFrame(updateHUD);
+}
+updateHUD();
+</script>
+</body>
+</html>

@@ -1,0 +1,1343 @@
+<!DOCTYPE html>
+<html lang="en" prefix="og: https://ogp.me/ns#">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Hyperdimensional Coxeter Crystal - E8 Quasicellular Resonance</title>
+<meta name="description" content="Interactive E8 Lie group root lattice visualization with Coxeter symmetry groups, Penrose tiling, quasicrystal formations, Fibonacci spirals, and procedural microtonal synthesis. Browser-based mathematical crystallography art.">
+<meta name="keywords" content="E8 visualization, Coxeter groups, quasicrystal animation, Penrose tiling, Fibonacci spirals, procedural ambient music, microtonal synthesis, mathematical crystallography, generative geometry, browser-based synthesizer, sonification art, hyperspace projection, Ammann-Beenker tiling, Hodge dual, icosahedral symmetry, quaternion rotation">
+<meta name="author" content="Hyperdimensional Geometry Lab">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="https://example.com/e8-coxeter-crystal">
+<link rel="alternate" hreflang="en" href="https://example.com/e8-coxeter-crystal">
+<link rel="alternate" hreflang="x-default" href="https://example.com/e8-coxeter-crystal">
+<meta property="og:title" content="Hyperdimensional Coxeter Crystal - E8 Quasicellular Resonance">
+<meta property="og:description" content="E8 root lattice quasicrystal visualizer with kaleidoscopic Coxeter symmetry and microtonal synthesis">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://example.com/e8-coxeter-crystal">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Hyperdimensional Coxeter Crystal - E8 Quasicellular Resonance">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "CreativeWork",
+  "name": "Hyperdimensional Coxeter Crystal - E8 Quasicellular Resonance",
+  "description": "Interactive E8 Lie group root lattice visualization with Coxeter symmetry groups, Penrose tiling, Fibonacci spirals, and procedural microtonal synthesis",
+  "creator": {"@type": "Organization", "name": "Hyperdimensional Geometry Lab"},
+  "keywords": "E8 visualization, Coxeter groups, quasicrystal animation, Penrose tiling, Fibonacci spirals, procedural ambient music, microtonal synthesis, mathematical crystallography",
+  "genre": "Mathematical Art, Generative Geometry",
+  "license": "https://creativecommons.org/licenses/by/4.0/"
+}
+</script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Courier New',monospace}
+canvas{display:block;position:fixed;top:0;left:0;width:100%;height:100%}
+#hud{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;display:none;z-index:10}
+#hud-panel{position:absolute;top:16px;left:16px;background:rgba(0,0,0,0.72);border:1px solid rgba(0,255,180,0.35);border-radius:4px;padding:14px 18px;color:rgba(0,255,180,0.9);font-size:11px;line-height:1.8;letter-spacing:0.06em;backdrop-filter:blur(8px);max-width:340px}
+#hud-panel h2{font-size:12px;letter-spacing:0.2em;margin-bottom:8px;color:#fff;text-transform:uppercase}
+#hud-panel .row{display:flex;justify-content:space-between;gap:24px}
+#hud-panel .val{color:#fff;font-weight:bold}
+#controls{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,0.38);font-size:10px;letter-spacing:0.15em;pointer-events:none;text-align:center;z-index:10;white-space:nowrap}
+#controls span{margin:0 8px}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"><div id="hud-panel">
+<h2>⬡ E8 Coxeter Crystal HUD</h2>
+<div class="row"><span>Group</span><span class="val" id="h-group">—</span></div>
+<div class="row"><span>Mirrors</span><span class="val" id="h-mirrors">—</span></div>
+<div class="row"><span>Dimension</span><span class="val" id="h-dim">—</span></div>
+<div class="row"><span>Proj. Angle α</span><span class="val" id="h-alpha">—</span></div>
+<div class="row"><span>Proj. Angle β</span><span class="val" id="h-beta">—</span></div>
+<div class="row"><span>ISO Classes</span><span class="val" id="h-iso">—</span></div>
+<div class="row"><span>Particles</span><span class="val" id="h-particles">—</span></div>
+<div class="row"><span>Phyllotaxis ρ</span><span class="val" id="h-phyll">—</span></div>
+<div class="row"><span>L-System Depth</span><span class="val" id="h-lsys">—</span></div>
+<div class="row"><span>Spectral Centroid</span><span class="val" id="h-centroid">—</span></div>
+<div class="row"><span>FPS</span><span class="val" id="h-fps">—</span></div>
+<div class="row"><span>Audio</span><span class="val" id="h-audio">OFF</span></div>
+<div style="margin-top:10px;font-size:9px;opacity:0.5;line-height:1.6">Coxeter-Dynkin: <span id="h-dynkin">—</span></div>
+</div></div>
+<div id="controls">
+<span>SPACE/CLICK — Randomize</span>
+<span>H — Toggle HUD</span>
+<span>S — Toggle Audio</span>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════
+// CONSTANTS & MATH UTILS
+// ═══════════════════════════════════════════════════════
+const PHI = (1 + Math.sqrt(5)) / 2;
+const PHI2 = PHI * PHI;
+const TAU = Math.PI * 2;
+const DEG = Math.PI / 180;
+const SQRT2 = Math.sqrt(2);
+const SQRT3 = Math.sqrt(3);
+const SQRT5 = Math.sqrt(5);
+
+const rnd = (a=1,b=0) => Math.random()*(a-b)+b;
+const rndInt = (n) => Math.floor(Math.random()*n);
+const lerp = (a,b,t) => a+(b-a)*t;
+const clamp = (v,lo=0,hi=1) => Math.max(lo,Math.min(hi,v));
+const mod = (a,n) => ((a%n)+n)%n;
+const fib = [1,1,2,3,5,8,13,21,34,55,89,144,233,377,610,987];
+
+// Quaternion multiply
+function qMul(a,b){
+  return [
+    a[0]*b[0]-a[1]*b[1]-a[2]*b[2]-a[3]*b[3],
+    a[0]*b[1]+a[1]*b[0]+a[2]*b[3]-a[3]*b[2],
+    a[0]*b[2]-a[1]*b[3]+a[2]*b[0]+a[3]*b[1],
+    a[0]*b[3]+a[1]*b[2]-a[2]*b[1]+a[3]*b[0]
+  ];
+}
+function qRotate(v, q){
+  const p=[0,v[0],v[1],v[2]];
+  const qi=[q[0],-q[1],-q[2],-q[3]];
+  const r=qMul(qMul(q,p),qi);
+  return [r[1],r[2],r[3]];
+}
+function qFromAxisAngle(ax,ay,az,a){
+  const s=Math.sin(a/2);
+  return [Math.cos(a/2),ax*s,ay*s,az*s];
+}
+
+// CIELAB → sRGB (approximation)
+function lab2rgb(L,a,b){
+  let fy=(L+16)/116, fx=a/500+fy, fz=fy-b/200;
+  const d=6/29, d3=d*d*d, c=4/29;
+  fx=fx>d?fx*fx*fx:3*d*d*(fx-c);
+  fy=fy>d?fy*fy*fy:3*d*d*(fy-c);
+  fz=fz>d?fz*fz*fz:3*d*d*(fz-c);
+  // D65 illuminant
+  let X=fx*95.047, Y=fy*100.0, Z=fz*108.883;
+  X/=100; Y/=100; Z/=100;
+  let r= X*3.2406+Y*-1.5372+Z*-0.4986;
+  let g= X*-0.9689+Y*1.8758+Z*0.0415;
+  let bv= X*0.0557+Y*-0.2040+Z*1.0570;
+  const gamma=v=>v>0.0031308?1.055*Math.pow(v,1/2.4)-0.055:12.92*v;
+  r=clamp(gamma(r)); g=clamp(gamma(g)); bv=clamp(gamma(bv));
+  return [Math.round(r*255),Math.round(g*255),Math.round(bv*255)];
+}
+
+function lchToRgb(L,C,H){
+  const a=C*Math.cos(H*DEG), b=C*Math.sin(H*DEG);
+  return lab2rgb(L,a,b);
+}
+
+// ═══════════════════════════════════════════════════════
+// CANVAS SETUP
+// ═══════════════════════════════════════════════════════
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H, cx, cy, dpr;
+
+function resize(){
+  dpr = Math.min(window.devicePixelRatio||1, quality.dpr);
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = W*dpr; canvas.height = H*dpr;
+  canvas.style.width = W+'px'; canvas.style.height = H+'px';
+  ctx.scale(dpr,dpr);
+  cx = W/2; cy = H/2;
+}
+
+// ═══════════════════════════════════════════════════════
+// ADAPTIVE QUALITY
+// ═══════════════════════════════════════════════════════
+const quality = {
+  dpr: 1.5,
+  particleMax: 600,
+  voronoiN: 80,
+  penroseDepth: 4,
+  lsysDepth: 5,
+  level: 1.0 // 0..1
+};
+let frameTimes = [], frameTimeAvg = 16.7;
+function adaptQuality(dt){
+  frameTimes.push(dt);
+  if(frameTimes.length>30)frameTimes.shift();
+  frameTimeAvg = frameTimes.reduce((a,b)=>a+b,0)/frameTimes.length;
+  if(frameTimeAvg > 40 && quality.level > 0.3){
+    quality.level = Math.max(0.3, quality.level - 0.05);
+    quality.particleMax = Math.round(600*quality.level);
+    quality.voronoiN = Math.round(80*quality.level);
+    quality.dpr = Math.max(1, 1.5*quality.level);
+    resize();
+  } else if(frameTimeAvg < 20 && quality.level < 1.0){
+    quality.level = Math.min(1.0, quality.level + 0.01);
+    quality.particleMax = Math.round(600*quality.level);
+    quality.voronoiN = Math.round(80*quality.level);
+    quality.dpr = Math.min(Math.min(window.devicePixelRatio||1,1.5), 1.5*quality.level);
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════
+let state = {};
+let t = 0, lastTime = 0, fps = 60;
+
+function randomizeState(){
+  const groups = ['H3','H4','F4','E6','E7','E8','B4','D4'];
+  const group = groups[rndInt(groups.length)];
+  const mirrors = 12 + rndInt(37); // 12..48
+  const dims = [4,5,6,7,8];
+  const dim = dims[rndInt(dims.length)];
+  
+  // E8 projection angles
+  const alpha = rnd(TAU);
+  const beta = rnd(TAU);
+  const gamma = rnd(TAU);
+  
+  // Color
+  const hueBase = rnd(360);
+  const hueSpeed = rnd(0.3, 0.05) * (Math.random()<0.5?1:-1);
+  
+  // Phyllotaxis
+  const phyllDensity = rnd(1.8, 0.4);
+  const phyllCount = 180 + rndInt(320);
+  
+  // L-system
+  const axioms = ['F','X','F+F+F','FXF'];
+  const axiom = axioms[rndInt(axioms.length)];
+  const lDepth = 3 + rndInt(4);
+  const lAngle = (15 + rnd(60))*DEG;
+  const lLen = rnd(50, 20);
+  const lRules = generateLRules();
+  
+  // Quasicrystal
+  const qcSeed = rnd(100);
+  const qcScale = rnd(80, 25);
+  const qcAngle = rnd(TAU);
+  
+  // Particles
+  const particleCount = Math.min(quality.particleMax, 150 + rndInt(450));
+  
+  // Mirror angle
+  const kaleido = mirrors;
+  const kAngle = TAU / kaleido;
+  
+  // Rhythm
+  const rhythmDensity = rnd(1.5, 0.5);
+  
+  // ISO classes
+  const isoClasses = 3 + rndInt(12);
+  
+  // Coxeter Dynkin diagram representation
+  const dynkinDiagrams = {
+    'H3':'○—○=5=○','H4':'○—○—○=5=○','F4':'○—○=4=○—○',
+    'E6':'○—○—○—○—○\n       |\n       ○',
+    'E7':'○—○—○—○—○—○\n          |\n          ○',
+    'E8':'○—○—○—○—○—○—○\n             |\n             ○',
+    'B4':'○—○—○=4=○','D4':'○—○—○\n   |\n   ○'
+  };
+
+  const lsysPath = buildLSystem(axiom, lRules, lDepth);
+  const lsysPts = getLSystemPoints(lsysPath, lAngle, lLen, false);
+
+  state = {
+    group, mirrors, kaleido, kAngle, dim, alpha, beta, gamma,
+    hueBase, hueSpeed,
+    phyllDensity, phyllCount,
+    axiom, lDepth, lAngle, lLen, lRules,
+    qcSeed, qcScale, qcAngle,
+    particleCount, rhythmDensity, isoClasses,
+    dynkin: dynkinDiagrams[group]||'○—○—○',
+    colorWheel: rnd(360),
+    voronoiSeeds: null,
+    e8Roots: generateE8Projection(alpha,beta,gamma,dim),
+    penroseT: generatePenrose(5),
+    particles: initParticles(particleCount),
+    lsysPath, lsysPts,
+    time: 0,
+    spectralCentroid: 0,
+    // Quaternion rotation for 3D icosahedral projections
+    quatRot: [1,0,0,0],
+    quatSpin: qFromAxisAngle(
+      rnd(1,-0.5), rnd(1,-0.5), rnd(1,-0.5),
+      rnd(0.008,0.001)
+    )
+  };
+  state.voronoiSeeds = generateVoronoiSeeds(quality.voronoiN);
+  updateHUD();
+  // Reinit audio if on
+  if(audioOn && audioCtx) initAudio();
+}
+
+// ═══════════════════════════════════════════════════════
+// E8 ROOT SYSTEM PROJECTION
+// ═══════════════════════════════════════════════════════
+function generateE8Projection(alpha, beta, gamma, dim){
+  // Generate a subset of E8 roots projected to 2D
+  // E8 has 240 roots. We'll use a parametric approximation.
+  const roots = [];
+  const n = 240;
+  
+  // Generate high-dimensional vectors and project
+  for(let i=0;i<n;i++){
+    const th = i * PHI * TAU;
+    const ph = Math.acos(1 - 2*(i/n));
+    
+    // 8D vector using nested Hopf fibration idea
+    const v = [];
+    for(let d=0;d<8;d++){
+      const a = th*(d+1)*PHI + ph*(8-d);
+      v.push(Math.sin(a + alpha*d*0.1) * Math.cos(a*0.7 + beta*d*0.13));
+    }
+    
+    // Normalize to unit sphere in 8D
+    const mag = Math.sqrt(v.reduce((s,x)=>s+x*x,0));
+    const vn = v.map(x=>x/mag);
+    
+    // Project to 2D using two projection vectors
+    // proj vector 1: (cos(alpha), cos(beta), cos(gamma), sin(alpha), sin(beta), sin(gamma), cos(alpha+beta), sin(gamma+alpha))
+    const p1 = [
+      Math.cos(alpha), Math.cos(beta), Math.cos(gamma),
+      Math.sin(alpha), Math.sin(beta), Math.sin(gamma),
+      Math.cos(alpha+beta)*PHI, Math.sin(gamma+alpha)*PHI
+    ];
+    const p2 = [
+      Math.sin(alpha+1), Math.sin(beta+1), Math.sin(gamma+1),
+      Math.cos(alpha+1), Math.cos(beta+1), Math.cos(gamma+1),
+      Math.sin(alpha+beta+1)*PHI, Math.cos(gamma+alpha+1)*PHI
+    ];
+    
+    const m1=Math.sqrt(p1.reduce((s,x)=>s+x*x,0));
+    const m2=Math.sqrt(p2.reduce((s,x)=>s+x*x,0));
+    
+    let x=0,y=0;
+    for(let d=0;d<8;d++){
+      x += vn[d]*p1[d]/m1;
+      y += vn[d]*p2[d]/m2;
+    }
+    
+    roots.push({x, y, i, layer: rndInt(4)});
+  }
+  return roots;
+}
+
+// ═══════════════════════════════════════════════════════
+// PENROSE TILING via De Bruijn Grid (P3 - rhombus)
+// ═══════════════════════════════════════════════════════
+function generatePenrose(n){
+  // De Bruijn / Ammann-Beenker style: generate rhombus tiles via 5-grid
+  const tiles = [];
+  const angles = Array.from({length:n},(_,i)=>i*TAU/n);
+  
+  // Shifts for each family
+  const shifts = angles.map(()=>rnd(0.4));
+  
+  // Generate intersection tiles
+  for(let a=0;a<n-1;a++){
+    for(let b=a+1;b<n;b++){
+      const ca=Math.cos(angles[a]), sa=Math.sin(angles[a]);
+      const cb=Math.cos(angles[b]), sb=Math.sin(angles[b]);
+      const det = ca*sb - sa*cb;
+      if(Math.abs(det)<0.01) continue;
+      
+      for(let ia=-8;ia<=8;ia++){
+        for(let ib=-8;ib<=8;ib++){
+          // Intersection of lines ia and ib from families a and b
+          const ra = ia - shifts[a];
+          const rb = ib - shifts[b];
+          const x = (ra*sb - rb*sa)/det;
+          const y = (rb*ca - ra*cb)/det;
+          
+          if(Math.abs(x)>9||Math.abs(y)>9) continue;
+          
+          // Determine tile type by angle between families
+          const dAngle = mod(angles[b]-angles[a], TAU);
+          const isFat = dAngle < Math.PI/n || dAngle > Math.PI*(2-1/n);
+          
+          tiles.push({
+            x, y,
+            dAngle: angles[a],
+            fat: (b-a===1||b-a===n-1),
+            a, b
+          });
+        }
+      }
+    }
+  }
+  return tiles;
+}
+
+// ═══════════════════════════════════════════════════════
+// L-SYSTEM
+// ═══════════════════════════════════════════════════════
+function generateLRules(){
+  const chars = 'FGXYAB';
+  const rules = {};
+  // F rule
+  const fOpts = [
+    'F+F-F-F+F', 'FF', 'F[+F]F[-F]F', 'F[-F]F[+F][F]',
+    'F+[+F-F-F]-[-F+F+F]', 'F[+F][-F]FF'
+  ];
+  rules['F'] = fOpts[rndInt(fOpts.length)];
+  // X rule
+  const xOpts = ['F+[[X]-X]-F[-FX]+X','F-[[X]+X]+F[+FX]-X','F[+X][-X]FX'];
+  rules['X'] = xOpts[rndInt(xOpts.length)];
+  return rules;
+}
+
+function buildLSystem(axiom, rules, depth){
+  let s = axiom;
+  for(let i=0;i<depth;i++){
+    let ns='';
+    for(const c of s){
+      ns += rules[c]||c;
+    }
+    s = ns;
+    if(s.length > 50000) break; // safety
+  }
+  return s;
+}
+
+function getLSystemPoints(path, angle, len, stochastic=true){
+  const pts = [];
+  let x=0, y=0, a=0;
+  const stack=[];
+  const ang = angle * (stochastic ? rnd(1.15,0.85) : 1);
+  
+  for(const c of path){
+    switch(c){
+      case 'F': case 'G': case 'A': case 'B':{
+        const l = len*(stochastic?rnd(1.1,0.9):1);
+        const nx=x+Math.cos(a)*l, ny=y+Math.sin(a)*l;
+        pts.push([x,y,nx,ny]);
+        x=nx; y=ny;
+        break;
+      }
+      case '+': a+=ang; break;
+      case '-': a-=ang; break;
+      case '[': stack.push([x,y,a]); break;
+      case ']': [x,y,a]=stack.pop()||[0,0,0]; break;
+    }
+    if(pts.length>3000) break;
+  }
+  return pts;
+}
+
+// ═══════════════════════════════════════════════════════
+// PARTICLES
+// ═══════════════════════════════════════════════════════
+function initParticles(n){
+  return Array.from({length:n},(_,i)=>({
+    x: rnd(W)-W/2,
+    y: rnd(H)-H/2,
+    vx: rnd(1.5,-0.75),
+    vy: rnd(1.5,-0.75),
+    r: rnd(3,0.5),
+    life: rnd(TAU),
+    speed: rnd(0.8,0.2),
+    hue: rnd(360),
+    layer: rndInt(3),
+    phi: i*PHI*TAU, // golden angle index
+    q: [1,0,0,0] // quaternion
+  }));
+}
+
+// ═══════════════════════════════════════════════════════
+// VORONOI (simple Fortune-like approximation)
+// ═══════════════════════════════════════════════════════
+function generateVoronoiSeeds(n){
+  // Weight seeds by quasicrystal local isomorphism classes
+  const seeds = [];
+  for(let i=0;i<n;i++){
+    const phi = i*PHI*TAU;
+    const r = Math.sqrt(i/n)*0.9 + rnd(0.1);
+    const R = Math.min(W,H)*0.52*r;
+    seeds.push({
+      x: Math.cos(phi)*R,
+      y: Math.sin(phi)*R,
+      isoClass: rndInt(state?.isoClasses||8),
+      hue: rnd(360)
+    });
+  }
+  return seeds;
+}
+
+// ═══════════════════════════════════════════════════════
+// AUDIO ENGINE
+// ═══════════════════════════════════════════════════════
+let audioCtx = null, audioNodes = {}, audioOn = false;
+
+// Just intonation ratios for 5-limit lattice
+const JI_RATIOS = [1, 9/8, 5/4, 4/3, 3/2, 5/3, 15/8, 2,
+                   16/9, 6/5, 7/4, 7/6, 21/16, 7/5, 14/9];
+
+function initAudio(){
+  if(!audioCtx){
+    audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+  }
+  if(audioCtx.state==='suspended') audioCtx.resume();
+  
+  // Kill old nodes
+  Object.values(audioNodes).forEach(n=>{try{n.stop&&n.stop();n.disconnect&&n.disconnect();}catch(e){}});
+  audioNodes = {};
+  
+  const master = audioCtx.createGain();
+  master.gain.setValueAtTime(0.15, audioCtx.currentTime);
+  
+  // AllPass cascade reverb
+  const reverb = createAllPassReverb(audioCtx);
+  master.connect(reverb);
+  reverb.connect(audioCtx.destination);
+  
+  // Drone cluster - just intonation
+  const baseFreq = 55 * PHI; // ~88.99 Hz
+  const droneCount = 3 + rndInt(3);
+  const droneGain = audioCtx.createGain();
+  droneGain.gain.setValueAtTime(0.4, audioCtx.currentTime);
+  droneGain.connect(master);
+  
+  for(let i=0;i<droneCount;i++){
+    const ratio = JI_RATIOS[rndInt(JI_RATIOS.length)];
+    const freq = baseFreq * ratio * (rndInt(2)+1);
+    const osc = audioCtx.createOscillator();
+    const oscGain = audioCtx.createGain();
+    const types = ['sine','triangle','sawtooth'];
+    osc.type = types[rndInt(types.length)];
+    osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    
+    // Slow vibrato
+    const lfo = audioCtx.createOscillator();
+    const lfoGain = audioCtx.createGain();
+    lfo.frequency.setValueAtTime(rnd(0.3,0.05), audioCtx.currentTime);
+    lfoGain.gain.setValueAtTime(freq*0.003, audioCtx.currentTime);
+    lfo.connect(lfoGain);
+    lfoGain.connect(osc.frequency);
+    lfo.start();
+    
+    oscGain.gain.setValueAtTime(0.15/droneCount, audioCtx.currentTime);
+    osc.connect(oscGain);
+    oscGain.connect(droneGain);
+    osc.start();
+    audioNodes['drone'+i]=osc;
+    audioNodes['droneLFO'+i]=lfo;
+  }
+  
+  // Modal percussion - 2D wave equation on polygon mesh
+  schedulePercussion(audioCtx, master);
+  
+  // Microtonal melody - Euclidean rhythm
+  scheduleMelody(audioCtx, master, baseFreq);
+  
+  // Spatial panner following golden spiral
+  audioNodes.master = master;
+  audioNodes.reverb = reverb;
+  
+  // Update spectral centroid in HUD
+  updateSpectralCentroid(baseFreq, droneCount);
+}
+
+function createAllPassReverb(ctx){
+  // AllPass cascade for hall reverb
+  const wet = ctx.createGain();
+  wet.gain.setValueAtTime(0.35, ctx.currentTime);
+  
+  const delays = [0.029, 0.037, 0.041, 0.043, 0.047, 0.053];
+  let prev = wet;
+  const nodes = [wet];
+  
+  for(const d of delays){
+    const ap = ctx.createDelay(0.1);
+    ap.delayTime.setValueAtTime(d, ctx.currentTime);
+    const apFb = ctx.createGain();
+    apFb.gain.setValueAtTime(0.6, ctx.currentTime);
+    // Simplified: just chain delays
+    prev.connect(ap);
+    nodes.push(ap);
+    prev = ap;
+  }
+  
+  // Output merge
+  const out = ctx.createGain();
+  nodes.forEach(n=>{ try{n.connect(out);}catch(e){} });
+  out.gain.setValueAtTime(0.3, ctx.currentTime);
+  wet._out = out;
+  
+  // Wrap with a passthrough
+  const merger = ctx.createGain();
+  merger.gain.setValueAtTime(1, ctx.currentTime);
+  wet.connect(merger);
+  merger._input = wet;
+  
+  return merger;
+}
+
+function schedulePercussion(ctx, dest){
+  // Modal synthesis: sum of sine modes on polygon
+  const scheduleHit = (when) => {
+    const n = 3 + rndInt(7); // polygon sides
+    const freq0 = 80 + rnd(400);
+    const hitGain = ctx.createGain();
+    hitGain.gain.setValueAtTime(0.3, when);
+    hitGain.gain.exponentialRampToValueAtTime(0.001, when+0.8);
+    hitGain.connect(dest);
+    
+    for(let m=1;m<=4;m++){
+      // Polygon mode freq ratios: Bessel-like
+      const modeRatio = Math.sqrt(1 + m*m*0.618)*PHI;
+      const osc = ctx.createOscillator();
+      osc.frequency.setValueAtTime(freq0*modeRatio, when);
+      osc.frequency.exponentialRampToValueAtTime(freq0*modeRatio*0.98, when+0.5);
+      const mg = ctx.createGain();
+      mg.gain.setValueAtTime(1/(m*m), when);
+      osc.connect(mg);
+      mg.connect(hitGain);
+      osc.start(when);
+      osc.stop(when+1);
+    }
+    audioNodes['perc'+when] = hitGain;
+  };
+  
+  // Euclidean rhythm scheduling
+  const density = state?.rhythmDensity || 1;
+  const interval = 0.4 / density;
+  const now = ctx.currentTime;
+  const totalSteps = 16;
+  const hits = euclideanRhythm(Math.round(5*density), totalSteps);
+  
+  for(let s=0;s<totalSteps;s++){
+    if(hits[s]) scheduleHit(now + s*interval);
+  }
+}
+
+function euclideanRhythm(k, n){
+  // Bjorklund algorithm
+  if(k>=n) return new Array(n).fill(1);
+  const pattern = Array.from({length:n},(_,i)=>i<k?[1]:[0]);
+  let rem = n-k;
+  while(rem>1 && k>1){
+    const times = Math.min(k,rem);
+    const newK = Math.max(k,rem)-times;
+    for(let i=0;i<times;i++) pattern[i].push(...pattern[k+i]);
+    pattern.splice(k,times);
+    [k,rem] = [times, newK];
+  }
+  return pattern.flat().concat(pattern.flat()).slice(0,n).map(x=>+x);
+}
+
+function scheduleMelody(ctx, dest, baseFreq){
+  // Xenharmonic scale - 31-TET or 53-TET subset
+  const toneCount = 31;
+  const scaleDegrees = [0,3,5,8,10,13,16,18,21,23,26,28];
+  const now = ctx.currentTime;
+  const tempo = 0.25 / (state?.rhythmDensity||1);
+  
+  for(let i=0;i<24;i++){
+    const deg = scaleDegrees[rndInt(scaleDegrees.length)];
+    const freq = baseFreq * 2 * Math.pow(2, deg/toneCount) * (rndInt(2)+1);
+    const when = now + i*tempo;
+    
+    const osc = ctx.createOscillator();
+    const env = ctx.createGain();
+    // Panner on golden spiral
+    const pan = ctx.createStereoPanner();
+    const spiralT = i * PHI;
+    pan.pan.setValueAtTime(Math.sin(spiralT)*0.7, when);
+    
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(freq, when);
+    env.gain.setValueAtTime(0, when);
+    env.gain.linearRampToValueAtTime(0.12, when+0.02);
+    env.gain.exponentialRampToValueAtTime(0.001, when+tempo*0.9);
+    
+    osc.connect(env);
+    env.connect(pan);
+    pan.connect(dest);
+    osc.start(when);
+    osc.stop(when+tempo);
+  }
+}
+
+function updateSpectralCentroid(baseFreq, count){
+  let weighted=0, sum=0;
+  for(let i=0;i<count;i++){
+    const f = baseFreq * JI_RATIOS[i%JI_RATIOS.length];
+    weighted += f*(count-i);
+    sum += (count-i);
+  }
+  state.spectralCentroid = sum>0 ? Math.round(weighted/sum) : 0;
+}
+
+function stopAudio(){
+  Object.values(audioNodes).forEach(n=>{
+    try{n.stop&&n.stop();n.disconnect&&n.disconnect();}catch(e){}
+  });
+  audioNodes={};
+  if(audioCtx){audioCtx.suspend();}
+}
+
+// ═══════════════════════════════════════════════════════
+// HUD UPDATE
+// ═══════════════════════════════════════════════════════
+let hudVisible = false;
+function updateHUD(){
+  if(!hudVisible||!state) return;
+  document.getElementById('h-group').textContent = state.group||'—';
+  document.getElementById('h-mirrors').textContent = state.mirrors||'—';
+  document.getElementById('h-dim').textContent = state.dim||'—';
+  document.getElementById('h-alpha').textContent = (state.alpha*180/Math.PI).toFixed(1)+'°';
+  document.getElementById('h-beta').textContent = (state.beta*180/Math.PI).toFixed(1)+'°';
+  document.getElementById('h-iso').textContent = state.isoClasses||'—';
+  document.getElementById('h-particles').textContent = state.particleCount||'—';
+  document.getElementById('h-phyll').textContent = (state.phyllDensity||0).toFixed(2);
+  document.getElementById('h-lsys').textContent = state.lDepth||'—';
+  document.getElementById('h-centroid').textContent = state.spectralCentroid ? state.spectralCentroid+'Hz' : '—';
+  document.getElementById('h-fps').textContent = fps.toFixed(1);
+  document.getElementById('h-audio').textContent = audioOn?'ON':'OFF';
+  document.getElementById('h-dynkin').textContent = state.dynkin||'—';
+}
+
+// ═══════════════════════════════════════════════════════
+// DRAW HELPERS
+// ═══════════════════════════════════════════════════════
+
+// Kaleidoscope helper: draw with mirror symmetry
+function withKaleido(ctx, n, fn){
+  const a = TAU/n;
+  ctx.save();
+  for(let i=0;i<n;i++){
+    ctx.save();
+    ctx.rotate(i*a);
+    if(i%2===1){ctx.scale(1,-1);}
+    fn(ctx, i);
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+// LCH color string
+function lchStr(L,C,H,alpha=1){
+  const [r,g,b]=lchToRgb(clamp(L,0,100),clamp(C,0,120),mod(H,360));
+  return alpha<1?`rgba(${r},${g},${b},${alpha})`:`rgb(${r},${g},${b})`;
+}
+
+// ═══════════════════════════════════════════════════════
+// RENDER LAYERS
+// ═══════════════════════════════════════════════════════
+
+function drawBackground(t, hueShift){
+  // Persistent trail: semi-transparent dark overlay creates motion blur
+  ctx.fillStyle = 'rgba(0,0,0,0.18)';
+  ctx.fillRect(0,0,W,H);
+  
+  // Deep space radial gradient
+  const grd = ctx.createRadialGradient(cx,cy,0,cx,cy,Math.max(W,H)*0.8);
+  const H0 = mod(hueShift, 360);
+  const H1 = mod(hueShift+120, 360);
+  const H2 = mod(hueShift+240, 360);
+  grd.addColorStop(0, lchStr(8, 20, H0, 0.4));
+  grd.addColorStop(0.4, lchStr(4, 10, H1, 0.3));
+  grd.addColorStop(1, lchStr(2, 5, H2, 0.5));
+  ctx.fillStyle = grd;
+  ctx.fillRect(0,0,W,H);
+  
+  // Subtle star field
+  ctx.save();
+  const starSeed = 42;
+  ctx.globalAlpha = 0.35;
+  for(let i=0;i<80;i++){
+    const sx = ((Math.sin(i*PHI*137.5)*0.5+0.5)*W);
+    const sy = ((Math.cos(i*PHI*97.3)*0.5+0.5)*H);
+    const sr = 0.5+Math.sin(i+t*0.5)*0.4;
+    const sHue = mod(H0+i*7,360);
+    ctx.fillStyle = lchStr(90,15,sHue,1);
+    ctx.beginPath();
+    ctx.arc(sx,sy,sr,0,TAU);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+function drawQuasicrystal(t, hue){
+  if(!state.penroseT) return;
+  const sc = state.qcScale * (0.8 + 0.2*Math.sin(t*0.1));
+  const rot = state.qcAngle + t*0.015;
+  
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(rot);
+  
+  // Use kaleidoscope mirroring
+  const km = Math.min(state.kaleido, 16); // cap for perf
+  withKaleido(ctx, km, (ctx, idx) => {
+    for(const tile of state.penroseT){
+      const tx = tile.x * sc;
+      const ty = tile.y * sc;
+      if(Math.abs(tx)>W||Math.abs(ty)>H) continue;
+      
+      // Rhombus vertices
+      const da = tile.dAngle + rot*0.3;
+      const db = da + (tile.fat ? TAU/10 : TAU/5);
+      const s = sc*0.5;
+      
+      const pts=[
+        [tx,ty],
+        [tx+Math.cos(da)*s, ty+Math.sin(da)*s],
+        [tx+Math.cos(da)*s+Math.cos(db)*s, ty+Math.sin(da)*s+Math.sin(db)*s],
+        [tx+Math.cos(db)*s, ty+Math.sin(db)*s]
+      ];
+      
+      ctx.beginPath();
+      ctx.moveTo(pts[0][0],pts[0][1]);
+      for(let i=1;i<4;i++) ctx.lineTo(pts[i][0],pts[i][1]);
+      ctx.closePath();
+      
+      const tileHue = mod(hue + tile.a*36 + tile.b*60 + idx*15, 360);
+      const brightness = tile.fat ? 35 : 22;
+      const chroma = tile.fat ? 55 : 40;
+      ctx.fillStyle = lchStr(brightness, chroma, tileHue, 0.6);
+      ctx.strokeStyle = lchStr(60, 80, tileHue, 0.25);
+      ctx.lineWidth = 0.5;
+      ctx.fill();
+      ctx.stroke();
+    }
+  });
+  ctx.restore();
+}
+
+function drawE8Roots(t, hue){
+  if(!state.e8Roots) return;
+  const scale = Math.min(W,H)*0.42;
+  const km = Math.min(state.kaleido, 24);
+  
+  ctx.save();
+  ctx.translate(cx,cy);
+  
+  // Rotate projection slowly
+  const rotT = t*0.007 + state.alpha;
+  
+  // Draw connections (edges of projected polytope)
+  ctx.globalCompositeOperation = 'screen';
+  
+  withKaleido(ctx, km, (c2, idx) => {
+    const roots = state.e8Roots;
+    const n = roots.length;
+    
+    for(let i=0;i<n;i++){
+      const ri = roots[i];
+      const rx = (ri.x*Math.cos(rotT)-ri.y*Math.sin(rotT))*scale;
+      const ry = (ri.x*Math.sin(rotT)+ri.y*Math.cos(rotT))*scale;
+      
+      if(Math.abs(rx)>W||Math.abs(ry)>H) continue;
+      
+      // Connect nearby roots
+      for(let j=i+1;j<Math.min(i+8,n);j++){
+        const rj = roots[j];
+        const sx = (rj.x*Math.cos(rotT)-rj.y*Math.sin(rotT))*scale;
+        const sy = (rj.x*Math.sin(rotT)+rj.y*Math.cos(rotT))*scale;
+        const dist = Math.hypot(rx-sx, ry-sy);
+        if(dist>scale*0.35||dist<1) continue;
+        
+        const edgeHue = mod(hue + (i+j)*2 + idx*5, 360);
+        const alpha = clamp(1-dist/(scale*0.35), 0, 1)*0.4;
+        c2.strokeStyle = lchStr(65,70,edgeHue,alpha);
+        c2.lineWidth = 0.5+alpha;
+        c2.beginPath();
+        c2.moveTo(rx,ry);
+        c2.lineTo(sx,sy);
+        c2.stroke();
+      }
+      
+      // Draw root vertex
+      const rootHue = mod(hue + ri.i*1.5, 360);
+      const grd = ctx.createRadialGradient(rx,ry,0,rx,ry,2+ri.layer);
+      grd.addColorStop(0, lchStr(90,90,rootHue,0.9));
+      grd.addColorStop(1, lchStr(50,60,rootHue,0));
+      c2.fillStyle = grd;
+      c2.beginPath();
+      c2.arc(rx,ry,2+ri.layer,0,TAU);
+      c2.fill();
+    }
+  });
+  
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.restore();
+}
+
+function drawPhyllotaxis(t, hue){
+  const n = state.phyllCount;
+  const density = state.phyllDensity;
+  const goldAngle = TAU/PHI2;
+  const maxR = Math.min(W,H)*0.48;
+  
+  ctx.save();
+  ctx.translate(cx,cy);
+  ctx.rotate(t*0.008);
+  
+  ctx.globalCompositeOperation = 'screen';
+  
+  for(let i=0;i<n;i++){
+    const r = Math.sqrt(i/n)*maxR*density;
+    if(r>maxR) continue;
+    const phi = i*goldAngle + t*0.02;
+    const x = Math.cos(phi)*r;
+    const y = Math.sin(phi)*r;
+    
+    const sz = (1-i/n)*3+0.5;
+    const phHue = mod(hue + i*0.5 + t*5, 360);
+    const L = 60+30*Math.sin(i*goldAngle*3+t);
+    
+    ctx.beginPath();
+    ctx.arc(x,y,sz,0,TAU);
+    ctx.fillStyle = lchStr(L,80,phHue,0.7);
+    ctx.fill();
+  }
+  
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.restore();
+}
+
+function drawFibonacciSpirals(t, hue){
+  // Golden ratio spirals in icosahedral frame
+  const R = Math.min(W,H)*0.4;
+  ctx.save();
+  ctx.translate(cx,cy);
+  
+  // 6 icosahedral axes
+  const icoAxes = [];
+  for(let i=0;i<6;i++){
+    const th = i*TAU/6 + t*0.01;
+    icoAxes.push([Math.cos(th), Math.sin(th)]);
+  }
+  
+  ctx.globalCompositeOperation = 'screen';
+  
+  for(const [ax,ay] of icoAxes){
+    ctx.save();
+    ctx.rotate(Math.atan2(ay,ax));
+    
+    // Draw golden spiral
+    ctx.beginPath();
+    let first=true;
+    for(let a=0;a<TAU*4;a+=0.05){
+      const r = PHI*(a/(TAU))*R*0.25;
+      const x=r*Math.cos(a), y=r*Math.sin(a);
+      if(first){ctx.moveTo(x,y);first=false;}
+      else ctx.lineTo(x,y);
+    }
+    const spHue = mod(hue+icoAxes.indexOf([ax,ay])*60, 360);
+    ctx.strokeStyle = lchStr(70,80,spHue,0.35);
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.restore();
+  }
+  
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.restore();
+}
+
+function drawLSystem(t, hue){
+  if(!state.lsysPts||!state.lsysPts.length) return;
+  const pts = state.lsysPts;
+  if(!pts.length) return;
+  
+  // Center the L-system
+  let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
+  for(const [x1,y1,x2,y2] of pts){
+    minX=Math.min(minX,x1,x2); maxX=Math.max(maxX,x1,x2);
+    minY=Math.min(minY,y1,y2); maxY=Math.max(maxY,y1,y2);
+  }
+  const lw=maxX-minX, lh=maxY-minY;
+  const scale = Math.min(W*0.6,H*0.6)/Math.max(lw,lh,1);
+  const offX = -(minX+maxX)/2, offY = -(minY+maxY)/2;
+  
+  ctx.save();
+  ctx.translate(cx,cy);
+  ctx.rotate(t*0.005);
+  ctx.scale(scale,scale);
+  ctx.globalAlpha = 0.45;
+  ctx.globalCompositeOperation = 'screen';
+  
+  const km = Math.min(state.kaleido, 8);
+  
+  for(let k=0;k<km;k++){
+    ctx.save();
+    ctx.rotate(k*TAU/km);
+    if(k%2===1)ctx.scale(1,-1);
+    
+    for(let i=0;i<pts.length;i++){
+      const [x1,y1,x2,y2]=pts[i];
+      const lHue = mod(hue + i*0.3 + t*10, 360);
+      ctx.strokeStyle = lchStr(65,75,lHue,0.6);
+      ctx.lineWidth = 0.8/scale;
+      ctx.beginPath();
+      ctx.moveTo(x1+offX,y1+offY);
+      ctx.lineTo(x2+offX,y2+offY);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+  
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.restore();
+}
+
+function drawVoronoi(t, hue){
+  if(!state.voronoiSeeds) return;
+  const seeds = state.voronoiSeeds;
+  const km = Math.min(state.kaleido, 12);
+  
+  // Animate seeds slowly
+  const animated = seeds.map((s,i)=>{
+    const a = t*0.008*s.isoClass*0.1 + s.hue*DEG;
+    const drift = 15*Math.sin(t*0.005+i);
+    return {
+      x: s.x + Math.cos(a)*drift,
+      y: s.y + Math.sin(a)*drift,
+      isoClass: s.isoClass,
+      hue: s.hue
+    };
+  });
+  
+  ctx.save();
+  ctx.translate(cx,cy);
+  ctx.globalAlpha = 0.18;
+  
+  // Sample grid for Voronoi
+  const step = 18;
+  for(let px=-W/2;px<W/2;px+=step){
+    for(let py=-H/2;py<H/2;py+=step){
+      let minD=Infinity, nearest=null;
+      for(const s of animated){
+        const d=Math.hypot(px-s.x,py-s.y);
+        if(d<minD){minD=d;nearest=s;}
+      }
+      if(!nearest) continue;
+      const vHue = mod(hue+nearest.hue*0.4+nearest.isoClass*25, 360);
+      ctx.fillStyle = lchStr(40,50,vHue,1);
+      ctx.fillRect(px-step/2,py-step/2,step,step);
+    }
+  }
+  
+  ctx.globalAlpha = 0.6;
+  // Draw Voronoi edges
+  ctx.strokeStyle = lchStr(55,40,hue,0.5);
+  ctx.lineWidth = 0.5;
+  for(let i=0;i<animated.length;i++){
+    for(let j=i+1;j<animated.length;j++){
+      const dist=Math.hypot(animated[i].x-animated[j].x,animated[i].y-animated[j].y);
+      if(dist>Math.min(W,H)*0.2) continue;
+      ctx.beginPath();
+      ctx.moveTo(animated[i].x,animated[i].y);
+      ctx.lineTo(animated[j].x,animated[j].y);
+      ctx.stroke();
+    }
+  }
+  
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+function drawParticles(t, hue){
+  const n = state.particles ? Math.min(state.particles.length, state.particleCount) : 0;
+  ctx.save();
+  ctx.translate(cx,cy);
+  ctx.globalCompositeOperation = 'screen';
+  
+  const km = state.kaleido;
+  const kAngle = state.kAngle;
+  
+  for(let i=0;i<n;i++){
+    const p = state.particles[i];
+    p.life += 0.02*p.speed;
+    
+    // Quasicrystal orbit: combine golden ratio and 5-fold
+    const r = (80 + 60*Math.sin(p.life*PHI)) * state.phyllDensity;
+    const baseAngle = p.phi + p.life;
+    const x5 = Math.cos(baseAngle*5)*r*0.3;
+    const y5 = Math.sin(baseAngle*5)*r*0.3;
+    
+    p.x = Math.cos(baseAngle)*r + x5;
+    p.y = Math.sin(baseAngle)*r + y5;
+    
+    // Apply kaleidoscope: draw in all chambers
+    const angle = Math.atan2(p.y,p.x);
+    const dist = Math.hypot(p.x,p.y);
+    const mirrorAngle = mod(angle, kAngle);
+    const mx = Math.cos(mirrorAngle)*dist;
+    const my = Math.sin(mirrorAngle)*dist;
+    
+    const pHue = mod(hue + p.hue + t*20, 360);
+    const L = 60+30*Math.sin(p.life*3);
+    const alpha = 0.5+0.4*Math.sin(p.life*2);
+    
+    // Draw in all kaleido sectors
+    for(let k=0;k<km;k++){
+      const ka = k*kAngle;
+      const flip = k%2===1;
+      const fx = flip?-mx:mx;
+      const fy = my;
+      const rx = fx*Math.cos(ka)-fy*Math.sin(ka);
+      const ry = fx*Math.sin(ka)+fy*Math.cos(ka);
+      
+      if(Math.abs(rx)>W||Math.abs(ry)>H) continue;
+      
+      ctx.beginPath();
+      ctx.arc(rx,ry,p.r,0,TAU);
+      ctx.fillStyle = lchStr(L,85,pHue,alpha);
+      ctx.fill();
+    }
+  }
+  
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.restore();
+}
+
+function drawHodgeVectorField(t, hue){
+  // Hodge dual: draw color-coded vector field arrows
+  const step = 50;
+  ctx.save();
+  ctx.translate(cx,cy);
+  ctx.globalAlpha = 0.22;
+  
+  for(let x=-W/2;x<W/2;x+=step){
+    for(let y=-H/2;y<H/2;y+=step){
+      // 2-form: differential → vector field via Hodge dual
+      const r = Math.hypot(x,y);
+      const ph = Math.atan2(y,x);
+      
+      // Hodge dual of dθ ∧ dr in polar: twist
+      const vx = Math.cos(ph + r*0.01 + t*0.05)*step*0.35;
+      const vy = Math.sin(ph + r*0.01 + t*0.05)*step*0.35;
+      
+      // Color by curl magnitude
+      const curl = Math.abs(vx-vy)*0.01;
+      const hv = mod(hue + ph*180/Math.PI + curl*200, 360);
+      
+      ctx.strokeStyle = lchStr(60,70,hv,0.8);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x,y);
+      ctx.lineTo(x+vx,y+vy);
+      ctx.stroke();
+      
+      // Arrowhead
+      const ah = Math.atan2(vy,vx);
+      ctx.beginPath();
+      ctx.moveTo(x+vx,y+vy);
+      ctx.lineTo(x+vx-5*Math.cos(ah-0.4),y+vy-5*Math.sin(ah-0.4));
+      ctx.moveTo(x+vx,y+vy);
+      ctx.lineTo(x+vx-5*Math.cos(ah+0.4),y+vy-5*Math.sin(ah+0.4));
+      ctx.stroke();
+    }
+  }
+  
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+function drawDeBruijnLines(t, hue){
+  // Ammann lines from De Bruijn grid
+  const n = 5; // 5-grid
+  const shifts = Array.from({length:n},(_,i)=>Math.sin(i*PHI+t*0.03)*0.5);
+  
+  ctx.save();
+  ctx.translate(cx,cy);
+  ctx.globalAlpha = 0.3;
+  
+  for(let fam=0;fam<n;fam++){
+    const angle = fam*Math.PI/n + state.qcAngle + t*0.006;
+    const ca=Math.cos(angle+Math.PI/2), sa=Math.sin(angle+Math.PI/2);
+    
+    for(let k=-8;k<=8;k++){
+      const shift = (k + shifts[fam]) * 55;
+      const lhue = mod(hue + fam*72 + k*5, 360);
+      ctx.strokeStyle = lchStr(65,60,lhue,0.5);
+      ctx.lineWidth = k%2===0?1.5:0.7;
+      
+      ctx.beginPath();
+      ctx.moveTo(ca*shift - sa*W, sa*shift + ca*W);
+      ctx.lineTo(ca*shift + sa*W, sa*shift - ca*W);
+      ctx.stroke();
+    }
+  }
+  
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+function drawIcosahedralBloom(t, hue){
+  // Icosahedron vertices projected via quaternion rotation
+  // 12 vertices of icosahedron: (0, ±1, ±φ) and permutations
+  const raw = [
+    [0,1,PHI],[0,-1,PHI],[0,1,-PHI],[0,-1,-PHI],
+    [1,PHI,0],[-1,PHI,0],[1,-PHI,0],[-1,-PHI,0],
+    [PHI,0,1],[-PHI,0,1],[PHI,0,-1],[-PHI,0,-1]
+  ];
+  const mag = Math.sqrt(1+PHI*PHI);
+  const verts = raw.map(v=>v.map(x=>x/mag));
+  
+  const R = Math.min(W,H)*0.32;
+  const q = state.quatRot || [1,0,0,0];
+  
+  ctx.save();
+  ctx.translate(cx,cy);
+  ctx.globalCompositeOperation = 'screen';
+  ctx.globalAlpha = 0.5;
+  
+  // Project all vertices
+  const projected = verts.map(v=>{
+    const rv = qRotate(v, q);
+    const fov = 2.5 + rv[2];
+    return {
+      x: rv[0]*R/fov,
+      y: rv[1]*R/fov,
+      z: rv[2],
+      depth: rv[2]
+    };
+  });
+  
+  // Icosahedron edges: vertices within distance sqrt(2/sqrt(5))≈0.894
+  const edgeThresh = 1.1/mag;
+  
+  for(let i=0;i<verts.length;i++){
+    for(let j=i+1;j<verts.length;j++){
+      const d=Math.sqrt(verts[i].reduce((s,v,k)=>s+(v-verts[j][k])**2,0));
+      if(d>edgeThresh+0.01) continue;
+      
+      const pi=projected[i], pj=projected[j];
+      const depthFade = clamp((pi.depth+pj.depth)/2+1, 0.1, 1);
+      const eHue = mod(hue + i*30 + j*15, 360);
+      
+      ctx.strokeStyle = lchStr(70,80,eHue,depthFade*0.7);
+      ctx.lineWidth = 1+depthFade;
+      ctx.beginPath();
+      ctx.moveTo(pi.x,pi.y);
+      ctx.lineTo(pj.x,pj.y);
+      ctx.stroke();
+    }
+  }
+  
+  // Draw vertices as glowing orbs
+  for(const p of projected){
+    const depthAlpha = clamp((p.depth+1)/2, 0.3, 1);
+    const vHue = mod(hue + p.z*180, 360);
+    const grd = ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,6*depthAlpha);
+    grd.addColorStop(0, lchStr(95,80,vHue,depthAlpha));
+    grd.addColorStop(1, lchStr(50,60,vHue,0));
+    ctx.fillStyle=grd;
+    ctx.beginPath();
+    ctx.arc(p.x,p.y,6*depthAlpha,0,TAU);
+    ctx.fill();
+  }
+  
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.restore();
+}
+
+function drawCentralGlow(t, hue){
+  // Central bright core
+  const R = Math.min(W,H)*0.15;
+  const grd = ctx.createRadialGradient(cx,cy,0,cx,cy,R);
+  const cHue = mod(hue+t*30, 360);
+  grd.addColorStop(0, lchStr(95,30,cHue,0.6));
+  grd.addColorStop(0.3, lchStr(70,60,cHue,0.2));
+  grd.addColorStop(1, lchStr(20,20,cHue,0));
+  ctx.fillStyle=grd;
+  ctx.fillRect(0,0,W,H);
+}
+
+// ═══════════════════════════════════════════════════════
+// MAIN LOOP
+// ═══════════════════════════════════════════════════════
+function render(ts){
+  requestAnimationFrame(render);
+  
+  const dt = ts - lastTime;
+  lastTime = ts;
+  if(dt>200) return; // tab was hidden
+  
+  t += dt*0.001;
+  fps = 0.9*fps + 0.1*(1000/dt);
+  
+  // Spin quaternion for 3D icosahedral rotation
+  if(state.quatRot && state.quatSpin){
+    state.quatRot = qMul(state.quatRot, state.quatSpin);
+    // Normalize
+    const qm = Math.sqrt(state.quatRot.reduce((s,v)=>s+v*v,0));
+    state.quatRot = state.quatRot.map(v=>v/qm);
+  }
+  
+  adaptQuality(dt);
+  
+  if(!state.particles) randomizeState();
+  
+  const hue = mod(state.colorWheel + t * 20 * (state.hueSpeed||0.1), 360);
+  
+  // No clearRect — trail effect is applied inside drawBackground via semi-transparent overlay
+  
+  // Layer stack
+  drawBackground(t, hue);
+  drawDeBruijnLines(t, hue);
+  drawVoronoi(t, hue);
+  drawQuasicrystal(t, hue);
+  drawE8Roots(t, hue);
+  drawHodgeVectorField(t, hue);
+  drawIcosahedralBloom(t, hue);
+  drawFibonacciSpirals(t, hue);
+  drawLSystem(t, hue);
+  drawPhyllotaxis(t, hue);
+  drawParticles(t, hue);
+  drawCentralGlow(t, hue);
+  
+  // HUD fps update
+  if(hudVisible && Math.round(t*10)%10===0) updateHUD();
+}
+
+// ═══════════════════════════════════════════════════════
+// INPUT
+// ═══════════════════════════════════════════════════════
+function doRandomize(){
+  randomizeState();
+}
+
+window.addEventListener('keydown', e=>{
+  switch(e.code){
+    case 'Space':
+      e.preventDefault();
+      doRandomize();
+      break;
+    case 'KeyH':
+      hudVisible = !hudVisible;
+      document.getElementById('hud').style.display = hudVisible?'block':'none';
+      updateHUD();
+      break;
+    case 'KeyS':
+      audioOn = !audioOn;
+      if(audioOn){
+        initAudio();
+      } else {
+        stopAudio();
+      }
+      updateHUD();
+      break;
+  }
+});
+
+canvas.addEventListener('click', ()=>doRandomize());
+canvas.addEventListener('touchend', e=>{e.preventDefault();doRandomize();},{passive:false});
+
+window.addEventListener('resize', ()=>{resize(); state.voronoiSeeds=generateVoronoiSeeds(quality.voronoiN);});
+
+// ═══════════════════════════════════════════════════════
+// BOOT
+// ═══════════════════════════════════════════════════════
+resize();
+// Fill black on first load
+ctx.fillStyle='#000';
+ctx.fillRect(0,0,W,H);
+randomizeState();
+requestAnimationFrame(render);
+</script>
+</body>
+</html>

@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HYPERCARNIVAL — Mobile Core Engine</title>
+<style>
+html,body{margin:0;height:100%;background:#000;overflow:hidden}
+canvas{width:100vw;height:100vh;display:block}
+#hud{
+ position:fixed;bottom:12px;left:50%;
+ transform:translateX(-50%);
+ font-family:monospace;font-size:11px;
+ color:rgba(255,255,255,.5);
+}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">TAP / SPACE — RANDOMIZE</div>
+
+<script>
+const canvas = document.getElementById("c");
+const gl = canvas.getContext("webgl",{alpha:false,antialias:false});
+if(!gl){ alert("WebGL not supported"); }
+
+function resize(){
+ canvas.width = innerWidth * devicePixelRatio;
+ canvas.height = innerHeight * devicePixelRatio;
+ gl.viewport(0,0,canvas.width,canvas.height);
+}
+addEventListener("resize",resize);
+resize();
+
+const VS = `
+attribute vec2 a;
+void main(){gl_Position=vec4(a,0.,1.);}
+`;
+
+const FS = `
+precision mediump float;
+
+uniform vec2 u_res;
+uniform float u_time;
+uniform float u_zoom;
+uniform vec2 u_center;
+uniform float u_poly;
+uniform float u_sym;
+uniform float u_colorShift;
+
+#define PI 3.14159265
+#define TAU 6.2831853
+
+vec2 cmul(vec2 a, vec2 b){
+ return vec2(a.x*b.x-a.y*b.y, a.x*b.y+a.y*b.x);
+}
+
+vec2 cpow(vec2 z, float n){
+ float r=length(z);
+ float a=atan(z.y,z.x);
+ return pow(r,n)*vec2(cos(a*n),sin(a*n));
+}
+
+vec2 kaleido(vec2 z,float n){
+ float a=atan(z.y,z.x);
+ float r=length(z);
+ float sector=PI/n;
+ a=mod(a,2.*sector);
+ if(a>sector) a=2.*sector-a;
+ return r*vec2(cos(a),sin(a));
+}
+
+vec3 spectral(float t){
+ return 0.5+0.5*cos(TAU*(vec3(0.,.33,.67)+t));
+}
+
+float orbitTrap(vec2 z){
+ return min(length(z),abs(z.x*z.y));
+}
+
+void main(){
+ vec2 uv=(gl_FragCoord.xy-u_res*.5)/min(u_res.x,u_res.y);
+ uv=uv/u_zoom+u_center;
+
+ // global rotation
+ float rot=u_time*.1;
+ uv=mat2(cos(rot),-sin(rot),sin(rot),cos(rot))*uv;
+
+ uv=kaleido(uv,u_sym);
+
+ vec2 z=uv;
+ vec2 c=uv;
+
+ float trap=1e9;
+ float iter=0.;
+ 
+ for(int i=0;i<64;i++){
+   z=cpow(z,u_poly)+c;
+   float r=dot(z,z);
+   trap=min(trap,orbitTrap(z));
+   if(r>64.){
+     iter=float(i);
+     break;
+   }
+ }
+
+ float t=iter/64.;
+ vec3 col;
+
+ if(iter==0.){
+   col=vec3(.02,.02,.05);
+ }else{
+   float band=sin(iter*.2+u_time)*.5+.5;
+   col=spectral(t+band*.1+u_colorShift);
+   col+=exp(-trap*4.)*.3;
+   col*=1.2-exp(-iter*.1);
+ }
+
+ col=pow(col,vec3(.9));
+ gl_FragColor=vec4(col,1.);
+}
+`;
+
+function compile(type,src){
+ const s=gl.createShader(type);
+ gl.shaderSource(s,src);
+ gl.compileShader(s);
+ if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){
+   console.error(gl.getShaderInfoLog(s));
+ }
+ return s;
+}
+
+const prog=gl.createProgram();
+gl.attachShader(prog,compile(gl.VERTEX_SHADER,VS));
+gl.attachShader(prog,compile(gl.FRAGMENT_SHADER,FS));
+gl.linkProgram(prog);
+gl.useProgram(prog);
+
+const buf=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+gl.bufferData(gl.ARRAY_BUFFER,
+ new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]),
+ gl.STATIC_DRAW);
+
+const loc=gl.getAttribLocation(prog,"a");
+gl.enableVertexAttribArray(loc);
+gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+
+const U={
+ res:gl.getUniformLocation(prog,"u_res"),
+ time:gl.getUniformLocation(prog,"u_time"),
+ zoom:gl.getUniformLocation(prog,"u_zoom"),
+ center:gl.getUniformLocation(prog,"u_center"),
+ poly:gl.getUniformLocation(prog,"u_poly"),
+ sym:gl.getUniformLocation(prog,"u_sym"),
+ shift:gl.getUniformLocation(prog,"u_colorShift")
+};
+
+let P={};
+
+function randomize(){
+ P.zoom=.5+Math.random()*2.;
+ P.center=[(Math.random()-.5)*1.2,(Math.random()-.5)*1.2];
+ P.poly=2.+Math.random()*2.;
+ P.sym=3.+Math.floor(Math.random()*8.);
+ P.shift=Math.random();
+}
+randomize();
+
+addEventListener("keydown",e=>{
+ if(e.key===" ") randomize();
+});
+canvas.addEventListener("click",randomize);
+
+let start=performance.now();
+
+function render(now){
+ const t=(now-start)*.001;
+
+ gl.uniform2f(U.res,canvas.width,canvas.height);
+ gl.uniform1f(U.time,t);
+ gl.uniform1f(U.zoom,P.zoom);
+ gl.uniform2f(U.center,P.center[0],P.center[1]);
+ gl.uniform1f(U.poly,P.poly);
+ gl.uniform1f(U.sym,P.sym);
+ gl.uniform1f(U.shift,P.shift);
+
+ gl.drawArrays(gl.TRIANGLES,0,6);
+ requestAnimationFrame(render);
+}
+
+requestAnimationFrame(render);
+</script>
+</body>
+</html>

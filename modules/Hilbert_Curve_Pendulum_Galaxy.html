@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Hilbert Curve Pendulum Galaxy – Generative Audiovisual Simulation</title>
+
+<meta name="description" content="Hilbert Curve Pendulum Galaxy – a generative audiovisual fractal physics simulation where coupled pendulums move along a Hilbert space-filling curve producing chaotic motion, gravitational galaxy-like dynamics and synchronized harmonic sound.">
+<meta name="keywords" content="Hilbert curve generative art, fractal physics simulation, pendulum chaos, generative audiovisual art, computational art, fractal mechanics, Hilbert curve visualization, chaotic pendulum system, algorithmic art, interactive generative graphics">
+
+<style>
+html,body{
+margin:0;
+overflow:hidden;
+background:black;
+font-family:monospace;
+}
+#hud{
+position:fixed;
+top:10px;
+left:10px;
+color:white;
+font-size:12px;
+background:rgba(0,0,0,.35);
+padding:8px 10px;
+border-radius:8px;
+display:none;
+}
+</style>
+</head>
+
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+
+<script>
+
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+const hud = document.getElementById("hud");
+
+let W,H;
+
+function resize(){
+W = canvas.width = window.innerWidth;
+H = canvas.height = window.innerHeight;
+}
+window.addEventListener("resize",resize);
+resize();
+
+let nodes=[];
+let trails=[];
+let palette=[];
+let gradients=[];
+let audioCtx=null;
+let oscillators=[];
+let gains=[];
+let soundOn=false;
+let hudOn=false;
+
+const rand=(a=1,b=0)=>Math.random()*(a-b)+b;
+
+function randomPalette(){
+
+const base=rand(360);
+
+palette=[];
+
+for(let i=0;i<5;i++){
+palette.push(`hsl(${(base+rand(120))%360},${rand(80,50)}%,${rand(70,40)}%)`);
+}
+
+}
+
+function randomGradients(){
+
+gradients=[];
+
+for(let i=0;i<palette.length;i++){
+
+let g=ctx.createLinearGradient(0,0,W,H);
+
+g.addColorStop(0,palette[i]);
+g.addColorStop(1,palette[(i+1)%palette.length]);
+
+gradients.push(g);
+
+}
+
+}
+
+function hilbert(index,order){
+
+let x=0,y=0;
+let n=1<<order;
+
+for(let s=1;s<n;s*=2){
+
+let rx = 1 & (index>>1);
+let ry = 1 & (index ^ rx);
+
+if(ry==0){
+if(rx==1){
+x=s-1-x;
+y=s-1-y;
+}
+[x,y]=[y,x];
+}
+
+x+=s*rx;
+y+=s*ry;
+
+index>>=2;
+
+}
+
+return {x,y};
+}
+
+class Node{
+
+constructor(x,y){
+
+this.baseX=x;
+this.baseY=y;
+
+this.x=x;
+this.y=y;
+
+this.vx=rand(.5,-.5);
+this.vy=rand(.5,-.5);
+
+this.angle=rand(Math.PI*2);
+this.angVel=rand(.05,-.05);
+this.length=rand(40,10);
+
+this.mass=rand(2,.5);
+
+this.trail=[];
+
+}
+
+update(){
+
+let g=0.02;
+
+this.angVel+=-g*Math.sin(this.angle);
+
+this.angle+=this.angVel;
+
+this.x=this.baseX+Math.sin(this.angle)*this.length;
+this.y=this.baseY+Math.cos(this.angle)*this.length;
+
+}
+
+gravity(other){
+
+let dx=other.x-this.x;
+let dy=other.y-this.y;
+
+let d=Math.sqrt(dx*dx+dy*dy)+.01;
+
+let f=.05*this.mass*other.mass/(d*d);
+
+this.vx+=f*dx/d;
+this.vy+=f*dy/d;
+
+}
+
+move(){
+
+this.x+=this.vx;
+this.y+=this.vy;
+
+this.vx*=.98;
+this.vy*=.98;
+
+}
+
+draw(i){
+
+let color=palette[i%palette.length];
+
+ctx.strokeStyle=color;
+ctx.lineWidth=1.5;
+
+ctx.beginPath();
+ctx.moveTo(this.baseX,this.baseY);
+ctx.lineTo(this.x,this.y);
+ctx.stroke();
+
+this.trail.push({x:this.x,y:this.y});
+
+if(this.trail.length>30) this.trail.shift();
+
+ctx.beginPath();
+
+for(let j=0;j<this.trail.length;j++){
+
+let p=this.trail[j];
+if(j==0) ctx.moveTo(p.x,p.y);
+else ctx.lineTo(p.x,p.y);
+
+}
+
+ctx.strokeStyle=gradients[i%gradients.length];
+ctx.stroke();
+
+ctx.fillStyle=color;
+ctx.beginPath();
+ctx.arc(this.x,this.y,2.5,0,Math.PI*2);
+ctx.fill();
+
+}
+
+}
+
+function generate(){
+
+nodes=[];
+trails=[];
+oscillators=[];
+gains=[];
+
+randomPalette();
+randomGradients();
+
+let order=Math.floor(rand(6,4));
+let count=(1<<(order*2));
+
+let size = (1<<order);
+
+let scaleX = W / size;
+let scaleY = H / size;
+
+for(let i=0;i<count;i++){
+
+let p=hilbert(i,order);
+
+let x=(p.x+0.5)*scaleX;
+let y=(p.y+0.5)*scaleY;
+
+nodes.push(new Node(x,y));
+
+}
+
+if(audioCtx){
+
+oscillators.forEach(o=>o.stop());
+
+}
+
+if(soundOn) initAudio();
+
+}
+
+function initAudio(){
+
+audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+
+nodes.forEach((n,i)=>{
+
+let osc=audioCtx.createOscillator();
+let gain=audioCtx.createGain();
+
+osc.type="sine";
+
+osc.frequency.value=rand(600,80);
+
+gain.gain.value=.0001;
+
+osc.connect(gain);
+gain.connect(audioCtx.destination);
+
+osc.start();
+
+oscillators.push(osc);
+gains.push(gain);
+
+});
+
+}
+
+function updateAudio(){
+
+if(!soundOn||!audioCtx) return;
+
+nodes.forEach((n,i)=>{
+
+let f=Math.abs(n.angVel)*800+60;
+oscillators[i].frequency.value=f;
+
+let amp=Math.min(Math.abs(n.vx)+Math.abs(n.vy),1)*0.02;
+gains[i].gain.value=amp;
+
+});
+
+}
+
+function step(){
+
+ctx.fillStyle="rgba(0,0,0,.15)";
+ctx.fillRect(0,0,W,H);
+
+for(let i=0;i<nodes.length;i++){
+
+let n=nodes[i];
+
+n.update();
+
+if(i<nodes.length-1){
+n.gravity(nodes[i+1]);
+}
+
+n.move();
+
+n.draw(i);
+
+}
+
+updateAudio();
+
+if(hudOn){
+hud.style.display="block";
+hud.innerHTML=
+`Hilbert Curve Pendulum Galaxy
+nodes: ${nodes.length}
+sound: ${soundOn}
+palette: ${palette.length}`;
+}else{
+hud.style.display="none";
+}
+
+requestAnimationFrame(step);
+
+}
+
+document.addEventListener("keydown",e=>{
+
+if(e.code==="Space") generate();
+
+if(e.key==="h"||e.key==="H"){
+hudOn=!hudOn;
+}
+
+if(e.key==="s"||e.key==="S"){
+
+soundOn=!soundOn;
+
+if(soundOn && !audioCtx) initAudio();
+
+if(!soundOn && audioCtx){
+
+oscillators.forEach(o=>o.stop());
+audioCtx=null;
+
+}
+
+}
+
+});
+
+canvas.addEventListener("click",generate);
+canvas.addEventListener("touchstart",generate);
+
+generate();
+step();
+
+</script>
+</body>
+</html>

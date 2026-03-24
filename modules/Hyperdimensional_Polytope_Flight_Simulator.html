@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Hyperdimensional Polytope Flight Simulator | Hyperspace Visualization Engine</title>
+<meta name="description" content="Immersive hyperspace flight simulator featuring kaleidoscopic polytope corridors, E8 lattice projections, quaternion-rotated hypercubes, and real-time fractal geometry. Interactive mathematical art engine with spectral color evolution, Platonic and Archimedean solid rendering, and Lie group transformation fields.">
+<meta name="keywords" content="hyperspace visualization, polytope mathematics, hypercube rotation, E8 lattice projection, quaternion rotation, kaleidoscopic fractals, generative geometry engine, mathematical art, 4D visualization, Platonic solids, Archimedean solids, fractal tunnel, spectral geometry, WebGL shader art, interactive mathematics, tesseract flight simulator, signed distance functions, ray marching">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000}
+canvas{display:block;width:100vw;height:100vh;cursor:crosshair}
+#hud{
+  display:none;position:fixed;top:0;left:0;width:100%;pointer-events:none;
+  font-family:'Courier New',monospace;font-size:clamp(9px,1.1vw,12px);
+  color:rgba(0,255,180,.85);text-shadow:0 0 8px rgba(0,255,180,.5);
+  padding:12px 16px;
+}
+#hud.on{display:block}
+#hud-r{position:absolute;top:12px;right:16px;text-align:right}
+#hud-r div,#hud>div{margin-bottom:3px}
+#hint{
+  position:fixed;bottom:16px;left:50%;transform:translateX(-50%);
+  font-family:'Courier New',monospace;font-size:clamp(9px,1vw,11px);
+  color:rgba(255,255,255,.25);letter-spacing:.12em;text-transform:uppercase;
+  pointer-events:none;transition:opacity 2s;text-align:center;white-space:nowrap;
+}
+#snd{
+  position:fixed;top:12px;right:16px;
+  font-family:'Courier New',monospace;font-size:clamp(9px,1vw,11px);
+  color:rgba(255,180,0,.5);pointer-events:none;letter-spacing:.1em;
+}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div id="h-fps">FPS: --</div>
+  <div id="h-seed">SEED: --</div>
+  <div id="h-poly">POLYTOPE: --</div>
+  <div id="h-dim">DIM: 4.000</div>
+  <div id="h-speed">VELOCITY: --</div>
+  <div id="hud-r">
+    <div id="h-hue">HUE: --</div>
+    <div id="h-fold">FOLDS: --</div>
+    <div id="h-kaleid">KALEID: --</div>
+    <div id="h-e8">E8: --</div>
+    <div id="h-eigen">EIGEN: --</div>
+  </div>
+</div>
+<div id="hint">SPACE / TAP — NEW UNIVERSE &nbsp;·&nbsp; H — HUD &nbsp;·&nbsp; S — SOUND</div>
+<div id="snd">♪ OFF</div>
+
+<script>
+(function(){
+"use strict";
+
+const canvas=document.getElementById('c');
+const gl=canvas.getContext('webgl',{antialias:false,alpha:false,powerPreference:'high-performance'})
+      ||canvas.getContext('experimental-webgl',{antialias:false,alpha:false});
+if(!gl){document.body.innerHTML='<p style="color:#fff;padding:2em">WebGL not supported</p>';return;}
+
+const VS=`attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}`;
+
+const FS=`
+precision mediump float;
+uniform vec2  uR;
+uniform float uT,uSp,uHu,uHS,uKa,uMi,uPo,uPh,uFo,uFM,uSa,uBr,uCo,uSe,uQX,uQY;
+
+#define PI  3.14159265
+#define TAU 6.28318530
+
+mat2 m2(float a){float c=cos(a),s=sin(a);return mat2(c,-s,s,c);}
+
+vec3 hsv(float h,float s,float v){
+  vec3 k=fract(h+vec3(0,2,1)/3.)*6.;
+  return v*mix(vec3(1),clamp(abs(k-3.)-1.,0.,1.),s);
+}
+
+float h21(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5);}
+
+// SDFs
+float sdBox(vec3 p,vec3 b){
+  vec3 q=abs(p)-b;
+  return length(max(q,0.))+min(max(q.x,max(q.y,q.z)),0.);
+}
+float sdOct(vec3 p,float s){return(abs(p.x)+abs(p.y)+abs(p.z)-s)*.57735;}
+
+float sdIco(vec3 p){
+  float ph=(1.+sqrt(5.))*.5;
+  p=abs(p);
+  return max(max(dot(p,normalize(vec3(1,ph,0))),
+                 dot(p,normalize(vec3(0,1,ph)))),
+                 dot(p,normalize(vec3(ph,0,1))))-sqrt(ph+2.);
+}
+
+float sdDodec(vec3 p){
+  float ph=(1.+sqrt(5.))*.5;
+  p=abs(p);
+  return max(max(dot(p,normalize(vec3(1,1,1))),
+                 dot(p,normalize(vec3(0,1./ph,ph)))),
+                 dot(p,normalize(vec3(1./ph,ph,0))))-1.45;
+}
+
+float sdMenger(vec3 p){
+  float d=sdBox(p,vec3(1));
+  float s=1.;
+  for(int i=0;i<3;i++){
+    vec3 a=mod(p*s,2.)-1.; s*=3.;
+    vec3 r=1.-3.*abs(a);
+    d=max(d,-max(r.x,max(r.y,r.z))/s);
+  }
+  return d;
+}
+
+float sdTesseract(vec3 p,float ph){
+  float d=1e9;
+  for(int i=0;i<2;i++)for(int j=0;j<2;j++)for(int k=0;k<2;k++){
+    float fi=float(i)*2.-1.,fj=float(j)*2.-1.,fk=float(k)*2.-1.;
+    float w=cos(ph*.7)*fi+sin(ph*.7)*fj;
+    float sc=1./(w*.4+1.8);
+    d=min(d,sdBox(p-vec3(fi,fj,fk)*sc*.75,vec3(.06)));
+  }
+  return d*.8;
+}
+
+float sdE8(vec3 p,float ph){
+  mat2 rm=m2(ph*.35);
+  float d=1e9,s=.065;
+  vec3 r; vec2 rx;
+  #define ER(ax,ay,az) r=normalize(vec3(ax,ay,az));rx=rm*r.xy;r.xy=rx;\
+    d=min(d,min(length(p-r),length(p+r))-s);
+  ER(1,0,0)ER(0,1,0)ER(0,0,1)ER(1,1,0)ER(1,0,1)ER(0,1,1)
+  ER(1,1,1)ER(1,-1,0)ER(1,0,-1)ER(0,1,-1)ER(1,-1,1)ER(-1,1,1)
+  #undef ER
+  return d;
+}
+
+float sdStar(vec3 p){
+  return max(sdBox(p,vec3(.6,1.,.6)),
+         max(sdBox(p,vec3(1.,.6,.6)),
+             sdBox(p,vec3(.6,.6,1.))));
+}
+
+float solid(vec3 p,float ph){
+  p.xy=m2(ph*.6)*p.xy;
+  p.xz=m2(ph*.4)*p.xz;
+  int t=int(mod(uPo,8.));
+  if(t==0)return sdBox(p,vec3(.52));
+  if(t==1)return sdOct(p,.85);
+  if(t==2)return sdIco(p*.85);
+  if(t==3)return sdDodec(p*.75);
+  if(t==4)return sdMenger(p*.65)*1.5;
+  if(t==5)return sdTesseract(p,ph);
+  if(t==6)return sdE8(p,ph);
+  return sdStar(p)*.8;
+}
+
+float scene(vec3 p,float ph){
+  // Tunnel walls: square cross-section, camera flies inside
+  // Distance to wall from inside = R - max(|x|,|y|)
+  // This is 0 at the wall, positive inside => valid SDF for interior raymarching
+  float R=1.55+uCo*.28;
+  float wallD=R-max(abs(p.x),abs(p.y));
+
+  // Periodic rings on tunnel walls
+  float sp=3.3+uCo*.35;
+  float zr=mod(p.z,sp*.5)-sp*.25;
+  float rr=R*(.83+.07*sin(ph*1.7+p.z*.4));
+  float ring=length(vec2(length(p.xy)-rr,zr))-.04;
+
+  // Periodic polytope cells along Z
+  float zc=mod(p.z+sp*.5,sp)-sp*.5;
+  float poly=solid(vec3(p.xy,zc),ph);
+
+  // Fractal fold overlay
+  vec3 fp=p; float fd=1e9;
+  for(int i=0;i<5;i++){
+    float fi=float(i);
+    if(fi>=uFo)break;
+    fp=abs(fp)-vec3(.65,.65,.9+fi*.08);
+    fp.xy=m2(ph*.18+fi*.65)*fp.xy;
+    fd=min(fd,sdBox(fp,vec3(.07+fi*.015)));
+  }
+
+  return min(wallD,min(ring,min(poly,fd)));
+}
+
+vec3 nrm(vec3 p,float ph){
+  vec2 e=vec2(.003,0.);
+  return normalize(vec3(
+    scene(p+e.xyy,ph)-scene(p-e.xyy,ph),
+    scene(p+e.yxy,ph)-scene(p-e.yxy,ph),
+    scene(p+e.yyx,ph)-scene(p-e.yyx,ph)));
+}
+
+vec2 kaleid(vec2 uv){
+  float n=floor(uKa)+2.;
+  float a=atan(uv.y,uv.x);
+  float s=TAU/n;
+  a=mod(a,s); if(a>s*.5)a=s-a;
+  return vec2(cos(a),sin(a))*length(uv);
+}
+
+void main(){
+  vec2 uv=(gl_FragCoord.xy-.5*uR)/min(uR.x,uR.y);
+  uv=mix(uv,kaleid(uv),uMi*.7);
+
+  // Camera
+  vec3 ro=vec3(sin(uT*.23)*.13+cos(uT*.17)*.09,
+               cos(uT*.19)*.12+sin(uT*.13)*.08,
+               uT*uSp);
+  // Ray: straight forward +Z, gentle twist from seed
+  vec2 ruv=m2(uQX*.28*sin(uT*.11))*uv;
+  ruv.y+=uQY*.13*cos(uT*.09);
+  vec3 rd=normalize(vec3(ruv,1.7));
+
+  float ph=uPh+uT*.5;
+
+  // Ray march
+  float dist=.02,hit=0.,steps=0.;
+  vec3 hp=ro;
+  for(int i=0;i<90;i++){
+    hp=ro+rd*dist;
+    float d=scene(hp,ph);
+    steps+=1.;
+    if(d<.003){hit=1.;break;}
+    if(dist>28.)break;
+    dist+=max(d*.6,.001);
+  }
+
+  float hb=uHu+uT*uHS;
+  vec3 col=vec3(0);
+
+  if(hit>.5){
+    vec3 n=nrm(hp,ph);
+    float ao=1.-steps/90.;
+    float h=fract(hb+hp.z*.06+hp.x*.1+hp.y*.08+dot(n,vec3(.15,.2,.1)));
+    float sat=clamp(uSa+.2*abs(n.y),.3,1.);
+    float diff=max(dot(n,normalize(vec3(.6,.8,-.2))),0.)*.65
+              +max(dot(n,normalize(vec3(-.4,.3,.8))),0.)*.3+.12;
+    col=hsv(h,sat,diff);
+    float rim=pow(1.-abs(dot(n,-rd)),3.);
+    col+=hsv(fract(h+.5),1.,1.)*rim*.55;
+    col*=.35+.65*ao;
+    col=mix(hsv(fract(hb*.4+.65),.9,.04),col,exp(-dist*.065));
+  } else {
+    float r=length(uv);
+    col=hsv(fract(hb*.45+r*.5+rd.x*.1),.95,.05+.03*sin(uT+r*10.));
+    col+=hsv(fract(hb+.3),1.,1.)*(.012/max(abs(r-.65),.004));
+    vec2 sv=uv*55.+uSe*.007;
+    vec2 sc=floor(sv);
+    float star=smoothstep(.45,.28,length(fract(sv)-.5))*step(.965,h21(sc));
+    col+=vec3(star*.85);
+  }
+
+  float vig=dot(uv*.85,uv*.85);
+  col*=1.-vig;
+  col=pow(max(col*uBr,vec3(0.)),vec3(.4545));
+  gl_FragColor=vec4(col,1.);
+}
+`;
+
+function mkS(type,src){
+  const s=gl.createShader(type);
+  gl.shaderSource(s,src);gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))
+    console.error(gl.getShaderInfoLog(s));
+  return s;
+}
+const prog=gl.createProgram();
+gl.attachShader(prog,mkS(gl.VERTEX_SHADER,VS));
+gl.attachShader(prog,mkS(gl.FRAGMENT_SHADER,FS));
+gl.linkProgram(prog);
+if(!gl.getProgramParameter(prog,gl.LINK_STATUS))
+  console.error(gl.getProgramInfoLog(prog));
+gl.useProgram(prog);
+
+const qbuf=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,qbuf);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+const aP=gl.getAttribLocation(prog,'p');
+gl.enableVertexAttribArray(aP);
+gl.vertexAttribPointer(aP,2,gl.FLOAT,false,0,0);
+
+const U={};
+'uR uT uSp uHu uHS uKa uMi uPo uPh uFo uFM uSa uBr uCo uSe uQX uQY'
+  .split(' ').forEach(n=>{U[n]=gl.getUniformLocation(prog,n);});
+
+let W=1,H=1,t=0,seed=0,lastNow=0,lastFPS=0,frameCount=0,fps=0;
+let hudOn=false,sndOn=false,audioCtx=null,gainNode=null,oscs=[];
+let uni={};
+
+const NAMES=['BOX','OCTAHEDRON','ICOSAHEDRON','DODECAHEDRON',
+             'MENGER SPONGE','TESSERACT 4D','E8 LATTICE','STAR COMPOUND'];
+
+function fr(x){return x-Math.floor(x);}
+function h1(x){return fr(Math.sin(x*127.1+3.7)*43758.5);}
+
+function reseed(){
+  seed=(Math.random()*99999)|0;
+  const h=i=>h1(seed+i*17.3);
+  const pi=Math.floor(h(6)*8);
+  uni={speed:.28+h(1)*.5,hue:h(2),hueSpd:.015+h(3)*.07,
+       kaleid:Math.floor(3+h(4)*9),mirror:h(5)*.85,poly:pi,
+       phase:h(7)*6.28,folds:1+Math.floor(h(8)*5),fracMix:h(9),
+       sat:.55+h(10)*.45,bright:.85+h(11)*.4,corr:h(12)*1.5,
+       qx:(h(13)-.5)*2,qy:(h(14)-.5)*2,name:NAMES[pi]};
+  t=0;
+}
+reseed();
+
+function resize(){
+  const dpr=Math.min(devicePixelRatio||1,2);
+  W=canvas.width=innerWidth*dpr|0;
+  H=canvas.height=innerHeight*dpr|0;
+  gl.viewport(0,0,W,H);
+}
+addEventListener('resize',resize);resize();
+
+// HUD
+const hudEl=document.getElementById('hud');
+const HE={fps:document.getElementById('h-fps'),seed:document.getElementById('h-seed'),
+  poly:document.getElementById('h-poly'),dim:document.getElementById('h-dim'),
+  spd:document.getElementById('h-speed'),hue:document.getElementById('h-hue'),
+  fold:document.getElementById('h-fold'),kal:document.getElementById('h-kaleid'),
+  e8:document.getElementById('h-e8'),eig:document.getElementById('h-eigen')};
+
+function hudTick(){
+  if(!hudOn)return;
+  HE.fps.textContent=`FPS: ${fps}`;
+  HE.seed.textContent=`SEED: ${seed}`;
+  HE.poly.textContent=`POLYTOPE: ${uni.name}`;
+  HE.dim.textContent=`DIM: ${(4+Math.sin(t*.09)*.35).toFixed(3)}`;
+  HE.spd.textContent=`VELOCITY: ${uni.speed.toFixed(3)}`;
+  HE.hue.textContent=`HUE: ${fr(uni.hue+t*uni.hueSpd).toFixed(3)}`;
+  HE.fold.textContent=`FOLDS: ${uni.folds}`;
+  HE.kal.textContent=`KALEID: ${uni.kaleid}`;
+  HE.e8.textContent=`E8: ${(uni.phase%(Math.PI*2)).toFixed(4)}`;
+  HE.eig.textContent=`EIGEN: ${(Math.sin(t*.37)*Math.E).toFixed(4)}`;
+}
+
+// Audio
+function aStart(){
+  if(audioCtx)return;
+  audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+  gainNode=audioCtx.createGain();gainNode.gain.value=.1;gainNode.connect(audioCtx.destination);
+  [27.5,55,82.5,110,165,220,330].forEach((f,i)=>{
+    const osc=audioCtx.createOscillator(),g=audioCtx.createGain();
+    osc.type=['sine','sine','triangle','triangle','sawtooth','sine','sine'][i];
+    osc.frequency.value=f;g.gain.value=.2/(i+1);
+    osc.connect(g);g.connect(gainNode);osc.start();oscs.push({osc,g,base:f});
+  });
+}
+function aStop(){
+  if(!audioCtx)return;
+  oscs.forEach(({osc})=>{try{osc.stop();}catch(e){}});
+  oscs=[];gainNode.disconnect();gainNode=null;audioCtx.close();audioCtx=null;
+}
+function aTick(){
+  if(!sndOn||!audioCtx)return;
+  const now=audioCtx.currentTime,sp=uni.speed;
+  oscs.forEach(({osc,g,base},i)=>{
+    osc.frequency.setTargetAtTime(base*(1+sp*.25)*(1+Math.sin(t*(.08+i*.05))*.03),now,.12);
+    g.gain.setTargetAtTime(.2/(i+1)*(.5+.5*Math.sin(t*(sp*1.5+i*.28))),now,.06);
+  });
+}
+
+// Controls
+const hintEl=document.getElementById('hint');
+const sndEl=document.getElementById('snd');
+let ht=setTimeout(()=>hintEl.style.opacity=0,4500);
+function bump(){
+  reseed();hintEl.style.opacity='.25';
+  clearTimeout(ht);ht=setTimeout(()=>hintEl.style.opacity=0,2500);
+}
+addEventListener('keydown',e=>{
+  if(e.key===' '||e.key==='Enter'){e.preventDefault();bump();}
+  if(e.key==='h'||e.key==='H'){hudOn=!hudOn;hudEl.classList.toggle('on',hudOn);}
+  if(e.key==='s'||e.key==='S'){
+    sndOn=!sndOn;
+    sndEl.textContent=sndOn?'♪ ON':'♪ OFF';
+    sndEl.style.color=sndOn?'rgba(0,255,180,.7)':'rgba(255,180,0,.5)';
+    sndOn?aStart():aStop();
+  }
+});
+canvas.addEventListener('pointerdown',e=>{e.preventDefault();bump();});
+
+// Render loop
+function frame(now){
+  requestAnimationFrame(frame);
+  const dt=Math.min((now-lastNow)/1000,.05);
+  lastNow=now;t+=dt;frameCount++;
+  if(now-lastFPS>600){fps=Math.round(frameCount/((now-lastFPS)/1000));frameCount=0;lastFPS=now;}
+  uni.phase+=dt*.35;
+
+  gl.uniform2f(U.uR,W,H);
+  gl.uniform1f(U.uT,t);
+  gl.uniform1f(U.uSp,uni.speed);
+  gl.uniform1f(U.uHu,uni.hue);
+  gl.uniform1f(U.uHS,uni.hueSpd);
+  gl.uniform1f(U.uKa,uni.kaleid);
+  gl.uniform1f(U.uMi,uni.mirror);
+  gl.uniform1f(U.uPo,uni.poly);
+  gl.uniform1f(U.uPh,uni.phase);
+  gl.uniform1f(U.uFo,uni.folds);
+  gl.uniform1f(U.uFM,uni.fracMix);
+  gl.uniform1f(U.uSa,uni.sat);
+  gl.uniform1f(U.uBr,uni.bright);
+  gl.uniform1f(U.uCo,uni.corr);
+  gl.uniform1f(U.uSe,seed);
+  gl.uniform1f(U.uQX,uni.qx);
+  gl.uniform1f(U.uQY,uni.qy);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+  aTick();hudTick();
+}
+requestAnimationFrame(n=>{lastNow=n;lastFPS=n;requestAnimationFrame(frame);});
+})();
+</script>
+</body>
+</html>

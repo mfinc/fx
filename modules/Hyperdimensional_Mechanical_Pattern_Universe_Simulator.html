@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+
+<meta charset="utf-8">
+
+<title>Hyperdimensional Mechanical Pattern Universe Simulator</title>
+
+<meta name="viewport" content="width=device-width,initial-scale=1">
+
+<meta name="description" content="A GPU accelerated generative universe of sacred geometry, quasi-crystal tilings, Voronoi and Delaunay fields, fractal mazes, knot networks, mechanical linkages, fluid flows and reaction diffusion chemistry evolving continuously as a mathematical machine cosmos.">
+
+<meta name="keywords" content="generative art, penrose tiling, ammann beenker, voronoi, delaunay, sacred geometry, fractal, maze, knot, hilbert curve, reaction diffusion, webgl generative engine">
+
+<style>
+html,body{
+margin:0;
+padding:0;
+overflow:hidden;
+background:black;
+}
+canvas{
+display:block;
+}
+#hud{
+position:fixed;
+top:10px;
+left:10px;
+color:white;
+font-family:monospace;
+font-size:12px;
+opacity:.8;
+}
+</style>
+
+</head>
+<body>
+
+<canvas id="c"></canvas>
+<div id="hud" style="display:none"></div>
+
+<script>
+
+const canvas=document.getElementById("c")
+const gl=canvas.getContext("webgl",{antialias:false})
+const hud=document.getElementById("hud")
+
+let W,H
+
+function resize(){
+W=canvas.width=window.innerWidth
+H=canvas.height=window.innerHeight
+gl.viewport(0,0,W,H)
+}
+
+window.addEventListener("resize",resize)
+resize()
+
+function r(a=1,b=0){return Math.random()*(a-b)+b}
+
+let params
+let start
+
+function randomize(){
+
+params={
+seed:r(1000),
+sym:Math.floor(r(12,3)),
+scale:r(7,1.5),
+flow:r(2,.2),
+turb:r(2,.2),
+chem:r(2,.2),
+osc:r(3,.5),
+palette:[
+r(),r(),r(),
+r(),r(),r(),
+r(),r(),r(),
+r(),r(),r()
+]
+}
+
+start=performance.now()
+
+}
+
+randomize()
+
+/* vertex */
+
+const vs=`
+attribute vec2 p;
+void main(){
+gl_Position=vec4(p,0.,1.);
+}
+`
+
+/* fragment */
+
+const fs=`
+
+precision highp float;
+
+uniform vec2 r;
+uniform float t;
+uniform float seed;
+uniform float sym;
+uniform float scale;
+uniform float flow;
+uniform float turb;
+uniform float chem;
+uniform float osc;
+
+uniform vec3 c0;
+uniform vec3 c1;
+uniform vec3 c2;
+uniform vec3 c3;
+
+vec2 rot(vec2 p,float a){
+float c=cos(a),s=sin(a);
+return vec2(c*p.x-s*p.y,s*p.x+c*p.y);
+}
+
+float hash(vec2 p){
+return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);
+}
+
+float noise(vec2 p){
+
+vec2 i=floor(p);
+vec2 f=fract(p);
+
+float a=hash(i);
+float b=hash(i+vec2(1,0));
+float c=hash(i+vec2(0,1));
+float d=hash(i+vec2(1,1));
+
+vec2 u=f*f*(3.-2.*f);
+
+return mix(a,b,u.x)+(c-a)*u.y+(a-b-c+d)*u.x*u.y;
+
+}
+
+float voronoi(vec2 x){
+
+vec2 n=floor(x);
+vec2 f=fract(x);
+
+float md=8.;
+
+for(int j=-1;j<=1;j++)
+for(int i=-1;i<=1;i++){
+
+vec2 g=vec2(float(i),float(j));
+vec2 o=hash(n+g)*vec2(1.,1.);
+
+vec2 r=g+o-f;
+float d=dot(r,r);
+
+md=min(md,d);
+
+}
+
+return sqrt(md);
+
+}
+
+float gear(vec2 p,float teeth){
+
+float a=atan(p.y,p.x);
+float r=length(p);
+
+float g=.3+.1*sin(a*teeth);
+
+return smoothstep(g,g+.02,r);
+
+}
+
+float maze(vec2 p){
+
+p*=2.;
+
+float m=abs(fract(p.x)-.5)+abs(fract(p.y)-.5);
+
+return smoothstep(.45,.5,m);
+
+}
+
+float knot(vec2 p){
+
+float a=atan(p.y,p.x);
+float r=length(p);
+
+float k=.2*sin(a*3.+sin(a*6.));
+
+return smoothstep(.35+k,.37+k,r);
+
+}
+
+float reaction(vec2 p,float t){
+
+float a=noise(p*2.+t*.2);
+float b=noise(p*3.-t*.1);
+
+return sin(a*6.+b*4.);
+
+}
+
+void main(){
+
+vec2 uv=(gl_FragCoord.xy/r.xy)*2.-1.;
+uv.x*=r.x/r.y;
+
+float tt=t*.001;
+
+vec2 p=uv*scale;
+
+for(int i=0;i<5;i++){
+
+p=rot(p,tt*.2+float(i));
+p+=vec2(
+noise(p+tt)*turb,
+noise(p-tt)*turb
+);
+
+}
+
+float v=voronoi(p*1.2);
+float g=gear(p,sym*2.);
+float m=maze(p);
+float k=knot(p);
+
+float chemf=reaction(p,tt*chem);
+
+float field=
+v*.6+
+g*.7+
+m*.4+
+k*.6+
+chemf*.5;
+
+float wave=sin(field*6.+tt*osc);
+
+vec3 col=
+c0*sin(field*2.)+
+c1*cos(field*3.)+
+c2*sin(wave*2.)+
+c3*cos(field*4.);
+
+col=abs(col);
+
+gl_FragColor=vec4(col,1.);
+
+}
+
+`
+
+function compile(type,src){
+let s=gl.createShader(type)
+gl.shaderSource(s,src)
+gl.compileShader(s)
+return s
+}
+
+const prog=gl.createProgram()
+
+gl.attachShader(prog,compile(gl.VERTEX_SHADER,vs))
+gl.attachShader(prog,compile(gl.FRAGMENT_SHADER,fs))
+
+gl.linkProgram(prog)
+gl.useProgram(prog)
+
+const quad=gl.createBuffer()
+
+gl.bindBuffer(gl.ARRAY_BUFFER,quad)
+
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([
+-1,-1,
+1,-1,
+-1,1,
+1,1
+]),gl.STATIC_DRAW)
+
+const loc=gl.getAttribLocation(prog,"p")
+
+gl.enableVertexAttribArray(loc)
+
+gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0)
+
+const U={}
+;["r","t","seed","sym","scale","flow","turb","chem","osc","c0","c1","c2","c3"]
+.forEach(n=>U[n]=gl.getUniformLocation(prog,n))
+
+/* audio */
+
+let audioCtx
+let osc
+let gain
+let sound=false
+
+function startAudio(){
+
+if(!audioCtx){
+
+audioCtx=new(window.AudioContext||window.webkitAudioContext)()
+
+osc=audioCtx.createOscillator()
+gain=audioCtx.createGain()
+
+osc.type="sine"
+
+gain.gain.value=.05
+
+osc.connect(gain)
+gain.connect(audioCtx.destination)
+
+osc.start()
+
+}
+
+}
+
+function audioUpdate(t){
+
+if(!sound)return
+
+osc.frequency.value=220+Math.sin(t*.001)*120
+
+}
+
+/* render */
+
+function draw(){
+
+let time=performance.now()-start
+
+gl.uniform2f(U.r,W,H)
+gl.uniform1f(U.t,time)
+
+gl.uniform1f(U.seed,params.seed)
+gl.uniform1f(U.sym,params.sym)
+gl.uniform1f(U.scale,params.scale)
+gl.uniform1f(U.flow,params.flow)
+gl.uniform1f(U.turb,params.turb)
+gl.uniform1f(U.chem,params.chem)
+gl.uniform1f(U.osc,params.osc)
+
+gl.uniform3f(U.c0,...params.palette.slice(0,3))
+gl.uniform3f(U.c1,...params.palette.slice(3,6))
+gl.uniform3f(U.c2,...params.palette.slice(6,9))
+gl.uniform3f(U.c3,...params.palette.slice(9,12))
+
+gl.drawArrays(gl.TRIANGLE_STRIP,0,4)
+
+audioUpdate(time)
+
+requestAnimationFrame(draw)
+
+}
+
+draw()
+
+/* controls */
+
+window.addEventListener("keydown",e=>{
+
+if(e.code==="Space")randomize()
+
+if(e.key==="h"||e.key==="H"){
+hud.style.display=hud.style.display==="none"?"block":"none"
+}
+
+if(e.key==="s"||e.key==="S"){
+
+sound=!sound
+
+if(sound)startAudio()
+
+}
+
+})
+
+canvas.addEventListener("click",randomize)
+canvas.addEventListener("touchstart",randomize)
+
+</script>
+
+</body>
+</html>

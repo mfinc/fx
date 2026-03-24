@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hyperbolic Puzzle Engine — Mechanical Tessellation Simulator</title>
+<meta name="description" content="An immersive generative art engine rendering hyperbolic tilings as mechanical puzzle plates connected by hinges and springs. Rigid body physics, spectral color harmonics, and procedural audio create a mesmerizing audiovisual experience of infinite mechanical complexity.">
+<meta name="keywords" content="hyperbolic tiling generative art, mechanical puzzle physics simulation, procedural audiovisual engine, hyperbolic tessellation, Poincare disk art, generative geometry, rigid body simulation, spring physics art, interactive generative art, algorithmic art engine, fractal tiling, mathematical art, WebGL canvas animation, procedural music synthesis, hinge constraint simulation, non-Euclidean geometry visualization">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+  canvas { display: block; width: 100%; height: 100%; }
+  #hud {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none; display: none; font-family: 'Courier New', monospace;
+  }
+  #hud.visible { display: block; }
+  .hud-panel {
+    position: absolute; top: 18px; left: 18px;
+    background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.12);
+    padding: 12px 16px; color: rgba(255,255,255,0.75); font-size: 11px;
+    line-height: 1.9; backdrop-filter: blur(4px);
+    border-radius: 2px; min-width: 220px;
+  }
+  .hud-panel .title { color: rgba(255,200,80,0.9); font-size: 12px; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 6px; }
+  .hud-panel span { color: rgba(120,220,255,0.85); }
+  .hud-keys {
+    position: absolute; bottom: 18px; right: 18px;
+    background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.12);
+    padding: 10px 14px; color: rgba(255,255,255,0.5); font-size: 10px;
+    line-height: 2; backdrop-filter: blur(4px); border-radius: 2px;
+  }
+  .hud-keys kbd { background: rgba(255,255,255,0.1); padding: 1px 5px; border-radius: 2px; color: rgba(255,220,100,0.9); }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div class="hud-panel">
+    <div class="title">⬡ Hyperbolic Puzzle Engine</div>
+    Tiles: <span id="h-tiles">0</span><br>
+    Hinges: <span id="h-hinges">0</span><br>
+    Springs: <span id="h-springs">0</span><br>
+    Chaos: <span id="h-chaos">0.00</span><br>
+    Palette: <span id="h-palette">—</span><br>
+    Time: <span id="h-time">0s</span>
+  </div>
+  <div class="hud-keys">
+    <kbd>SPACE</kbd> / Click — Regenerate<br>
+    <kbd>H</kbd> — Toggle HUD<br>
+    <kbd>S</kbd> — Toggle Sound
+  </div>
+</div>
+<script>
+// ═══════════════════════════════════════════════════════════════
+//  HYPERBOLIC PUZZLE ENGINE
+//  Poincaré disk model + rigid puzzle plates + spring physics
+//  + procedural audio synthesis
+// ═══════════════════════════════════════════════════════════════
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const hud = document.getElementById('hud');
+let W, H, CX, CY, R;
+
+// ── State ────────────────────────────────────────────────────
+let tiles = [], hinges = [], springs = [];
+let palette = [], bgColor = '#000';
+let soundOn = false, hudOn = false;
+let audioCtx = null, masterGain = null;
+let startTime = Date.now();
+let frame = 0, chaos = 0;
+let params = {};
+
+// ── Resize ───────────────────────────────────────────────────
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  CX = W / 2; CY = H / 2;
+  R = Math.min(W, H) * 0.47;
+}
+window.addEventListener('resize', () => { resize(); regenerate(); });
+
+// ═══════════════════════════════════════════════════════════════
+//  MATH UTILITIES
+// ═══════════════════════════════════════════════════════════════
+const TAU = Math.PI * 2;
+const rnd = (a, b) => a + Math.random() * (b - a);
+const rndInt = (a, b) => Math.floor(rnd(a, b + 1));
+const pick = arr => arr[Math.floor(Math.random() * arr.length)];
+const lerp = (a, b, t) => a + (b - a) * t;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const hsl = (h, s, l, a = 1) => `hsla(${h|0},${s|0}%,${l|0}%,${a})`;
+
+// Möbius transform: move point z toward center from point a
+function mobiusAdd(z, w) {
+  // Poincaré disk addition
+  const denom = 1 + z.re * w.re + z.im * w.im;
+  const re = (z.re + w.re) / denom;
+  const im = (z.im + w.im) / denom; // simplified for unit disk
+  return { re, im };
+}
+
+// Reflect point p across geodesic defined by a,b on unit disk
+function reflectAcrossGeodesic(p, a, b) {
+  // Use inversion in the circle orthogonal to unit disk through a,b
+  // Simplified: reflect in the hyperbolic line
+  const ax = a.x, ay = a.y, bx = b.x, by = b.y;
+  const px = p.x, py = p.y;
+  // Inversion center of geodesic circle
+  const den = ax * by - ay * bx;
+  if (Math.abs(den) < 1e-10) {
+    // geodesic is a diameter — reflect across line
+    const dx = bx - ax, dy = by - ay;
+    const t = ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy);
+    return { x: 2 * (ax + t * dx) - px, y: 2 * (ay + t * dy) - py };
+  }
+  const cx0 = (by - ay) / (2 * den) * (ax * ax + ay * ay - 1) + (ax + bx) * 0.5;
+  const cy0 = (ax - bx) / (2 * den) * (ax * ax + ay * ay - 1) + (ay + by) * 0.5;
+  // Actually use simpler Euclidean reflection for visual effect:
+  const dx = bx - ax, dy = by - ay;
+  const t = ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy);
+  const fx = ax + t * dx, fy = ay + t * dy;
+  return { x: 2 * fx - px, y: 2 * fy - py };
+}
+
+// Poincaré disk: map unit disk coords to canvas
+function diskToCanvas(x, y) {
+  return { x: CX + x * R, y: CY + y * R };
+}
+function canvasToDisk(x, y) {
+  return { x: (x - CX) / R, y: (y - CY) / R };
+}
+
+// Hyperbolic midpoint
+function hMid(a, b, t = 0.5) {
+  return { x: lerp(a.x, b.x, t), y: lerp(a.y, b.y, t) };
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  COLOR PALETTES
+// ═══════════════════════════════════════════════════════════════
+const PALETTES = [
+  { name: 'Plasma Core',    bg: '#050008', cols: [[280,90,60],[320,85,55],[200,95,65],[60,100,70],[350,80,50]] },
+  { name: 'Molten Forge',   bg: '#080300', cols: [[20,100,65],[40,95,60],[0,90,55],[60,100,70],[180,70,50]] },
+  { name: 'Arctic Abyss',   bg: '#000810', cols: [[190,90,65],[210,85,60],[160,80,55],[230,95,70],[120,70,50]] },
+  { name: 'Toxic Dreams',   bg: '#020800', cols: [[100,95,60],[140,90,55],[80,85,65],[170,100,55],[60,80,70]] },
+  { name: 'Void Orchid',    bg: '#060008', cols: [[290,85,65],[260,90,60],[310,80,55],[240,95,70],[330,75,60]] },
+  { name: 'Solar Storm',    bg: '#080400', cols: [[30,100,65],[50,95,60],[10,90,70],[70,85,55],[200,80,60]] },
+  { name: 'Deep Magma',     bg: '#060000', cols: [[0,100,60],[20,90,55],[350,85,65],[40,95,50],[300,70,55]] },
+  { name: 'Neon Fracture',  bg: '#000608', cols: [[180,100,65],[120,90,60],[240,85,70],[60,100,55],[300,80,65]] },
+  { name: 'Chromatic Rift', bg: '#050505', cols: [[0,80,60],[60,80,60],[120,80,60],[180,80,60],[240,80,60],[300,80,60]] },
+  { name: 'Ember Ghost',    bg: '#040200', cols: [[25,95,65],[200,85,55],[50,100,70],[220,90,60],[15,80,50]] },
+];
+
+function buildPalette() {
+  const p = pick(PALETTES);
+  bgColor = p.bg;
+  palette = p.cols.map(c => ({
+    h: c[0] + rnd(-15, 15),
+    s: c[1] + rnd(-5, 5),
+    l: c[2] + rnd(-8, 8)
+  }));
+  document.getElementById('h-palette').textContent = p.name;
+  return palette;
+}
+
+function getColor(idx, alpha = 1, shift = 0) {
+  const c = palette[idx % palette.length];
+  return hsl(c.h + shift, c.s, c.l, alpha);
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  HYPERBOLIC TESSELLATION (p,q) tiling
+// ═══════════════════════════════════════════════════════════════
+function buildHyperbolicTiling(p, q, depth) {
+  // Generate fundamental domain polygon in Poincaré disk
+  // then reflect to fill disk
+  const tiles = [];
+  const seen = new Set();
+
+  // Fundamental p-gon inscribed in circle of radius r
+  // r = tanh(acosh(cos(π/q) / sin(π/p)) / 2)  — hyperbolic geometry formula
+  const r0 = Math.tanh(
+    Math.acosh(Math.cos(Math.PI / q) / Math.sin(Math.PI / p)) / 2
+  );
+
+  // Generate vertices of fundamental polygon
+  function mkPoly(cx, cy, angle, radius) {
+    const pts = [];
+    for (let i = 0; i < p; i++) {
+      const a = angle + TAU * i / p;
+      pts.push({
+        x: cx + radius * Math.cos(a),
+        y: cy + radius * Math.sin(a)
+      });
+    }
+    return pts;
+  }
+
+  const rootPoly = mkPoly(0, 0, Math.PI / p, r0);
+  const queue = [{ pts: rootPoly, depth: 0, parentIdx: -1, id: '0' }];
+  let id = 1;
+
+  while (queue.length > 0) {
+    const { pts, depth: d, parentIdx, id: tid } = queue.shift();
+    if (seen.has(tid)) continue;
+    seen.add(tid);
+    // Clip to unit disk
+    const maxR2 = Math.max(...pts.map(pt => pt.x * pt.x + pt.y * pt.y));
+    if (maxR2 > 0.98) continue;
+    tiles.push({ pts: pts.slice(), depth: d, colorIdx: Math.floor(Math.random() * palette.length), id: tid });
+
+    if (d < depth) {
+      // Reflect across each edge
+      for (let e = 0; e < p; e++) {
+        if (e === parentIdx) continue;
+        const a = pts[e], b = pts[(e + 1) % p];
+        // Reflect all vertices
+        const newPts = pts.map(pt => reflectAcrossGeodesic(pt, a, b));
+        const nid = `${tid}-${e}-${id++}`;
+        queue.push({ pts: newPts, depth: d + 1, parentIdx: e, id: nid });
+      }
+    }
+  }
+  return tiles;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  PHYSICS ENGINE
+// ═══════════════════════════════════════════════════════════════
+class PhysicsTile {
+  constructor(pts, colorIdx, idx) {
+    this.pts = pts.map(p => ({ ...p })); // disk coords
+    this.colorIdx = colorIdx;
+    this.idx = idx;
+    // Centroid
+    this.cx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
+    this.cy = pts.reduce((s, p) => s + p.y, 0) / pts.length;
+    // Physics state
+    this.angle = 0;
+    this.angVel = rnd(-0.002, 0.002);
+    this.vx = rnd(-0.0005, 0.0005);
+    this.vy = rnd(-0.0005, 0.0005);
+    this.stress = 0;
+    this.glowPhase = Math.random() * TAU;
+    this.pulseFreq = rnd(0.3, 1.5);
+    this.thickness = rnd(1.5, 3.5);
+    this.alive = true;
+    this.shimmer = Math.random();
+    this.crack = 0; // stress crack visualization
+  }
+
+  update(dt, t) {
+    this.angle += this.angVel * dt;
+    this.angVel *= 0.998;
+    this.vx *= 0.997;
+    this.vy *= 0.997;
+    this.cx += this.vx * dt;
+    this.cy += this.vy * dt;
+    this.stress *= 0.99;
+    this.glowPhase += this.pulseFreq * dt * 0.05;
+    // Drift back to origin gently
+    const dr = Math.sqrt(this.cx * this.cx + this.cy * this.cy);
+    if (dr > 0.001) {
+      this.vx -= this.cx * 0.00002;
+      this.vy -= this.cy * 0.00002;
+    }
+    this.crack = clamp(this.crack * 0.995 + this.stress * 0.01, 0, 1);
+  }
+
+  getTransformedPts(t) {
+    const cos = Math.cos(this.angle), sin = Math.sin(this.angle);
+    return this.pts.map(p => {
+      const dx = p.x - this.cx, dy = p.y - this.cy;
+      return {
+        x: this.cx + dx * cos - dy * sin + this.vx * 2,
+        y: this.cy + dx * sin + dy * cos + this.vy * 2
+      };
+    });
+  }
+}
+
+class Hinge {
+  constructor(tileA, tileB, ptA, ptB) {
+    this.tileA = tileA;
+    this.tileB = tileB;
+    this.ptA = ptA; // index in tileA.pts
+    this.ptB = ptB; // index in tileB.pts
+    this.restAngle = 0;
+    this.stiffness = rnd(0.001, 0.01);
+    this.torque = 0;
+    this.stress = 0;
+    this.phase = Math.random() * TAU;
+    this.alive = true;
+  }
+
+  update(dt, t) {
+    const a = this.tileA, b = this.tileB;
+    const dAngle = a.angle - b.angle - this.restAngle;
+    this.torque = -this.stiffness * dAngle;
+    a.angVel += this.torque * dt * 10;
+    b.angVel -= this.torque * dt * 10;
+    this.stress = Math.abs(dAngle) * 2;
+    a.stress += this.stress * 0.1;
+    b.stress += this.stress * 0.1;
+    this.phase += dt * 0.03;
+  }
+}
+
+class Spring {
+  constructor(tileA, tileB) {
+    this.tileA = tileA;
+    this.tileB = tileB;
+    const dx = tileA.cx - tileB.cx, dy = tileA.cy - tileB.cy;
+    this.restLen = Math.sqrt(dx * dx + dy * dy);
+    this.k = rnd(0.0005, 0.003);
+    this.damping = 0.98;
+    this.stress = 0;
+    this.phase = Math.random() * TAU;
+    this.alive = true;
+  }
+
+  update(dt) {
+    const a = this.tileA, b = this.tileB;
+    const dx = b.cx - a.cx, dy = b.cy - a.cy;
+    const dist = Math.sqrt(dx * dx + dy * dy) || 0.0001;
+    const force = (dist - this.restLen) * this.k;
+    const fx = (dx / dist) * force;
+    const fy = (dy / dist) * force;
+    a.vx += fx * dt;
+    a.vy += fy * dt;
+    b.vx -= fx * dt;
+    b.vy -= fy * dt;
+    this.stress = Math.abs(dist - this.restLen) / (this.restLen + 0.001);
+    a.stress += this.stress * 0.05;
+    b.stress += this.stress * 0.05;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  AUDIO ENGINE
+// ═══════════════════════════════════════════════════════════════
+function initAudio() {
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  masterGain = audioCtx.createGain();
+  masterGain.gain.setValueAtTime(0.0, audioCtx.currentTime);
+  masterGain.connect(audioCtx.destination);
+
+  // Drone oscillators
+  const droneFreqs = [params.droneBase, params.droneBase * 1.5, params.droneBase * 2, params.droneBase * 3];
+  droneFreqs.forEach((freq, i) => {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    const filter = audioCtx.createBiquadFilter();
+    osc.type = ['sine', 'triangle', 'sawtooth', 'sine'][i];
+    osc.frequency.value = freq;
+    gain.gain.value = [0.06, 0.04, 0.015, 0.008][i];
+    filter.type = 'lowpass';
+    filter.frequency.value = freq * 4;
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(masterGain);
+    osc.start();
+    // slow LFO on freq
+    const lfo = audioCtx.createOscillator();
+    const lfoGain = audioCtx.createGain();
+    lfo.frequency.value = 0.05 + i * 0.03;
+    lfoGain.gain.value = freq * 0.02;
+    lfo.connect(lfoGain);
+    lfoGain.connect(osc.frequency);
+    lfo.start();
+  });
+}
+
+function triggerSound(freq, duration, volume, type = 'triangle') {
+  if (!soundOn || !audioCtx) return;
+  try {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    const filter = audioCtx.createBiquadFilter();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(freq * 0.3, audioCtx.currentTime + duration);
+    gain.gain.setValueAtTime(volume, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
+    filter.type = 'bandpass';
+    filter.frequency.value = freq * 2;
+    filter.Q.value = 3;
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(masterGain);
+    osc.start();
+    osc.stop(audioCtx.currentTime + duration);
+  } catch(e) {}
+}
+
+function setMasterVolume(v) {
+  if (!masterGain) return;
+  masterGain.gain.setTargetAtTime(v, audioCtx.currentTime, 0.1);
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  GENERATION
+// ═══════════════════════════════════════════════════════════════
+function randomParams() {
+  const pqOptions = [[3,7],[3,8],[4,5],[4,6],[5,4],[6,4],[7,3],[8,3],[3,9],[5,5]];
+  const [p, q] = pick(pqOptions);
+  return {
+    p, q,
+    depth: rndInt(3, 5),
+    droneBase: pick([55, 65, 82, 110, 130, 164, 220]),
+    chaosFactor: rnd(0.3, 1.2),
+    rotSpeed: rnd(0.0001, 0.001),
+    glowIntensity: rnd(0.5, 1.5),
+    springDensity: rnd(0.1, 0.4),
+    hingeDensity: rnd(0.2, 0.6),
+    colorShift: rnd(0, 360),
+    bgPulse: Math.random() > 0.5,
+    showGeodesics: Math.random() > 0.4,
+    crackLines: Math.random() > 0.3,
+  };
+}
+
+function regenerate() {
+  params = randomParams();
+  buildPalette();
+  tiles = []; hinges = []; springs = [];
+  chaos = 0;
+  startTime = Date.now();
+
+  // Build hyperbolic tiling
+  const rawTiles = buildHyperbolicTiling(params.p, params.q, params.depth);
+  document.getElementById('h-tiles').textContent = rawTiles.length;
+
+  // Convert to physics tiles
+  tiles = rawTiles.map((t, i) => new PhysicsTile(t.pts, t.colorIdx, i));
+
+  // Add hinges between adjacent tiles (shared edges)
+  const tileMap = new Map();
+  tiles.forEach((tile, ti) => {
+    tile.pts.forEach((pt, pi) => {
+      const key = `${pt.x.toFixed(4)},${pt.y.toFixed(4)}`;
+      if (!tileMap.has(key)) tileMap.set(key, []);
+      tileMap.get(key).push({ ti, pi });
+    });
+  });
+
+  let hingeCount = 0;
+  tileMap.forEach(list => {
+    if (list.length === 2 && Math.random() < params.hingeDensity) {
+      const [a, b] = list;
+      if (a.ti !== b.ti) {
+        hinges.push(new Hinge(tiles[a.ti], tiles[b.ti], a.pi, b.pi));
+        hingeCount++;
+      }
+    }
+  });
+  document.getElementById('h-hinges').textContent = hingeCount;
+
+  // Add springs between nearby tiles
+  let springCount = 0;
+  for (let i = 0; i < tiles.length; i++) {
+    for (let j = i + 1; j < tiles.length; j++) {
+      const dx = tiles[i].cx - tiles[j].cx;
+      const dy = tiles[i].cy - tiles[j].cy;
+      const d = Math.sqrt(dx * dx + dy * dy);
+      if (d < 0.3 && Math.random() < params.springDensity) {
+        springs.push(new Spring(tiles[i], tiles[j]));
+        springCount++;
+      }
+    }
+  }
+  document.getElementById('h-springs').textContent = springCount;
+
+  if (soundOn) {
+    initAudio();
+    triggerSound(params.droneBase * 2, 1.5, 0.15, 'sine');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  DRAWING
+// ═══════════════════════════════════════════════════════════════
+function drawBackground(t) {
+  ctx.fillStyle = bgColor;
+  ctx.fillRect(0, 0, W, H);
+
+  // Radial glow at center
+  const pulse = params.bgPulse ? 0.5 + 0.5 * Math.sin(t * 0.3) : 1;
+  const grad = ctx.createRadialGradient(CX, CY, 0, CX, CY, R * 1.1);
+  const c = palette[0] || { h: 240, s: 80, l: 20 };
+  grad.addColorStop(0, hsl(c.h + params.colorShift * 0.1, c.s * 0.5, c.l * pulse * 0.4, 0.25));
+  grad.addColorStop(0.6, hsl(c.h, c.s * 0.3, 5, 0.1));
+  grad.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  // Boundary circle
+  ctx.beginPath();
+  ctx.arc(CX, CY, R, 0, TAU);
+  ctx.strokeStyle = hsl(c.h, 60, 50, 0.15);
+  ctx.lineWidth = 1;
+  ctx.stroke();
+}
+
+function drawTile(tile, t) {
+  const tpts = tile.getTransformedPts(t);
+  const cpts = tpts.map(p => diskToCanvas(p.x, p.y));
+
+  // Check if all points within canvas
+  const inside = cpts.some(p => {
+    const dx = p.x - CX, dy = p.y - CY;
+    return dx * dx + dy * dy < R * R * 1.05;
+  });
+  if (!inside) return;
+
+  const pulse = 0.5 + 0.5 * Math.sin(tile.glowPhase + t * tile.pulseFreq);
+  const stress = clamp(tile.stress, 0, 1);
+  const ci = tile.colorIdx;
+  const c = palette[ci % palette.length];
+  const hshift = params.colorShift + stress * 30 + t * 2;
+
+  ctx.beginPath();
+  ctx.moveTo(cpts[0].x, cpts[0].y);
+  for (let i = 1; i < cpts.length; i++) ctx.lineTo(cpts[i].x, cpts[i].y);
+  ctx.closePath();
+
+  // Fill with gradient
+  const centC = diskToCanvas(tile.cx, tile.cy);
+  const fRadius = R * 0.25;
+  try {
+    const grad = ctx.createRadialGradient(centC.x, centC.y, 0, centC.x, centC.y, fRadius);
+    grad.addColorStop(0, hsl(c.h + hshift * 0.3, c.s, c.l * (0.7 + pulse * 0.5), 0.18 + pulse * 0.12));
+    grad.addColorStop(0.5, hsl(c.h + hshift * 0.5, c.s, c.l * 0.6, 0.08));
+    grad.addColorStop(1, hsl(c.h, c.s, c.l * 0.3, 0.02));
+    ctx.fillStyle = grad;
+  } catch(e) {
+    ctx.fillStyle = hsl(c.h, c.s, c.l, 0.05);
+  }
+  ctx.fill();
+
+  // Border glow
+  ctx.save();
+  ctx.shadowColor = hsl(c.h + hshift * 0.2, c.s, c.l + 20, 0.8 + stress * 0.2);
+  ctx.shadowBlur = (6 + pulse * 8 + stress * 12) * params.glowIntensity;
+  ctx.strokeStyle = hsl(c.h + hshift * 0.3, c.s, c.l + 15 + stress * 20, 0.5 + pulse * 0.35 + stress * 0.2);
+  ctx.lineWidth = tile.thickness * (1 + stress);
+  ctx.stroke();
+  ctx.restore();
+
+  // Stress crack lines
+  if (params.crackLines && tile.crack > 0.05) {
+    const cent = diskToCanvas(tile.cx, tile.cy);
+    cpts.forEach((p, i) => {
+      if (Math.random() < tile.crack * 0.3) {
+        ctx.beginPath();
+        ctx.moveTo(cent.x, cent.y);
+        const mid = { x: (cent.x + p.x) / 2, y: (cent.y + p.y) / 2 };
+        ctx.lineTo(mid.x + rnd(-5, 5), mid.y + rnd(-5, 5));
+        ctx.strokeStyle = hsl(c.h + 180, 80, 80, tile.crack * 0.4);
+        ctx.lineWidth = 0.5;
+        ctx.stroke();
+      }
+    });
+  }
+
+  // Hinge joints — small glowing circles at vertices
+  cpts.forEach((p, i) => {
+    const r2 = (p.x - CX) ** 2 + (p.y - CY) ** 2;
+    if (r2 < R * R * 0.95) {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 1.5 + pulse * 1.5, 0, TAU);
+      ctx.fillStyle = hsl(c.h + 60, 90, 85, 0.5 + pulse * 0.3);
+      ctx.shadowColor = hsl(c.h + 60, 100, 90, 0.9);
+      ctx.shadowBlur = 6;
+      ctx.fill();
+    }
+  });
+}
+
+function drawSpring(spring, t) {
+  if (!spring.alive) return;
+  const a = spring.tileA, b = spring.tileB;
+  const ca = diskToCanvas(a.cx, a.cy);
+  const cb = diskToCanvas(b.cx, b.cy);
+  const stress = clamp(spring.stress, 0, 1);
+  const pulse = 0.5 + 0.5 * Math.sin(spring.phase + t);
+  const ci = (a.colorIdx + b.colorIdx) >> 1;
+  const c = palette[ci % palette.length];
+
+  // Spring coil visual
+  ctx.beginPath();
+  const steps = 12;
+  const dx = cb.x - ca.x, dy = cb.y - ca.y;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  const nx = -dy / len, ny = dx / len;
+  const amp = 4 + stress * 8;
+  for (let i = 0; i <= steps; i++) {
+    const tf = i / steps;
+    const sway = Math.sin(tf * Math.PI * 4 + spring.phase) * amp * pulse;
+    const px = ca.x + dx * tf + nx * sway;
+    const py = ca.y + dy * tf + ny * sway;
+    i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+  }
+  ctx.strokeStyle = hsl(c.h, c.s, c.l + 20, 0.15 + stress * 0.2);
+  ctx.lineWidth = 0.8;
+  ctx.stroke();
+}
+
+function drawHinge(hinge, t) {
+  if (!hinge.alive) return;
+  const a = hinge.tileA;
+  const pt = a.pts[hinge.ptA];
+  const cp = diskToCanvas(pt.x, pt.y);
+  const r2 = (cp.x - CX) ** 2 + (cp.y - CY) ** 2;
+  if (r2 > R * R) return;
+  const stress = clamp(hinge.stress, 0, 1);
+  const c = palette[a.colorIdx % palette.length];
+  ctx.beginPath();
+  ctx.arc(cp.x, cp.y, 3 + stress * 4, 0, TAU);
+  ctx.fillStyle = hsl(c.h + 30, 90, 70, 0.3 + stress * 0.4);
+  ctx.shadowColor = hsl(c.h + 30, 100, 80, 0.8);
+  ctx.shadowBlur = 5 + stress * 8;
+  ctx.fill();
+}
+
+// Geodesic grid overlay
+function drawGeodesics(t) {
+  if (!params.showGeodesics) return;
+  const c = palette[0] || { h: 200, s: 70, l: 50 };
+  const N = 12;
+  for (let i = 0; i < N; i++) {
+    const angle = (i / N) * Math.PI + t * 0.02;
+    // Draw lines through origin at various angles (geodesic diameters)
+    const x1 = CX + R * Math.cos(angle);
+    const y1 = CY + R * Math.sin(angle);
+    const x2 = CX + R * Math.cos(angle + Math.PI);
+    const y2 = CY + R * Math.sin(angle + Math.PI);
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.strokeStyle = hsl(c.h, c.s, c.l, 0.03);
+    ctx.lineWidth = 0.5;
+    ctx.stroke();
+  }
+  // Concentric circles
+  for (let r = 0.2; r < 1.0; r += 0.2) {
+    ctx.beginPath();
+    ctx.arc(CX, CY, R * r, 0, TAU);
+    ctx.strokeStyle = hsl(c.h + 40, 60, 60, 0.04);
+    ctx.lineWidth = 0.5;
+    ctx.stroke();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  MAIN LOOP
+// ═══════════════════════════════════════════════════════════════
+let soundTick = 0;
+function animate(ts) {
+  requestAnimationFrame(animate);
+  frame++;
+  const t = (Date.now() - startTime) / 1000;
+  const dt = 1;
+
+  // Update physics
+  chaos = 0;
+  hinges.forEach(h => h.update(dt, t));
+  springs.forEach(s => s.update(dt));
+  tiles.forEach(tile => {
+    tile.update(dt, t);
+    chaos += tile.stress;
+  });
+  chaos = clamp(chaos / (tiles.length || 1), 0, 1);
+
+  // Periodic structural chaos impulse
+  if (frame % Math.floor(rnd(180, 400)) === 0) {
+    const randomTile = pick(tiles);
+    if (randomTile) {
+      randomTile.angVel += rnd(-0.05, 0.05) * params.chaosFactor;
+      randomTile.vx += rnd(-0.005, 0.005) * params.chaosFactor;
+      randomTile.vy += rnd(-0.005, 0.005) * params.chaosFactor;
+    }
+    if (soundOn && audioCtx) {
+      const freq = params.droneBase * pick([1, 1.5, 2, 2.5, 3, 4]);
+      triggerSound(freq, 0.3 + Math.random() * 0.5, 0.04 + chaos * 0.05, pick(['triangle', 'sine', 'square']));
+    }
+  }
+
+  // Audio tick — map hinge motion to sounds
+  soundTick++;
+  if (soundOn && audioCtx && soundTick % 8 === 0) {
+    const activeHinge = hinges[frame % hinges.length];
+    if (activeHinge && activeHinge.stress > 0.2) {
+      const freq = params.droneBase * (1 + activeHinge.stress * 4);
+      triggerSound(freq, 0.1, activeHinge.stress * 0.02, 'triangle');
+    }
+    setMasterVolume(soundOn ? 0.7 : 0);
+  }
+
+  // Draw
+  drawBackground(t);
+  drawGeodesics(t);
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(CX, CY, R * 1.02, 0, TAU);
+  ctx.clip();
+
+  springs.forEach(s => drawSpring(s, t));
+  tiles.forEach(tile => drawTile(tile, t));
+  hinges.forEach(h => drawHinge(h, t));
+  ctx.restore();
+
+  // Vignette
+  const vig = ctx.createRadialGradient(CX, CY, R * 0.5, CX, CY, R * 1.3);
+  vig.addColorStop(0, 'rgba(0,0,0,0)');
+  vig.addColorStop(1, 'rgba(0,0,0,0.85)');
+  ctx.fillStyle = vig;
+  ctx.fillRect(0, 0, W, H);
+
+  // HUD update
+  if (hudOn) {
+    document.getElementById('h-chaos').textContent = chaos.toFixed(3);
+    document.getElementById('h-time').textContent = t.toFixed(1) + 's';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  INPUT
+// ═══════════════════════════════════════════════════════════════
+function toggleSound() {
+  soundOn = !soundOn;
+  if (soundOn) {
+    initAudio();
+    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+    setMasterVolume(0.7);
+  } else {
+    setMasterVolume(0);
+  }
+}
+
+window.addEventListener('keydown', e => {
+  if (e.code === 'Space') { e.preventDefault(); regenerate(); }
+  if (e.key === 'h' || e.key === 'H') {
+    hudOn = !hudOn;
+    hud.classList.toggle('visible', hudOn);
+  }
+  if (e.key === 's' || e.key === 'S') toggleSound();
+});
+
+canvas.addEventListener('click', () => regenerate());
+
+// ═══════════════════════════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════════════════════════
+resize();
+regenerate();
+requestAnimationFrame(animate);
+</script>
+</body>
+</html>
