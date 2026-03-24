@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chromatic Category-Theoretic Morphism Network</title>
+<meta name="description" content="An interactive visualization of abstract category-theoretic morphisms as animated transformations between color spaces — RGB, CMYK, CIELAB, and spectral — rendered as pulsing nodes, gradient-emitting edges, rotating chromaticity diagrams, and harmonic color relationships.">
+<meta name="keywords" content="category theory, morphism, color space, RGB, CMYK, CIELAB, spectral, chromaticity, visualization, generative art, color theory, abstract algebra, functor, natural transformation, color wheel, harmonic colors">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Courier New',monospace}
+canvas{display:block;position:fixed;top:0;left:0}
+#hud{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;display:none;z-index:10}
+#hud.visible{display:block}
+.hud-panel{position:absolute;background:rgba(0,0,0,0.72);border:1px solid rgba(255,255,255,0.12);padding:12px 16px;font-size:11px;line-height:1.7;color:rgba(255,255,255,0.8);backdrop-filter:blur(4px)}
+#hud-tl{top:16px;left:16px;min-width:220px}
+#hud-tr{top:16px;right:16px;text-align:right;min-width:200px}
+#hud-bl{bottom:16px;left:16px;min-width:260px}
+#hud-br{bottom:16px;right:16px;text-align:right;min-width:180px}
+.hud-title{color:rgba(255,255,255,0.45);font-size:9px;letter-spacing:2px;text-transform:uppercase;margin-bottom:4px}
+.hud-val{color:#fff;font-weight:bold}
+.hud-accent{color:rgba(180,220,255,0.9)}
+
+#hint{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);color:rgba(255,255,255,0.25);font-size:12px;letter-spacing:3px;text-transform:uppercase;pointer-events:none;transition:opacity 1.5s;z-index:5}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="hud">
+  <div class="hud-panel" id="hud-tl">
+    <div class="hud-title">System</div>
+    <div id="h-nodes">Nodes: <span class="hud-val">—</span></div>
+    <div id="h-edges">Morphisms: <span class="hud-val">—</span></div>
+    <div id="h-swatches">Swatches: <span class="hud-val">—</span></div>
+    <div id="h-fps">FPS: <span class="hud-val">—</span></div>
+  </div>
+  <div class="hud-panel" id="hud-tr">
+    <div class="hud-title">Active Transform</div>
+    <div id="h-source">Source: <span class="hud-accent">—</span></div>
+    <div id="h-target">Target: <span class="hud-accent">—</span></div>
+    <div id="h-functor">Functor: <span class="hud-val">—</span></div>
+    <div id="h-complexity">Complexity: <span class="hud-val">—</span></div>
+  </div>
+  <div class="hud-panel" id="hud-bl">
+    <div class="hud-title">Controls</div>
+    <div>SPACE / CLICK / TAP — Randomize</div>
+    <div>H — Toggle HUD</div>
+    <div>S — Toggle Audio</div>
+    <div id="h-audio">Audio: <span class="hud-val">OFF</span></div>
+  </div>
+  <div class="hud-panel" id="hud-br">
+    <div class="hud-title">Color Spaces</div>
+    <div id="h-spaces"></div>
+  </div>
+</div>
+
+<div id="hint">SPACE · CLICK · TAP</div>
+
+<script>
+// ─── State ───────────────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H, cx, cy;
+let hudVisible = false;
+let audioEnabled = false;
+let audioCtx = null;
+let masterGain = null;
+let animId;
+let lastTime = 0, fps = 0, fpsAccum = 0, fpsFrames = 0;
+let t = 0;
+let randomSeed = Math.random() * 1e6;
+
+// ─── Color Space Definitions ──────────────────────────────────────────────────
+const COLOR_SPACES = [
+  { id:'RGB',      label:'RGB',      desc:'Red·Green·Blue',         hue:0   },
+  { id:'CMYK',     label:'CMYK',     desc:'Cyan·Magenta·Yellow·Key', hue:210 },
+  { id:'CIELAB',   label:'CIE L*a*b*',desc:'Lightness·a*·b*',       hue:140 },
+  { id:'SPECTRAL', label:'Spectral', desc:'400–700nm Wavelength',    hue:280 },
+  { id:'HSV',      label:'HSV',      desc:'Hue·Saturation·Value',   hue:50  },
+  { id:'XYZ',      label:'CIE XYZ',  desc:'Tristimulus X·Y·Z',      hue:170 },
+];
+
+const FUNCTOR_NAMES = [
+  'Γ-Forgetful','Φ-Chromatic','Ψ-Spectral','Δ-Diagonal',
+  'Σ-Colimit','Π-Limit','η-Unit','ε-Counit',
+  'μ-Multiplication','λ-Left Unitor','ρ-Right Unitor','α-Associator'
+];
+
+// ─── Seeded random ────────────────────────────────────────────────────────────
+let _seed = randomSeed;
+function srand(s){ _seed = s; }
+function rand(){ _seed = (_seed * 9301 + 49297) % 233280; return _seed / 233280; }
+function randRange(a,b){ return a + rand()*(b-a); }
+function randInt(a,b){ return Math.floor(randRange(a,b+1)); }
+function pick(arr){ return arr[Math.floor(rand()*arr.length)]; }
+
+// ─── Network ──────────────────────────────────────────────────────────────────
+let nodes = [], edges = [], particles = [], swatches = [], wheels = [], chromas = [];
+
+function buildNetwork(){
+  srand(randomSeed);
+  nodes = []; edges = []; particles = []; swatches = []; wheels = []; chromas = [];
+
+  const margin = 0.18;
+  const nCount = randInt(5, COLOR_SPACES.length);
+  const spaces = shuffleArr([...COLOR_SPACES]).slice(0, nCount);
+
+  // Position nodes on a dynamic polygon
+  spaces.forEach((sp, i) => {
+    const angle = (i / nCount) * Math.PI * 2 - Math.PI / 2 + rand() * 0.4;
+    const r = Math.min(W, H) * (0.28 + rand() * 0.1);
+    nodes.push({
+      id: sp.id,
+      label: sp.label,
+      desc: sp.desc,
+      hue: sp.hue + rand()*60 - 30,
+      x: cx + Math.cos(angle) * r,
+      y: cy + Math.sin(angle) * r,
+      vx: randRange(-0.3, 0.3),
+      vy: randRange(-0.3, 0.3),
+      radius: randRange(28, 44),
+      pulsePhase: rand() * Math.PI * 2,
+      pulseRate: randRange(0.6, 1.8),
+      glowColor: `hsl(${sp.hue},90%,60%)`,
+      swatchEmitRate: randRange(0.6, 2.0),
+      swatchTimer: 0,
+      orbitAngle: rand() * Math.PI * 2,
+      orbitSpeed: randRange(0.005, 0.02) * (rand() > 0.5 ? 1 : -1),
+    });
+  });
+
+  // Build morphisms (edges): connected graph + extras
+  const used = new Set();
+  // Spanning connections
+  for(let i=0;i<nodes.length-1;i++){
+    addEdge(i, i+1);
+    used.add(`${i}-${i+1}`);
+  }
+  // Close loop
+  addEdge(nodes.length-1, 0);
+  used.add(`${nodes.length-1}-0`);
+  // Extra random edges
+  const extraEdges = randInt(2, Math.min(6, nodes.length*(nodes.length-1)/2 - nodes.length));
+  for(let e=0; e<extraEdges; e++){
+    let a = randInt(0, nodes.length-1);
+    let b = randInt(0, nodes.length-1);
+    if(a===b) continue;
+    const key = `${Math.min(a,b)}-${Math.max(a,b)}`;
+    if(!used.has(key)){ addEdge(a,b); used.add(key); }
+  }
+
+  // Color wheels
+  const nWheels = randInt(1, 3);
+  for(let i=0;i<nWheels;i++){
+    const wx = cx + (rand()-0.5)*W*0.6;
+    const wy = cy + (rand()-0.5)*H*0.6;
+    wheels.push({
+      x: wx, y: wy,
+      r: randRange(55, 95),
+      speed: randRange(0.003, 0.012) * (rand()>0.5?1:-1),
+      angle: rand()*Math.PI*2,
+      segments: randInt(12,24),
+      alpha: randRange(0.12, 0.28),
+      hueOffset: rand()*360,
+    });
+  }
+
+  // Chromaticity diagrams (simplified CIE horseshoe)
+  const nChromas = randInt(1, 2);
+  for(let i=0;i<nChromas;i++){
+    chromas.push({
+      x: cx + (rand()-0.5)*W*0.5,
+      y: cy + (rand()-0.5)*H*0.5,
+      scale: randRange(0.6, 1.2),
+      angle: rand()*Math.PI*2,
+      speed: randRange(0.001, 0.005),
+      alpha: randRange(0.1, 0.22),
+    });
+  }
+}
+
+function addEdge(a, b){
+  const h1 = nodes[a].hue, h2 = nodes[b].hue;
+  edges.push({
+    a, b,
+    functor: pick(FUNCTOR_NAMES),
+    hue1: h1, hue2: h2,
+    phase: rand()*Math.PI*2,
+    speed: randRange(0.4, 1.6),
+    pulseWidth: randRange(0.3, 0.8),
+    complexity: rand(),
+    particleTimer: 0,
+    particleRate: randRange(0.5, 2.5),
+    thickness: randRange(1.2, 3.5),
+    dash: rand()>0.5 ? [randRange(4,12), randRange(4,10)] : [],
+    dashOffset: 0,
+    segments: randInt(1,3), // 1=direct, 2=curved, 3=s-curve
+    ctrl1x: 0, ctrl1y: 0,
+    ctrl2x: 0, ctrl2y: 0,
+    active: true,
+  });
+}
+
+function shuffleArr(a){
+  for(let i=a.length-1;i>0;i--){
+    const j=Math.floor(rand()*(i+1));
+    [a[i],a[j]]=[a[j],a[i]];
+  }
+  return a;
+}
+
+// ─── Color Utilities ──────────────────────────────────────────────────────────
+function hsl(h,s,l,a=1){ return `hsla(${h%360},${s}%,${l}%,${a})`; }
+function lerpHue(h1,h2,t){
+  let d = h2-h1;
+  if(d>180)d-=360; if(d<-180)d+=360;
+  return (h1+d*t+360)%360;
+}
+function hexToRgb(h){
+  const r=parseInt(h.slice(1,3),16),g=parseInt(h.slice(3,5),16),b=parseInt(h.slice(5,7),16);
+  return [r,g,b];
+}
+// Perceptually inspired color cluster from a base hue
+function swatchColors(hue, count=5){
+  const colors=[];
+  const harmonies=[0,30,60,120,180,210,240,270,300];
+  for(let i=0;i<count;i++){
+    const hOff = harmonies[i%harmonies.length];
+    const h=(hue+hOff+rand()*20-10+360)%360;
+    const s=60+rand()*35;
+    const l=35+rand()*40;
+    colors.push({h,s,l});
+  }
+  return colors;
+}
+
+// ─── Particle / Swatch ───────────────────────────────────────────────────────
+function spawnEdgeParticle(edge){
+  const na=nodes[edge.a], nb=nodes[edge.b];
+  const t0=rand();
+  const [px,py]=cubicPoint(na.x,na.y,edge.ctrl1x,edge.ctrl1y,edge.ctrl2x,edge.ctrl2y,nb.x,nb.y,t0);
+  const hue=lerpHue(edge.hue1,edge.hue2,t0);
+  const speed=randRange(0.8,2.5);
+  const angle=rand()*Math.PI*2;
+  particles.push({
+    x:px, y:py,
+    vx:Math.cos(angle)*speed,
+    vy:Math.sin(angle)*speed,
+    hue, sat:70+rand()*25, lit:55+rand()*30,
+    size:randRange(2,5),
+    life:1, decay:randRange(0.008,0.022),
+    trail:[],
+    trailMax:randInt(4,12),
+  });
+}
+
+function spawnNodeSwatch(node){
+  const colors=swatchColors(node.hue, randInt(3,6));
+  const angle=rand()*Math.PI*2;
+  const speed=randRange(0.5,2.0);
+  swatches.push({
+    x:node.x, y:node.y,
+    vx:Math.cos(angle)*speed,
+    vy:Math.sin(angle)*speed,
+    colors,
+    life:1, decay:randRange(0.004,0.014),
+    size:randRange(8,20),
+    rotation:rand()*Math.PI*2,
+    rotSpeed:randRange(-0.05,0.05),
+  });
+}
+
+function cubicPoint(x0,y0,cx1,cy1,cx2,cy2,x3,y3,t){
+  const u=1-t;
+  return [
+    u*u*u*x0 + 3*u*u*t*cx1 + 3*u*t*t*cx2 + t*t*t*x3,
+    u*u*u*y0 + 3*u*u*t*cy1 + 3*u*t*t*cy2 + t*t*t*y3
+  ];
+}
+
+// ─── Chromaticity Horseshoe ───────────────────────────────────────────────────
+const CIE_HORSESHOE = (function(){
+  // Approximate CIE 1931 chromaticity outline (40 points)
+  const pts=[];
+  const lam=[380,400,420,440,450,460,470,480,490,500,510,520,530,540,550,560,570,580,590,600,610,620,630,640,660,700,780];
+  const xy=[
+    [0.1741,0.0050],[0.1733,0.0048],[0.1726,0.0048],[0.1714,0.0051],
+    [0.1560,0.0180],[0.1440,0.0280],[0.1241,0.0578],[0.0913,0.1327],
+    [0.0454,0.2950],[0.0082,0.5384],[0.0139,0.7502],[0.0743,0.8338],
+    [0.1547,0.8059],[0.2296,0.7543],[0.3016,0.6923],[0.3731,0.6245],
+    [0.4441,0.5547],[0.5125,0.4866],[0.5752,0.4242],[0.6270,0.3725],
+    [0.6658,0.3340],[0.6915,0.3083],[0.7079,0.2920],[0.7140,0.2859],
+    [0.7190,0.2809],[0.7347,0.2653],[0.7347,0.2653]
+  ];
+  for(let i=0;i<xy.length;i++) pts.push({x:xy[i][0], y:xy[i][1], wl: lam[i]||700});
+  return pts;
+})();
+
+function drawChromaticity(chroma, time){
+  const s=chroma.scale;
+  const pw=140*s, ph=130*s;
+  const ox=chroma.x - pw*0.5, oy=chroma.y - ph*0.5;
+
+  ctx.save();
+  ctx.translate(chroma.x, chroma.y);
+  ctx.rotate(chroma.angle + time*chroma.speed);
+  ctx.translate(-chroma.x, -chroma.y);
+  ctx.globalAlpha = chroma.alpha;
+
+  // Draw horseshoe
+  ctx.beginPath();
+  CIE_HORSESHOE.forEach((p,i)=>{
+    const px2 = ox + p.x * pw * 1.3;
+    const py2 = oy + ph - p.y * ph * 1.1;
+    if(i===0) ctx.moveTo(px2,py2); else ctx.lineTo(px2,py2);
+  });
+  // Close along purple line
+  const first=CIE_HORSESHOE[0], last=CIE_HORSESHOE[CIE_HORSESHOE.length-1];
+  ctx.lineTo(ox+last.x*pw*1.3, oy+ph-last.y*ph*1.1);
+
+  // Gradient fill
+  const grad=ctx.createLinearGradient(ox,oy,ox+pw,oy+ph);
+  for(let i=0;i<=12;i++){
+    const hh=(i/12)*300+20;
+    grad.addColorStop(i/12,`hsla(${hh},80%,55%,0.5)`);
+  }
+  ctx.fillStyle=grad;
+  ctx.fill();
+  ctx.strokeStyle='rgba(255,255,255,0.3)';
+  ctx.lineWidth=1;
+  ctx.stroke();
+
+  // Spectral locus dots
+  CIE_HORSESHOE.forEach((p,i)=>{
+    if(i%3!==0) return;
+    const px2 = ox + p.x * pw * 1.3;
+    const py2 = oy + ph - p.y * ph * 1.1;
+    const wl=p.wl;
+    let hh=0;
+    if(wl<450)hh=270;
+    else if(wl<490)hh=230;
+    else if(wl<560)hh=120;
+    else if(wl<590)hh=60;
+    else if(wl<620)hh=30;
+    else hh=0;
+    ctx.beginPath();
+    ctx.arc(px2,py2,2.5,0,Math.PI*2);
+    ctx.fillStyle=`hsl(${hh},100%,65%)`;
+    ctx.fill();
+  });
+
+  // White point
+  const wpx=ox+0.3127*pw*1.3, wpy=oy+ph-0.329*ph*1.1;
+  ctx.beginPath(); ctx.arc(wpx,wpy,4,0,Math.PI*2);
+  ctx.fillStyle='rgba(255,255,255,0.8)'; ctx.fill();
+  ctx.font=`${9*s}px Courier New`;
+  ctx.fillStyle='rgba(255,255,255,0.6)';
+  ctx.fillText('D65',wpx+6,wpy+3);
+
+  ctx.restore();
+}
+
+// ─── Color Wheel ──────────────────────────────────────────────────────────────
+function drawWheel(wheel, time){
+  ctx.save();
+  ctx.translate(wheel.x, wheel.y);
+  ctx.rotate(wheel.angle + time * wheel.speed);
+  ctx.globalAlpha = wheel.alpha;
+
+  const seg=wheel.segments;
+  for(let i=0;i<seg;i++){
+    const a0=(i/seg)*Math.PI*2;
+    const a1=((i+1)/seg)*Math.PI*2;
+    const hue=(wheel.hueOffset + (i/seg)*360)%360;
+    // Outer ring
+    ctx.beginPath();
+    ctx.moveTo(0,0);
+    ctx.arc(0,0,wheel.r,a0,a1);
+    ctx.closePath();
+    const sat=75+Math.sin(time*0.5+i)*15;
+    const lit=50+Math.sin(time*0.3+i*0.5)*15;
+    ctx.fillStyle=`hsl(${hue},${sat}%,${lit}%)`;
+    ctx.fill();
+    // Inner ring (complementary)
+    ctx.beginPath();
+    ctx.moveTo(0,0);
+    ctx.arc(0,0,wheel.r*0.55,a0,a1);
+    ctx.closePath();
+    ctx.fillStyle=`hsl(${(hue+180)%360},60%,40%)`;
+    ctx.fill();
+  }
+  // Center dot
+  ctx.beginPath(); ctx.arc(0,0,wheel.r*0.15,0,Math.PI*2);
+  ctx.fillStyle='rgba(0,0,0,0.5)'; ctx.fill();
+  ctx.strokeStyle='rgba(255,255,255,0.2)'; ctx.lineWidth=1; ctx.stroke();
+
+  ctx.restore();
+}
+
+// ─── Edge Control Points ──────────────────────────────────────────────────────
+function updateEdgeCtrlPoints(){
+  edges.forEach(edge=>{
+    const na=nodes[edge.a], nb=nodes[edge.b];
+    const mx=(na.x+nb.x)/2, my=(na.y+nb.y)/2;
+    const dx=nb.x-na.x, dy=nb.y-na.y;
+    const len=Math.sqrt(dx*dx+dy*dy);
+    const nx=-dy/len, ny=dx/len;
+    const bend1=(0.2+edge.complexity*0.5)*len*(edge.segments>1?1:0.4);
+    const bend2=(0.2+edge.complexity*0.4)*len*(edge.segments>1?1:0.3);
+    const side1=Math.sin(t*0.5+edge.phase)*bend1;
+    const side2=Math.cos(t*0.4+edge.phase+1)*bend2;
+    edge.ctrl1x = na.x + dx*0.3 + nx*side1;
+    edge.ctrl1y = na.y + dy*0.3 + ny*side1;
+    edge.ctrl2x = na.x + dx*0.7 + nx*side2;
+    edge.ctrl2y = na.y + dy*0.7 + ny*side2;
+  });
+}
+
+// ─── Draw Edge ────────────────────────────────────────────────────────────────
+function drawEdge(edge, time){
+  const na=nodes[edge.a], nb=nodes[edge.b];
+  const phase = time * edge.speed + edge.phase;
+  const pulse = (Math.sin(phase)*0.5+0.5);
+
+  // Gradient along curve
+  const steps=40;
+  for(let i=0;i<steps;i++){
+    const t0=i/steps, t1=(i+1)/steps;
+    const [x0,y0]=cubicPoint(na.x,na.y,edge.ctrl1x,edge.ctrl1y,edge.ctrl2x,edge.ctrl2y,nb.x,nb.y,t0);
+    const [x1,y1]=cubicPoint(na.x,na.y,edge.ctrl1x,edge.ctrl1y,edge.ctrl2x,edge.ctrl2y,nb.x,nb.y,t1);
+    const hue=lerpHue(edge.hue1,edge.hue2,t0);
+    const localPulse=Math.sin(t0*Math.PI*4 - phase)*0.5+0.5;
+    const alpha=(0.25+localPulse*0.55)*pulse + 0.1;
+    const lw=edge.thickness*(0.8+localPulse*0.8)*(0.7+pulse*0.5);
+    ctx.beginPath();
+    ctx.moveTo(x0,y0); ctx.lineTo(x1,y1);
+    ctx.strokeStyle=hsl(hue, 85, 58, alpha);
+    ctx.lineWidth=lw;
+    ctx.lineCap='round';
+    if(edge.dash.length){
+      ctx.setLineDash(edge.dash);
+      ctx.lineDashOffset=-time*edge.speed*20;
+    } else {
+      ctx.setLineDash([]);
+    }
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+
+  // Glow pass
+  ctx.save();
+  ctx.filter=`blur(${3+pulse*4}px)`;
+  ctx.globalAlpha=0.15*pulse;
+  ctx.beginPath();
+  ctx.moveTo(na.x,na.y);
+  ctx.bezierCurveTo(edge.ctrl1x,edge.ctrl1y,edge.ctrl2x,edge.ctrl2y,nb.x,nb.y);
+  const grd=ctx.createLinearGradient(na.x,na.y,nb.x,nb.y);
+  grd.addColorStop(0,hsl(edge.hue1,90,65));
+  grd.addColorStop(1,hsl(edge.hue2,90,65));
+  ctx.strokeStyle=grd;
+  ctx.lineWidth=edge.thickness*4;
+  ctx.stroke();
+  ctx.restore();
+
+  // Functor label
+  const [mlx,mly]=cubicPoint(na.x,na.y,edge.ctrl1x,edge.ctrl1y,edge.ctrl2x,edge.ctrl2y,nb.x,nb.y,0.5);
+  ctx.save();
+  ctx.globalAlpha=0.18+pulse*0.25;
+  ctx.font=`9px Courier New`;
+  ctx.fillStyle=hsl(lerpHue(edge.hue1,edge.hue2,0.5),80,80);
+  ctx.textAlign='center';
+  ctx.fillText(edge.functor, mlx, mly-6);
+  ctx.restore();
+}
+
+// ─── Draw Node ────────────────────────────────────────────────────────────────
+function drawNode(node, time){
+  const pulse=Math.sin(time*node.pulseRate+node.pulsePhase)*0.5+0.5;
+  const r=node.radius*(0.88+pulse*0.22);
+
+  // Outer glow rings
+  for(let ring=3;ring>=1;ring--){
+    const rr=r*(1+ring*0.45+pulse*0.3);
+    const alpha=0.06/ring*(0.4+pulse*0.6);
+    ctx.beginPath();
+    ctx.arc(node.x,node.y,rr,0,Math.PI*2);
+    ctx.fillStyle=hsl(node.hue, 85, 55, alpha);
+    ctx.fill();
+  }
+
+  // Main circle gradient
+  const grd=ctx.createRadialGradient(node.x-r*0.3,node.y-r*0.3,r*0.05,node.x,node.y,r);
+  grd.addColorStop(0, hsl(node.hue, 80, 82));
+  grd.addColorStop(0.4, hsl(node.hue, 85, 55));
+  grd.addColorStop(1, hsl((node.hue+40)%360, 75, 30));
+  ctx.beginPath(); ctx.arc(node.x,node.y,r,0,Math.PI*2);
+  ctx.fillStyle=grd; ctx.fill();
+
+  // Rim light
+  ctx.beginPath(); ctx.arc(node.x,node.y,r,0,Math.PI*2);
+  ctx.strokeStyle=hsl(node.hue, 90, 80, 0.5+pulse*0.4);
+  ctx.lineWidth=1.5; ctx.stroke();
+
+  // Orbiting mini dots
+  const orb=3+Math.floor(node.radius/12);
+  for(let i=0;i<orb;i++){
+    const oa=node.orbitAngle + (i/orb)*Math.PI*2 + time*node.orbitSpeed*2;
+    const or=r*1.6+pulse*8;
+    const ox=node.x+Math.cos(oa)*or;
+    const oy=node.y+Math.sin(oa)*or;
+    const oh=(node.hue+i*(360/orb))%360;
+    ctx.beginPath(); ctx.arc(ox,oy,2.5,0,Math.PI*2);
+    ctx.fillStyle=hsl(oh,85,65,0.7+pulse*0.3); ctx.fill();
+  }
+
+  // Label
+  ctx.save();
+  ctx.globalAlpha=0.85;
+  ctx.textAlign='center';
+  ctx.font=`bold ${Math.max(9,r*0.35)}px Courier New`;
+  ctx.fillStyle='rgba(255,255,255,0.95)';
+  ctx.shadowColor=hsl(node.hue,80,50);
+  ctx.shadowBlur=8;
+  ctx.fillText(node.id, node.x, node.y+3);
+  ctx.font=`${Math.max(7,r*0.22)}px Courier New`;
+  ctx.globalAlpha=0.55;
+  ctx.fillStyle='rgba(255,255,255,0.8)';
+  ctx.shadowBlur=0;
+  ctx.fillText(node.label, node.x, node.y+r+14);
+  ctx.restore();
+}
+
+// ─── Draw Swatch Cluster ──────────────────────────────────────────────────────
+function drawSwatch(sw){
+  const n=sw.colors.length;
+  ctx.save();
+  ctx.translate(sw.x, sw.y);
+  ctx.rotate(sw.rotation);
+  ctx.globalAlpha=sw.life*0.85;
+  const sz=sw.size*(0.5+sw.life*0.5);
+  for(let i=0;i<n;i++){
+    const a=(i/n)*Math.PI*2;
+    const r=sz*0.8;
+    const px=Math.cos(a)*r, py=Math.sin(a)*r;
+    ctx.beginPath();
+    ctx.rect(px-sz*0.35, py-sz*0.35, sz*0.7, sz*0.7);
+    ctx.fillStyle=hsl(sw.colors[i].h, sw.colors[i].s, sw.colors[i].l, sw.life);
+    ctx.fill();
+    ctx.strokeStyle='rgba(255,255,255,0.15)';
+    ctx.lineWidth=0.5; ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// ─── Draw Particle ────────────────────────────────────────────────────────────
+function drawParticle(p){
+  ctx.save();
+  ctx.globalAlpha=p.life*0.8;
+  // Trail
+  if(p.trail.length>1){
+    ctx.beginPath();
+    ctx.moveTo(p.trail[0].x, p.trail[0].y);
+    for(let i=1;i<p.trail.length;i++){
+      ctx.lineTo(p.trail[i].x, p.trail[i].y);
+    }
+    ctx.strokeStyle=hsl(p.hue,p.sat,p.lit,p.life*0.5);
+    ctx.lineWidth=p.size*0.6;
+    ctx.lineCap='round'; ctx.stroke();
+  }
+  ctx.beginPath();
+  ctx.arc(p.x,p.y,p.size*p.life,0,Math.PI*2);
+  ctx.fillStyle=hsl(p.hue,p.sat,p.lit);
+  ctx.fill();
+  ctx.restore();
+}
+
+// ─── Update ───────────────────────────────────────────────────────────────────
+function update(dt){
+  t += dt;
+  const dtS = dt; // already in seconds
+
+  // Node drift (soft bounce)
+  const nodeMargin = 80;
+  nodes.forEach(n=>{
+    n.orbitAngle += n.orbitSpeed;
+    n.x += n.vx;
+    n.y += n.vy;
+    if(n.x < nodeMargin || n.x > W-nodeMargin) n.vx *= -1;
+    if(n.y < nodeMargin || n.y > H-nodeMargin) n.vy *= -1;
+    n.x = Math.max(nodeMargin, Math.min(W-nodeMargin, n.x));
+    n.y = Math.max(nodeMargin, Math.min(H-nodeMargin, n.y));
+
+    // Swatch emit
+    n.swatchTimer += dtS;
+    if(n.swatchTimer > 1/n.swatchEmitRate){
+      n.swatchTimer=0;
+      spawnNodeSwatch(n);
+    }
+  });
+
+  updateEdgeCtrlPoints();
+
+  // Edge particles
+  edges.forEach(edge=>{
+    edge.particleTimer += dtS;
+    if(edge.particleTimer > 1/edge.particleRate){
+      edge.particleTimer=0;
+      spawnEdgeParticle(edge);
+    }
+  });
+
+  // Update particles
+  for(let i=particles.length-1;i>=0;i--){
+    const p=particles[i];
+    p.trail.push({x:p.x,y:p.y});
+    if(p.trail.length>p.trailMax) p.trail.shift();
+    p.x+=p.vx; p.y+=p.vy;
+    p.vy+=0.02; // gravity
+    p.vx*=0.99; p.vy*=0.99;
+    p.life-=p.decay;
+    p.hue=(p.hue+0.3)%360;
+    if(p.life<=0) particles.splice(i,1);
+  }
+
+  // Update swatches
+  for(let i=swatches.length-1;i>=0;i--){
+    const s=swatches[i];
+    s.x+=s.vx; s.y+=s.vy;
+    s.vy+=0.01;
+    s.vx*=0.992; s.vy*=0.992;
+    s.rotation+=s.rotSpeed;
+    s.life-=s.decay;
+    if(s.life<=0) swatches.splice(i,1);
+  }
+
+  // Cap for performance
+  if(particles.length>800) particles.splice(0, particles.length-800);
+  if(swatches.length>300) swatches.splice(0, swatches.length-300);
+}
+
+// ─── Render ───────────────────────────────────────────────────────────────────
+function render(){
+  // Background fade
+  ctx.fillStyle='rgba(0,0,0,0.18)';
+  ctx.fillRect(0,0,W,H);
+
+  // Depth bg gradient (slow hue shift)
+  const bgHue = (t*8)%360;
+  const bgGrd = ctx.createRadialGradient(cx,cy,0,cx,cy,Math.max(W,H)*0.7);
+  bgGrd.addColorStop(0, hsl(bgHue, 30, 6, 0.4));
+  bgGrd.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle=bgGrd;
+  ctx.fillRect(0,0,W,H);
+
+  // Chromaticity diagrams (background layer)
+  chromas.forEach(ch=>drawChromaticity(ch, t));
+
+  // Color wheels
+  wheels.forEach(w=>drawWheel(w, t));
+
+  // Swatches (below edges)
+  swatches.forEach(drawSwatch);
+
+  // Edges
+  edges.forEach(e=>drawEdge(e, t));
+
+  // Particles
+  particles.forEach(drawParticle);
+
+  // Nodes (top)
+  nodes.forEach(n=>drawNode(n, t));
+}
+
+// ─── HUD Update ───────────────────────────────────────────────────────────────
+let hudTick=0;
+function updateHUD(){
+  hudTick++;
+  if(hudTick%8!==0) return;
+  if(!hudVisible) return;
+  document.querySelector('#h-nodes .hud-val').textContent=nodes.length;
+  document.querySelector('#h-edges .hud-val').textContent=edges.length;
+  document.querySelector('#h-swatches .hud-val').textContent=swatches.length+particles.length;
+  document.querySelector('#h-fps .hud-val').textContent=fps.toFixed(1);
+  const ae=edges[Math.floor(t*0.5)%edges.length];
+  if(ae){
+    document.querySelector('#h-source .hud-accent').textContent=nodes[ae.a]?.id||'—';
+    document.querySelector('#h-target .hud-accent').textContent=nodes[ae.b]?.id||'—';
+    document.querySelector('#h-functor .hud-val').textContent=ae.functor;
+    document.querySelector('#h-complexity .hud-val').textContent=(ae.complexity*10).toFixed(2);
+  }
+  document.querySelector('#h-audio .hud-val').textContent=audioEnabled?'ON':'OFF';
+  const spaceEl=document.getElementById('h-spaces');
+  spaceEl.innerHTML=nodes.map(n=>`<div style="color:hsl(${n.hue},80%,65%)">${n.id}</div>`).join('');
+}
+
+// ─── Audio Engine ─────────────────────────────────────────────────────────────
+let audioOscillators=[];
+function initAudio(){
+  if(audioCtx) return;
+  audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+  masterGain=audioCtx.createGain();
+  masterGain.gain.value=0.06;
+  const comp=audioCtx.createDynamicsCompressor();
+  masterGain.connect(comp);
+  comp.connect(audioCtx.destination);
+}
+function startAudioDrones(){
+  stopAudioDrones();
+  if(!audioCtx) return;
+  edges.forEach((e,i)=>{
+    const baseFreq=110*(1+e.complexity*3);
+    const osc=audioCtx.createOscillator();
+    const g=audioCtx.createGain();
+    osc.type=['sine','triangle','sawtooth'][i%3];
+    osc.frequency.value=baseFreq;
+    g.gain.value=0.02+e.complexity*0.015;
+    osc.connect(g); g.connect(masterGain);
+    osc.start();
+    audioOscillators.push({osc,g,baseFreq,edge:e});
+  });
+}
+function stopAudioDrones(){
+  audioOscillators.forEach(({osc})=>{ try{osc.stop();}catch(e){} });
+  audioOscillators=[];
+}
+function updateAudio(){
+  if(!audioEnabled||!audioCtx) return;
+  audioOscillators.forEach(({osc,g,baseFreq,edge},i)=>{
+    const pulse=Math.sin(t*edge.speed+edge.phase)*0.5+0.5;
+    osc.frequency.value=baseFreq*(1+pulse*0.15);
+    g.gain.value=(0.01+pulse*0.025)*0.5;
+  });
+}
+
+// ─── Main Loop ────────────────────────────────────────────────────────────────
+function loop(now){
+  animId=requestAnimationFrame(loop);
+  const dt=Math.min((now-lastTime)/1000, 0.05);
+  lastTime=now;
+  fpsAccum+=dt; fpsFrames++;
+  if(fpsAccum>=0.5){ fps=fpsFrames/fpsAccum; fpsAccum=0; fpsFrames=0; }
+  update(dt);
+  render();
+  updateHUD();
+  if(audioEnabled) updateAudio();
+}
+
+// ─── Resize ───────────────────────────────────────────────────────────────────
+function resize(){
+  W=canvas.width=window.innerWidth;
+  H=canvas.height=window.innerHeight;
+  cx=W/2; cy=H/2;
+}
+
+// ─── Randomize ────────────────────────────────────────────────────────────────
+function randomize(){
+  randomSeed=Math.random()*1e9;
+  buildNetwork();
+  if(audioEnabled){ stopAudioDrones(); startAudioDrones(); }
+  // Flash hint
+  const hint=document.getElementById('hint');
+  hint.style.opacity='0.6';
+  setTimeout(()=>hint.style.opacity='0',800);
+}
+
+// ─── Controls ────────────────────────────────────────────────────────────────
+function toggleHUD(){
+  hudVisible=!hudVisible;
+  document.getElementById('hud').classList.toggle('visible', hudVisible);
+  document.getElementById('btn-hud').classList.toggle('active', hudVisible);
+}
+function toggleAudio(){
+  audioEnabled=!audioEnabled;
+  document.getElementById('btn-audio').classList.toggle('active', audioEnabled);
+  if(audioEnabled){
+    initAudio();
+    if(audioCtx.state==='suspended') audioCtx.resume();
+    startAudioDrones();
+  } else {
+    stopAudioDrones();
+  }
+  if(hudVisible) document.querySelector('#h-audio .hud-val').textContent=audioEnabled?'ON':'OFF';
+}
+
+// Event listeners
+document.addEventListener('keydown', e=>{
+  const k=e.key.toLowerCase();
+  if(k===' '||k==='enter'){ e.preventDefault(); randomize(); }
+  else if(k==='h') toggleHUD();
+  else if(k==='s') toggleAudio();
+});
+canvas.addEventListener('click', randomize);
+canvas.addEventListener('touchend', e=>{ e.preventDefault(); randomize(); }, {passive:false});
+
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+resize();
+window.addEventListener('resize', ()=>{ resize(); buildNetwork(); });
+buildNetwork();
+requestAnimationFrame(ts=>{ lastTime=ts; loop(ts); });
+
+// Fade hint
+setTimeout(()=>{ document.getElementById('hint').style.opacity='0'; }, 3500);
+</script>
+</body>
+</html>

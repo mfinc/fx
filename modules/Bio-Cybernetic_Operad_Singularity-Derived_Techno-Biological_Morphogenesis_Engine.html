@@ -1,0 +1,876 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Bio-Cybernetic Operad Singularity — Derived Techno-Biological Morphogenesis Engine</title>
+<meta name="description" content="An immersive generative art engine visualizing humanity's transition into a derived operadic ecosystem where biological evolution and cybernetic engineering converge. CRISPR rewriting engines restructure genomes as algebraic operations while individuals become composable modules within a planetary intelligence operad. Fractal organisms morph endlessly as their neural circuits and limbs embody operadic inputs and outputs, synchronized with procedurally generated harmonic audio following the algebra of operad composition.">
+<meta name="keywords" content="bio-cybernetic art, operad singularity, generative art engine, techno-biological morphogenesis, CRISPR genome algebra, fractal organisms, cybernetic evolution, planetary intelligence, operadic composition, neural circuit visualization, synthetic biology art, transhumanism generative art, algebraic biology, cybernetics fractal, morphogenesis engine, procedural audio synthesis, harmonic pulse synthesis, bio-digital convergence, posthuman aesthetics, living systems mathematics">
+<meta property="og:title" content="Bio-Cybernetic Operad Singularity">
+<meta property="og:description" content="Generative engine modeling humanity's transition into a derived operadic ecosystem — biological evolution and cybernetic engineering merging into planetary intelligence.">
+<meta property="og:type" content="website">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%;
+    background: #000;
+    overflow: hidden;
+    font-family: 'Courier New', monospace;
+    cursor: crosshair;
+  }
+  canvas {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+  }
+  #hud {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    pointer-events: none;
+    display: none;
+    z-index: 10;
+  }
+  #hud.visible { display: block; }
+  .hud-corner {
+    position: absolute;
+    color: rgba(0,255,180,0.75);
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    line-height: 1.7;
+    text-transform: uppercase;
+  }
+  #hud-tl { top: 18px; left: 20px; }
+  #hud-tr { top: 18px; right: 20px; text-align: right; }
+  #hud-bl { bottom: 18px; left: 20px; }
+  #hud-br { bottom: 18px; right: 20px; text-align: right; }
+  .hud-label { color: rgba(0,255,180,0.38); font-size: 8px; letter-spacing: 0.2em; }
+  .hud-val { color: rgba(0,255,180,0.9); }
+  #hud-center {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    color: rgba(0,255,180,0.18);
+    font-size: 9px;
+    letter-spacing: 0.3em;
+    pointer-events: none;
+  }
+  #scan-line {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, rgba(0,255,180,0.12), transparent);
+    pointer-events: none;
+    z-index: 5;
+    animation: scan 8s linear infinite;
+  }
+  @keyframes scan {
+    0% { top: 0; opacity: 0; }
+    5% { opacity: 1; }
+    95% { opacity: 1; }
+    100% { top: 100vh; opacity: 0; }
+  }
+  #vignette {
+    position: fixed;
+    top:0;left:0;right:0;bottom:0;
+    background: radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.85) 100%);
+    pointer-events: none;
+    z-index: 4;
+  }
+  #controls-hint {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(0,255,180,0.22);
+    font-size: 9px;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    pointer-events: none;
+    z-index: 20;
+    white-space: nowrap;
+    transition: opacity 1s;
+  }
+  #controls-hint.fade { opacity: 0; }
+</style>
+</head>
+<body>
+<div id="scan-line"></div>
+<div id="vignette"></div>
+<canvas id="c"></canvas>
+
+<div id="hud">
+  <div class="hud-corner" id="hud-tl">
+    <div class="hud-label">SYSTEM</div>
+    <div>BIO-CYBERNETIC OPERAD SINGULARITY</div>
+    <div class="hud-label" style="margin-top:6px">PHASE</div>
+    <div id="h-phase" class="hud-val">—</div>
+    <div class="hud-label" style="margin-top:6px">GENERATION</div>
+    <div id="h-gen" class="hud-val">—</div>
+  </div>
+  <div class="hud-corner" id="hud-tr">
+    <div class="hud-label">OPERAD ARITY</div>
+    <div id="h-arity" class="hud-val">—</div>
+    <div class="hud-label" style="margin-top:6px">COMPOSITION DEPTH</div>
+    <div id="h-depth" class="hud-val">—</div>
+    <div class="hud-label" style="margin-top:6px">CRISPR REWRITE RATE</div>
+    <div id="h-crispr" class="hud-val">—</div>
+  </div>
+  <div class="hud-corner" id="hud-bl">
+    <div class="hud-label">MORPHOGENESIS</div>
+    <div id="h-morph" class="hud-val">—</div>
+    <div class="hud-label" style="margin-top:6px">NEURAL DENSITY</div>
+    <div id="h-neural" class="hud-val">—</div>
+    <div class="hud-label" style="margin-top:6px">SOUND</div>
+    <div id="h-sound" class="hud-val">—</div>
+  </div>
+  <div class="hud-corner" id="hud-br">
+    <div class="hud-label">MODULAR ENTITIES</div>
+    <div id="h-entities" class="hud-val">—</div>
+    <div class="hud-label" style="margin-top:6px">SYMBIOSIS INDEX</div>
+    <div id="h-sym" class="hud-val">—</div>
+    <div class="hud-label" style="margin-top:6px">ENTROPY</div>
+    <div id="h-ent" class="hud-val">—</div>
+  </div>
+  <div id="hud-center">
+    ◈ PLANETARY INTELLIGENCE SUBSTRATE ◈
+  </div>
+</div>
+
+<div id="controls-hint">H: HUD &nbsp;|&nbsp; S: SOUND &nbsp;|&nbsp; SPACE / CLICK / TAP: REGENERATE</div>
+
+<script>
+(function(){
+'use strict';
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H, cx, cy;
+
+// --- State ---
+let hudVisible = false;
+let soundEnabled = false;
+let generation = 0;
+let animId = null;
+let t = 0;
+
+// Operad / bio params (randomized each generation)
+let P = {};
+
+// Audio
+let audioCtx = null;
+let masterGain = null;
+let oscillators = [];
+let analyserNode = null;
+
+// Entities
+let entities = [];
+let connections = [];
+let particles = [];
+
+// HUD fade
+let hintTimeout = null;
+const hint = document.getElementById('controls-hint');
+setTimeout(() => hint.classList.add('fade'), 4000);
+
+// ===================== RESIZE =====================
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  cx = W / 2; cy = H / 2;
+}
+window.addEventListener('resize', () => { resize(); });
+resize();
+
+// ===================== RNG =====================
+function rnd(a, b) { return a + Math.random() * (b - a); }
+function rndInt(a, b) { return Math.floor(rnd(a, b + 1)); }
+function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+function rndSign() { return Math.random() < 0.5 ? 1 : -1; }
+
+// ===================== PARAMS =====================
+function randomizeParams() {
+  P = {
+    // Operad algebra
+    arity: rndInt(3, 9),
+    depth: rndInt(3, 8),
+    compositionRate: rnd(0.003, 0.018),
+    // CRISPR
+    crisprRate: rnd(0.4, 4.2),
+    genomicComplexity: rnd(0.3, 1.0),
+    // Color palette — bioluminescent / cyberpunk hybrid
+    palette: generatePalette(),
+    bg: `hsl(${rndInt(180,260)},${rndInt(60,100)}%,${rndInt(1,5)}%)`,
+    // Morphogenesis
+    morphSpeed: rnd(0.0004, 0.003),
+    fractalDepth: rndInt(4, 8),
+    limbCount: rndInt(3, 12),
+    neuralDensity: rndInt(20, 80),
+    // Entities
+    entityCount: rndInt(5, 16),
+    // Audio
+    baseFreq: rnd(55, 220),
+    harmonics: rndInt(3, 9),
+    // Symmetry
+    symmetry: pick([1, 2, 3, 4, 6, 8]),
+    // Phase name
+    phase: pick(['MORPHOGENESIS','SYMBIOGENESIS','TRANSCRIPTION','INTEGRATION','RECURSION','EMERGENCE','DISSOLUTION','PROPAGATION']),
+    symbiosis: rnd(0, 1),
+    entropy: rnd(0, 1),
+    // Flow field seed
+    flowSeedX: rnd(0, 1000),
+    flowSeedY: rnd(0, 1000),
+    flowScale: rnd(0.002, 0.008),
+    // Organism type
+    orgType: pick(['COLONIAL','NEURAL','MYCORRHIZAL','CRYSTALLINE','VIRAL','SYNTHETIC','CHIMERIC','NODAL']),
+    // Extra visual flavor
+    glowRadius: rnd(2, 18),
+    trailAlpha: rnd(0.01, 0.06),
+    // Particle count
+    particleCount: rndInt(60, 200),
+  };
+}
+
+function generatePalette() {
+  const h1 = rndInt(0, 360);
+  const h2 = (h1 + rndInt(90, 180)) % 360;
+  const h3 = (h1 + rndInt(200, 270)) % 360;
+  return [
+    `hsl(${h1},100%,${rndInt(50,80)}%)`,
+    `hsl(${h2},${rndInt(70,100)}%,${rndInt(45,75)}%)`,
+    `hsl(${h3},${rndInt(60,100)}%,${rndInt(55,85)}%)`,
+    `hsl(${(h1+30)%360},90%,${rndInt(60,90)}%)`,
+    `hsl(${(h2+60)%360},80%,${rndInt(40,70)}%)`,
+  ];
+}
+
+// ===================== FLOW FIELD =====================
+function flowAngle(x, y) {
+  const nx = (x + P.flowSeedX) * P.flowScale;
+  const ny = (y + P.flowSeedY) * P.flowScale;
+  return (Math.sin(nx * 2.1 + t * P.morphSpeed * 200) +
+          Math.cos(ny * 1.7 + t * P.morphSpeed * 150) +
+          Math.sin((nx + ny) * 1.3 + t * P.morphSpeed * 80)) * Math.PI;
+}
+
+// ===================== OPERAD ENTITY =====================
+class OperadicEntity {
+  constructor(id) {
+    this.id = id;
+    this.x = cx + rnd(-W * 0.38, W * 0.38);
+    this.y = cy + rnd(-H * 0.38, H * 0.38);
+    this.vx = rnd(-0.4, 0.4);
+    this.vy = rnd(-0.4, 0.4);
+    this.radius = rnd(18, 55);
+    this.baseRadius = this.radius;
+    this.arity = rndInt(2, P.arity);
+    this.phase = rnd(0, Math.PI * 2);
+    this.phaseSpeed = rnd(0.003, 0.025) * rndSign();
+    this.color = pick(P.palette);
+    this.color2 = pick(P.palette);
+    this.limbAngles = Array.from({length: P.limbCount}, (_, i) => (i / P.limbCount) * Math.PI * 2 + rnd(-0.3, 0.3));
+    this.limbLengths = Array.from({length: P.limbCount}, () => rnd(0.6, 2.2));
+    this.neuralPorts = Array.from({length: this.arity}, (_, i) => ({
+      angle: (i / this.arity) * Math.PI * 2,
+      active: Math.random() > 0.3,
+      pulse: rnd(0, Math.PI * 2),
+    }));
+    this.genome = Array.from({length: 8}, () => Math.random());
+    this.crisprTimer = 0;
+    this.composing = false;
+    this.composeTimer = 0;
+    this.alive = true;
+    this.age = 0;
+    this.glowPulse = rnd(0, Math.PI * 2);
+  }
+
+  update(dt) {
+    this.age += dt;
+    this.phase += this.phaseSpeed * dt;
+    this.glowPulse += 0.04 * dt;
+
+    // Flow field influence
+    const fa = flowAngle(this.x, this.y);
+    this.vx += Math.cos(fa) * 0.015 + (cx - this.x) * 0.00008;
+    this.vy += Math.sin(fa) * 0.015 + (cy - this.y) * 0.00008;
+
+    // Damping
+    this.vx *= 0.985;
+    this.vy *= 0.985;
+
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
+
+    // Keep in bounds loosely
+    if (this.x < 0) { this.x = 0; this.vx = Math.abs(this.vx); }
+    if (this.x > W) { this.x = W; this.vx = -Math.abs(this.vx); }
+    if (this.y < 0) { this.y = 0; this.vy = Math.abs(this.vy); }
+    if (this.y > H) { this.y = H; this.vy = -Math.abs(this.vy); }
+
+    // CRISPR genome rewrite
+    this.crisprTimer += dt * P.crisprRate * 0.001;
+    if (this.crisprTimer > 1) {
+      this.crisprTimer = 0;
+      const idx = rndInt(0, 7);
+      this.genome[idx] = Math.random();
+      // Mutate a limb
+      const li = rndInt(0, P.limbCount - 1);
+      this.limbLengths[li] = rnd(0.4, 2.4);
+      this.color = pick(P.palette);
+    }
+
+    // Radius pulse
+    this.radius = this.baseRadius * (1 + 0.18 * Math.sin(this.phase * 2.3));
+
+    // Neural port pulses
+    this.neuralPorts.forEach(p => {
+      p.pulse += 0.06 * dt;
+    });
+
+    // Compose timer
+    if (this.composing) {
+      this.composeTimer += dt * 0.008;
+      if (this.composeTimer > 1) { this.composing = false; this.composeTimer = 0; }
+    }
+  }
+
+  draw() {
+    const r = this.radius;
+    const gp = this.glowPulse;
+
+    ctx.save();
+    ctx.translate(this.x, this.y);
+
+    // Outer glow
+    const glowR = r * (1.5 + 0.5 * Math.sin(gp));
+    const grd = ctx.createRadialGradient(0, 0, r * 0.2, 0, 0, glowR * 1.6);
+    grd.addColorStop(0, this.color.replace('hsl', 'hsla').replace(')', ',0.35)'));
+    grd.addColorStop(0.5, this.color.replace('hsl', 'hsla').replace(')', ',0.12)'));
+    grd.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.beginPath();
+    ctx.arc(0, 0, glowR * 1.6, 0, Math.PI * 2);
+    ctx.fillStyle = grd;
+    ctx.fill();
+
+    // Limbs (operadic inputs/outputs as fractal tendrils)
+    for (let i = 0; i < P.limbCount; i++) {
+      const ang = this.limbAngles[i] + this.phase * 0.3;
+      const len = r * this.limbLengths[i] * (0.85 + 0.15 * Math.sin(this.phase * 1.7 + i));
+      drawTendril(ctx, ang, len, this.genome[i % 8], this.color, i, this.phase);
+    }
+
+    // Core body — morphing organic shape
+    drawOrganicBody(ctx, r, this.phase, this.color, this.color2, this.genome);
+
+    // Neural ports
+    this.neuralPorts.forEach((p, i) => {
+      if (!p.active) return;
+      const px = Math.cos(p.angle + this.phase * 0.5) * r * 0.9;
+      const py = Math.sin(p.angle + this.phase * 0.5) * r * 0.9;
+      const alpha = 0.4 + 0.6 * Math.abs(Math.sin(p.pulse));
+      ctx.beginPath();
+      ctx.arc(px, py, 3 + 2 * Math.abs(Math.sin(p.pulse)), 0, Math.PI * 2);
+      ctx.fillStyle = this.color2.replace('hsl', 'hsla').replace(')', `,${alpha})`);
+      ctx.fill();
+      // Port ring
+      ctx.beginPath();
+      ctx.arc(px, py, 6 + 4 * Math.abs(Math.sin(p.pulse)), 0, Math.PI * 2);
+      ctx.strokeStyle = this.color2.replace('hsl', 'hsla').replace(')', `,${alpha * 0.4})`);
+      ctx.lineWidth = 0.8;
+      ctx.stroke();
+    });
+
+    // Composition effect
+    if (this.composing) {
+      const cr = r * (1 + this.composeTimer * 1.5);
+      ctx.beginPath();
+      ctx.arc(0, 0, cr, 0, Math.PI * 2);
+      ctx.strokeStyle = this.color.replace('hsl', 'hsla').replace(')', `,${0.6 * (1 - this.composeTimer)})`);
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+}
+
+// ===================== ORGANIC BODY SHAPE =====================
+function drawOrganicBody(ctx, r, phase, c1, c2, genome) {
+  const pts = 48;
+  ctx.beginPath();
+  for (let i = 0; i <= pts; i++) {
+    const a = (i / pts) * Math.PI * 2;
+    const g0 = genome[0] || 0.5;
+    const g1 = genome[1] || 0.5;
+    const g2 = genome[2] || 0.5;
+    const nr = r * (
+      0.75 +
+      0.15 * Math.sin(a * 3 + phase + g0 * 6) +
+      0.10 * Math.sin(a * 5 - phase * 1.3 + g1 * 4) +
+      0.08 * Math.cos(a * 7 + phase * 0.7 + g2 * 8) +
+      0.05 * Math.sin(a * 11 + phase * 1.9)
+    );
+    const x = Math.cos(a) * nr;
+    const y = Math.sin(a) * nr;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+  const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
+  grad.addColorStop(0, c1.replace('hsl', 'hsla').replace(')', ',0.85)'));
+  grad.addColorStop(0.6, c2.replace('hsl', 'hsla').replace(')', ',0.5)'));
+  grad.addColorStop(1, c1.replace('hsl', 'hsla').replace(')', ',0.1)'));
+  ctx.fillStyle = grad;
+  ctx.fill();
+  ctx.strokeStyle = c1.replace('hsl', 'hsla').replace(')', ',0.6)');
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+}
+
+// ===================== TENDRIL =====================
+function drawTendril(ctx, baseAngle, length, genomeFactor, color, idx, phase) {
+  ctx.save();
+  ctx.rotate(baseAngle);
+  const segs = 8;
+  const segLen = length / segs;
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  let cx_ = 0, cy_ = 0;
+  let curAngle = 0;
+  for (let s = 0; s < segs; s++) {
+    const bend = 0.4 * Math.sin(phase * 1.4 + s * 0.7 + idx * 0.9 + genomeFactor * 3.14);
+    curAngle += bend;
+    const nx = cx_ + Math.cos(curAngle) * segLen;
+    const ny = cy_ + Math.sin(curAngle) * segLen;
+    ctx.lineTo(nx, ny);
+    cx_ = nx; cy_ = ny;
+  }
+  const alpha = 0.25 + 0.25 * Math.abs(Math.sin(phase + idx));
+  ctx.strokeStyle = color.replace('hsl', 'hsla').replace(')', `,${alpha})`);
+  ctx.lineWidth = Math.max(0.5, 2 - (length / 120));
+  ctx.stroke();
+  // Tip dot
+  ctx.beginPath();
+  ctx.arc(cx_, cy_, 2.5, 0, Math.PI * 2);
+  ctx.fillStyle = color.replace('hsl', 'hsla').replace(')', `,${alpha * 0.8})`);
+  ctx.fill();
+  ctx.restore();
+}
+
+// ===================== FRACTAL TREE (operad composition) =====================
+function drawFractalOperad(x, y, angle, depth, len, color, branchArity, t_) {
+  if (depth <= 0 || len < 1.5) return;
+  const ex = x + Math.cos(angle) * len;
+  const ey = y + Math.sin(angle) * len;
+
+  const alpha = (depth / P.fractalDepth) * 0.35;
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.lineTo(ex, ey);
+  ctx.strokeStyle = color.replace('hsl', 'hsla').replace(')', `,${alpha})`);
+  ctx.lineWidth = depth * 0.5;
+  ctx.stroke();
+
+  const spread = (Math.PI * 0.55 * (0.7 + 0.3 * Math.sin(t_ * 0.0007 + depth)));
+  for (let b = 0; b < branchArity; b++) {
+    const ba = angle + spread * (b / (branchArity - 1 || 1) - 0.5) + 0.2 * Math.sin(t_ * 0.0011 + b * 1.3 + depth * 0.7);
+    drawFractalOperad(ex, ey, ba, depth - 1, len * (0.58 + 0.1 * Math.sin(t_ * 0.0013 + b)), color, branchArity, t_);
+  }
+}
+
+// ===================== PARTICLES =====================
+class Particle {
+  constructor() { this.reset(); }
+  reset() {
+    const e = entities[rndInt(0, entities.length - 1)];
+    if (e) { this.x = e.x; this.y = e.y; }
+    else { this.x = rnd(0, W); this.y = rnd(0, H); }
+    const fa = flowAngle(this.x, this.y);
+    const spd = rnd(0.3, 2.2);
+    this.vx = Math.cos(fa) * spd;
+    this.vy = Math.sin(fa) * spd;
+    this.life = rnd(0.4, 1.0);
+    this.maxLife = this.life;
+    this.color = pick(P.palette);
+    this.size = rnd(0.8, 3.2);
+    this.trail = [];
+  }
+  update(dt) {
+    const fa = flowAngle(this.x, this.y);
+    this.vx += (Math.cos(fa) * 0.08 - this.vx * 0.04);
+    this.vy += (Math.sin(fa) * 0.08 - this.vy * 0.04);
+    this.vx *= 0.97;
+    this.vy *= 0.97;
+    this.trail.push({x: this.x, y: this.y});
+    if (this.trail.length > 18) this.trail.shift();
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
+    this.life -= dt * 0.004;
+    if (this.life <= 0 || this.x < 0 || this.x > W || this.y < 0 || this.y > H) this.reset();
+  }
+  draw() {
+    const alpha = (this.life / this.maxLife);
+    if (this.trail.length > 1) {
+      ctx.beginPath();
+      ctx.moveTo(this.trail[0].x, this.trail[0].y);
+      for (let i = 1; i < this.trail.length; i++) {
+        ctx.lineTo(this.trail[i].x, this.trail[i].y);
+      }
+      ctx.strokeStyle = this.color.replace('hsl', 'hsla').replace(')', `,${alpha * 0.25})`);
+      ctx.lineWidth = this.size * 0.5;
+      ctx.stroke();
+    }
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.size * alpha, 0, Math.PI * 2);
+    ctx.fillStyle = this.color.replace('hsl', 'hsla').replace(')', `,${alpha * 0.7})`);
+    ctx.fill();
+  }
+}
+
+// ===================== CONNECTIONS (operadic composition lines) =====================
+function drawConnections() {
+  for (let i = 0; i < entities.length; i++) {
+    for (let j = i + 1; j < entities.length; j++) {
+      const a = entities[i], b = entities[j];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const maxDist = 220 + P.arity * 18;
+      if (dist > maxDist) continue;
+      const alpha = (1 - dist / maxDist) * 0.22;
+      const pulse = Math.abs(Math.sin(t * P.compositionRate * 3 + i * 1.1 + j * 0.7));
+
+      // Main connection
+      const grad = ctx.createLinearGradient(a.x, a.y, b.x, b.y);
+      grad.addColorStop(0, a.color.replace('hsl', 'hsla').replace(')', `,${alpha * (0.4 + 0.6 * pulse)})`));
+      grad.addColorStop(1, b.color.replace('hsl', 'hsla').replace(')', `,${alpha * (0.4 + 0.6 * pulse)})`));
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      // Slight curve
+      const mx = (a.x + b.x) / 2 + Math.sin(t * 0.001 + i + j) * dist * 0.15;
+      const my = (a.y + b.y) / 2 + Math.cos(t * 0.0013 + i + j) * dist * 0.15;
+      ctx.quadraticCurveTo(mx, my, b.x, b.y);
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = 0.7 + 1.3 * pulse * alpha * 5;
+      ctx.stroke();
+
+      // Pulse dot traveling along connection
+      const tp_ = (t * P.compositionRate * 0.8 + i * 0.5 + j * 0.3) % 1;
+      const px_ = lerp(lerp(a.x, mx, tp_), lerp(mx, b.x, tp_), tp_);
+      const py_ = lerp(lerp(a.y, my, tp_), lerp(my, b.y, tp_), tp_);
+      ctx.beginPath();
+      ctx.arc(px_, py_, 2.5, 0, Math.PI * 2);
+      ctx.fillStyle = pick(P.palette).replace('hsl', 'hsla').replace(')', `,${alpha * 3})`);
+      ctx.fill();
+
+      // Compose trigger
+      if (pulse > 0.95 && Math.random() < 0.02) {
+        a.composing = true;
+        b.composing = true;
+      }
+    }
+  }
+}
+
+function lerp(a, b, t_) { return a + (b - a) * t_; }
+
+// ===================== BACKGROUND GRID / SUBSTRATE =====================
+function drawSubstrate() {
+  const gridSize = 38 + Math.sin(t * 0.0004) * 8;
+  const cols = Math.ceil(W / gridSize) + 1;
+  const rows = Math.ceil(H / gridSize) + 1;
+  const alpha = 0.035 + 0.015 * Math.sin(t * 0.0006);
+  ctx.strokeStyle = P.palette[0].replace('hsl', 'hsla').replace(')', `,${alpha})`);
+  ctx.lineWidth = 0.5;
+  for (let i = 0; i <= cols; i++) {
+    const x_ = i * gridSize + Math.sin(t * 0.0003 + i * 0.2) * 4;
+    ctx.beginPath(); ctx.moveTo(x_, 0); ctx.lineTo(x_, H); ctx.stroke();
+  }
+  for (let j = 0; j <= rows; j++) {
+    const y_ = j * gridSize + Math.cos(t * 0.0003 + j * 0.2) * 4;
+    ctx.beginPath(); ctx.moveTo(0, y_); ctx.lineTo(W, y_); ctx.stroke();
+  }
+}
+
+// ===================== FRACTAL OPERAD TREES =====================
+function drawOperadTrees() {
+  const numTrees = Math.min(P.arity, 6);
+  for (let i = 0; i < numTrees; i++) {
+    const ang = (i / numTrees) * Math.PI * 2 + t * P.morphSpeed * 0.3;
+    const dist = Math.min(W, H) * 0.35;
+    const tx_ = cx + Math.cos(ang) * dist;
+    const ty_ = cy + Math.sin(ang) * dist;
+    const rootAngle = ang + Math.PI + 0.4 * Math.sin(t * P.morphSpeed * 0.8 + i);
+    drawFractalOperad(tx_, ty_, rootAngle, P.fractalDepth - 2, 28 + 10 * Math.sin(t * 0.001 + i), P.palette[i % P.palette.length], Math.max(2, P.arity - 2), t);
+  }
+}
+
+// ===================== GENOME HELIX (background) =====================
+function drawGenomeHelices() {
+  const numHelices = 3;
+  for (let h = 0; h < numHelices; h++) {
+    const hx = cx + rnd(-W * 0.3, W * 0.3) * (h === 0 ? 0 : 1);
+    const hy = cy + rnd(-H * 0.3, H * 0.3) * (h === 0 ? 0 : 1);
+    // Actually use fixed positions per generation stored in entities' positions as anchors
+    drawHelix(hx, hy, h);
+  }
+}
+
+function drawHelix(x0, y0, idx) {
+  const len = 140 + idx * 40;
+  const amp = 18 + 8 * Math.sin(t * 0.0008 + idx);
+  const freq = 0.06 + 0.01 * idx;
+  const alpha = 0.08 + 0.04 * Math.abs(Math.sin(t * 0.0005 + idx));
+  const c1 = P.palette[idx % P.palette.length];
+  const c2 = P.palette[(idx + 2) % P.palette.length];
+  const angle = (idx / 3) * Math.PI * 2 + t * P.morphSpeed * 0.5;
+  for (let strand = 0; strand < 2; strand++) {
+    const offset = strand * Math.PI;
+    ctx.beginPath();
+    for (let i = 0; i <= len; i++) {
+      const s = i / len;
+      const px = x0 + Math.cos(angle) * (i - len / 2) - Math.sin(angle) * Math.sin(i * freq + t * P.morphSpeed * 3 + offset) * amp;
+      const py = y0 + Math.sin(angle) * (i - len / 2) + Math.cos(angle) * Math.sin(i * freq + t * P.morphSpeed * 3 + offset) * amp;
+      i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+    }
+    ctx.strokeStyle = (strand === 0 ? c1 : c2).replace('hsl', 'hsla').replace(')', `,${alpha})`);
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+  // Rungs
+  for (let i = 0; i <= len; i += 8) {
+    const p1x = x0 + Math.cos(angle) * (i - len / 2) - Math.sin(angle) * Math.sin(i * freq + t * P.morphSpeed * 3) * amp;
+    const p1y = y0 + Math.sin(angle) * (i - len / 2) + Math.cos(angle) * Math.sin(i * freq + t * P.morphSpeed * 3) * amp;
+    const p2x = x0 + Math.cos(angle) * (i - len / 2) - Math.sin(angle) * Math.sin(i * freq + t * P.morphSpeed * 3 + Math.PI) * amp;
+    const p2y = y0 + Math.sin(angle) * (i - len / 2) + Math.cos(angle) * Math.sin(i * freq + t * P.morphSpeed * 3 + Math.PI) * amp;
+    ctx.beginPath();
+    ctx.moveTo(p1x, p1y);
+    ctx.lineTo(p2x, p2y);
+    ctx.strokeStyle = c1.replace('hsl', 'hsla').replace(')', `,${alpha * 0.7})`);
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+  }
+}
+
+// ===================== CENTRAL OPERAD NODE =====================
+function drawCentralOperad() {
+  const r = 35 + 12 * Math.sin(t * P.morphSpeed * 4);
+  const rings = P.arity;
+  for (let ring = rings; ring >= 1; ring--) {
+    const rr = r * ring * 0.7;
+    const alpha = 0.04 + 0.03 * Math.sin(t * P.morphSpeed * 3 + ring);
+    ctx.beginPath();
+    ctx.arc(cx, cy, rr, 0, Math.PI * 2);
+    ctx.strokeStyle = P.palette[ring % P.palette.length].replace('hsl', 'hsla').replace(')', `,${alpha})`);
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+    // Arity markers
+    for (let a = 0; a < ring + 2; a++) {
+      const ang = (a / (ring + 2)) * Math.PI * 2 + t * P.morphSpeed * (ring % 2 === 0 ? 1 : -1);
+      const mx = cx + Math.cos(ang) * rr;
+      const my = cy + Math.sin(ang) * rr;
+      ctx.beginPath();
+      ctx.arc(mx, my, 2, 0, Math.PI * 2);
+      ctx.fillStyle = P.palette[(ring + a) % P.palette.length].replace('hsl', 'hsla').replace(')', `,${alpha * 4})`);
+      ctx.fill();
+    }
+  }
+}
+
+// ===================== SCENE SETUP =====================
+function buildScene() {
+  entities = [];
+  particles = [];
+  for (let i = 0; i < P.entityCount; i++) {
+    entities.push(new OperadicEntity(i));
+  }
+  for (let i = 0; i < P.particleCount; i++) {
+    particles.push(new Particle());
+  }
+  generation++;
+  t = 0;
+}
+
+// ===================== AUDIO =====================
+function initAudio() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    masterGain = audioCtx.createGain();
+    masterGain.gain.value = 0;
+    analyserNode = audioCtx.createAnalyser();
+    masterGain.connect(analyserNode);
+    analyserNode.connect(audioCtx.destination);
+  }
+}
+
+function buildAudio() {
+  if (!audioCtx) return;
+  // Stop old
+  oscillators.forEach(o => { try { o.stop(); } catch(e){} });
+  oscillators = [];
+
+  const now = audioCtx.currentTime;
+  for (let h = 0; h < P.harmonics; h++) {
+    // Operad composition harmonic series
+    const ratio = [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8][h % 9];
+    const freq = P.baseFreq * ratio;
+
+    const osc = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    const filter = audioCtx.createBiquadFilter();
+
+    osc.type = pick(['sine', 'triangle', 'sawtooth']);
+    osc.frequency.setValueAtTime(freq, now);
+    // Slow frequency modulation — morphogenesis
+    osc.frequency.linearRampToValueAtTime(freq * (1 + 0.08 * Math.sin(h)), now + 8);
+    g.gain.value = (0.04 / (h + 1)) * (0.5 + 0.5 * P.genomicComplexity);
+    filter.type = 'bandpass';
+    filter.frequency.value = freq * (1.5 + h * 0.3);
+    filter.Q.value = 2 + h;
+
+    osc.connect(filter);
+    filter.connect(g);
+    g.connect(masterGain);
+    osc.start(now);
+    oscillators.push(osc);
+  }
+
+  // Sub drone
+  const drone = audioCtx.createOscillator();
+  const droneGain = audioCtx.createGain();
+  drone.type = 'sine';
+  drone.frequency.value = P.baseFreq * 0.5;
+  droneGain.gain.value = 0.035;
+  drone.connect(droneGain);
+  droneGain.connect(masterGain);
+  drone.start(now);
+  oscillators.push(drone);
+}
+
+function setSound(on) {
+  if (!audioCtx) initAudio();
+  if (on) {
+    buildAudio();
+    masterGain.gain.cancelScheduledValues(audioCtx.currentTime);
+    masterGain.gain.linearRampToValueAtTime(0.55, audioCtx.currentTime + 1.2);
+  } else {
+    masterGain.gain.cancelScheduledValues(audioCtx.currentTime);
+    masterGain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.8);
+  }
+}
+
+function modulateAudio() {
+  if (!audioCtx || !soundEnabled) return;
+  const now = audioCtx.currentTime;
+  // Modulate oscillator frequencies based on entity state
+  oscillators.forEach((osc, i) => {
+    if (!osc.frequency) return;
+    const ent = entities[i % entities.length];
+    if (!ent) return;
+    const mod = 1 + 0.04 * Math.sin(ent.phase * 2 + i);
+    const baseFreq = P.baseFreq * [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 0.5][i % 10];
+    osc.frequency.setTargetAtTime(baseFreq * mod, now, 0.3);
+  });
+}
+
+// ===================== HUD UPDATE =====================
+function updateHUD() {
+  if (!hudVisible) return;
+  document.getElementById('h-phase').textContent = P.phase;
+  document.getElementById('h-gen').textContent = String(generation).padStart(4, '0');
+  document.getElementById('h-arity').textContent = P.arity + ' (' + P.orgType + ')';
+  document.getElementById('h-depth').textContent = P.depth;
+  document.getElementById('h-crispr').textContent = P.crisprRate.toFixed(2) + ' OPS/CYCLE';
+  document.getElementById('h-morph').textContent = (P.morphSpeed * 10000).toFixed(1) + ' μm/s';
+  document.getElementById('h-neural').textContent = P.neuralDensity;
+  document.getElementById('h-sound').textContent = soundEnabled ? 'ACTIVE' : 'INACTIVE';
+  document.getElementById('h-entities').textContent = entities.length;
+  document.getElementById('h-sym').textContent = (P.symbiosis * 100).toFixed(0) + '%';
+  document.getElementById('h-ent').textContent = (P.entropy * 100).toFixed(0) + '%';
+}
+
+// ===================== MAIN LOOP =====================
+let lastTime = 0;
+function loop(ts) {
+  const dt = Math.min(ts - lastTime, 40);
+  lastTime = ts;
+  t += dt;
+  animId = requestAnimationFrame(loop);
+
+  // Trail fade
+  ctx.fillStyle = P.bg.replace('hsl', 'hsla').replace(')', `,${P.trailAlpha})`);
+  ctx.fillRect(0, 0, W, H);
+
+  // Background substrate
+  drawSubstrate();
+
+  // Genome helices
+  drawGenomeHelices();
+
+  // Central operad node
+  drawCentralOperad();
+
+  // Fractal operad trees
+  drawOperadTrees();
+
+  // Connections
+  drawConnections();
+
+  // Entities
+  entities.forEach(e => { e.update(dt); e.draw(); });
+
+  // Particles
+  particles.forEach(p => { p.update(dt); p.draw(); });
+
+  // Audio modulation
+  if (Math.floor(t / 300) !== Math.floor((t - dt) / 300)) {
+    modulateAudio();
+  }
+
+  // HUD
+  if (Math.floor(t / 500) !== Math.floor((t - dt) / 500)) {
+    updateHUD();
+  }
+}
+
+// ===================== REGENERATE =====================
+function regenerate() {
+  if (animId) cancelAnimationFrame(animId);
+  // Hard clear
+  ctx.clearRect(0, 0, W, H);
+  randomizeParams();
+  buildScene();
+  if (soundEnabled) {
+    buildAudio();
+  }
+  lastTime = performance.now();
+  animId = requestAnimationFrame(loop);
+}
+
+// ===================== CONTROLS =====================
+document.addEventListener('keydown', e => {
+  if (e.key === 'h' || e.key === 'H') {
+    hudVisible = !hudVisible;
+    document.getElementById('hud').classList.toggle('visible', hudVisible);
+  }
+  if (e.key === 's' || e.key === 'S') {
+    soundEnabled = !soundEnabled;
+    setSound(soundEnabled);
+  }
+  if (e.key === ' ') {
+    e.preventDefault();
+    regenerate();
+  }
+});
+
+canvas.addEventListener('click', () => regenerate());
+canvas.addEventListener('touchstart', e => { e.preventDefault(); regenerate(); }, {passive: false});
+
+// ===================== BOOT =====================
+randomizeParams();
+buildScene();
+lastTime = performance.now();
+animId = requestAnimationFrame(loop);
+
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,804 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Chaotic Prismatic Infinity Cascade – Ultra Generative Spectral Reactor</title>
+<meta name="description" content="An immersive generative kaleidoscope animation combined with procedural browser audio synthesis. Experience chaotic attractor motion fields, cascading neon particle systems, multi-layer rotating kaleidoscopic symmetry, spectral wave interference, and an evolving Web Audio API synth engine.">
+<meta name="keywords" content="generative art, kaleidoscope animation, procedural audio, WebGL, Canvas, Web Audio API, chaotic attractor, particle system, neon, spectral, hypnotic, interactive, browser art, generative music, audiovisual">
+<meta name="author" content="Chaotic Prismatic Infinity Cascade">
+<meta name="robots" content="index, follow">
+<meta property="og:title" content="Chaotic Prismatic Infinity Cascade – Ultra Generative Spectral Reactor">
+<meta property="og:description" content="Wildly hypnotic generative kaleidoscope with procedural audio synthesis. Press SPACE to regenerate. Press S to toggle sound.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="https://og.example.com/chaotic-prismatic.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Chaotic Prismatic Infinity Cascade">
+<meta name="twitter:description" content="Immersive generative spectral reactor with kaleidoscopic symmetry and procedural synth engine.">
+<link rel="canonical" href="https://chaotic-prismatic-infinity-cascade.example.com/">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "CreativeWork",
+  "name": "Chaotic Prismatic Infinity Cascade – Ultra Generative Spectral Reactor",
+  "description": "An immersive generative audiovisual experience combining multi-layer rotating kaleidoscopic symmetry, chaotic attractor motion fields, neon particle systems, and procedural Web Audio API synthesis.",
+  "genre": "Generative Art",
+  "keywords": "generative art, kaleidoscope, procedural audio, chaotic attractor, particle system"
+}
+</script>
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background: #000;
+    font-family: 'Courier New', monospace;
+  }
+  canvas {
+    display: block;
+    width: 100vw; height: 100vh;
+    position: fixed; top: 0; left: 0;
+    touch-action: none;
+  }
+  #ui {
+    position: fixed;
+    bottom: 16px; left: 50%;
+    transform: translateX(-50%);
+    display: flex; gap: 12px; align-items: center;
+    z-index: 10;
+    pointer-events: none;
+    user-select: none;
+  }
+  .pill {
+    background: rgba(0,0,0,0.55);
+    border: 1px solid rgba(255,255,255,0.15);
+    color: rgba(255,255,255,0.7);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    padding: 6px 14px;
+    border-radius: 999px;
+    backdrop-filter: blur(8px);
+    white-space: nowrap;
+  }
+  #sound-status { transition: color 0.3s; }
+  #sound-status.on { color: #0ff; border-color: rgba(0,255,255,0.4); }
+  #sound-status.off { color: #f44; border-color: rgba(255,60,60,0.3); }
+  #info { position: fixed; top: 14px; left: 50%; transform: translateX(-50%); z-index: 10; pointer-events: none; }
+  #title-badge {
+    background: rgba(0,0,0,0.5);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: rgba(255,255,255,0.45);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    padding: 5px 16px;
+    border-radius: 999px;
+    backdrop-filter: blur(8px);
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+</style>
+</head>
+<body>
+<header id="info" aria-label="Application title">
+  <div id="title-badge" role="heading" aria-level="1">Chaotic Prismatic Infinity Cascade</div>
+</header>
+
+<main>
+  <canvas id="c" aria-label="Generative kaleidoscope animation canvas"></canvas>
+</main>
+
+<footer id="ui" aria-label="Controls">
+  <div class="pill">SPACE — regenerate</div>
+  <div class="pill" id="sound-status">S — sound OFF</div>
+  <div class="pill">touch — interact</div>
+</footer>
+
+<script>
+// ============================================================
+// CHAOTIC PRISMATIC INFINITY CASCADE
+// Ultra Generative Spectral Reactor
+// ============================================================
+(function(){
+'use strict';
+
+// ── Canvas Setup ─────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d', { alpha: false, willReadFrequently: false });
+let W, H, cx, cy, dpr;
+
+function resize() {
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = canvas.width  = window.innerWidth  * dpr;
+  H = canvas.height = window.innerHeight * dpr;
+  cx = W / 2; cy = H / 2;
+  ctx.setTransform(1,0,0,1,0,0);
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ── RNG ───────────────────────────────────────────────────────
+let seed = Date.now();
+function rand(a=0, b=1) {
+  seed = (seed * 1664525 + 1013904223) & 0xffffffff;
+  const t = (seed >>> 0) / 0xffffffff;
+  return a + t * (b - a);
+}
+function randInt(a, b) { return Math.floor(rand(a, b+1)); }
+function choose(arr) { return arr[randInt(0, arr.length-1)]; }
+
+// ── Chaos Constants ───────────────────────────────────────────
+let C = {};
+
+function regenerate() {
+  seed = Date.now() ^ (Math.random() * 0x7fffffff | 0);
+  C = {
+    symmetry:    randInt(3, 24),
+    layers:      randInt(3, 7),
+    speed:       rand(0.3, 1.8),
+    zoomSpeed:   rand(0.0003, 0.0012),
+    zoomAmp:     rand(0.08, 0.35),
+    hueSpeed:    rand(0.1, 0.8),
+    satPulse:    rand(0.3, 1.2),
+    rotSpeed:    rand(0.1, 0.6) * (rand() > 0.5 ? 1 : -1),
+    rotSpeed2:   rand(0.05, 0.4) * (rand() > 0.5 ? 1 : -1),
+    attractorA:  rand(-3, 3),
+    attractorB:  rand(-3, 3),
+    attractorC:  rand(0.1, 2.5),
+    attractorD:  rand(-3, 3),
+    waveFreq:    rand(1, 8),
+    waveAmp:     rand(0.02, 0.18),
+    waveSpeed:   rand(0.5, 3),
+    particleCount: randInt(120, 350),
+    riverCount:  randInt(4, 12),
+    beamCount:   randInt(5, 18),
+    interp:      rand(0.02, 0.12),
+    gradBands:   randInt(5, 14),
+    neonSat:     rand(80, 100),
+    chaosK:      rand(0.5, 2.5),
+    lorenzSigma: rand(5, 15),
+    lorenzRho:   rand(20, 45),
+    lorenzBeta:  rand(1.5, 4),
+    juliaCr:     rand(-1, 1),
+    juliaCi:     rand(-1, 1),
+    morphPhase:  rand(0, Math.PI*2),
+    pulseRate:   rand(0.5, 4),
+    twistAmp:    rand(0, 3),
+    kaleidoOff:  rand(0, Math.PI),
+  };
+  initParticles();
+  initRivers();
+  initBeams();
+  initAttractor();
+}
+
+// ── Time ──────────────────────────────────────────────────────
+let t = 0, frame = 0;
+
+// ── Particles ─────────────────────────────────────────────────
+let particles = [];
+function initParticles() {
+  particles = [];
+  const n = C.particleCount;
+  for (let i = 0; i < n; i++) {
+    particles.push(newParticle(true));
+  }
+}
+function newParticle(random) {
+  const angle = rand(0, Math.PI * 2);
+  const r = random ? rand(0, Math.max(W,H)*0.5) : rand(0, 20);
+  return {
+    x: random ? rand(-cx, cx) : Math.cos(angle)*r,
+    y: random ? rand(-cy, cy) : Math.sin(angle)*r,
+    vx: rand(-1.5, 1.5) * C.speed,
+    vy: rand(-1.5, 1.5) * C.speed,
+    hue: rand(0, 360),
+    life: rand(0.5, 1),
+    decay: rand(0.002, 0.008),
+    size: rand(1, 5) * dpr,
+    trail: [],
+    trailLen: randInt(8, 30),
+  };
+}
+
+// ── Attractor field ───────────────────────────────────────────
+let attractor = { x: 0, y: 0, z: 0.1 };
+function initAttractor() {
+  attractor = { x: rand(-10,10), y: rand(-10,10), z: rand(-10,10) };
+}
+function stepAttractor(dt) {
+  const s = C.lorenzSigma, r = C.lorenzRho, b = C.lorenzBeta;
+  const dx = s * (attractor.y - attractor.x);
+  const dy = attractor.x * (r - attractor.z) - attractor.y;
+  const dz = attractor.x * attractor.y - b * attractor.z;
+  const sc = 0.005;
+  attractor.x += dx * sc;
+  attractor.y += dy * sc;
+  attractor.z += dz * sc;
+}
+
+// ── Rivers ────────────────────────────────────────────────────
+let rivers = [];
+function initRivers() {
+  rivers = [];
+  for (let i = 0; i < C.riverCount; i++) {
+    rivers.push({
+      phase: rand(0, Math.PI*2),
+      speed: rand(0.2, 1.5) * C.speed,
+      amp:   rand(0.1, 0.5),
+      hue:   rand(0, 360),
+      width: rand(2, 18) * dpr,
+      offset: rand(0, 1),
+      freq:  rand(1, 5),
+      twist: rand(0, Math.PI*2),
+    });
+  }
+}
+
+// ── Beams ─────────────────────────────────────────────────────
+let beams = [];
+function initBeams() {
+  beams = [];
+  for (let i = 0; i < C.beamCount; i++) {
+    beams.push({
+      angle: rand(0, Math.PI*2),
+      rotSpeed: rand(0.01, 0.2) * (rand()>0.5?1:-1),
+      hue: rand(0, 360),
+      width: rand(1, 8) * dpr,
+      length: rand(0.3, 1.2),
+      alpha: rand(0.02, 0.18),
+    });
+  }
+}
+
+// ── Hue drift ────────────────────────────────────────────────
+let globalHue = 0;
+
+// ── Draw helpers ─────────────────────────────────────────────
+function hsl(h, s, l, a=1) {
+  return `hsla(${h%360},${s}%,${l}%,${a})`;
+}
+
+function drawKaleidoLayer(layer, time) {
+  const segs = C.symmetry;
+  const angle = (Math.PI * 2) / segs;
+  const scale = 1 + Math.sin(time * C.zoomSpeed * 60 + layer) * C.zoomAmp;
+  const rot   = time * (C.rotSpeed + layer * 0.07) + C.kaleidoOff;
+  const sat   = C.neonSat + Math.sin(time * C.satPulse) * 15;
+  const lum   = 45 + layer * 5;
+  const hue   = (globalHue + layer * (360 / C.layers)) % 360;
+  const r     = Math.min(W, H) * 0.45 * scale;
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(rot);
+  ctx.scale(scale, scale);
+
+  for (let s = 0; s < segs; s++) {
+    ctx.save();
+    ctx.rotate(s * angle);
+
+    // clip wedge
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.arc(0, 0, r, -angle/2, angle/2);
+    ctx.closePath();
+    ctx.clip();
+
+    // mirror
+    if (s % 2 === 1) ctx.scale(1, -1);
+
+    // inner design
+    const twist = Math.sin(time * 0.7 + layer + s) * C.twistAmp;
+    ctx.rotate(twist * 0.1);
+
+    // gradient river in wedge
+    const grd = ctx.createLinearGradient(0, 0, r, 0);
+    for (let b = 0; b <= C.gradBands; b++) {
+      const bh = (hue + b * (360/C.gradBands) + time * C.hueSpeed * 60) % 360;
+      grd.addColorStop(b/C.gradBands, hsl(bh, sat, lum, 0.6));
+    }
+    ctx.fillStyle = grd;
+    ctx.fillRect(-r, -r, r*2, r*2);
+
+    // wave interference
+    ctx.beginPath();
+    const steps = 60;
+    for (let i = 0; i <= steps; i++) {
+      const rr = (i/steps) * r;
+      const w = Math.sin(rr * C.waveFreq * 0.05 - time * C.waveSpeed) * r * C.waveAmp;
+      if (i === 0) ctx.moveTo(rr, w);
+      else ctx.lineTo(rr, w);
+    }
+    ctx.strokeStyle = hsl((hue+120)%360, 100, 80, 0.3);
+    ctx.lineWidth = 1.5 * dpr;
+    ctx.stroke();
+
+    // attractor dot cluster
+    const ax = (attractor.x / 25) * r * 0.4;
+    const ay = (attractor.y / 25) * r * 0.4;
+    const ag = ctx.createRadialGradient(ax, ay, 0, ax, ay, r*0.15);
+    ag.addColorStop(0, hsl((hue+200)%360, 100, 90, 0.8));
+    ag.addColorStop(1, hsl((hue+200)%360, 100, 50, 0));
+    ctx.fillStyle = ag;
+    ctx.beginPath();
+    ctx.arc(ax, ay, r*0.15, 0, Math.PI*2);
+    ctx.fill();
+
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+function drawParticles(time) {
+  const halfW = W/2, halfH = H/2;
+  for (let i = 0; i < particles.length; i++) {
+    const p = particles[i];
+
+    // chaotic field influence
+    const fx = Math.sin(p.y * C.attractorA * 0.01 + time * C.chaosK) * C.attractorC;
+    const fy = Math.cos(p.x * C.attractorB * 0.01 + time * C.chaosK) * C.attractorD;
+    p.vx += fx * 0.08;
+    p.vy += fy * 0.08;
+
+    // attractor pull (weak)
+    const ax = attractor.x / 30 * halfW * 0.3;
+    const ay = attractor.y / 30 * halfH * 0.3;
+    p.vx += (ax - p.x) * 0.00008;
+    p.vy += (ay - p.y) * 0.00008;
+
+    // damping
+    p.vx *= 0.985;
+    p.vy *= 0.985;
+
+    p.x += p.vx;
+    p.y += p.vy;
+    p.life -= p.decay;
+    p.hue = (p.hue + C.hueSpeed * 0.5) % 360;
+
+    p.trail.push({ x: p.x, y: p.y });
+    if (p.trail.length > p.trailLen) p.trail.shift();
+
+    if (p.life <= 0 || Math.abs(p.x) > halfW*1.5 || Math.abs(p.y) > halfH*1.5) {
+      particles[i] = newParticle(false);
+      continue;
+    }
+
+    // draw trail with kaleidoscope symmetry
+    if (p.trail.length < 2) continue;
+    const segs = C.symmetry;
+    const segAngle = (Math.PI * 2) / segs;
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    for (let s = 0; s < segs; s++) {
+      ctx.save();
+      ctx.rotate(s * segAngle);
+      const flip = s % 2 === 1;
+      if (flip) ctx.scale(1, -1);
+
+      ctx.beginPath();
+      ctx.moveTo(p.trail[0].x, p.trail[0].y);
+      for (let j = 1; j < p.trail.length; j++) {
+        ctx.lineTo(p.trail[j].x, p.trail[j].y);
+      }
+      const alpha = p.life * 0.7;
+      ctx.strokeStyle = hsl(p.hue, 100, 75, alpha);
+      ctx.lineWidth = p.size * 0.4;
+      ctx.shadowColor = hsl(p.hue, 100, 80, alpha);
+      ctx.shadowBlur = p.size * 3;
+      ctx.stroke();
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+  ctx.shadowBlur = 0;
+}
+
+function drawRivers(time) {
+  const D = Math.max(W, H);
+  for (let i = 0; i < rivers.length; i++) {
+    const rv = rivers[i];
+    rv.phase += rv.speed * 0.01;
+    const hue = (rv.hue + globalHue + time * C.hueSpeed * 30) % 360;
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(rv.twist + time * 0.05);
+
+    ctx.beginPath();
+    const steps = 120;
+    for (let j = 0; j <= steps; j++) {
+      const tt = j / steps;
+      const x = (tt - 0.5) * D * 1.5;
+      const y = Math.sin(tt * Math.PI * 2 * rv.freq + rv.phase) * D * rv.amp
+              + Math.cos(tt * Math.PI * rv.freq * 1.7 + rv.phase * 1.3) * D * rv.amp * 0.4;
+      if (j === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    const grd = ctx.createLinearGradient(-D*0.75, 0, D*0.75, 0);
+    grd.addColorStop(0, hsl(hue, 90, 60, 0));
+    grd.addColorStop(0.3, hsl((hue+60)%360, 100, 70, 0.25));
+    grd.addColorStop(0.7, hsl((hue+120)%360, 100, 65, 0.25));
+    grd.addColorStop(1, hsl(hue, 90, 60, 0));
+    ctx.strokeStyle = grd;
+    ctx.lineWidth = rv.width;
+    ctx.shadowColor = hsl(hue, 100, 70, 0.5);
+    ctx.shadowBlur = rv.width * 2;
+    ctx.stroke();
+    ctx.restore();
+  }
+  ctx.shadowBlur = 0;
+}
+
+function drawBeams(time) {
+  for (let i = 0; i < beams.length; i++) {
+    const b = beams[i];
+    b.angle += b.rotSpeed * 0.02;
+    const hue = (b.hue + globalHue + time * C.hueSpeed * 20) % 360;
+    const len = Math.max(W, H) * b.length;
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(b.angle);
+
+    const grd = ctx.createLinearGradient(0, 0, len, 0);
+    grd.addColorStop(0, hsl(hue, 100, 80, b.alpha * 2));
+    grd.addColorStop(0.5, hsl((hue+40)%360, 100, 70, b.alpha));
+    grd.addColorStop(1, hsl(hue, 100, 50, 0));
+    ctx.fillStyle = grd;
+    ctx.beginPath();
+    const hw = b.width / 2;
+    ctx.moveTo(0, -hw);
+    ctx.lineTo(len, -hw * 0.1);
+    ctx.lineTo(len, hw * 0.1);
+    ctx.lineTo(0, hw);
+    ctx.closePath();
+    ctx.fill();
+
+    // mirror
+    ctx.scale(1, -1);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+function drawSpectralBands(time) {
+  const bands = C.gradBands;
+  const bh = H / bands;
+  for (let i = 0; i < bands; i++) {
+    const hue = (globalHue + (i/bands)*360 + time * C.hueSpeed * 10) % 360;
+    const alpha = 0.04 + Math.sin(time * C.pulseRate + i * 0.7) * 0.02;
+    ctx.fillStyle = hsl(hue, C.neonSat, 50, alpha);
+    ctx.fillRect(0, i * bh, W, bh + 1);
+  }
+}
+
+function drawZoomOverlay(time) {
+  const zoom = 1 + Math.sin(time * C.zoomSpeed * 60 * 2.3) * C.zoomAmp * 0.5;
+  const r = Math.min(W, H) * 0.5 * zoom;
+  const hue = (globalHue + time * 40) % 360;
+  const grd = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+  grd.addColorStop(0, hsl(hue, 100, 80, 0.08));
+  grd.addColorStop(0.5, hsl((hue+120)%360, 100, 60, 0.03));
+  grd.addColorStop(1, hsl(hue, 100, 20, 0));
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, W, H);
+}
+
+// ── Main render loop ──────────────────────────────────────────
+function render(timestamp) {
+  requestAnimationFrame(render);
+  t = timestamp * 0.001;
+  frame++;
+
+  // step attractor
+  stepAttractor(1/60);
+
+  // global hue drift
+  globalHue = (globalHue + C.hueSpeed * 0.4) % 360;
+
+  // fade trail
+  ctx.fillStyle = 'rgba(0,0,0,0.18)';
+  ctx.fillRect(0, 0, W, H);
+
+  // spectral bands (background)
+  drawSpectralBands(t);
+
+  // beams
+  drawBeams(t);
+
+  // rivers
+  drawRivers(t);
+
+  // kaleidoscope layers
+  for (let l = 0; l < C.layers; l++) {
+    ctx.globalAlpha = 0.55 - l * 0.06;
+    drawKaleidoLayer(l, t);
+  }
+  ctx.globalAlpha = 1;
+
+  // particles
+  drawParticles(t);
+
+  // zoom overlay
+  drawZoomOverlay(t);
+
+  // tick audio
+  audioTick(t);
+}
+
+// ── Web Audio Engine ──────────────────────────────────────────
+let audioCtx = null;
+let soundOn = false;
+let masterGain, reverb, masterComp;
+let drones = [], lfoNodes = [], rhythmTimeout = null;
+let audioSeed = 0;
+
+function arand(a=0, b=1) {
+  audioSeed = (audioSeed * 6364136223846793005n + 1442695040888963407n) & 0xFFFFFFFFFFFFFFFFn;
+  const t = Number(audioSeed & 0xFFFFFFFFn) / 0xFFFFFFFF;
+  return a + t * (b - a);
+}
+
+function createReverb(ac) {
+  const len = ac.sampleRate * 3.5;
+  const buf = ac.createBuffer(2, len, ac.sampleRate);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = buf.getChannelData(ch);
+    for (let i = 0; i < len; i++) {
+      d[i] = (Math.random()*2-1) * Math.pow(1 - i/len, 2.5);
+    }
+  }
+  const conv = ac.createConvolver();
+  conv.buffer = buf;
+  return conv;
+}
+
+function initAudio() {
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  audioSeed = BigInt(Date.now());
+
+  masterComp = audioCtx.createDynamicsCompressor();
+  masterComp.threshold.value = -18;
+  masterComp.ratio.value = 4;
+
+  masterGain = audioCtx.createGain();
+  masterGain.gain.value = 0.55;
+
+  reverb = createReverb(audioCtx);
+
+  const reverbGain = audioCtx.createGain();
+  reverbGain.gain.value = 0.4;
+
+  masterComp.connect(masterGain);
+  masterGain.connect(reverb);
+  reverb.connect(reverbGain);
+  reverbGain.connect(audioCtx.destination);
+  masterGain.connect(audioCtx.destination);
+
+  buildSynth();
+  scheduleRhythm();
+}
+
+function stopAudio() {
+  if (!audioCtx) return;
+  drones.forEach(d => {
+    try { d.osc.stop(); d.lfo.stop(); } catch(e) {}
+  });
+  drones = [];
+  if (rhythmTimeout) clearTimeout(rhythmTimeout);
+}
+
+const SCALES = [
+  [0,2,4,7,9],        // pentatonic
+  [0,2,3,5,7,8,10],   // dorian
+  [0,1,5,7,10],       // phrygian sparse
+  [0,4,7,11,14],      // major 9th
+  [0,3,6,10],         // half-dim
+  [0,2,4,6,8,10],     // whole tone
+];
+
+let currentScale, rootHz, tonalCenter;
+
+function pickTonalCenter() {
+  const roots = [55, 65.41, 73.42, 82.41, 87.31, 98, 110];
+  rootHz = choose(roots);
+  currentScale = choose(SCALES);
+  tonalCenter = rootHz;
+}
+
+function noteHz(degree, octave=0) {
+  const semi = currentScale[degree % currentScale.length] + (Math.floor(degree/currentScale.length)+octave)*12;
+  return rootHz * Math.pow(2, semi/12);
+}
+
+function buildSynth() {
+  pickTonalCenter();
+  drones = [];
+  lfoNodes = [];
+
+  const types = ['sine','triangle','sawtooth','square'];
+  const droneCount = randInt(3, 7);
+
+  for (let i = 0; i < droneCount; i++) {
+    const ac = audioCtx;
+    const osc = ac.createOscillator();
+    osc.type = choose(types.slice(0,2));
+    const degree = randInt(0, currentScale.length-1);
+    const oct = choose([0,0,1,-1]);
+    osc.frequency.value = noteHz(degree, oct);
+
+    const lfo = ac.createOscillator();
+    lfo.type = choose(['sine','triangle']);
+    lfo.frequency.value = arand(0.05, 2.5);
+
+    const lfoGain = ac.createGain();
+    lfoGain.gain.value = arand(0.5, 8);
+    lfo.connect(lfoGain);
+    lfoGain.connect(osc.frequency);
+
+    const env = ac.createGain();
+    env.gain.value = arand(0.02, 0.12);
+
+    // panning
+    const panner = ac.createStereoPanner ? ac.createStereoPanner() : null;
+    if (panner) {
+      panner.pan.value = arand(-0.8, 0.8);
+      osc.connect(env);
+      env.connect(panner);
+      panner.connect(masterComp);
+    } else {
+      osc.connect(env);
+      env.connect(masterComp);
+    }
+
+    osc.start();
+    lfo.start();
+    drones.push({ osc, lfo, env, degree });
+    lfoNodes.push(lfoGain);
+  }
+
+  // chaos LFO modulating other LFOs
+  const chaos = audioCtx.createOscillator();
+  chaos.frequency.value = arand(0.01, 0.3);
+  chaos.type = 'sine';
+  const chaosG = audioCtx.createGain();
+  chaosG.gain.value = arand(0.1, 0.5);
+  chaos.connect(chaosG);
+  if (lfoNodes.length) chaosG.connect(lfoNodes[0].gain);
+  chaos.start();
+  drones.push({ osc: chaos, lfo: { stop: ()=>{} }, env: { gain: { value: 0 } }, degree: 0 });
+}
+
+function rebuildSynth() {
+  stopAudio();
+  audioSeed = BigInt(Date.now() ^ (Math.random()*0x7fffffff|0));
+  if (soundOn) {
+    drones = []; lfoNodes = [];
+    buildSynth();
+    scheduleRhythm();
+  }
+}
+
+// rhythm
+function scheduleRhythm() {
+  if (!soundOn || !audioCtx) return;
+  const tempoBase = arand(0.08, 0.4);
+  fireRhythm();
+  function fireRhythm() {
+    if (!soundOn) return;
+    const ac = audioCtx;
+    const now = ac.currentTime;
+    const degree = randInt(0, currentScale.length-1);
+    const freq = noteHz(degree, choose([1,2,2,3]));
+    const osc = ac.createOscillator();
+    osc.type = choose(['sine','triangle','sawtooth']);
+    osc.frequency.setValueAtTime(freq, now);
+    osc.frequency.exponentialRampToValueAtTime(freq*arand(0.95, 1.05), now+0.1);
+
+    const g = ac.createGain();
+    const vol = arand(0.04, 0.15);
+    g.gain.setValueAtTime(vol, now);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + arand(0.05, 0.4));
+
+    const p = ac.createStereoPanner ? ac.createStereoPanner() : null;
+    if (p) {
+      p.pan.value = arand(-1, 1);
+      osc.connect(g); g.connect(p); p.connect(masterComp);
+    } else {
+      osc.connect(g); g.connect(masterComp);
+    }
+    osc.start(now);
+    osc.stop(now + 0.5);
+
+    const nextDelay = (tempoBase + arand(-0.02, 0.08)) * 1000;
+    rhythmTimeout = setTimeout(fireRhythm, nextDelay * (arand(0.5, 2.5)));
+  }
+}
+
+// audio tick: mutate on beat
+let lastMutate = 0;
+function audioTick(time) {
+  if (!soundOn || !audioCtx || !drones.length) return;
+  // mutate tonal center slowly
+  if (time - lastMutate > arand(8, 20)) {
+    lastMutate = time;
+    pickTonalCenter();
+    drones.forEach((d, i) => {
+      if (!d.osc || !d.osc.frequency) return;
+      const newFreq = noteHz(d.degree + randInt(0, currentScale.length), choose([0,0,1]));
+      try {
+        d.osc.frequency.linearRampToValueAtTime(newFreq, audioCtx.currentTime + 3);
+      } catch(e) {}
+    });
+  }
+}
+
+// ── Controls ──────────────────────────────────────────────────
+const soundStatus = document.getElementById('sound-status');
+
+function toggleSound() {
+  if (!soundOn) {
+    soundOn = true;
+    initAudio();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    soundStatus.textContent = 'S — sound ON';
+    soundStatus.className = 'pill on';
+  } else {
+    soundOn = false;
+    stopAudio();
+    soundStatus.textContent = 'S — sound OFF';
+    soundStatus.className = 'pill off';
+  }
+}
+
+window.addEventListener('keydown', e => {
+  if (e.code === 'Space') {
+    e.preventDefault();
+    regenerate();
+    rebuildSynth();
+  }
+  if (e.key === 's' || e.key === 'S') {
+    toggleSound();
+  }
+});
+
+// touch support
+let touchTimer = null;
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  touchTimer = setTimeout(() => {
+    regenerate();
+    rebuildSynth();
+  }, 400);
+}, { passive: false });
+canvas.addEventListener('touchend', e => {
+  if (touchTimer) {
+    clearTimeout(touchTimer);
+    touchTimer = null;
+    toggleSound();
+  }
+});
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  if (touchTimer) { clearTimeout(touchTimer); touchTimer = null; }
+}, { passive: false });
+
+// mouse interaction
+canvas.addEventListener('click', () => {
+  toggleSound();
+});
+canvas.addEventListener('dblclick', () => {
+  regenerate();
+  rebuildSynth();
+});
+
+// ── Boot ──────────────────────────────────────────────────────
+regenerate();
+requestAnimationFrame(render);
+
+})();
+</script>
+</body>
+</html>

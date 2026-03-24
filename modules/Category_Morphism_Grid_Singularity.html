@@ -1,0 +1,843 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Category Morphism Grid Singularity</title>
+<meta name="description" content="A full-screen generative audiovisual engine fusing Atari 2600 vector graphics with Tron neon grid architecture. Human silhouettes transform into cybernetic components through CRISPR-inspired algorithmic editing visualized as category theory morphism networks. Features evolving spectral palettes, fractal attractors, procedural cellular automata, and real-time retro-futuristic arcade synthesis synchronized to visual parameters.">
+<meta name="keywords" content="generative art, Atari vector graphics, Tron aesthetics, cybernetic transformation, CRISPR visualization, category theory morphisms, arcade simulation, procedural audiovisual synthesis, neon grid, fractal attractors, cellular automata, graph transformations, retro futuristic, vector universe, morphism networks, particle streams, spectral gradients, chromatic waves, banded palettes, neon harmonics, algorithmic art, generative music, web audio synthesis, human silhouette transformation, modular cybernetics">
+<meta property="og:title" content="Category Morphism Grid Singularity">
+<meta property="og:description" content="Generative audiovisual engine: Atari vector universe fused with Tron neon architecture. Human silhouettes evolve into cybernetic forms through CRISPR-like category morphism networks.">
+<meta name="theme-color" content="#000011">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+  canvas { display: block; width: 100vw !important; height: 100vh !important; image-rendering: pixelated; }
+  #hud {
+    display: none;
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    pointer-events: none; z-index: 10;
+    font-family: 'Courier New', monospace;
+    font-size: clamp(9px, 1.2vw, 13px);
+    color: rgba(0,255,180,0.85);
+    text-shadow: 0 0 8px rgba(0,255,180,0.6);
+    padding: 14px 18px;
+  }
+  #hud.visible { display: block; }
+  #hud-left { position: absolute; top: 14px; left: 18px; line-height: 1.7; }
+  #hud-right { position: absolute; top: 14px; right: 18px; line-height: 1.7; text-align: right; }
+  #hud-bottom { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); text-align: center; letter-spacing: 3px; opacity: 0.7; }
+  #hud-title {
+    position: fixed; bottom: 18px; right: 18px;
+    font-family: 'Courier New', monospace;
+    font-size: clamp(8px, 1vw, 11px);
+    color: rgba(255,255,255,0.18);
+    letter-spacing: 2px;
+    pointer-events: none; z-index: 5;
+  }
+  #controls-hint {
+    position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
+    font-family: 'Courier New', monospace;
+    font-size: clamp(8px, 1vw, 11px);
+    color: rgba(255,255,255,0.22);
+    letter-spacing: 2px;
+    pointer-events: none; z-index: 5;
+    opacity: 1; transition: opacity 3s;
+  }
+  #controls-hint.hidden { opacity: 0; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div id="hud-left"></div>
+  <div id="hud-right"></div>
+  <div id="hud-bottom">▓▒░ CATEGORY MORPHISM GRID SINGULARITY ░▒▓</div>
+</div>
+<div id="hud-title">CMGS v1.0</div>
+<div id="controls-hint">SPACE / TAP = REGENERATE &nbsp;|&nbsp; H = HUD &nbsp;|&nbsp; S = SOUND</div>
+
+<script>
+(function(){
+'use strict';
+
+// ─── CANVAS SETUP ─────────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H;
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', () => { resize(); scheduleRegen(); });
+
+// ─── STATE ────────────────────────────────────────────────────────────────────
+let frame = 0, lastTime = 0, fps = 60, fpsSmooth = 60;
+let hudVisible = false, soundEnabled = false;
+let regenPending = false;
+const hud = document.getElementById('hud');
+const hint = document.getElementById('controls-hint');
+setTimeout(() => hint.classList.add('hidden'), 4000);
+
+// ─── AUDIO ────────────────────────────────────────────────────────────────────
+let audioCtx = null, masterGain = null, reverbNode = null, delayNode = null;
+let arpOsc = [], drumScheduler = null;
+let audioNodes = [];
+
+function initAudio() {
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  masterGain = audioCtx.createGain();
+  masterGain.gain.value = 0.18;
+
+  // Reverb via convolver
+  const revLen = audioCtx.sampleRate * 1.5;
+  const revBuf = audioCtx.createBuffer(2, revLen, audioCtx.sampleRate);
+  for (let c = 0; c < 2; c++) {
+    const d = revBuf.getChannelData(c);
+    for (let i = 0; i < revLen; i++) d[i] = (Math.random()*2-1) * Math.pow(1 - i/revLen, 2.5);
+  }
+  reverbNode = audioCtx.createConvolver();
+  reverbNode.buffer = revBuf;
+
+  delayNode = audioCtx.createDelay(0.5);
+  delayNode.delayTime.value = 0.22;
+  const delFb = audioCtx.createGain(); delFb.gain.value = 0.35;
+  delayNode.connect(delFb); delFb.connect(delayNode);
+
+  const revGain = audioCtx.createGain(); revGain.gain.value = 0.3;
+  reverbNode.connect(revGain);
+  revGain.connect(masterGain);
+  delayNode.connect(masterGain);
+  masterGain.connect(audioCtx.destination);
+}
+
+function killAudio() {
+  audioNodes.forEach(n => { try { n.stop && n.stop(); n.disconnect && n.disconnect(); } catch(e){} });
+  audioNodes = [];
+  if (drumScheduler) { clearInterval(drumScheduler); drumScheduler = null; }
+}
+
+function playTone(freq, type, dur, vol, time) {
+  if (!audioCtx || !soundEnabled) return;
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = type || 'square';
+  o.frequency.setValueAtTime(freq, time);
+  o.frequency.exponentialRampToValueAtTime(freq * 0.98, time + dur);
+  g.gain.setValueAtTime(0, time);
+  g.gain.linearRampToValueAtTime(vol || 0.15, time + 0.005);
+  g.gain.exponentialRampToValueAtTime(0.001, time + dur);
+  o.connect(g); g.connect(reverbNode); g.connect(delayNode);
+  o.start(time); o.stop(time + dur + 0.05);
+  audioNodes.push(o);
+  if (audioNodes.length > 80) audioNodes.splice(0, 20);
+}
+
+function startAudioEngine() {
+  if (!audioCtx) initAudio();
+  killAudio();
+  const scale = U.scale;
+  let beat = 0;
+  const bpm = U.bpm;
+  const interval = (60 / bpm) * 500;
+  drumScheduler = setInterval(() => {
+    if (!soundEnabled || !audioCtx) return;
+    const t = audioCtx.currentTime;
+    const b16 = beat % 16;
+    // kick
+    if (b16 === 0 || b16 === 8) {
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.frequency.setValueAtTime(180, t); o.frequency.exponentialRampToValueAtTime(40, t+0.12);
+      g.gain.setValueAtTime(0.4, t); g.gain.exponentialRampToValueAtTime(0.001, t+0.18);
+      o.connect(g); g.connect(masterGain); o.start(t); o.stop(t+0.2);
+      audioNodes.push(o);
+    }
+    // snare-like noise
+    if (b16 === 4 || b16 === 12) {
+      const buf = audioCtx.createBuffer(1, audioCtx.sampleRate*0.1, audioCtx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i=0;i<d.length;i++) d[i]=Math.random()*2-1;
+      const src = audioCtx.createBufferSource();
+      src.buffer = buf;
+      const g = audioCtx.createGain(), filt = audioCtx.createBiquadFilter();
+      filt.type = 'bandpass'; filt.frequency.value = 2000 + U.noiseFreq;
+      g.gain.setValueAtTime(0.25, t); g.gain.exponentialRampToValueAtTime(0.001, t+0.12);
+      src.connect(filt); filt.connect(g); g.connect(masterGain);
+      src.start(t); audioNodes.push(src);
+    }
+    // arp melody from category nodes
+    if (beat % 2 === 0) {
+      const ni = Math.floor(Math.random() * scale.length);
+      const oct = Math.random() < 0.3 ? 2 : 1;
+      playTone(scale[ni] * oct, ['square','sawtooth','triangle'][beat%3], 0.1 + Math.random()*0.15, 0.08, t);
+    }
+    // hihat
+    if (b16 % 2 === 0) {
+      const buf2 = audioCtx.createBuffer(1, audioCtx.sampleRate*0.04, audioCtx.sampleRate);
+      const d2 = buf2.getChannelData(0);
+      for (let i=0;i<d2.length;i++) d2[i]=Math.random()*2-1;
+      const src2 = audioCtx.createBufferSource(); src2.buffer = buf2;
+      const g2 = audioCtx.createGain(), filt2 = audioCtx.createBiquadFilter();
+      filt2.type = 'highpass'; filt2.frequency.value = 7000;
+      g2.gain.setValueAtTime(0.06, t); g2.gain.exponentialRampToValueAtTime(0.001, t+0.04);
+      src2.connect(filt2); filt2.connect(g2); g2.connect(masterGain);
+      src2.start(t); audioNodes.push(src2);
+    }
+    beat++;
+  }, interval);
+}
+
+// ─── UNIVERSE PARAMETERS ──────────────────────────────────────────────────────
+let U = {};
+
+function buildScale(root) {
+  const modes = [
+    [0,2,4,5,7,9,11], // major
+    [0,2,3,5,7,8,10], // natural minor
+    [0,2,3,5,7,8,11], // harmonic minor
+    [0,1,5,7,10],     // pentatonic dark
+    [0,3,5,6,7,10],   // blues
+  ];
+  const mode = modes[Math.floor(Math.random()*modes.length)];
+  return mode.map(s => root * Math.pow(2, s/12));
+}
+
+function rnd(a, b) { return a + Math.random()*(b-a); }
+function rndInt(a, b) { return Math.floor(rnd(a, b+1)); }
+function pick(arr) { return arr[Math.floor(Math.random()*arr.length)]; }
+
+function generateUniverse() {
+  frame = 0;
+  // Color palette
+  const hueBase = rnd(0, 360);
+  const paletteType = rndInt(0, 4);
+  // Grid
+  const gx = rndInt(8, 22), gy = rndInt(6, 16);
+  // Morphism network
+  const nodeCount = rndInt(12, 28);
+  const nodes = [];
+  for (let i = 0; i < nodeCount; i++) {
+    nodes.push({
+      x: rnd(0.08, 0.92), y: rnd(0.08, 0.92),
+      vx: rnd(-0.0003, 0.0003), vy: rnd(-0.0003, 0.0003),
+      r: rnd(4, 14),
+      phase: rnd(0, Math.PI*2),
+      freq: rnd(0.4, 1.8),
+      hueOff: rnd(0, 120),
+      type: rndInt(0, 4), // object type in category
+      morphLevel: 0,
+    });
+  }
+  const edges = [];
+  for (let i = 0; i < nodeCount; i++) {
+    const conns = rndInt(1, 4);
+    for (let c = 0; c < conns; c++) {
+      const j = (i + rndInt(1, nodeCount-1)) % nodeCount;
+      if (i !== j) edges.push({a:i, b:j, phase: rnd(0, Math.PI*2), freq: rnd(0.3, 1.5), particles: []});
+    }
+  }
+  // Silhouettes
+  const silCount = rndInt(3, 8);
+  const silhouettes = [];
+  for (let i = 0; i < silCount; i++) {
+    silhouettes.push({
+      x: rnd(0.05, 0.95), y: rnd(0.5, 0.95),
+      vx: rnd(-0.0005, 0.0005),
+      morphState: rnd(0, 1),
+      morphSpeed: rnd(0.0002, 0.001),
+      scale: rnd(0.5, 1.2),
+      phase: rnd(0, Math.PI*2),
+      hueOff: rnd(0, 180),
+    });
+  }
+  // Cellular automata grid
+  const caW = rndInt(40, 80), caH = rndInt(25, 50);
+  const caGrid = new Uint8Array(caW * caH);
+  for (let i = 0; i < caGrid.length; i++) caGrid[i] = Math.random() < 0.35 ? 1 : 0;
+  const caRule = rndInt(0, 3); // 0=life, 1=seeds, 2=daynight, 3=custom
+  // Fractal attractor
+  const attractorType = rndInt(0, 3);
+  const attractorParams = {
+    a: rnd(-3, 3), b: rnd(-3, 3), c: rnd(-3, 3), d: rnd(-3, 3),
+    scale: rnd(0.06, 0.18),
+  };
+  // Vector field
+  const fieldFreq = rnd(1.5, 5);
+  const fieldAmp = rnd(0.3, 1.2);
+  // Scanlines / CRT
+  const scanlineAlpha = rnd(0.04, 0.12);
+  // Audio
+  const rootFreq = pick([110, 130.81, 146.83, 164.81, 174.61, 196, 220, 261.63]) ;
+  const scale = buildScale(rootFreq);
+  const bpm = pick([80, 90, 100, 110, 120, 135, 150]);
+
+  U = {
+    hueBase, paletteType, gx, gy,
+    nodes, edges, silhouettes,
+    caGrid, caW, caH, caRule,
+    attractorType, attractorParams,
+    fieldFreq, fieldAmp, scanlineAlpha,
+    scale, bpm, rootFreq,
+    noiseFreq: rnd(500, 3000),
+    bloomAlpha: rnd(0.55, 0.75),
+    gridAlpha: rnd(0.06, 0.18),
+    gridPulse: rnd(0.3, 1.2),
+    attractorPts: [],
+    caTimer: 0,
+    paletteShift: 0,
+    globalPhase: 0,
+  };
+
+  // Pre-generate attractor points
+  let ax = rnd(-0.5, 0.5), ay = rnd(-0.5, 0.5);
+  for (let i = 0; i < 2800; i++) {
+    const {a,b,c,d} = U.attractorParams;
+    let nx, ny;
+    if (attractorType === 0) { // de Jong
+      nx = Math.sin(a*ay) - Math.cos(b*ax);
+      ny = Math.sin(c*ax) - Math.cos(d*ay);
+    } else if (attractorType === 1) { // Clifford
+      nx = Math.sin(a*ay) + c*Math.cos(a*ax);
+      ny = Math.sin(b*ax) + d*Math.cos(b*ay);
+    } else if (attractorType === 2) { // Peter de Jong variant
+      nx = Math.sin(a*ay) - Math.sin(b*ax);
+      ny = Math.cos(c*ay) - Math.cos(d*ax);
+    } else { // tinkerbell
+      nx = ax*ax - ay*ay + a*ax + b*ay;
+      ny = 2*ax*ay + c*ax + d*ay;
+    }
+    if (i > 200) U.attractorPts.push([nx, ny]);
+    ax = nx; ay = ny;
+  }
+}
+
+// ─── COLOR SYSTEM ─────────────────────────────────────────────────────────────
+function hsl(h, s, l, a) {
+  return `hsla(${((h%360)+360)%360},${s}%,${l}%,${a===undefined?1:a})`;
+}
+
+function getPaletteColor(t, offset, alpha) {
+  const h = U.hueBase + U.paletteShift + offset;
+  let r;
+  switch(U.paletteType % 5) {
+    case 0: r = hsl(h + t*180, 85, 55, alpha); break;
+    case 1: r = hsl(h + Math.sin(t*Math.PI*2)*90, 100, 60, alpha); break;
+    case 2: { // banded
+      const band = Math.floor(t*6);
+      r = hsl(h + band*47, 90, 50+band*2, alpha); break;
+    }
+    case 3: r = hsl(h + t*360, 100, 45+Math.sin(t*6)*15, alpha); break;
+    case 4: r = hsl(h + Math.pow(t,0.7)*270, 95, 55, alpha); break;
+  }
+  return r;
+}
+
+// ─── CELLULAR AUTOMATA ────────────────────────────────────────────────────────
+function stepCA() {
+  const {caGrid, caW, caH, caRule} = U;
+  const next = new Uint8Array(caGrid.length);
+  for (let y = 0; y < caH; y++) {
+    for (let x = 0; x < caW; x++) {
+      let n = 0;
+      for (let dy = -1; dy <= 1; dy++)
+        for (let dx = -1; dx <= 1; dx++) {
+          if (dx===0 && dy===0) continue;
+          const nx2 = (x+dx+caW)%caW, ny2 = (y+dy+caH)%caH;
+          n += caGrid[ny2*caW+nx2];
+        }
+      const alive = caGrid[y*caW+x];
+      let nextState;
+      switch(caRule) {
+        case 0: nextState = alive ? (n===2||n===3)?1:0 : n===3?1:0; break;
+        case 1: nextState = alive ? 0 : n===2?1:0; break;
+        case 2: nextState = alive ? (n>=3&&n<=6)?1:0 : (n===3||n===6||n===7||n===8)?1:0; break;
+        default: nextState = alive ? (n>=2&&n<=5)?1:0 : (n===3||n===4)?1:0;
+      }
+      next[y*caW+x] = nextState;
+    }
+  }
+  U.caGrid.set(next);
+}
+
+// ─── DRAW ROUTINES ────────────────────────────────────────────────────────────
+
+function drawGrid(t) {
+  const {gx, gy, gridAlpha, gridPulse, hueBase, paletteShift} = U;
+  const cellW = W/gx, cellH = H/gy;
+  const pulse = 0.5 + 0.5*Math.sin(t*gridPulse);
+  ctx.lineWidth = 0.5;
+  for (let i = 0; i <= gx; i++) {
+    const x = i * cellW;
+    const frac = i/gx;
+    const col = getPaletteColor(frac, 0, gridAlpha * (0.5 + 0.5*Math.sin(t*0.7 + frac*4)));
+    ctx.strokeStyle = col;
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+  }
+  for (let j = 0; j <= gy; j++) {
+    const y = j * cellH;
+    const frac = j/gy;
+    const col = getPaletteColor(frac, 40, gridAlpha * (0.5 + 0.5*Math.sin(t*0.5 + frac*3)));
+    ctx.strokeStyle = col;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+  // Perspective grid horizon effect
+  const hY = H * 0.42;
+  for (let i = -gx; i <= gx*2; i++) {
+    const px = (i/gx)*W;
+    const alpha2 = gridAlpha * pulse * 0.6;
+    ctx.strokeStyle = getPaletteColor((i+gx)/(gx*3), 80, alpha2);
+    ctx.lineWidth = 0.4;
+    ctx.beginPath(); ctx.moveTo(W/2, hY); ctx.lineTo(px, H); ctx.stroke();
+  }
+}
+
+function drawCA(t) {
+  const {caGrid, caW, caH} = U;
+  const cw = W/caW, ch = H/caH;
+  ctx.save();
+  ctx.globalAlpha = 0.22;
+  for (let y = 0; y < caH; y++) {
+    for (let x = 0; x < caW; x++) {
+      if (caGrid[y*caW+x]) {
+        const frac = (x+y*0.3)/(caW+caH*0.3);
+        ctx.fillStyle = getPaletteColor(frac, t*20, 1);
+        ctx.fillRect(x*cw, y*ch, cw-0.5, ch-0.5);
+      }
+    }
+  }
+  ctx.restore();
+}
+
+function drawAttractor(t) {
+  const {attractorPts, attractorParams} = U;
+  const cx = W*0.5, cy = H*0.5;
+  const sc = Math.min(W, H) * attractorParams.scale;
+  ctx.save();
+  ctx.globalAlpha = 0.55;
+  const len = attractorPts.length;
+  for (let i = 0; i < len; i++) {
+    const [ax, ay] = attractorPts[i];
+    const px = cx + ax*sc + Math.sin(t*0.15+ay)*8;
+    const py = cy + ay*sc + Math.cos(t*0.12+ax)*8;
+    if (px < 0||px > W||py < 0||py > H) continue;
+    const frac = i/len;
+    ctx.fillStyle = getPaletteColor(frac, t*10, 0.7);
+    ctx.fillRect(px, py, 1.5, 1.5);
+  }
+  ctx.restore();
+}
+
+function drawMorphismNetwork(t) {
+  const {nodes, edges} = U;
+  const tw = t; // time in seconds
+
+  // Update node positions
+  nodes.forEach(n => {
+    n.x += n.vx; n.y += n.vy;
+    if (n.x < 0.05 || n.x > 0.95) n.vx *= -1;
+    if (n.y < 0.05 || n.y > 0.95) n.vy *= -1;
+    n.morphLevel = (Math.sin(tw*0.3 + n.phase) + 1) * 0.5;
+  });
+
+  // Draw edges (morphisms) with particle streams
+  edges.forEach((e, ei) => {
+    const na = nodes[e.a], nb = nodes[e.b];
+    if (!na || !nb) return;
+    const ax = na.x*W, ay = na.y*H;
+    const bx = nb.x*W, by = nb.y*H;
+    const edgeFrac = ei/edges.length;
+    const alpha = 0.3 + 0.2*Math.sin(tw*e.freq + e.phase);
+
+    // Arrow line
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = getPaletteColor(edgeFrac, 30, 1);
+    ctx.lineWidth = 0.8 + na.morphLevel;
+    ctx.shadowBlur = 8; ctx.shadowColor = getPaletteColor(edgeFrac, 30, 1);
+    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // Arrowhead
+    const angle = Math.atan2(by-ay, bx-ax);
+    const headLen = 8 + na.morphLevel*4;
+    const mx = ax*0.2 + bx*0.8, my = ay*0.2 + by*0.8;
+    ctx.fillStyle = getPaletteColor(edgeFrac, 30, 1);
+    ctx.beginPath();
+    ctx.moveTo(mx, my);
+    ctx.lineTo(mx - headLen*Math.cos(angle-0.4), my - headLen*Math.sin(angle-0.4));
+    ctx.lineTo(mx - headLen*Math.cos(angle+0.4), my - headLen*Math.sin(angle+0.4));
+    ctx.closePath(); ctx.fill();
+
+    // Particle stream
+    const pCount = 4;
+    for (let p = 0; p < pCount; p++) {
+      const ph = ((tw*e.freq + e.phase + p/pCount) % 1 + 1) % 1;
+      const px2 = ax + (bx-ax)*ph, py2 = ay + (by-ay)*ph;
+      const pAlpha = Math.sin(ph*Math.PI) * 0.9;
+      ctx.globalAlpha = pAlpha;
+      ctx.fillStyle = getPaletteColor(edgeFrac + ph*0.2, 60, 1);
+      ctx.shadowBlur = 10; ctx.shadowColor = ctx.fillStyle;
+      ctx.beginPath();
+      ctx.arc(px2, py2, 2 + na.morphLevel*2, 0, Math.PI*2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+    ctx.restore();
+  });
+
+  // Draw nodes (category objects)
+  nodes.forEach((n, ni) => {
+    const nx = n.x*W, ny = n.y*H;
+    const pulse2 = 0.7 + 0.3*Math.sin(tw*n.freq + n.phase);
+    const r = n.r * pulse2;
+    const frac = ni/nodes.length;
+    const col = getPaletteColor(frac, n.hueOff, 1);
+
+    ctx.save();
+    // Outer glow
+    const grd = ctx.createRadialGradient(nx, ny, 0, nx, ny, r*3);
+    grd.addColorStop(0, getPaletteColor(frac, n.hueOff, 0.6));
+    grd.addColorStop(1, 'transparent');
+    ctx.globalAlpha = 0.4;
+    ctx.fillStyle = grd;
+    ctx.beginPath(); ctx.arc(nx, ny, r*3, 0, Math.PI*2); ctx.fill();
+
+    // Node shape based on type
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = col;
+    ctx.strokeStyle = 'white';
+    ctx.lineWidth = 0.8;
+    ctx.shadowBlur = 15; ctx.shadowColor = col;
+    ctx.beginPath();
+    switch(n.type) {
+      case 0: ctx.arc(nx, ny, r, 0, Math.PI*2); break;
+      case 1: // diamond
+        ctx.moveTo(nx, ny-r); ctx.lineTo(nx+r, ny);
+        ctx.lineTo(nx, ny+r); ctx.lineTo(nx-r, ny); ctx.closePath(); break;
+      case 2: // hexagon
+        for(let s=0;s<6;s++){const a=s*Math.PI/3-Math.PI/6;ctx.lineTo(nx+r*Math.cos(a),ny+r*Math.sin(a));}ctx.closePath(); break;
+      case 3: // triangle
+        ctx.moveTo(nx, ny-r); ctx.lineTo(nx+r*0.866, ny+r*0.5); ctx.lineTo(nx-r*0.866, ny+r*0.5); ctx.closePath(); break;
+      case 4: ctx.rect(nx-r*0.7, ny-r*0.7, r*1.4, r*1.4); break;
+    }
+    ctx.fill(); ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // Type label
+    ctx.globalAlpha = 0.7;
+    ctx.fillStyle = 'white';
+    ctx.font = `bold ${Math.floor(r*0.9)}px monospace`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(['α','β','γ','δ','ε'][n.type], nx, ny);
+    ctx.restore();
+  });
+}
+
+// Human silhouette path (normalized -0.5 to 0.5)
+function getSilhouettePath(morphState) {
+  // At morphState=0: human, at morphState=1: cybernetic modules
+  const paths = [];
+  // Head
+  const headR = 0.05;
+  const hcy = -0.38;
+  if (morphState < 0.7) {
+    paths.push({type:'arc', x:0, y:hcy, r:headR*(1-morphState*0.3)});
+  } else {
+    // Cybernetic cube head
+    const s = headR * (0.9 + morphState*0.1);
+    paths.push({type:'rect', x:-s, y:hcy-s, w:s*2, h:s*2});
+    paths.push({type:'line', x1:-s, y1:hcy, x2:s, y2:hcy, w:1}); // scan line
+    paths.push({type:'circle_small', x:0, y:hcy, r:s*0.3}); // eye
+  }
+  // Body
+  if (morphState < 0.5) {
+    paths.push({type:'trapezoid', x1:-0.07, y1:-0.3, x2:0.07, y2:-0.3, x3:0.1, y3:0.05, x4:-0.1, y4:0.05});
+  } else {
+    // Modular chest grid
+    const gs = 0.035;
+    for(let mx=-2;mx<=2;mx++) for(let my=-2;my<=1;my++) {
+      const occupied = morphState > 0.5 + (mx*mx+my*my)*0.02;
+      if (occupied) paths.push({type:'rect', x:mx*gs*2-gs, y:my*gs*2-0.15-gs, w:gs*1.7, h:gs*1.7, glow:true});
+    }
+  }
+  // Arms
+  const armSway = Math.sin(Date.now()*0.001) * 0.04 * (1-morphState);
+  if (morphState < 0.6) {
+    paths.push({type:'line', x1:-0.09, y1:-0.25, x2:-0.14+armSway, y2:0.05, w:morphState>0.3?2:3});
+    paths.push({type:'line', x1:0.09, y1:-0.25, x2:0.14-armSway, y2:0.05, w:morphState>0.3?2:3});
+  } else {
+    // Mechanical arms
+    paths.push({type:'line', x1:-0.09, y1:-0.25, x2:-0.18, y2:-0.1, w:2});
+    paths.push({type:'line', x1:-0.18, y1:-0.1, x2:-0.16, y2:0.06, w:2});
+    paths.push({type:'line', x1:0.09, y1:-0.25, x2:0.18, y2:-0.1, w:2});
+    paths.push({type:'line', x1:0.18, y1:-0.1, x2:0.16, y2:0.06, w:2});
+  }
+  // Legs
+  const legSway = Math.sin(Date.now()*0.0015)*0.03*(1-morphState*0.8);
+  paths.push({type:'line', x1:-0.04, y1:0.05, x2:-0.06+legSway, y2:0.32, w:morphState>0.5?2:3});
+  paths.push({type:'line', x1:0.04, y1:0.05, x2:0.06-legSway, y2:0.32, w:morphState>0.5?2:3});
+  if (morphState > 0.6) {
+    // Segmented leg joints
+    paths.push({type:'arc', x:-0.06+legSway, y:0.18, r:0.025});
+    paths.push({type:'arc', x:0.06-legSway, y:0.18, r:0.025});
+  }
+  return paths;
+}
+
+function drawSilhouette(sil, t) {
+  const {x, y, scale: sc, morphState, hueOff} = sil;
+  const cx = x*W, cy = y*H;
+  const sz = Math.min(W, H) * 0.18 * sc;
+  const col = getPaletteColor(morphState, hueOff, 1);
+  const glowCol = getPaletteColor(morphState, hueOff + 40, 0.5);
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(sz, sz);
+
+  const paths = getSilhouettePath(morphState);
+  ctx.strokeStyle = col;
+  ctx.fillStyle = col;
+  ctx.shadowBlur = 12; ctx.shadowColor = glowCol;
+  ctx.lineWidth = 2/sz;
+
+  paths.forEach(p => {
+    ctx.globalAlpha = 0.85 + 0.15*Math.sin(t*1.5 + sil.phase);
+    switch(p.type) {
+      case 'arc':
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2);
+        ctx.stroke(); break;
+      case 'circle_small':
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2);
+        ctx.fill(); break;
+      case 'rect':
+        if (p.glow) ctx.shadowBlur = 20;
+        ctx.strokeRect(p.x, p.y, p.w, p.h);
+        if (p.glow) ctx.shadowBlur = 12;
+        break;
+      case 'line':
+        ctx.lineWidth = (p.w||2)/sz;
+        ctx.beginPath(); ctx.moveTo(p.x1, p.y1); ctx.lineTo(p.x2, p.y2); ctx.stroke();
+        ctx.lineWidth = 2/sz; break;
+      case 'trapezoid':
+        ctx.beginPath();
+        ctx.moveTo(p.x1, p.y1); ctx.lineTo(p.x2, p.y2);
+        ctx.lineTo(p.x3, p.y3); ctx.lineTo(p.x4, p.y4); ctx.closePath();
+        ctx.stroke(); break;
+    }
+  });
+  ctx.shadowBlur = 0;
+  ctx.restore();
+}
+
+function drawVectorField(t) {
+  const {fieldFreq, fieldAmp} = U;
+  const step = Math.floor(Math.min(W,H)/22);
+  ctx.save();
+  ctx.globalAlpha = 0.18;
+  for (let x = step; x < W; x += step) {
+    for (let y = step; y < H; y += step) {
+      const nx = x/W, ny = y/H;
+      const angle = Math.sin(nx*fieldFreq + t*0.4) * Math.cos(ny*fieldFreq - t*0.3) * Math.PI * fieldAmp;
+      const len = 8 + 5*Math.sin(nx*3+ny*4+t);
+      const frac = (nx+ny)*0.5;
+      ctx.strokeStyle = getPaletteColor(frac, 90, 1);
+      ctx.lineWidth = 0.8;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + Math.cos(angle)*len, y + Math.sin(angle)*len);
+      ctx.stroke();
+      // Arrow tip
+      ctx.fillStyle = ctx.strokeStyle;
+      ctx.beginPath();
+      ctx.arc(x + Math.cos(angle)*len, y + Math.sin(angle)*len, 1.5, 0, Math.PI*2);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+function drawCRTScanlines(t) {
+  ctx.save();
+  ctx.globalAlpha = U.scanlineAlpha;
+  for (let y = 0; y < H; y += 3) {
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(0, y, W, 1);
+  }
+  // Vignette
+  const vgrd = ctx.createRadialGradient(W/2, H/2, Math.min(W,H)*0.3, W/2, H/2, Math.min(W,H)*0.85);
+  vgrd.addColorStop(0, 'transparent');
+  vgrd.addColorStop(1, 'rgba(0,0,0,0.5)');
+  ctx.globalAlpha = 0.4;
+  ctx.fillStyle = vgrd;
+  ctx.fillRect(0, 0, W, H);
+  // Subtle horizontal distortion line
+  const scanY = (t * 80) % H;
+  ctx.globalAlpha = 0.06;
+  ctx.fillStyle = 'rgba(255,255,255,0.8)';
+  ctx.fillRect(0, scanY, W, 2);
+  ctx.restore();
+}
+
+function drawBackground(t) {
+  // Deep space base
+  ctx.fillStyle = '#000008';
+  ctx.fillRect(0, 0, W, H);
+  // Dim bloom from center
+  const bgGrd = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, Math.max(W,H)*0.7);
+  bgGrd.addColorStop(0, getPaletteColor(0.5, 0, 0.06));
+  bgGrd.addColorStop(1, 'transparent');
+  ctx.fillStyle = bgGrd;
+  ctx.fillRect(0, 0, W, H);
+}
+
+// ─── CRISPR VISUALIZATION ─────────────────────────────────────────────────────
+function drawCRISPR(t) {
+  // Helix-like DNA becoming circuit paths
+  const cx = W*0.5, cy = H*0.5;
+  const helixLen = Math.min(W, H) * 0.45;
+  const helixW = Math.min(W, H) * 0.04;
+  ctx.save();
+  ctx.globalAlpha = 0.25;
+  for (let i = 0; i < 60; i++) {
+    const frac = i/60;
+    const px = cx - helixLen*0.5 + frac*helixLen;
+    const py1 = cy + Math.sin(frac*Math.PI*4 + t*0.8) * helixW;
+    const py2 = cy - Math.sin(frac*Math.PI*4 + t*0.8) * helixW;
+    const col1 = getPaletteColor(frac, 0, 0.8);
+    const col2 = getPaletteColor(1-frac, 60, 0.8);
+    // Rungs
+    ctx.strokeStyle = getPaletteColor(frac, 120, 0.6);
+    ctx.lineWidth = 0.8;
+    ctx.beginPath(); ctx.moveTo(px, py1); ctx.lineTo(px, py2); ctx.stroke();
+    // Strand points
+    ctx.fillStyle = col1;
+    ctx.beginPath(); ctx.arc(px, py1, 2, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = col2;
+    ctx.beginPath(); ctx.arc(px, py2, 2, 0, Math.PI*2); ctx.fill();
+  }
+  ctx.restore();
+}
+
+// ─── HUD UPDATE ───────────────────────────────────────────────────────────────
+let hudTimer = 0;
+function updateHUD() {
+  if (!hudVisible) return;
+  if (++hudTimer % 8 !== 0) return;
+  const left = document.getElementById('hud-left');
+  const right = document.getElementById('hud-right');
+  const t = frame / 60;
+  left.innerHTML = [
+    `FPS: ${fpsSmooth.toFixed(1)}`,
+    `FRAME: ${frame}`,
+    `NODES: ${U.nodes.length}`,
+    `EDGES: ${U.edges.length}`,
+    `SILHOUETTES: ${U.silhouettes.length}`,
+    `CA: ${U.caW}×${U.caH} [R${U.caRule}]`,
+    `ATTRACTOR: TYPE-${U.attractorType}`,
+  ].join('<br>');
+  right.innerHTML = [
+    `PALETTE: ${['SPECTRAL','HARMONIC','BANDED','CHROMATIC','FLOW'][U.paletteType]}`,
+    `HUE: ${U.hueBase.toFixed(0)}°`,
+    `SHIFT: ${U.paletteShift.toFixed(1)}`,
+    `GRID: ${U.gx}×${U.gy}`,
+    `BPM: ${soundEnabled ? U.bpm : 'OFF'}`,
+    `ROOT: ${U.rootFreq.toFixed(1)}Hz`,
+    `FIELD: ${U.fieldFreq.toFixed(2)}`,
+  ].join('<br>');
+}
+
+// ─── MAIN LOOP ────────────────────────────────────────────────────────────────
+function loop(ts) {
+  requestAnimationFrame(loop);
+  const dt = Math.min(ts - lastTime, 50);
+  lastTime = ts;
+  fps = 1000/dt;
+  fpsSmooth = fpsSmooth*0.92 + fps*0.08;
+  frame++;
+
+  const t = frame / 60;
+  U.globalPhase = t;
+  U.paletteShift += 0.08;
+
+  // Step CA every N frames
+  U.caTimer++;
+  if (U.caTimer % 6 === 0) stepCA();
+
+  // Update silhouettes
+  U.silhouettes.forEach(s => {
+    s.x += s.vx;
+    if (s.x < 0.02) { s.x = 0.02; s.vx = Math.abs(s.vx); }
+    if (s.x > 0.98) { s.x = 0.98; s.vx = -Math.abs(s.vx); }
+    s.morphState = (s.morphState + s.morphSpeed) % 1;
+  });
+
+  // ── Draw ──
+  drawBackground(t);
+  drawCA(t);
+  drawGrid(t);
+  drawAttractor(t);
+  drawVectorField(t);
+  drawCRISPR(t);
+  drawMorphismNetwork(t);
+  U.silhouettes.forEach(s => drawSilhouette(s, t));
+  drawCRTScanlines(t);
+
+  updateHUD();
+
+  // Audio trigger on visual events
+  if (soundEnabled && audioCtx && frame % 7 === 0) {
+    const ni = frame % U.nodes.length;
+    const n = U.nodes[ni];
+    const si = Math.floor(n.morphLevel * U.scale.length) % U.scale.length;
+    if (Math.random() < 0.12) {
+      playTone(U.scale[si], 'square', 0.06, 0.04, audioCtx.currentTime);
+    }
+  }
+}
+
+// ─── REGEN ────────────────────────────────────────────────────────────────────
+function scheduleRegen() {
+  if (!regenPending) {
+    regenPending = true;
+    setTimeout(() => {
+      generateUniverse();
+      if (soundEnabled) startAudioEngine();
+      regenPending = false;
+    }, 10);
+  }
+}
+
+// ─── INPUT ────────────────────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space') { e.preventDefault(); scheduleRegen(); return; }
+  if (e.key === 'h' || e.key === 'H') {
+    hudVisible = !hudVisible;
+    hud.classList.toggle('visible', hudVisible);
+    return;
+  }
+  if (e.key === 's' || e.key === 'S') {
+    soundEnabled = !soundEnabled;
+    if (soundEnabled) { startAudioEngine(); }
+    else { killAudio(); }
+    return;
+  }
+});
+
+let touchStarted = false;
+canvas.addEventListener('click', () => scheduleRegen());
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  scheduleRegen();
+}, {passive: false});
+
+// ─── INIT ─────────────────────────────────────────────────────────────────────
+generateUniverse();
+requestAnimationFrame(loop);
+
+})();
+</script>
+</body>
+</html>

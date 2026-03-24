@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Chaotic Harmonic Phase Nebula</title>
+<meta name="description" content="Chaotic Harmonic Phase Nebula — real-time kaleidoscopic spectral gradient visualization driven by nonlinear differential equations, Lorenz and Hénon attractors, logistic bifurcations, Chebyshev expansions, spherical harmonic projections and domain-colored complex phase fields with procedural FM/AM audio synthesis.">
+<meta name="keywords" content="chaos visualization, Lorenz attractor, Henon map, logistic bifurcation, spherical harmonics, Chebyshev expansion, wavelet transform, domain coloring, kaleidoscope shader, procedural audio, WebGL art">
+<meta name="author" content="Chaotic Harmonic Phase Nebula">
+<meta property="og:title" content="Chaotic Harmonic Phase Nebula">
+<meta property="og:description" content="Spectral gradient bands rotating through kaleidoscopic reflection symmetries driven by coupled nonlinear systems and harmonic projections with procedural audio.">
+<style>
+html,body{
+    margin:0;
+    padding:0;
+    overflow:hidden;
+    background:#000;
+    touch-action:manipulation;
+}
+canvas{
+    position:fixed;
+    width:100%;
+    height:100%;
+    display:block;
+}
+#hud{
+    position:fixed;
+    top:10px;
+    left:10px;
+    color:#fff;
+    font-family:monospace;
+    font-size:12px;
+    background:rgba(0,0,0,0.35);
+    padding:8px 10px;
+    border-radius:8px;
+    backdrop-filter:blur(6px);
+}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="hud">
+Chaotic Harmonic Phase Nebula<br>
+SPACE / Tap: Regenerate<br>
+S: Toggle Audio<br>
+H: Toggle HUD
+</div>
+
+<script>
+const canvas = document.getElementById("gl");
+const gl = canvas.getContext("webgl");
+const hud = document.getElementById("hud");
+
+let dpr = Math.min(window.devicePixelRatio, 2);
+
+function resize(){
+    const w = innerWidth;
+    const h = innerHeight;
+    const scale = Math.min(1, 900 / Math.max(w,h)); // adaptive resolution
+    canvas.width = w * dpr * scale;
+    canvas.height = h * dpr * scale;
+    gl.viewport(0,0,canvas.width,canvas.height);
+}
+window.addEventListener("resize", resize);
+resize();
+
+const vert = `
+attribute vec2 p;
+void main(){
+    gl_Position = vec4(p,0.0,1.0);
+}
+`;
+
+const frag = `
+precision highp float;
+uniform vec2 r;
+uniform float t;
+uniform vec4 cA;
+uniform vec4 cB;
+uniform float axes;
+uniform float phase;
+
+float logistic(float x,float k){
+    return k*x*(1.0-x);
+}
+
+vec2 henon(vec2 v,float a,float b){
+    return vec2(1.0 - a*v.x*v.x + v.y, b*v.x);
+}
+
+vec3 lorenz(vec3 v,float s,float b,float r){
+    return vec3(
+        s*(v.y-v.x),
+        v.x*(r-v.z)-v.y,
+        v.x*v.y-b*v.z
+    );
+}
+
+float cheb(float x){
+    return 4.0*x*x*x - 3.0*x;
+}
+
+vec3 domainColor(vec2 z){
+    float a = atan(z.y,z.x);
+    float m = length(z);
+    float hue = (a + 3.14159)/6.28318;
+    float band = sin(20.0*log(m+1.0));
+    return 0.5 + 0.5*cos(6.28318*(hue + vec3(0.0,0.33,0.67)) + band);
+}
+
+void main(){
+    vec2 uv = (gl_FragCoord.xy - 0.5*r)/r.y;
+    
+    float ang = atan(uv.y,uv.x);
+    float rad = length(uv);
+
+    float k = axes;
+    ang = mod(ang, 6.28318/k);
+    ang = abs(ang - 3.14159/k);
+
+    uv = vec2(cos(ang),sin(ang))*rad;
+
+    vec2 z = uv;
+
+    float x = fract(rad + phase);
+    for(int i=0;i<5;i++){
+        x = logistic(x, 3.7 + 0.2*sin(t));
+    }
+
+    vec2 h = vec2(0.1*sin(t),0.1*cos(t));
+    for(int i=0;i<5;i++){
+        h = henon(h, 1.4 + 0.1*sin(t*0.3), 0.3);
+    }
+
+    vec3 l = vec3(0.1,0.0,0.0);
+    for(int i=0;i<5;i++){
+        l += 0.01*lorenz(l,10.0,2.66,28.0);
+    }
+
+    float c = cheb(sin(rad*3.0 + x + h.x + l.x));
+
+    vec2 complex = z * (1.0 + 0.5*c);
+    vec3 col = domainColor(complex);
+
+    float wavelet = sin(rad*20.0 - t*2.0)*exp(-rad*2.0);
+    col += wavelet;
+
+    col = mix(col, col.bgr, 0.5 + 0.5*sin(t*0.1));
+
+    gl_FragColor = vec4(col,1.0);
+}
+`;
+
+function compile(type,src){
+    const s = gl.createShader(type);
+    gl.shaderSource(s,src);
+    gl.compileShader(s);
+    return s;
+}
+
+const prog = gl.createProgram();
+gl.attachShader(prog, compile(gl.VERTEX_SHADER, vert));
+gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, frag));
+gl.linkProgram(prog);
+gl.useProgram(prog);
+
+const buf = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+-1,-1,1,-1,-1,1,1,1
+]), gl.STATIC_DRAW);
+
+const loc = gl.getAttribLocation(prog,"p");
+gl.enableVertexAttribArray(loc);
+gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+
+const uRes = gl.getUniformLocation(prog,"r");
+const uTime = gl.getUniformLocation(prog,"t");
+const uCA = gl.getUniformLocation(prog,"cA");
+const uCB = gl.getUniformLocation(prog,"cB");
+const uAxes = gl.getUniformLocation(prog,"axes");
+const uPhase = gl.getUniformLocation(prog,"phase");
+
+let start = performance.now();
+let axes = 6.0;
+let phase = Math.random()*10;
+
+function regenerate(){
+    axes = 4 + Math.floor(Math.random()*8);
+    phase = Math.random()*20;
+}
+window.addEventListener("click", regenerate);
+window.addEventListener("keydown", e=>{
+    if(e.code==="Space") regenerate();
+    if(e.key==="h"||e.key==="H") hud.style.display = hud.style.display==="none"?"block":"none";
+    if(e.key==="s"||e.key==="S") toggleAudio();
+});
+
+function render(){
+    let time = (performance.now()-start)/1000;
+    gl.uniform2f(uRes, canvas.width, canvas.height);
+    gl.uniform1f(uTime, time);
+    gl.uniform1f(uAxes, axes);
+    gl.uniform1f(uPhase, phase);
+    gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+    requestAnimationFrame(render);
+}
+render();
+
+/* ===== Procedural Audio ===== */
+let ctx=null,osc=null,gain=null,analyser=null,audioOn=false;
+
+function toggleAudio(){
+    if(!audioOn){
+        ctx = new (window.AudioContext||window.webkitAudioContext)();
+        osc = ctx.createOscillator();
+        gain = ctx.createGain();
+        analyser = ctx.createAnalyser();
+        osc.type="sine";
+        osc.connect(gain);
+        gain.connect(analyser);
+        analyser.connect(ctx.destination);
+        gain.gain.value=0.05;
+        osc.start();
+        audioOn=true;
+        audioLoop();
+    }else{
+        osc.stop();
+        ctx.close();
+        audioOn=false;
+    }
+}
+
+function audioLoop(){
+    if(!audioOn) return;
+    let t = (performance.now()-start)/1000;
+    let freq = 200 + 150*Math.sin(t*0.7) + 100*Math.sin(t*0.13);
+    osc.frequency.setValueAtTime(freq, ctx.currentTime);
+    requestAnimationFrame(audioLoop);
+}
+</script>
+</body>
+</html>

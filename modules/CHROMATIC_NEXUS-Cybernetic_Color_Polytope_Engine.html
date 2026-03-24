@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>CHROMATIC NEXUS — Cybernetic Color Polytope Engine | Atari 6502 · Tron Grid · Antikythera · Category Theory · PCB Robotics</title>
+<meta name="description" content="A profoundly interconnected fusion of rotating color harmony wheels, polytopes, 6502 assembly syntax, Atari 2600 palettes, Tron recognizer grids, cybernetic antikythera neurotechnology, category theory physics, PCB circuit animations, and esoteric mechanism cosmology. Interactive color spectrum: RYB, RGB, CMY, Munsell, HSV, HSL, CIELAB, spectral, opponent-process, triadic, tetradic, split-complementary systems in real-time canvas animation.">
+<meta name="keywords" content="color harmony wheels, polytopes, 6502 assembly, Atari 2600 palette, Tron grid, cybernetic, antikythera, category theory, PCB circuit, robotics, color theory, RYB CMY RGB Munsell CIELAB HSV HSL, triadic complementary tetradic, color swatch palette generator, chromatic cosmology maze tiling puzzle">
+<meta property="og:title" content="CHROMATIC NEXUS — Cybernetic Color Polytope Engine">
+<meta property="og:description" content="Real-time fusion of color theory, cybernetics, polytopes, and esoteric computation mechanisms.">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Courier New',monospace}
+  canvas{display:block;position:fixed;top:0;left:0}
+  #hud{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;display:none;z-index:10}
+  #hud.visible{display:block}
+  .hud-panel{position:absolute;background:rgba(0,20,10,0.82);border:1px solid #0f4;color:#0f4;font-size:10px;padding:8px;font-family:'Courier New',monospace;line-height:1.6;text-shadow:0 0 6px #0f4}
+  #hud-tl{top:8px;left:8px;max-width:220px}
+  #hud-tr{top:8px;right:8px;max-width:220px;text-align:right}
+  #hud-bl{bottom:8px;left:8px;max-width:260px}
+  #hud-br{bottom:8px;right:8px;max-width:220px;text-align:right}
+  #controls-hint{position:fixed;bottom:12px;left:50%;transform:translateX(-50%);color:rgba(0,255,100,0.4);font-size:10px;font-family:'Courier New',monospace;pointer-events:none;z-index:11;text-align:center;letter-spacing:2px}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div class="hud-panel" id="hud-tl"></div>
+  <div class="hud-panel" id="hud-tr"></div>
+  <div class="hud-panel" id="hud-bl"></div>
+  <div class="hud-panel" id="hud-br"></div>
+</div>
+<div id="controls-hint">SPACE · CLICK · TAP = RANDOMIZE &nbsp;|&nbsp; H = HUD &nbsp;|&nbsp; S = SOUND</div>
+<script>
+// ============================================================
+//  CHROMATIC NEXUS — Full-Window Hybrid Fusion Engine
+//  6502 · Tron · Atari2600 · Polytope · Antikythera · PCB
+//  Color Theory: RYB/RGB/CMY/Munsell/HSV/HSL/CIELAB/Spectral
+// ============================================================
+
+const C = document.getElementById('c');
+const ctx = C.getContext('2d');
+let W, H, CX, CY;
+
+function resize(){
+  W = C.width = window.innerWidth;
+  H = C.height = window.innerHeight;
+  CX = W/2; CY = H/2;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ── Atari 2600 NTSC Color Palette ──────────────────────────
+const ATARI = [
+  '#000000','#1a1a1a','#393939','#5b5b5b','#7e7e7e','#a2a2a2','#c7c7c7','#ededed',
+  '#190000','#3a0000','#600007','#890031','#a8004b','#c50062','#de1b77','#f53d8e',
+  '#2d0000','#550000','#7b0000','#a31200','#c42800','#e13f00','#f95b1a','#ff7c3f',
+  '#2d1800','#563000','#7d4800','#a56000','#c97900','#e99200','#ffac1a','#ffc73f',
+  '#1a2a00','#364f00','#517500','#6d9b00','#8bbc00','#abdc18','#ccf838','#eeff5c',
+  '#00270d','#004e1c','#00762d','#009e40','#00c457','#18e870','#3fff8b','#68ffa8',
+  '#00222e','#004456','#006880','#008faa','#00b5ce','#1adaf0','#3ff9ff','#6bffff',
+  '#001438','#002e68','#004a99','#0068ca','#0087f5','#1aa8ff','#3fcbff','#6de7ff',
+  '#100040','#2a0078','#4500b0','#6200e8','#8218ff','#a43fff','#c565ff','#e48eff',
+  '#280030','#4e0060','#760092','#9e00c5','#c400f8','#e41aff','#ff3fff','#ff68ff',
+];
+
+// ── 6502 Assembly Mnemonics ─────────────────────────────────
+const ASM6502 = [
+  'LDA #$BC','STA $D000','LDX #$00','STX $D001','INX','BNE $F8',
+  'LDA $D40E','AND #$0F','ORA #$A0','STA $D400','JSR $E544',
+  'ROL $FE','ROR $FF','ASL A','LSR A','PHA','PLA','PHP','PLP',
+  'CLC','SEC','CLV','CLD','SED','CLI','SEI',
+  'ADC #$10','SBC #$01','CMP #$FF','CPX #$80','CPY #$40',
+  'BEQ $04','BNE $FC','BCC $F0','BCS $08','BMI $FE','BPL $02',
+  'JMP ($FFFC)','RTS','RTI','BRK','NOP','TAX','TAY','TXA','TYA',
+  'LDA $2C00,X','STA $0400,Y','LDA ($D0),Y','STA ($CE,X)',
+  'INC $D020','DEC $D021','BIT $D011','EOR #$FF',
+  '.BYTE $EA','ORG $0800','*=$C000','.WORD $0314',
+];
+
+// ── State ───────────────────────────────────────────────────
+let t = 0;
+let seed = Math.random()*99999|0;
+let hudVisible = false;
+let soundEnabled = false;
+let audioCtx = null;
+
+// Randomizable params
+let params = {};
+function randomize(){
+  seed = Math.random()*99999|0;
+  params = {
+    wheelCount:   3 + (Math.random()*6|0),
+    polyCount:    2 + (Math.random()*5|0),
+    gridStyle:    Math.random()*4|0,
+    colorMode:    Math.random()*12|0,
+    asmDensity:   0.3 + Math.random()*0.7,
+    pcbLayer:     Math.random()>.4,
+    tronGrid:     Math.random()>.3,
+    antikythera:  Math.random()>.4,
+    robotArms:    Math.random()>.4,
+    mazeOn:       Math.random()>.5,
+    swatchBar:    Math.random()>.5,
+    bgPalette:    Math.random()*6|0,
+    spinDir:      Math.random()>.5?1:-1,
+    glowColor:    `hsl(${Math.random()*360|0},100%,60%)`,
+    accentHue:    Math.random()*360|0,
+    trailAlpha:   0.05 + Math.random()*0.12,
+    cielab:       Math.random()>.5,
+    spectral:     Math.random()>.5,
+    recognizers:  Math.random()>.4,
+    cosmosRings:  Math.random()>.5,
+    tilePattern:  Math.random()*5|0,
+    neuralNet:    Math.random()>.4,
+    implants:     Math.random()>.4,
+  };
+  t = 0;
+  // sound ping
+  if(soundEnabled) playTone(440,0.08);
+}
+randomize();
+
+// ── Audio ───────────────────────────────────────────────────
+function initAudio(){
+  if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+}
+function playTone(freq,dur){
+  try{
+    initAudio();
+    const o=audioCtx.createOscillator();
+    const g=audioCtx.createGain();
+    o.connect(g); g.connect(audioCtx.destination);
+    o.frequency.value=freq;
+    o.type='square';
+    g.gain.setValueAtTime(0.08,audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+dur);
+    o.start(); o.stop(audioCtx.currentTime+dur);
+  }catch(e){}
+}
+
+// ── Math helpers ────────────────────────────────────────────
+const TAU = Math.PI*2;
+function lerp(a,b,t){return a+(b-a)*t}
+function hsl(h,s,l,a=1){return `hsla(${h%360},${s}%,${l}%,${a})`}
+function hsv2rgb(h,s,v){
+  h/=60; const i=Math.floor(h)%6;
+  const f=h-Math.floor(h),p=v*(1-s),q=v*(1-f*s),w=v*(1-(1-f)*s);
+  const c=[[v,w,p],[q,v,p],[p,v,w],[p,q,v],[w,p,v],[v,p,q]][i];
+  return `rgb(${c[0]*255|0},${c[1]*255|0},${c[2]*255|0})`;
+}
+function atariColor(i){return ATARI[Math.abs(i)%ATARI.length]}
+function seededRand(n){let x=Math.sin(n+seed)*99999;return x-Math.floor(x)}
+
+// ── Background ──────────────────────────────────────────────
+function drawBackground(){
+  const bg=['#000005','#000a00','#050010','#000a08','#0a0500','#050005'];
+  const c=bg[params.bgPalette];
+  ctx.fillStyle=c;
+  ctx.fillRect(0,0,W,H);
+}
+
+// ── Clear each frame (no motion blur) ────────────────────────
+function drawTrail(){
+  drawBackground();
+}
+
+// ── Tron Game Grid ───────────────────────────────────────────
+function drawTronGrid(){
+  if(!params.tronGrid) return;
+  const gs=40, h0=params.accentHue;
+  ctx.save();
+  ctx.globalAlpha=0.18+0.08*Math.sin(t*0.3);
+  const vanX=CX+Math.sin(t*0.07)*80;
+  const vanY=CY+Math.sin(t*0.05)*40;
+  // perspective grid
+  for(let i=-20;i<=20;i++){
+    const x0=CX+i*gs;
+    ctx.strokeStyle=hsl(h0+i*4,100,60,0.5);
+    ctx.lineWidth=i===0?1.5:0.5;
+    ctx.beginPath(); ctx.moveTo(x0,0); ctx.lineTo(vanX,vanY); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x0,H); ctx.lineTo(vanX,vanY); ctx.stroke();
+  }
+  for(let j=0;j<=20;j++){
+    const fy=j/20;
+    const yp=vanY+(H-vanY)*fy*fy;
+    const xSpread=(W/2)*(1-fy)*0.8;
+    ctx.strokeStyle=hsl(h0+j*8,90,55,0.4);
+    ctx.lineWidth=0.5;
+    ctx.beginPath(); ctx.moveTo(CX-xSpread,yp); ctx.lineTo(CX+xSpread,yp); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// ── PCB Circuit Board ────────────────────────────────────────
+function drawPCB(){
+  if(!params.pcbLayer) return;
+  ctx.save();
+  ctx.globalAlpha=0.22;
+  const nodes=[];
+  for(let i=0;i<18;i++){
+    nodes.push({
+      x: seededRand(i*7)*W,
+      y: seededRand(i*13)*H,
+      r: 3+seededRand(i*3)*6
+    });
+  }
+  // traces
+  for(let i=0;i<nodes.length;i++){
+    const n=nodes[i], n2=nodes[(i+3)%nodes.length];
+    const pulse=(Math.sin(t*1.5+i*0.5)+1)/2;
+    ctx.strokeStyle=hsl(params.accentHue+i*15,100,40+pulse*30,0.7);
+    ctx.lineWidth=1;
+    ctx.beginPath();
+    ctx.moveTo(n.x,n.y);
+    // Manhattan-style routing
+    const mx=(n.x+n2.x)/2;
+    ctx.lineTo(mx,n.y);
+    ctx.lineTo(mx,n2.y);
+    ctx.lineTo(n2.x,n2.y);
+    ctx.stroke();
+    // Traveling data packet
+    const prog=(t*0.4+i*0.17)%3/3;
+    let px,py;
+    if(prog<0.5){px=lerp(n.x,mx,prog*2);py=n.y;}
+    else if(prog<0.75){px=mx;py=lerp(n.y,n2.y,(prog-0.5)*4);}
+    else{px=lerp(mx,n2.x,(prog-0.75)*4);py=n2.y;}
+    ctx.fillStyle=hsl(params.accentHue+i*20,100,80,0.9);
+    ctx.beginPath(); ctx.arc(px,py,3,0,TAU); ctx.fill();
+  }
+  // Via pads
+  nodes.forEach((n,i)=>{
+    ctx.strokeStyle=hsl(params.accentHue+i*25,80,50,0.6);
+    ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.arc(n.x,n.y,n.r,0,TAU); ctx.stroke();
+    ctx.beginPath(); ctx.arc(n.x,n.y,n.r*0.4,0,TAU); ctx.fill();
+    // IC chip body
+    if(i%3===0){
+      ctx.strokeStyle=hsl(params.accentHue+60,60,40,0.5);
+      ctx.strokeRect(n.x-12,n.y-8,24,16);
+      ctx.fillStyle=hsl(params.accentHue+60,60,20,0.4);
+      ctx.fillRect(n.x-12,n.y-8,24,16);
+    }
+  });
+  ctx.restore();
+}
+
+// ── Tron Recognizer ──────────────────────────────────────────
+function drawRecognizer(x,y,sz,phase){
+  ctx.save();
+  ctx.translate(x,y);
+  ctx.rotate(phase);
+  const h=params.accentHue+150;
+  ctx.strokeStyle=hsl(h,100,65,0.85);
+  ctx.lineWidth=2;
+  ctx.shadowColor=hsl(h,100,70);
+  ctx.shadowBlur=12;
+  // body
+  ctx.beginPath();
+  ctx.moveTo(0,-sz); ctx.lineTo(sz*0.6,-sz*0.3);
+  ctx.lineTo(sz*0.6,sz*0.3); ctx.lineTo(0,sz);
+  ctx.lineTo(-sz*0.6,sz*0.3); ctx.lineTo(-sz*0.6,-sz*0.3);
+  ctx.closePath(); ctx.stroke();
+  // legs
+  for(let i=0;i<6;i++){
+    const a=i*TAU/6+phase*0.3;
+    const legLen=sz*0.7+Math.sin(t*2+i)*sz*0.2;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(a)*sz*0.5,Math.sin(a)*sz*0.5);
+    ctx.lineTo(Math.cos(a)*legLen,Math.sin(a)*legLen);
+    ctx.stroke();
+    // foot pad
+    ctx.beginPath(); ctx.arc(Math.cos(a)*legLen,Math.sin(a)*legLen,3,0,TAU); ctx.stroke();
+  }
+  // eye
+  const eyePulse=(Math.sin(t*3)+1)/2;
+  ctx.fillStyle=hsl(h+30,100,60+eyePulse*30,0.9);
+  ctx.beginPath(); ctx.arc(0,0,sz*0.25,0,TAU); ctx.fill();
+  ctx.restore();
+}
+
+function drawRecognizers(){
+  if(!params.recognizers) return;
+  const count=2+(Math.sin(seed)*2|0)+2;
+  for(let i=0;i<count;i++){
+    const orb=seededRand(i*31)*TAU;
+    const rad=Math.min(W,H)*0.35+seededRand(i*17)*Math.min(W,H)*0.15;
+    const x=CX+Math.cos(orb+t*(0.08+i*0.02)*params.spinDir)*rad;
+    const y=CY+Math.sin(orb+t*(0.08+i*0.02)*params.spinDir)*rad*0.5;
+    const sz=20+seededRand(i*9)*30;
+    drawRecognizer(x,y,sz,t*(0.2+i*0.05)*params.spinDir+orb);
+  }
+}
+
+// ── Color Wheels ─────────────────────────────────────────────
+function drawColorWheel(cx,cy,r,offset,mode,spin,alpha){
+  ctx.save();
+  ctx.globalAlpha=alpha;
+  const segs=72;
+  for(let i=0;i<segs;i++){
+    const a0=i/segs*TAU+spin;
+    const a1=(i+1)/segs*TAU+spin;
+    const hue=(i/segs*360+offset)%360;
+    let col;
+    switch(mode%12){
+      case 0: col=hsl(hue,100,50); break;
+      case 1: col=hsl(hue,80,40); break; // darker
+      case 2: col=hsv2rgb(hue,1,1); break;
+      case 3: col=atariColor(Math.floor(i/segs*ATARI.length)); break;
+      case 4: // Munsell-ish
+        col=hsl((hue+30)%360,70,45+Math.sin(hue/30)*15); break;
+      case 5: // CIELAB approximation
+        col=hsl(hue,60+40*Math.sin(hue*TAU/360),50+20*Math.cos(hue*TAU/180)); break;
+      case 6: // Opponent process
+        col=hsl(hue<180?hue*0.56:hue*0.56+100,100,50); break;
+      case 7: // Spectral
+        col=hsl(240-hue*0.67,100,50); break;
+      case 8: // CMY shift
+        col=hsl((hue+180)%360,100,50); break;
+      case 9: // triadic
+        col=hsl((hue*3)%360,90,50); break;
+      case 10: // tetradic
+        col=hsl((hue*4+90)%360,85,50); break;
+      default: col=hsl((hue+seed%360)%360,100,55);
+    }
+    ctx.beginPath();
+    ctx.moveTo(cx,cy);
+    ctx.arc(cx,cy,r,a0,a1);
+    ctx.closePath();
+    ctx.fillStyle=col;
+    ctx.fill();
+  }
+  // inner ring gradient rings
+  for(let ring=5;ring>0;ring--){
+    const gr=ctx.createRadialGradient(cx,cy,r*ring/6,cx,cy,r*(ring+1)/6);
+    gr.addColorStop(0,`rgba(0,0,0,${0.1*ring})`);
+    gr.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.beginPath(); ctx.arc(cx,cy,r,0,TAU); ctx.fillStyle=gr; ctx.fill();
+  }
+  // center hole
+  ctx.globalCompositeOperation='destination-out';
+  const gr2=ctx.createRadialGradient(cx,cy,0,cx,cy,r*0.25);
+  gr2.addColorStop(0,'rgba(0,0,0,1)');
+  gr2.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.beginPath(); ctx.arc(cx,cy,r*0.25,0,TAU); ctx.fillStyle=gr2; ctx.fill();
+  ctx.globalCompositeOperation='source-over';
+  // spoke lines
+  ctx.globalAlpha=alpha*0.3;
+  for(let i=0;i<12;i++){
+    const a=i/12*TAU+spin;
+    ctx.strokeStyle='rgba(255,255,255,0.3)';
+    ctx.lineWidth=0.5;
+    ctx.beginPath();
+    ctx.moveTo(cx+Math.cos(a)*r*0.25,cy+Math.sin(a)*r*0.25);
+    ctx.lineTo(cx+Math.cos(a)*r,cy+Math.sin(a)*r);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawWheels(){
+  const count=params.wheelCount;
+  for(let i=0;i<count;i++){
+    const fi=i/count;
+    const orb=fi*TAU+seededRand(i*21)*TAU;
+    const orbitR=Math.min(W,H)*0.12+seededRand(i*11)*Math.min(W,H)*0.22;
+    const wx=CX+Math.cos(orb+t*0.04*params.spinDir*(1+i*0.1))*orbitR;
+    const wy=CY+Math.sin(orb+t*0.04*params.spinDir*(1+i*0.1))*orbitR*0.7;
+    const wr=30+seededRand(i*7)*Math.min(W,H)*0.08;
+    const spin=t*(0.3+seededRand(i*3)*0.5)*params.spinDir+seededRand(i*5)*TAU;
+    const mode=(params.colorMode+i)%12;
+    const alpha=0.55+seededRand(i*9)*0.35;
+    drawColorWheel(wx,wy,wr,seededRand(i*13)*360,mode,spin,alpha);
+  }
+}
+
+// ── Polytope ─────────────────────────────────────────────────
+function project4D(v4, rot4){
+  // simple 4D→3D→2D projection
+  let [x,y,z,w]=v4;
+  // rotate in xw plane
+  const c1=Math.cos(rot4[0]),s1=Math.sin(rot4[0]);
+  [x,w]=[x*c1-w*s1,x*s1+w*c1];
+  // rotate in yz plane
+  const c2=Math.cos(rot4[1]),s2=Math.sin(rot4[1]);
+  [y,z]=[y*c2-z*s2,y*s2+z*c2];
+  // rotate in xy
+  const c3=Math.cos(rot4[2]),s3=Math.sin(rot4[2]);
+  [x,y]=[x*c3-y*s3,x*s3+y*c3];
+  // perspective project to 2D
+  const d=3/(3+w);
+  return [x*d,y*d,z*d];
+}
+
+function drawPolytope(cx,cy,r,phase,pidx){
+  ctx.save();
+  ctx.translate(cx,cy);
+  const rot4=[t*0.17+phase,t*0.13+phase*1.3,t*0.09+phase*0.7];
+  const hbase=(params.accentHue+pidx*70)%360;
+
+  // 16-cell / tesseract edges (simplified vertex set)
+  const verts16=[];
+  for(let s=0;s<16;s++){
+    verts16.push([s&1?1:-1,s&2?1:-1,s&4?1:-1,s&8?1:-1]);
+  }
+  // project all
+  const pts=verts16.map(v=>project4D(v,rot4));
+
+  // draw edges (connect vertices that differ in exactly 1 coordinate)
+  ctx.lineWidth=0.8;
+  ctx.globalAlpha=0.7;
+  for(let a=0;a<verts16.length;a++){
+    for(let b=a+1;b<verts16.length;b++){
+      let diff=0;
+      for(let k=0;k<4;k++) if(verts16[a][k]!==verts16[b][k]) diff++;
+      if(diff===1){
+        const pa=pts[a],pb=pts[b];
+        const hue=(hbase+(a+b)*7)%360;
+        ctx.strokeStyle=hsl(hue,100,55,0.65);
+        ctx.shadowColor=hsl(hue,100,70);
+        ctx.shadowBlur=6;
+        ctx.beginPath();
+        ctx.moveTo(pa[0]*r,pa[1]*r);
+        ctx.lineTo(pb[0]*r,pb[1]*r);
+        ctx.stroke();
+      }
+    }
+  }
+  // vertex dots
+  pts.forEach((p,i)=>{
+    const hue=(hbase+i*22)%360;
+    ctx.fillStyle=hsl(hue,100,75,0.9);
+    ctx.shadowColor=hsl(hue,100,80);
+    ctx.shadowBlur=10;
+    ctx.beginPath(); ctx.arc(p[0]*r,p[1]*r,2.5,0,TAU); ctx.fill();
+  });
+  ctx.restore();
+}
+
+function drawPolytopes(){
+  for(let i=0;i<params.polyCount;i++){
+    const fi=i/params.polyCount;
+    const orb=fi*TAU+seededRand(i*37)*TAU+Math.PI/4;
+    const orbitR=Math.min(W,H)*0.25+seededRand(i*19)*Math.min(W,H)*0.18;
+    const px=CX+Math.cos(orb+t*0.025*params.spinDir)*orbitR;
+    const py=CY+Math.sin(orb+t*0.025*params.spinDir)*orbitR*0.6;
+    const pr=25+seededRand(i*13)*Math.min(W,H)*0.06;
+    drawPolytope(px,py,pr,seededRand(i*7)*TAU,i);
+  }
+}
+
+// ── Antikythera Mechanism ─────────────────────────────────────
+function drawAntikythera(cx,cy,baseR){
+  if(!params.antikythera) return;
+  ctx.save();
+  ctx.translate(cx,cy);
+  ctx.globalAlpha=0.7;
+  const gearDefs=[
+    {r:baseR,teeth:53,off:0,speed:0.008,hue:params.accentHue},
+    {r:baseR*0.62,teeth:32,off:baseR+baseR*0.62,speed:-0.013,hue:params.accentHue+40},
+    {r:baseR*0.41,teeth:21,off:baseR+baseR*0.62*2+baseR*0.41,speed:0.022,hue:params.accentHue+80},
+    {r:baseR*0.28,teeth:13,off:0,speed:-0.037,hue:params.accentHue+120},
+    {r:baseR*0.18,teeth:8,off:baseR*0.5,speed:0.061,hue:params.accentHue+160},
+  ];
+
+  gearDefs.forEach((g,gi)=>{
+    const angle=t*g.speed*params.spinDir + seededRand(gi*11)*TAU;
+    const gx=Math.cos(seededRand(gi*7)*TAU)*g.off*0.6;
+    const gy=Math.sin(seededRand(gi*7)*TAU)*g.off*0.4;
+    ctx.save();
+    ctx.translate(gx,gy);
+    ctx.rotate(angle);
+    ctx.strokeStyle=hsl(g.hue,80,50,0.8);
+    ctx.fillStyle=hsl(g.hue,60,15,0.5);
+    ctx.lineWidth=1.2;
+    ctx.shadowColor=hsl(g.hue,100,60);
+    ctx.shadowBlur=8;
+    // gear body
+    ctx.beginPath();
+    for(let i=0;i<g.teeth*2;i++){
+      const a=i/g.teeth/2*TAU;
+      const rr=i%2===0?g.r:g.r*0.85;
+      i===0?ctx.moveTo(Math.cos(a)*rr,Math.sin(a)*rr):ctx.lineTo(Math.cos(a)*rr,Math.sin(a)*rr);
+    }
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    // hub
+    ctx.beginPath(); ctx.arc(0,0,g.r*0.25,0,TAU);
+    ctx.fillStyle=hsl(g.hue,60,30,0.7); ctx.fill(); ctx.stroke();
+    // spokes
+    for(let s=0;s<5;s++){
+      const sa=s/5*TAU;
+      ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(Math.cos(sa)*g.r*0.7,Math.sin(sa)*g.r*0.7); ctx.stroke();
+    }
+    ctx.restore();
+  });
+  ctx.restore();
+}
+
+// ── Maze / Tiling ─────────────────────────────────────────────
+function drawMaze(){
+  if(!params.mazeOn) return;
+  ctx.save();
+  ctx.globalAlpha=0.12;
+  const cell=seededRand(1)*20+15;
+  const cols=Math.ceil(W/cell)+1;
+  const rows=Math.ceil(H/cell)+1;
+  const scroll=t*12%cell;
+
+  for(let row=0;row<rows;row++){
+    for(let col=0;col<cols;col++){
+      const x=col*cell-scroll;
+      const y=row*cell-scroll;
+      const n=seededRand(col*1000+row);
+      if(n<0.5){
+        ctx.strokeStyle=hsl(params.accentHue+col*7+row*5,80,50,0.5);
+        ctx.lineWidth=0.8;
+        ctx.beginPath();
+        if(n<0.25){ctx.moveTo(x,y);ctx.lineTo(x+cell,y+cell);}
+        else{ctx.moveTo(x+cell,y);ctx.lineTo(x,y+cell);}
+        ctx.stroke();
+      }
+    }
+  }
+  ctx.restore();
+}
+
+// ── Tiling Pattern ────────────────────────────────────────────
+function drawTiling(){
+  ctx.save();
+  ctx.globalAlpha=0.08;
+  const s=seededRand(42)*30+20;
+  const off=t*5%s;
+  const tp=params.tilePattern;
+  ctx.strokeStyle=hsl(params.accentHue+180,60,50,0.4);
+  ctx.lineWidth=0.5;
+
+  if(tp===0){// hexagons
+    const h=s*Math.sqrt(3)/2;
+    for(let row=-1;row<H/h+2;row++){
+      for(let col=-1;col<W/s*0.75+2;col++){
+        const xOff=col*s*1.5+off;
+        const yOff=row*h*2+(col%2?h:0)+off;
+        ctx.beginPath();
+        for(let k=0;k<6;k++){
+          const a=k/6*TAU;
+          k===0?ctx.moveTo(xOff+Math.cos(a)*s,yOff+Math.sin(a)*s):ctx.lineTo(xOff+Math.cos(a)*s,yOff+Math.sin(a)*s);
+        }
+        ctx.closePath(); ctx.stroke();
+      }
+    }
+  } else if(tp===1){// triangles
+    const h=s*Math.sqrt(3)/2;
+    for(let row=-1;row<H/h+2;row++){
+      for(let col=-2;col<W/s+3;col++){
+        const x=col*s+off+(row%2?s/2:0);
+        const y=row*h+off;
+        ctx.beginPath();
+        ctx.moveTo(x,y); ctx.lineTo(x+s,y); ctx.lineTo(x+s/2,y+h); ctx.closePath(); ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(x+s,y); ctx.lineTo(x+s/2,y+h); ctx.lineTo(x+s*1.5,y+h); ctx.closePath(); ctx.stroke();
+      }
+    }
+  } else if(tp===2){// penrose-ish rhombs
+    for(let row=-1;row<H/s+2;row++){
+      for(let col=-1;col<W/s+2;col++){
+        const x=col*s+off; const y=row*s+off;
+        const a=seededRand(col*500+row)*0.5;
+        ctx.save(); ctx.translate(x,y); ctx.rotate(a);
+        ctx.strokeRect(-s/2,-s/3,s,s*0.6); ctx.restore();
+      }
+    }
+  } else if(tp===3){// circles
+    for(let row=-1;row<H/s+2;row++){
+      for(let col=-1;col<W/s+2;col++){
+        ctx.beginPath();
+        ctx.arc(col*s+off,row*s+off,s*0.4,0,TAU); ctx.stroke();
+      }
+    }
+  } else {// squares rotated
+    for(let row=-1;row<H/s+2;row++){
+      for(let col=-1;col<W/s+2;col++){
+        ctx.save(); ctx.translate(col*s+off,row*s+off);
+        ctx.rotate(t*0.002+seededRand(col*300+row)*0.3);
+        ctx.strokeRect(-s/3,-s/3,s*0.66,s*0.66); ctx.restore();
+      }
+    }
+  }
+  ctx.restore();
+}
+
+// ── 6502 Assembly Text ────────────────────────────────────────
+const asmParticles=[];
+function spawnAsm(){
+  if(asmParticles.length<60 && Math.random()<params.asmDensity*0.05){
+    const mnem=ASM6502[Math.random()*ASM6502.length|0];
+    asmParticles.push({
+      x:Math.random()*W, y:Math.random()*H,
+      text:mnem,
+      vx:(Math.random()-0.5)*0.4,
+      vy:(Math.random()-0.5)*0.3,
+      life:1, fade:0.002+Math.random()*0.004,
+      hue:(Math.random()*360|0),
+      sz:9+Math.random()*5
+    });
+  }
+}
+function drawAsm(){
+  spawnAsm();
+  ctx.save();
+  for(let i=asmParticles.length-1;i>=0;i--){
+    const p=asmParticles[i];
+    p.x+=p.vx; p.y+=p.vy; p.life-=p.fade;
+    if(p.life<=0){asmParticles.splice(i,1);continue;}
+    ctx.font=`${p.sz}px 'Courier New',monospace`;
+    ctx.globalAlpha=p.life*0.8;
+    ctx.fillStyle=hsl(p.hue,100,65);
+    ctx.shadowColor=hsl(p.hue,100,70);
+    ctx.shadowBlur=6;
+    ctx.fillText(p.text,p.x,p.y);
+  }
+  ctx.restore();
+}
+
+// ── Robot Arms ────────────────────────────────────────────────
+function drawRobotArm(bx,by,len1,len2,phase){
+  const a1=Math.sin(t*0.4+phase)*1.2;
+  const a2=Math.sin(t*0.6+phase+1)*1.0;
+  const j1x=bx+Math.cos(a1)*len1;
+  const j1y=by+Math.sin(a1)*len1;
+  const j2x=j1x+Math.cos(a1+a2)*len2;
+  const j2y=j1y+Math.sin(a1+a2)*len2;
+  ctx.save();
+  ctx.shadowColor=hsl(params.accentHue+200,100,60);
+  ctx.shadowBlur=10;
+  // arm segments
+  ctx.strokeStyle=hsl(params.accentHue+200,80,55,0.8);
+  ctx.lineWidth=4;
+  ctx.beginPath(); ctx.moveTo(bx,by); ctx.lineTo(j1x,j1y); ctx.stroke();
+  ctx.lineWidth=3;
+  ctx.beginPath(); ctx.moveTo(j1x,j1y); ctx.lineTo(j2x,j2y); ctx.stroke();
+  // joints
+  [bx,by,j1x,j1y,j2x,j2y].forEach((_,k)=>{
+    if(k%2===0){
+      ctx.fillStyle=hsl(params.accentHue+220,90,65,0.9);
+      ctx.beginPath(); ctx.arc([bx,j1x,j2x][k/2],[by,j1y,j2y][k/2],5,0,TAU); ctx.fill();
+    }
+  });
+  // end effector
+  ctx.strokeStyle=hsl(params.accentHue+240,100,70,0.9);
+  ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(j2x-8,j2y); ctx.lineTo(j2x+8,j2y); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(j2x,j2y-8); ctx.lineTo(j2x,j2y+8); ctx.stroke();
+  ctx.restore();
+}
+
+function drawRobots(){
+  if(!params.robotArms) return;
+  for(let i=0;i<4;i++){
+    const bx=seededRand(i*41)*W;
+    const by=seededRand(i*43)*H;
+    const l1=40+seededRand(i*47)*40;
+    const l2=30+seededRand(i*53)*30;
+    drawRobotArm(bx,by,l1,l2,seededRand(i*59)*TAU);
+  }
+}
+
+// ── Neural/Implant Network ────────────────────────────────────
+function drawNeuralNet(){
+  if(!params.neuralNet) return;
+  ctx.save();
+  ctx.globalAlpha=0.3;
+  const nodes=[];
+  for(let i=0;i<20;i++){
+    const a=seededRand(i*61)*TAU;
+    const r=seededRand(i*67)*Math.min(W,H)*0.4;
+    nodes.push({
+      x:CX+Math.cos(a+t*0.02)*r,
+      y:CY+Math.sin(a+t*0.02)*r*0.7,
+      act:Math.sin(t*2+seededRand(i*71)*TAU)
+    });
+  }
+  // connections
+  for(let a=0;a<nodes.length;a++){
+    for(let b=a+1;b<nodes.length;b++){
+      const dx=nodes[a].x-nodes[b].x, dy=nodes[a].y-nodes[b].y;
+      const dist=Math.sqrt(dx*dx+dy*dy);
+      if(dist<180){
+        const str=1-dist/180;
+        ctx.strokeStyle=hsl(params.accentHue+90,100,55,str*0.5);
+        ctx.lineWidth=str*2;
+        ctx.beginPath(); ctx.moveTo(nodes[a].x,nodes[a].y); ctx.lineTo(nodes[b].x,nodes[b].y); ctx.stroke();
+      }
+    }
+  }
+  // nodes
+  nodes.forEach((n,i)=>{
+    const pulse=(n.act+1)/2;
+    ctx.fillStyle=hsl(params.accentHue+100+i*10,100,40+pulse*40,0.9);
+    ctx.shadowColor=hsl(params.accentHue+100+i*10,100,70);
+    ctx.shadowBlur=pulse*15;
+    ctx.beginPath(); ctx.arc(n.x,n.y,3+pulse*5,0,TAU); ctx.fill();
+  });
+  ctx.restore();
+}
+
+// ── Cosmos Rings ──────────────────────────────────────────────
+function drawCosmosRings(){
+  if(!params.cosmosRings) return;
+  ctx.save();
+  for(let i=0;i<8;i++){
+    const r=Math.min(W,H)*0.08*i+Math.min(W,H)*0.05;
+    const hue=(params.accentHue+i*25+t*10)%360;
+    const drift=Math.sin(t*0.1+i*0.5)*0.02;
+    ctx.globalAlpha=0.15-i*0.01;
+    ctx.strokeStyle=hsl(hue,80,55,0.5);
+    ctx.lineWidth=1+Math.sin(t*0.2+i)*0.5;
+    ctx.beginPath();
+    ctx.ellipse(CX+Math.sin(t*0.05+i)*20,CY+Math.cos(t*0.04+i)*10,r,r*0.55,drift,0,TAU);
+    ctx.stroke();
+    // particles on ring
+    for(let p=0;p<6;p++){
+      const a=p/6*TAU+t*0.1*(i%2?1:-1);
+      const px=CX+Math.sin(t*0.05+i)*20+Math.cos(a)*r;
+      const py=CY+Math.cos(t*0.04+i)*10+Math.sin(a)*r*0.55;
+      ctx.globalAlpha=0.5;
+      ctx.fillStyle=hsl((hue+p*30)%360,100,70);
+      ctx.beginPath(); ctx.arc(px,py,1.5,0,TAU); ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+// ── CIE Chromaticity Ghost ────────────────────────────────────
+function drawCIEDiagram(){
+  if(!params.cielab) return;
+  ctx.save();
+  ctx.globalAlpha=0.25;
+  ctx.translate(CX+Math.sin(t*0.05)*50,CY+Math.cos(t*0.06)*30);
+  const sc=Math.min(W,H)*0.18;
+  // horseshoe approximation
+  ctx.beginPath();
+  const pts=[];
+  for(let nm=380;nm<=700;nm+=5){
+    const a=(nm-380)/320*TAU*0.75-TAU*0.3;
+    const r=0.3+0.7*Math.sin((nm-380)/320*Math.PI);
+    pts.push([Math.cos(a)*r*sc,Math.sin(a)*r*sc]);
+  }
+  pts.forEach((p,i)=>i===0?ctx.moveTo(p[0],p[1]):ctx.lineTo(p[0],p[1]));
+  ctx.closePath();
+  const grad=ctx.createLinearGradient(-sc,-sc,sc,sc);
+  grad.addColorStop(0,'hsla(270,100%,50%,0.4)');
+  grad.addColorStop(0.33,'hsla(120,100%,50%,0.4)');
+  grad.addColorStop(0.66,'hsla(60,100%,50%,0.4)');
+  grad.addColorStop(1,'hsla(0,100%,50%,0.4)');
+  ctx.fillStyle=grad;
+  ctx.fill();
+  ctx.strokeStyle='rgba(255,255,255,0.3)';
+  ctx.lineWidth=1;
+  ctx.stroke();
+  ctx.restore();
+}
+
+// ── Swatch Bar ────────────────────────────────────────────────
+function drawSwatchBar(){
+  if(!params.swatchBar) return;
+  ctx.save();
+  const barH=18;
+  const n=Math.floor(W/barH);
+  const swatchY=H-barH;
+  for(let i=0;i<n;i++){
+    const fi=i/n;
+    const hue=(fi*360+t*20+params.accentHue)%360;
+    let col;
+    switch(params.colorMode%6){
+      case 0: col=hsl(hue,100,50); break;
+      case 1: col=atariColor(Math.floor(fi*ATARI.length+t)%ATARI.length); break;
+      case 2: col=hsl((hue+180)%360,100,50); break;
+      case 3: col=hsl(hue*3%360,80,45); break;
+      case 4: col=hsv2rgb(hue,0.8+fi*0.2,0.8+fi*0.2); break;
+      default: col=hsl(hue,60+fi*40,40+fi*20);
+    }
+    ctx.fillStyle=col;
+    ctx.fillRect(i*(W/n),swatchY,W/n+1,barH);
+  }
+  ctx.restore();
+}
+
+// ── Spectral Sweep ────────────────────────────────────────────
+function drawSpectralSweep(){
+  if(!params.spectral) return;
+  ctx.save();
+  ctx.globalAlpha=0.15;
+  for(let i=0;i<W;i+=2){
+    const fi=i/W;
+    const nm=380+fi*320;
+    const hue=240-(fi*240);
+    const col=hsl(hue,100,50,0.6);
+    ctx.fillStyle=col;
+    const barH=8+Math.sin(fi*TAU*4+t)*4;
+    ctx.fillRect(i,0,2,barH);
+    ctx.fillRect(i,H-barH,2,barH);
+  }
+  ctx.restore();
+}
+
+// ── Implants/Augmentation ─────────────────────────────────────
+function drawImplants(){
+  if(!params.implants) return;
+  ctx.save();
+  for(let i=0;i<5;i++){
+    const ix=seededRand(i*73)*W;
+    const iy=seededRand(i*79)*H;
+    const r=15+seededRand(i*83)*25;
+    const pulse=(Math.sin(t*1.5+i)+1)/2;
+    ctx.globalAlpha=0.5+pulse*0.3;
+    ctx.strokeStyle=hsl(params.accentHue+i*40,100,55+pulse*20,0.8);
+    ctx.lineWidth=1.5;
+    ctx.shadowColor=hsl(params.accentHue+i*40,100,70);
+    ctx.shadowBlur=10+pulse*10;
+    // hexagonal implant shape
+    ctx.beginPath();
+    for(let k=0;k<6;k++){
+      const a=k/6*TAU;
+      k===0?ctx.moveTo(ix+Math.cos(a)*r,iy+Math.sin(a)*r):ctx.lineTo(ix+Math.cos(a)*r,iy+Math.sin(a)*r);
+    }
+    ctx.closePath(); ctx.stroke();
+    // inner circuit
+    ctx.beginPath();
+    ctx.arc(ix,iy,r*0.4,0,TAU); ctx.stroke();
+    ctx.lineWidth=0.7;
+    for(let k=0;k<3;k++){
+      const a=k/3*TAU+t*0.3;
+      ctx.beginPath();
+      ctx.moveTo(ix,iy);
+      ctx.lineTo(ix+Math.cos(a)*r*0.9,iy+Math.sin(a)*r*0.9);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+// ── Central Flower / Master Wheel ─────────────────────────────
+function drawCentralWheel(){
+  const r=Math.min(W,H)*0.12;
+  const layers=5;
+  for(let l=0;l<layers;l++){
+    const fl=l/layers;
+    const lspin=t*(0.2+fl*0.3)*params.spinDir*(l%2?1:-1);
+    const lr=r*(0.4+fl*0.6);
+    ctx.save();
+    ctx.translate(CX,CY);
+    ctx.rotate(lspin);
+    ctx.globalAlpha=0.8-fl*0.15;
+    const segs=36+l*12;
+    for(let s=0;s<segs;s++){
+      const a0=s/segs*TAU, a1=(s+1)/segs*TAU;
+      const hue=((params.accentHue+l*30+s/segs*360)%360);
+      ctx.beginPath();
+      ctx.moveTo(0,0);
+      ctx.arc(0,0,lr,a0,a1);
+      ctx.closePath();
+      ctx.fillStyle=hsl(hue,100,50,(0.6-fl*0.1));
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+  // center glow
+  ctx.save();
+  ctx.translate(CX,CY);
+  const cg=ctx.createRadialGradient(0,0,0,0,0,r*0.4);
+  cg.addColorStop(0,`hsla(${params.accentHue},100%,90%,0.9)`);
+  cg.addColorStop(0.5,`hsla(${params.accentHue+60},100%,60%,0.4)`);
+  cg.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=cg;
+  ctx.beginPath(); ctx.arc(0,0,r*0.4,0,TAU); ctx.fill();
+  ctx.restore();
+}
+
+// ── HUD Update ─────────────────────────────────────────────────
+function updateHUD(){
+  if(!hudVisible) return;
+  const tl=document.getElementById('hud-tl');
+  const tr=document.getElementById('hud-tr');
+  const bl=document.getElementById('hud-bl');
+  const br=document.getElementById('hud-br');
+  const colorModes=['RYB','HSV','HSV-RAW','MUNSELL','MUNSELL-B','CIELAB','OPPONENT','SPECTRAL','CMY','TRIADIC','TETRADIC','RANDOM'];
+  const tileNames=['HEXAGONAL','TRIANGULAR','PENROSE','CIRCULAR','ROTARY-SQ'];
+  tl.innerHTML=`CHROMATIC NEXUS v1.0<br>────────────────────<br>SEED: ${seed}<br>COLOR MODE: ${colorModes[params.colorMode%12]}<br>WHEELS: ${params.wheelCount}<br>POLYTOPES: ${params.polyCount}<br>SPIN DIR: ${params.spinDir>0?'CW':'CCW'}<br>TILE: ${tileNames[params.tilePattern]}`;
+  tr.innerHTML=`ATARI 2600 NTSC<br>6502 ASSEMBLY<br>────────────────────<br>PCB: ${params.pcbLayer?'ON':'OFF'}<br>TRON GRID: ${params.tronGrid?'ON':'OFF'}<br>RECOGNIZERS: ${params.recognizers?'ON':'OFF'}<br>ROBOT ARMS: ${params.robotArms?'ON':'OFF'}<br>ANTIKYTHERA: ${params.antikythera?'ON':'OFF'}`;
+  bl.innerHTML=`CATEGORY THEORY PHYSICS<br>CYBERNETIC ANTIKYTHERA<br>────────────────────────<br>NEURAL NET: ${params.neuralNet?'ON':'OFF'}<br>IMPLANTS: ${params.implants?'ON':'OFF'}<br>COSMOS RINGS: ${params.cosmosRings?'ON':'OFF'}<br>MAZE: ${params.mazeOn?'ON':'OFF'}<br>CIE DIAGRAM: ${params.cielab?'ON':'OFF'}<br>SPECTRAL: ${params.spectral?'ON':'OFF'}`;
+  br.innerHTML=`FPS: ${Math.round(1000/16)}<br>T: ${t.toFixed(1)}<br>────────────────────<br>SPACE=RANDOMIZE<br>H=TOGGLE HUD<br>S=TOGGLE SOUND`;
+}
+
+// ── Main Loop ─────────────────────────────────────────────────
+let lastT=0;
+function frame(ts){
+  const dt=(ts-lastT)/1000;
+  lastT=ts;
+  t+=dt*0.8;
+
+  drawTrail();
+
+  drawTronGrid();
+  drawTiling();
+  drawMaze();
+  drawSpectralSweep();
+  drawCIEDiagram();
+  drawPCB();
+  drawCosmosRings();
+  drawNeuralNet();
+  drawImplants();
+  drawRecognizers();
+  drawRobots();
+  drawPolytopes();
+  drawAntikythera(CX+Math.sin(t*0.04)*80,CY+Math.cos(t*0.03)*50,Math.min(W,H)*0.07);
+  drawWheels();
+  drawCentralWheel();
+  drawAsm();
+  drawSwatchBar();
+  updateHUD();
+
+  requestAnimationFrame(frame);
+}
+
+// ── Controls ──────────────────────────────────────────────────
+document.addEventListener('keydown',e=>{
+  if(e.code==='Space'){e.preventDefault();randomize();}
+  if(e.key==='h'||e.key==='H'){
+    hudVisible=!hudVisible;
+    document.getElementById('hud').classList.toggle('visible',hudVisible);
+  }
+  if(e.key==='s'||e.key==='S'){
+    soundEnabled=!soundEnabled;
+    if(soundEnabled){initAudio();playTone(220,0.2);}
+  }
+});
+
+let tapT=0;
+document.addEventListener('click',()=>{
+  const now=Date.now();
+  if(now-tapT<300) return; // debounce
+  tapT=now;
+  randomize();
+});
+document.addEventListener('touchend',e=>{
+  e.preventDefault();
+  randomize();
+},{passive:false});
+
+// ── Init ──────────────────────────────────────────────────────
+drawBackground();
+requestAnimationFrame(frame);
+
+// ── Hint fade ─────────────────────────────────────────────────
+setTimeout(()=>{
+  const h=document.getElementById('controls-hint');
+  h.style.transition='opacity 2s';
+  h.style.opacity='0';
+  setTimeout(()=>h.style.display='none',2100);
+},5000);
+</script>
+</body>
+</html>

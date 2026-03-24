@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chromatic Category-Theoretic Morphism Network</title>
+
+<!-- SEO -->
+<meta name="description" content="A full-screen animated chromatic system visualizing category-theoretic morphisms between RGB, CMYK, CIELAB, and spectral color spaces with dynamic gradients, swatches, and harmonic transformations.">
+<meta name="keywords" content="color theory, category theory, morphism visualization, RGB CMYK CIELAB spectral, generative art, chromatic animation, HTML canvas, audiovisual system">
+
+<style>
+html, body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: black;
+  font-family: monospace;
+}
+canvas {
+  display: block;
+}
+#hud {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  color: #0f0;
+  font-size: 12px;
+  opacity: 0.8;
+  pointer-events: none;
+}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+
+<script>
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+const hud = document.getElementById("hud");
+
+let W, H, DPR;
+
+function resize() {
+  DPR = window.devicePixelRatio || 1;
+  W = canvas.width = innerWidth * DPR;
+  H = canvas.height = innerHeight * DPR;
+  canvas.style.width = innerWidth + "px";
+  canvas.style.height = innerHeight + "px";
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+window.addEventListener("resize", resize);
+resize();
+
+/* ========= UTIL ========= */
+const rand = (a=1,b=0)=>Math.random()*(a-b)+b;
+
+/* ========= COLOR SYSTEMS ========= */
+function hsvToRgb(h,s,v){
+  let f=(n,k=(n+h*6)%6)=>v-v*s*Math.max(Math.min(k,4-k,1),0);
+  return [f(5)*255,f(3)*255,f(1)*255];
+}
+function rgbToCss(r,g,b){
+  return `rgb(${r|0},${g|0},${b|0})`;
+}
+
+/* ========= NODE (CATEGORY OBJECT) ========= */
+class Node {
+  constructor(x,y,type){
+    this.x=x;
+    this.y=y;
+    this.type=type;
+    this.phase=rand(10);
+    this.size=rand(6,2);
+  }
+  update(t){
+    this.phase += 0.01;
+    this.x += Math.sin(this.phase)*0.2;
+    this.y += Math.cos(this.phase)*0.2;
+  }
+  draw(){
+    const hue = (this.phase*0.1)%1;
+    const [r,g,b]=hsvToRgb(hue,0.7,1);
+    ctx.beginPath();
+    ctx.arc(this.x,this.y,this.size,0,Math.PI*2);
+    ctx.fillStyle=rgbToCss(r,g,b);
+    ctx.fill();
+  }
+}
+
+/* ========= EDGE (MORPHISM) ========= */
+class Edge {
+  constructor(a,b){
+    this.a=a;
+    this.b=b;
+    this.phase=rand(10);
+  }
+  update(){
+    this.phase+=0.02;
+  }
+  draw(){
+    const dx=this.b.x-this.a.x;
+    const dy=this.b.y-this.a.y;
+    const dist=Math.hypot(dx,dy);
+
+    const steps = Math.min(30, dist/10);
+    for(let i=0;i<steps;i++){
+      const t=i/steps;
+      const x=this.a.x+dx*t;
+      const y=this.a.y+dy*t;
+
+      const hue=(t + this.phase*0.1)%1;
+      const [r,g,b]=hsvToRgb(hue,0.8,1);
+
+      ctx.fillStyle=rgbToCss(r,g,b);
+      ctx.fillRect(x,y,2,2);
+    }
+
+    // pulse
+    ctx.strokeStyle="rgba(255,255,255,0.1)";
+    ctx.beginPath();
+    ctx.moveTo(this.a.x,this.a.y);
+    ctx.lineTo(this.b.x,this.b.y);
+    ctx.stroke();
+  }
+}
+
+/* ========= SYSTEM ========= */
+let nodes=[], edges=[];
+let NODE_COUNT=20;
+
+function init(){
+  nodes=[];
+  edges=[];
+  for(let i=0;i<NODE_COUNT;i++){
+    nodes.push(new Node(rand(innerWidth),rand(innerHeight),i%4));
+  }
+  for(let i=0;i<nodes.length;i++){
+    for(let j=i+1;j<nodes.length;j++){
+      if(Math.random()<0.2){
+        edges.push(new Edge(nodes[i],nodes[j]));
+      }
+    }
+  }
+}
+init();
+
+/* ========= AUDIO ========= */
+let audioCtx=null, osc=null, gain=null;
+let audioEnabled=false;
+
+function toggleAudio(){
+  audioEnabled=!audioEnabled;
+  if(audioEnabled){
+    audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+    osc=audioCtx.createOscillator();
+    gain=audioCtx.createGain();
+    gain.gain.value=0.02;
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start();
+  } else {
+    if(osc) osc.stop();
+    if(audioCtx) audioCtx.close();
+    osc=null; gain=null; audioCtx=null;
+  }
+}
+
+/* ========= DRAW ========= */
+let t=0;
+let showHUD=false;
+
+function draw(){
+  requestAnimationFrame(draw);
+  t+=0.01;
+
+  ctx.fillStyle="rgba(0,0,0,0.1)";
+  ctx.fillRect(0,0,innerWidth,innerHeight);
+
+  // rotating chromatic wheel overlay
+  const cx=innerWidth/2;
+  const cy=innerHeight/2;
+  const radius=100;
+
+  for(let i=0;i<60;i++){
+    const angle = (i/60)*Math.PI*2 + t*0.2;
+    const [r,g,b]=hsvToRgb(i/60,1,1);
+    ctx.strokeStyle=rgbToCss(r,g,b);
+    ctx.beginPath();
+    ctx.moveTo(cx,cy);
+    ctx.lineTo(cx+Math.cos(angle)*radius, cy+Math.sin(angle)*radius);
+    ctx.stroke();
+  }
+
+  edges.forEach(e=>{
+    e.update();
+    e.draw();
+  });
+
+  nodes.forEach(n=>{
+    n.update(t);
+    n.draw();
+  });
+
+  // audio modulation
+  if(audioEnabled && osc){
+    osc.frequency.value = 100 + edges.length*2 + Math.sin(t)*50;
+  }
+
+  // HUD
+  if(showHUD){
+    hud.innerHTML = `
+Nodes: ${nodes.length}<br>
+Edges: ${edges.length}<br>
+Audio: ${audioEnabled ? "ON" : "OFF"}<br>
+SPACE / CLICK / TAP → Randomize<br>
+H → Toggle HUD<br>
+S → Toggle Audio
+`;
+  } else {
+    hud.innerHTML="";
+  }
+}
+draw();
+
+/* ========= CONTROLS ========= */
+function randomize(){
+  NODE_COUNT = Math.floor(rand(30,10));
+  init();
+}
+
+window.addEventListener("keydown", e=>{
+  if(e.code==="Space") randomize();
+  if(e.key==="h"||e.key==="H") showHUD=!showHUD;
+  if(e.key==="s"||e.key==="S") toggleAudio();
+});
+
+window.addEventListener("click", randomize);
+window.addEventListener("touchstart", randomize);
+
+</script>
+</body>
+</html>

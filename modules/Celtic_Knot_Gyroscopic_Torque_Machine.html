@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Celtic Knot Gyroscopic Torque Machine</title>
+<meta name="description" content="A generative audiovisual engine where Celtic knot geometry forms a rotating gyroscopic mechanical network. Knot crossings become spinning rigid-body rotors, strands become torsion-spring torque transmitters producing rotational wave propagation, gyroscopic precession, angular momentum conservation and mechanical resonance cascades rendered as luminous braided filaments and flowing torque energy streams.">
+<meta name="keywords" content="Celtic knot generative art, gyroscopic physics simulation, audiovisual procedural systems, Celtic knot animation, generative art engine, torsion spring simulation, angular momentum visualization, mechanical resonance art, procedural Celtic patterns, gyroscopic precession art, interactive generative art, WebAudio synthesis, canvas animation, torque visualization, rotational wave propagation, luminous braided filaments, vortex nodes, spectral ribbons, harmonic palette, mechanical artwork, abstract procedural art">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+  canvas { display: block; position: absolute; top: 0; left: 0; }
+  #hud {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none; font-family: 'Courier New', monospace;
+    display: none;
+  }
+  #hud.visible { display: block; }
+  .hud-panel {
+    position: absolute; top: 20px; left: 20px;
+    color: rgba(255,255,255,0.75);
+    font-size: 11px; line-height: 1.7;
+    text-shadow: 0 0 8px currentColor;
+    letter-spacing: 0.05em;
+  }
+  .hud-title {
+    font-size: 13px; font-weight: bold;
+    margin-bottom: 4px;
+    letter-spacing: 0.2em;
+  }
+  .hud-val { color: rgba(255,220,100,0.9); }
+  .hud-controls {
+    position: absolute; bottom: 20px; right: 20px;
+    color: rgba(255,255,255,0.45);
+    font-size: 10px; text-align: right; line-height: 1.9;
+    letter-spacing: 0.12em;
+  }
+  .hud-key { 
+    display: inline-block; border: 1px solid rgba(255,255,255,0.3);
+    padding: 0 5px; border-radius: 3px; margin-right: 4px;
+    color: rgba(255,255,255,0.7);
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div class="hud-panel">
+    <div class="hud-title">⚙ GYROSCOPIC TORQUE ENGINE</div>
+    <div>TOPOLOGY: <span class="hud-val" id="h-topo">—</span></div>
+    <div>ROTORS: <span class="hud-val" id="h-rotors">—</span></div>
+    <div>STRANDS: <span class="hud-val" id="h-strands">—</span></div>
+    <div>RESONANCE: <span class="hud-val" id="h-res">—</span></div>
+    <div>ANGULAR ω: <span class="hud-val" id="h-omega">—</span></div>
+    <div>PALETTE: <span class="hud-val" id="h-pal">—</span></div>
+    <div>AUDIO: <span class="hud-val" id="h-audio">—</span></div>
+  </div>
+  <div class="hud-controls">
+    <div><span class="hud-key">SPACE</span> / <span class="hud-key">CLICK</span> regenerate</div>
+    <div><span class="hud-key">H</span> toggle HUD</div>
+    <div><span class="hud-key">S</span> toggle sound</div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+//  CELTIC KNOT GYROSCOPIC TORQUE MACHINE
+// ═══════════════════════════════════════════════════════════
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const hud = document.getElementById('hud');
+
+let W, H, cx, cy;
+let audioCtx = null, masterGain = null;
+let soundOn = false, hudOn = false;
+let animId;
+let t = 0;
+let sys = null;
+
+// ── Resize ─────────────────────────────────────────────────
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  cx = W / 2; cy = H / 2;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ── Palette System ─────────────────────────────────────────
+const PALETTE_NAMES = [
+  'AURORA','INFERNAL','ABYSSAL','GILDED','SPECTRAL',
+  'VIRIDAN','SOLARIS','UMBRAL','PHOSPHOR','CRYOGENIC'
+];
+
+function genPalette(seed) {
+  const r = seededRng(seed);
+  const baseHue = r() * 360;
+  const spread = 40 + r() * 200;
+  const n = 6;
+  const hues = Array.from({length: n}, (_, i) => (baseHue + i * spread / n) % 360);
+  const sats = hues.map(() => 60 + r() * 40);
+  const lits = hues.map(() => 40 + r() * 30);
+  const name = PALETTE_NAMES[Math.floor(r() * PALETTE_NAMES.length)];
+
+  return {
+    name,
+    hues, sats, lits,
+    get(i, alpha = 1, lmod = 0) {
+      const h = hues[i % n];
+      const s = sats[i % n];
+      const l = Math.max(0, Math.min(100, lits[i % n] + lmod));
+      return `hsla(${h},${s}%,${l}%,${alpha})`;
+    },
+    bg(alpha = 1) {
+      return `hsla(${(baseHue + 180) % 360},20%,4%,${alpha})`;
+    },
+    glow(i) { return hues[i % n]; },
+    ribbon(phase, alpha = 1) {
+      const h = (baseHue + phase * spread) % 360;
+      return `hsla(${h},80%,65%,${alpha})`;
+    }
+  };
+}
+
+// ── Seeded RNG ──────────────────────────────────────────────
+function seededRng(seed) {
+  let s = seed >>> 0;
+  return function() {
+    s ^= s << 13; s ^= s >> 17; s ^= s << 5;
+    return (s >>> 0) / 4294967296;
+  };
+}
+
+// ── Celtic Knot Topology ────────────────────────────────────
+function buildTopology(seed) {
+  const r = seededRng(seed);
+  const gridN = 3 + Math.floor(r() * 4);   // 3–6
+  const radius = Math.min(W, H) * (0.28 + r() * 0.12);
+  const symmetry = [3, 4, 5, 6, 8][Math.floor(r() * 5)];
+  const crossingDensity = 0.4 + r() * 0.5;
+
+  // Generate knot nodes (crossings) arranged in symmetric rings
+  const nodes = [];
+  const ringCount = 2 + Math.floor(r() * 3);
+  for (let ring = 0; ring < ringCount; ring++) {
+    const nr = (ring + 1) * (radius / ringCount);
+    const nPoints = symmetry * (ring + 1);
+    for (let i = 0; i < nPoints; i++) {
+      const angle = (i / nPoints) * Math.PI * 2 + ring * (Math.PI / symmetry);
+      const jitter = (r() - 0.5) * nr * 0.18;
+      nodes.push({
+        id: nodes.length,
+        x: cx + Math.cos(angle) * (nr + jitter),
+        y: cy + Math.sin(angle) * (nr + jitter),
+        ring, angle,
+        omega: (r() - 0.5) * 4 + (r() > 0.5 ? 1 : -1),
+        phase: r() * Math.PI * 2,
+        mass: 0.5 + r() * 1.5,
+        radius: 6 + r() * 14,
+        angularMomentum: 0,
+        precessionAxis: r() * Math.PI * 2,
+        precessionRate: (r() - 0.5) * 0.8,
+        resonanceFreq: 0.5 + r() * 3,
+        resonanceAmp: 0,
+        color: Math.floor(r() * 6),
+        crossings: [],
+        gyroTilt: r() * 0.4,
+      });
+    }
+  }
+
+  // Center node
+  nodes.push({
+    id: nodes.length,
+    x: cx, y: cy,
+    ring: -1, angle: 0,
+    omega: (r() - 0.5) * 6,
+    phase: 0,
+    mass: 3,
+    radius: 16 + r() * 12,
+    angularMomentum: 0,
+    precessionAxis: 0,
+    precessionRate: r() * 1.2,
+    resonanceFreq: 1 + r(),
+    resonanceAmp: 0,
+    color: Math.floor(r() * 6),
+    crossings: [],
+    gyroTilt: 0,
+  });
+
+  // Build strands (torsion-spring edges)
+  const strands = [];
+  const edgeSet = new Set();
+
+  function addStrand(a, b, type = 'torsion') {
+    const key = `${Math.min(a,b)}-${Math.max(a,b)}`;
+    if (edgeSet.has(key)) return;
+    edgeSet.add(key);
+    strands.push({
+      a, b,
+      type,
+      stiffness: 0.5 + r() * 2.5,
+      damping: 0.02 + r() * 0.1,
+      restLength: null,
+      torqueWave: 0,
+      wavePhase: r() * Math.PI * 2,
+      waveSpeed: 0.5 + r() * 3,
+      energy: 0,
+      color: Math.floor(r() * 6),
+      width: 1 + r() * 3,
+    });
+    nodes[a].crossings.push(b);
+    nodes[b].crossings.push(a);
+  }
+
+  // Ring-internal connections (Celtic pattern)
+  for (let ring = 0; ring < ringCount; ring++) {
+    const ringNodes = nodes.filter(n => n.ring === ring);
+    for (let i = 0; i < ringNodes.length; i++) {
+      const next = ringNodes[(i + 1) % ringNodes.length];
+      addStrand(ringNodes[i].id, next.id, 'ring');
+      if (r() < crossingDensity && i % 2 === 0) {
+        const skip2 = ringNodes[(i + 2) % ringNodes.length];
+        addStrand(ringNodes[i].id, skip2.id, 'skip');
+      }
+    }
+  }
+
+  // Inter-ring connections
+  for (let ring = 0; ring < ringCount - 1; ring++) {
+    const inner = nodes.filter(n => n.ring === ring);
+    const outer = nodes.filter(n => n.ring === ring + 1);
+    for (let i = 0; i < inner.length; i++) {
+      const best = outer.reduce((a, b) =>
+        dist(inner[i], a) < dist(inner[i], b) ? a : b);
+      addStrand(inner[i].id, best.id, 'radial');
+      if (r() < 0.4) {
+        const next = outer[(outer.indexOf(best) + 1) % outer.length];
+        addStrand(inner[i].id, next.id, 'cross');
+      }
+    }
+  }
+
+  // Connect outer ring to center
+  const outerRing = nodes.filter(n => n.ring === ringCount - 1);
+  const centerId = nodes[nodes.length - 1].id;
+  // sparse center connections
+  for (let i = 0; i < outerRing.length; i += Math.ceil(outerRing.length / symmetry)) {
+    addStrand(outerRing[i].id, centerId, 'spoke');
+  }
+  // inner ring to center
+  const innerRing = nodes.filter(n => n.ring === 0);
+  for (const n of innerRing) addStrand(n.id, centerId, 'core');
+
+  // Compute rest lengths
+  for (const s of strands) {
+    s.restLength = dist(nodes[s.a], nodes[s.b]);
+  }
+
+  return { nodes, strands, gridN, symmetry, radius, ringCount, seed };
+}
+
+function dist(a, b) {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+// ── Audio Engine ────────────────────────────────────────────
+let audioNodes = {};
+function initAudio() {
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  masterGain = audioCtx.createGain();
+  masterGain.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+  masterGain.connect(audioCtx.destination);
+}
+
+function buildAudio(nodes, palette) {
+  if (!audioCtx) return;
+  clearAudio();
+  const now = audioCtx.currentTime;
+  const voices = nodes.slice(0, 8);
+  voices.forEach((node, i) => {
+    const freq = 60 + Math.abs(node.omega) * 80 + node.resonanceFreq * 40;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    const lfo = audioCtx.createOscillator();
+    const lfoGain = audioCtx.createGain();
+    const filter = audioCtx.createBiquadFilter();
+
+    osc.type = ['sine','triangle','sawtooth','square'][i % 4];
+    osc.frequency.setValueAtTime(freq, now);
+    lfo.frequency.setValueAtTime(node.resonanceFreq, now);
+    lfoGain.gain.setValueAtTime(freq * 0.08, now);
+    gain.gain.setValueAtTime(0.015 / voices.length, now);
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(freq * 2, now);
+    filter.Q.setValueAtTime(3, now);
+
+    lfo.connect(lfoGain);
+    lfoGain.connect(osc.frequency);
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(masterGain);
+
+    lfo.start(now);
+    osc.start(now);
+    audioNodes[node.id] = { osc, gain, lfo, lfoGain, filter };
+  });
+}
+
+function clearAudio() {
+  if (!audioCtx) return;
+  for (const k in audioNodes) {
+    try {
+      audioNodes[k].osc.stop();
+      audioNodes[k].lfo.stop();
+    } catch(e) {}
+  }
+  audioNodes = {};
+}
+
+function updateAudio(nodes) {
+  if (!audioCtx || !soundOn) return;
+  const now = audioCtx.currentTime;
+  nodes.slice(0, 8).forEach((node) => {
+    const v = audioNodes[node.id];
+    if (!v) return;
+    const freq = Math.max(40, 60 + Math.abs(node.omega) * 80 + node.resonanceAmp * 200);
+    v.osc.frequency.setTargetAtTime(freq, now, 0.1);
+    const vol = Math.max(0, 0.015 * (1 + node.resonanceAmp * 3));
+    v.gain.gain.setTargetAtTime(vol / 8, now, 0.05);
+    v.lfo.frequency.setTargetAtTime(node.resonanceFreq * (1 + node.resonanceAmp), now, 0.1);
+  });
+}
+
+// ── Physics Simulation ──────────────────────────────────────
+function stepPhysics(sys, dt, globalT) {
+  const { nodes, strands } = sys;
+
+  // Update angular momentum and gyroscopic precession
+  for (const n of nodes) {
+    n.angularMomentum = n.mass * n.omega * n.radius * n.radius;
+    n.precessionAxis += n.precessionRate * dt;
+    n.resonanceAmp *= 0.98; // decay
+
+    // Gyroscopic torque from connected strands
+    let torqueSum = 0;
+    for (const si of n.crossings) {
+      const strand = strands.find(s => (s.a === n.id && s.b === si) || (s.b === n.id && s.a === si));
+      if (strand) torqueSum += strand.torqueWave * strand.stiffness * 0.001;
+    }
+    n.omega += torqueSum * dt;
+    n.omega *= 0.9995; // air resistance
+    n.phase += n.omega * dt;
+
+    // Resonance injection
+    const resonanceDrive = Math.sin(globalT * n.resonanceFreq * Math.PI * 2);
+    if (Math.abs(resonanceDrive) > 0.95) {
+      n.resonanceAmp = Math.min(1, n.resonanceAmp + 0.05);
+    }
+  }
+
+  // Propagate torque waves along strands
+  for (const s of strands) {
+    const na = nodes[s.a], nb = nodes[s.b];
+    const omegaDiff = na.omega - nb.omega;
+    s.torqueWave += (omegaDiff * s.stiffness - s.torqueWave * s.damping) * dt;
+    s.wavePhase += s.waveSpeed * dt;
+    s.energy = Math.abs(s.torqueWave) * 0.5 + Math.abs(omegaDiff) * 0.1;
+  }
+}
+
+// ── Rendering ───────────────────────────────────────────────
+function draw(sys, palette, t) {
+  const { nodes, strands } = sys;
+
+  // Background fade
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = palette.bg(0.18);
+  ctx.fillRect(0, 0, W, H);
+
+  // Draw strands as braided filaments — screen blending prevents white blowout
+  ctx.globalCompositeOperation = 'screen';
+  for (const s of strands) {
+    drawStrand(s, nodes, palette, t);
+  }
+
+  // Draw over-under crossings Celtic-style
+  ctx.globalCompositeOperation = 'source-over';
+  for (const s of strands) {
+    drawCrossingOverlay(s, nodes, palette, t);
+  }
+
+  // Draw rotor nodes
+  ctx.globalCompositeOperation = 'lighter';
+  for (const n of nodes) {
+    drawRotor(n, palette, t);
+  }
+
+  // Draw energy flow particles
+  drawParticles(sys, palette, t);
+}
+
+function drawStrand(s, nodes, palette, t) {
+  const na = nodes[s.a], nb = nodes[s.b];
+  const energy = Math.min(1, s.energy);
+
+  const mx = (na.x + nb.x) / 2;
+  const my = (na.y + nb.y) / 2;
+  const dx = nb.x - na.x, dy = nb.y - na.y;
+  const perp = Math.atan2(dy, dx) + Math.PI / 2;
+  const waveOffset = Math.sin(s.wavePhase + t * s.waveSpeed) * (5 + energy * 10);
+  const cpx = mx + Math.cos(perp) * waveOffset;
+  const cpy = my + Math.sin(perp) * waveOffset;
+
+  const hue0 = (palette.glow(s.color) + t * 15) % 360;
+
+  // Layer 1: soft colored halo — thin, low alpha, never white
+  ctx.beginPath();
+  ctx.moveTo(na.x, na.y);
+  ctx.quadraticCurveTo(cpx, cpy, nb.x, nb.y);
+  ctx.strokeStyle = `hsla(${hue0},85%,42%,${0.10 + energy * 0.12})`;
+  ctx.lineWidth = s.width * 1.1 + energy * 1.2;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+
+  // Layer 2: main filament — saturated color, lightness capped at 58%
+  const hue1 = (hue0 + 20) % 360;
+  ctx.beginPath();
+  ctx.moveTo(na.x, na.y);
+  ctx.quadraticCurveTo(cpx, cpy, nb.x, nb.y);
+  ctx.strokeStyle = `hsla(${hue1},100%,${40 + energy * 18}%,${0.5 + energy * 0.3})`;
+  ctx.lineWidth = Math.max(0.5, s.width * 0.5 + energy * 0.7);
+  ctx.stroke();
+
+  // Layer 3: complementary shimmer — only when energized, hue-shifted, thin
+  if (energy > 0.1) {
+    const hue2 = (hue0 + 140 + t * 22) % 360;
+    ctx.beginPath();
+    ctx.moveTo(na.x, na.y);
+    ctx.quadraticCurveTo(cpx, cpy, nb.x, nb.y);
+    ctx.strokeStyle = `hsla(${hue2},95%,55%,${energy * 0.28})`;
+    ctx.lineWidth = 0.7;
+    ctx.stroke();
+  }
+}
+
+function drawCrossingOverlay(s, nodes, palette, t) {
+  const na = nodes[s.a], nb = nodes[s.b];
+  const mx = (na.x + nb.x) / 2;
+  const my = (na.y + nb.y) / 2;
+  const clearR = Math.max(1.5, s.width * 0.9);
+  ctx.beginPath();
+  ctx.arc(mx, my, clearR, 0, Math.PI * 2);
+  ctx.fillStyle = palette.bg(0.65);
+  ctx.fill();
+}
+
+function drawRotor(n, palette, t) {
+  const { x, y, phase, omega, radius, resonanceAmp, color, gyroTilt, precessionAxis } = n;
+  const r = radius;
+  const energy = Math.min(1, Math.abs(omega) / 6 + resonanceAmp);
+
+  ctx.save();
+  ctx.translate(x, y);
+
+  // Gyroscopic tilt using ellipse for 3D rotor illusion
+  const tiltX = Math.cos(precessionAxis) * gyroTilt;
+  const tiltY = Math.sin(precessionAxis) * gyroTilt;
+  ctx.transform(1, tiltY * 0.3, tiltX * 0.3, 1, 0, 0);
+
+  // Outer glow
+  const grd = ctx.createRadialGradient(0, 0, 0, 0, 0, r * 3);
+  const hue = (palette.glow(color) + t * 30) % 360;
+  grd.addColorStop(0, `hsla(${hue},100%,80%,${0.08 + energy * 0.15})`);
+  grd.addColorStop(0.5, `hsla(${hue},80%,50%,${0.04 + energy * 0.08})`);
+  grd.addColorStop(1, `hsla(${hue},60%,30%,0)`);
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 3, 0, Math.PI * 2);
+  ctx.fillStyle = grd;
+  ctx.fill();
+
+  // Spinning rotor disc (ellipse for 3D)
+  const spinAngle = phase;
+  const spokeCount = 4 + Math.floor(Math.abs(omega) * 0.5) % 4;
+
+  for (let sp = 0; sp < spokeCount; sp++) {
+    const a = spinAngle + (sp / spokeCount) * Math.PI * 2;
+    const hue2 = (hue + sp * 60) % 360;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r * 0.6);
+    ctx.strokeStyle = `hsla(${hue2},90%,70%,${0.5 + energy * 0.4})`;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+
+  // Rim
+  ctx.beginPath();
+  ctx.ellipse(0, 0, r, r * 0.6, spinAngle, 0, Math.PI * 2);
+  ctx.strokeStyle = `hsla(${hue},80%,65%,${0.4 + energy * 0.4})`;
+  ctx.lineWidth = 1.5 + energy * 2;
+  ctx.stroke();
+
+  // Inner ring
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 0.35, 0, Math.PI * 2);
+  ctx.strokeStyle = `hsla(${(hue + 120) % 360},90%,80%,${0.5 + energy * 0.4})`;
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // Resonance pulse ring
+  if (resonanceAmp > 0.05) {
+    ctx.beginPath();
+    ctx.arc(0, 0, r * (1 + resonanceAmp * 1.5), 0, Math.PI * 2);
+    ctx.strokeStyle = `hsla(${hue},100%,95%,${resonanceAmp * 0.6})`;
+    ctx.lineWidth = resonanceAmp * 3;
+    ctx.stroke();
+  }
+
+  // Center jewel
+  const cGrd = ctx.createRadialGradient(0, 0, 0, 0, 0, r * 0.3);
+  cGrd.addColorStop(0, `hsla(${hue},100%,95%,${0.8 + energy * 0.2})`);
+  cGrd.addColorStop(1, `hsla(${hue},80%,40%,0.3)`);
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 0.3, 0, Math.PI * 2);
+  ctx.fillStyle = cGrd;
+  ctx.fill();
+
+  ctx.restore();
+}
+
+// Particle system for energy flow — sparse, dim, colorful
+let particles = [];
+function spawnParticles(sys) {
+  particles = [];
+  for (let i = 0; i < sys.strands.length; i += 3) {
+    const s = sys.strands[i];
+    particles.push({
+      strandIdx: i,
+      t: Math.random(),
+      speed: (0.15 + Math.random() * 0.35) * (Math.random() > 0.5 ? 1 : -1),
+      size: 0.8 + Math.random() * 1.0,
+      color: s.color,
+      alpha: 0.15 + Math.random() * 0.15,
+    });
+  }
+}
+
+function drawParticles(sys, palette, globalT) {
+  const { nodes, strands } = sys;
+  const dt = 0.003;
+
+  for (const p of particles) {
+    const s = strands[p.strandIdx];
+    if (!s) continue;
+    p.t += p.speed * dt * (1 + s.energy);
+    if (p.t > 1) p.t -= 1;
+    if (p.t < 0) p.t += 1;
+
+    const na = nodes[s.a], nb = nodes[s.b];
+    const mx = (na.x + nb.x) / 2;
+    const my = (na.y + nb.y) / 2;
+    const dx = nb.x - na.x, dy = nb.y - na.y;
+    const perp = Math.atan2(dy, dx) + Math.PI / 2;
+    const waveOffset = Math.sin(s.wavePhase + globalT * s.waveSpeed) * (8 + s.energy * 20);
+    const cpx = mx + Math.cos(perp) * waveOffset;
+    const cpy = my + Math.sin(perp) * waveOffset;
+
+    const tt = p.t;
+    const bx = (1-tt)*(1-tt)*na.x + 2*(1-tt)*tt*cpx + tt*tt*nb.x;
+    const by = (1-tt)*(1-tt)*na.y + 2*(1-tt)*tt*cpy + tt*tt*nb.y;
+
+    const energy = Math.min(1, s.energy);
+    const hue = (palette.glow(p.color) + globalT * 30) % 360;
+    const alpha = p.alpha * (0.4 + energy * 0.3);
+    const size = p.size * (0.8 + energy * 0.5);
+
+    ctx.beginPath();
+    ctx.arc(bx, by, size, 0, Math.PI * 2);
+    // Saturated palette color, lightness capped at 55% — never white
+    ctx.fillStyle = `hsla(${hue},90%,${42 + energy * 13}%,${alpha})`;
+    ctx.fill();
+  }
+}
+
+// ── HUD Update ──────────────────────────────────────────────
+function updateHUD(sys, palette) {
+  if (!hudOn) return;
+  const avgOmega = sys.nodes.reduce((a, n) => a + Math.abs(n.omega), 0) / sys.nodes.length;
+  const avgRes = sys.nodes.reduce((a, n) => a + n.resonanceAmp, 0) / sys.nodes.length;
+  document.getElementById('h-topo').textContent = `${sys.symmetry}-FOLD (${sys.ringCount} RINGS)`;
+  document.getElementById('h-rotors').textContent = sys.nodes.length;
+  document.getElementById('h-strands').textContent = sys.strands.length;
+  document.getElementById('h-res').textContent = (avgRes * 100).toFixed(1) + '%';
+  document.getElementById('h-omega').textContent = avgOmega.toFixed(3) + ' rad/s';
+  document.getElementById('h-pal').textContent = palette.name;
+  document.getElementById('h-audio').textContent = soundOn ? 'ON' : 'OFF';
+}
+
+// ── Main Loop ───────────────────────────────────────────────
+let lastTime = 0;
+function loop(ts) {
+  animId = requestAnimationFrame(loop);
+  const dt = Math.min((ts - lastTime) / 1000, 0.05);
+  lastTime = ts;
+  t += dt;
+
+  if (!sys) return;
+  stepPhysics(sys, dt, t);
+  draw(sys, sys.palette, t);
+  updateAudio(sys.nodes);
+  if (t % 0.1 < dt) updateHUD(sys, sys.palette);
+}
+
+// ── Generate New System ─────────────────────────────────────
+function regenerate() {
+  const seed = (Math.random() * 0xFFFFFFFF) >>> 0;
+  const palSeed = (Math.random() * 0xFFFFFFFF) >>> 0;
+  const palette = genPalette(palSeed);
+  const topology = buildTopology(seed);
+  topology.palette = palette;
+
+  // Clear canvas
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, W, H);
+
+  clearAudio();
+
+  if (soundOn) {
+    initAudio();
+    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+    buildAudio(topology.nodes, palette);
+    if (masterGain) {
+      masterGain.gain.setTargetAtTime(0.25, audioCtx.currentTime, 0.5);
+    }
+  }
+
+  spawnParticles(topology);
+  sys = topology;
+}
+
+// ── Input ───────────────────────────────────────────────────
+window.addEventListener('keydown', e => {
+  if (e.code === 'Space' || e.code === 'KeyR') {
+    e.preventDefault();
+    regenerate();
+  }
+  if (e.code === 'KeyH') {
+    hudOn = !hudOn;
+    hud.classList.toggle('visible', hudOn);
+  }
+  if (e.code === 'KeyS') {
+    soundOn = !soundOn;
+    if (soundOn) {
+      initAudio();
+      if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+      if (sys) buildAudio(sys.nodes, sys.palette);
+      if (masterGain) masterGain.gain.setTargetAtTime(0.25, audioCtx.currentTime, 0.5);
+    } else {
+      if (masterGain) masterGain.gain.setTargetAtTime(0.0001, audioCtx.currentTime, 0.3);
+    }
+  }
+});
+
+canvas.addEventListener('click', regenerate);
+
+// ── Boot ─────────────────────────────────────────────────────
+regenerate();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

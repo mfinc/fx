@@ -1,0 +1,957 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Chaotic Pendulum Tessellation Orchestra</title>
+<meta name="description" content="Real-time generative audiovisual physics engine simulating chaotic pendulum networks, triple-pendulum chains, and spring-coupled oscillators whose trajectories carve glowing fractal tessellations — Penrose quasicrystals, Apollonian gaskets, Koch snowflakes, Hilbert curve lattices — synchronized to modal synthesis soundscapes.">
+<meta name="keywords" content="chaotic pendulum simulation, generative fractal tiling, algorithmic art engine, real-time audiovisual physics, Penrose quasicrystal, Apollonian gasket, Koch snowflake, Hilbert curve, triple pendulum chaos, spring oscillator network, procedural tessellation, modal synthesis, granular audio, GPU particle trails, Byzantine mosaic, Mughal arabesque, Norse knotwork, Art Nouveau generative, computational tapestry, hypnotic geometry">
+<meta name="author" content="Chaotic Pendulum Tessellation Orchestra">
+<meta property="og:title" content="Chaotic Pendulum Tessellation Orchestra">
+<meta property="og:description" content="Living computational tapestry of chaotic pendulum networks generating luminous fractal tessellations with physics-synchronized modal synthesis music.">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="robots" content="index, follow">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000;cursor:none}
+  canvas{display:block;position:fixed;top:0;left:0}
+  #hud{
+    position:fixed;top:16px;left:16px;
+    font-family:'Courier New',monospace;
+    font-size:11px;color:rgba(255,255,255,0.7);
+    background:rgba(0,0,0,0.5);
+    padding:10px 14px;border-radius:4px;
+    border:1px solid rgba(255,255,255,0.1);
+    display:none;pointer-events:none;
+    line-height:1.7;
+  }
+  #hint{
+    position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
+    font-family:'Courier New',monospace;font-size:10px;
+    color:rgba(255,255,255,0.3);pointer-events:none;
+    transition:opacity 2s;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<div id="hint">SPACE / TAP · regenerate &nbsp;|&nbsp; H · hud &nbsp;|&nbsp; S · sound</div>
+<script>
+'use strict';
+// ─── GLOBALS ────────────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const hud = document.getElementById('hud');
+const hint = document.getElementById('hint');
+let W, H, CX, CY;
+let hudVisible = false;
+let soundOn = false;
+let audioCtx = null;
+let masterGain = null;
+let frameCount = 0;
+let fps = 60, lastFpsTime = 0, fpsFrames = 0;
+let state = {};
+let animId;
+
+// ─── RESIZE ─────────────────────────────────────────────────────────────────
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  CX = W / 2; CY = H / 2;
+}
+window.addEventListener('resize', () => { resize(); regenerate(); });
+resize();
+
+// ─── MATH HELPERS ────────────────────────────────────────────────────────────
+const PI = Math.PI, TAU = PI * 2;
+const rnd = (a, b) => a + Math.random() * (b - a);
+const rndI = (a, b) => Math.floor(rnd(a, b));
+const pick = arr => arr[rndI(0, arr.length)];
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const mod = (a, b) => ((a % b) + b) % b;
+const hsl = (h, s, l, a = 1) => `hsla(${h},${s}%,${l}%,${a})`;
+
+// ─── COLOR PALETTE ───────────────────────────────────────────────────────────
+function makePalette() {
+  const schemes = [
+    // Byzantine gold/purple
+    () => ({ base: rnd(240,290), accent: rnd(40,60), bg: [5,3,8], mode: 'byzantine' }),
+    // Roman mosaic terracotta
+    () => ({ base: rnd(15,35), accent: rnd(180,220), bg: [8,4,3], mode: 'roman' }),
+    // Mughal emerald/crimson
+    () => ({ base: rnd(120,160), accent: rnd(0,20), bg: [3,6,4], mode: 'mughal' }),
+    // Norse ice/steel
+    () => ({ base: rnd(190,230), accent: rnd(280,320), bg: [4,5,10], mode: 'norse' }),
+    // Art Nouveau botanical
+    () => ({ base: rnd(80,130), accent: rnd(300,340), bg: [3,5,3], mode: 'artnouveau' }),
+    // Thai temple gold
+    () => ({ base: rnd(35,55), accent: rnd(180,200), bg: [5,4,2], mode: 'thai' }),
+    // Electric neon chaos
+    () => ({ base: rnd(160,200), accent: rnd(320,360), bg: [2,2,4], mode: 'neon' }),
+    // Void cosmic
+    () => ({ base: rnd(220,270), accent: rnd(60,100), bg: [1,1,3], mode: 'cosmic' }),
+  ];
+  const s = pick(schemes)();
+  s.sat = rnd(60, 100);
+  s.lit = rnd(50, 80);
+  s.spectralSpeed = rnd(0.1, 0.5);
+  s.gradBloom = Math.random() > 0.5;
+  return s;
+}
+
+function paletteColor(pal, t, energy = 1) {
+  const h = mod(pal.base + t * 60 + frameCount * pal.spectralSpeed, 360);
+  const s = clamp(pal.sat + energy * 20, 40, 100);
+  const l = clamp(pal.lit * energy, 20, 90);
+  return { h, s, l };
+}
+
+// ─── PENDULUM PHYSICS ────────────────────────────────────────────────────────
+class TriplePendulum {
+  constructor(x, y, lens, masses, angleOffset = 0) {
+    this.ox = x; this.oy = y;
+    this.L = lens || [rnd(40,90), rnd(30,70), rnd(20,50)];
+    this.M = masses || [rnd(1,3), rnd(0.5,2), rnd(0.3,1.5)];
+    this.a = [rnd(-PI, PI) + angleOffset, rnd(-PI, PI), rnd(-PI, PI)];
+    this.v = [rnd(-0.5, 0.5), rnd(-0.8, 0.8), rnd(-1, 1)];
+    this.g = rnd(200, 500);
+    this.trail = [];
+    this.maxTrail = rndI(80, 200);
+    this.energy = 0;
+    this.phase = 0;
+    this.trailColor = null;
+  }
+
+  step(dt) {
+    // Simplified 3-pendulum RK4-like integration
+    const [a1, a2, a3] = this.a;
+    const [v1, v2, v3] = this.v;
+    const [L1, L2, L3] = this.L;
+    const [m1, m2, m3] = this.M;
+    const g = this.g;
+
+    // Lagrangian accelerations (simplified, coupled)
+    const d12 = a1 - a2, d13 = a1 - a3, d23 = a2 - a3;
+    const M12 = m1 + m2 + m3, M23 = m2 + m3;
+
+    const num1 = -g * (M12) * Math.sin(a1)
+      - m2 * g * Math.sin(a1 - 2 * a2) * 0.5
+      - m3 * g * Math.sin(a1 - 2 * a3) * 0.3
+      - 2 * Math.sin(d12) * M23 * (v2 * v2 * L2 + v1 * v1 * L1 * Math.cos(d12)) * 0.5;
+    const den1 = L1 * (2 * M12 - M23 * Math.cos(2 * d12) * 0.5 - m3 * 0.3);
+    const acc1 = num1 / (den1 || 1);
+
+    const num2 = 2 * Math.sin(d12) * (M12 * v1 * v1 * L1 + g * M12 * Math.cos(a1) + v2 * v2 * L2 * M23 * Math.cos(d12) * 0.5);
+    const den2 = L2 * (2 * M12 - M23 * Math.cos(2 * d12) * 0.5);
+    const acc2 = num2 / (den2 || 1);
+
+    const num3 = 2 * Math.sin(d13) * (M12 * v1 * v1 * L1 * 0.5 + g * (m1 + m3) * Math.cos(a1) + v3 * v3 * L3 * m3 * Math.cos(d13) * 0.3);
+    const den3 = L3 * (2 * (m1 + m3) - m3 * Math.cos(2 * d13) * 0.3);
+    const acc3 = num3 / (den3 || 1);
+
+    const damp = 0.9998;
+    this.v[0] = (v1 + acc1 * dt) * damp;
+    this.v[1] = (v2 + acc2 * dt) * damp;
+    this.v[2] = (v3 + acc3 * dt) * damp;
+    this.a[0] = a1 + this.v[0] * dt;
+    this.a[1] = a2 + this.v[1] * dt;
+    this.a[2] = a3 + this.v[2] * dt;
+
+    // Clamp velocities
+    for (let i = 0; i < 3; i++) this.v[i] = clamp(this.v[i], -20, 20);
+
+    // Tip position
+    const x1 = this.ox + L1 * Math.sin(this.a[0]);
+    const y1 = this.oy + L1 * Math.cos(this.a[0]);
+    const x2 = x1 + L2 * Math.sin(this.a[1]);
+    const y2 = y1 + L2 * Math.cos(this.a[1]);
+    const x3 = x2 + L3 * Math.sin(this.a[2]);
+    const y3 = y2 + L3 * Math.cos(this.a[2]);
+
+    this.joints = [[this.ox, this.oy], [x1, y1], [x2, y2], [x3, y3]];
+    this.tip = [x3, y3];
+
+    this.energy = 0.5 * (m1 * v1 * v1 + m2 * v2 * v2 + m3 * v3 * v3);
+    this.phase = mod(this.phase + this.energy * dt * 0.1, TAU);
+
+    this.trail.push([x3, y3, this.energy]);
+    if (this.trail.length > this.maxTrail) this.trail.shift();
+  }
+
+  draw(ctx, pal, t) {
+    if (this.trail.length < 2) return;
+    ctx.save();
+    for (let i = 1; i < this.trail.length; i++) {
+      const frac = i / this.trail.length;
+      const [x0, y0, e0] = this.trail[i - 1];
+      const [x1, y1, e1] = this.trail[i];
+      const c = paletteColor(pal, t + frac * 0.3, frac * clamp(e1, 0.1, 1));
+      ctx.strokeStyle = `hsla(${c.h},${c.s}%,${c.l}%,${frac * 0.85})`;
+      ctx.lineWidth = frac * 2.5;
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      ctx.lineTo(x1, y1);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+// ─── SPRING OSCILLATOR ───────────────────────────────────────────────────────
+class SpringOscillator {
+  constructor(x, y) {
+    this.x = x; this.y = y;
+    this.vx = rnd(-2, 2); this.vy = rnd(-2, 2);
+    this.ax = 0; this.ay = 0;
+    this.trail = [];
+    this.maxTrail = rndI(60, 150);
+    this.energy = 0;
+    this.springs = []; // linked oscillators
+    this.k = rnd(0.01, 0.05);
+    this.rest = rnd(50, 150);
+    this.mass = rnd(0.5, 2);
+  }
+
+  step(dt, others) {
+    this.ax = 0; this.ay = 0;
+    for (const other of this.springs) {
+      const dx = other.x - this.x, dy = other.y - this.y;
+      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+      const force = (dist - this.rest) * this.k;
+      this.ax += force * dx / dist / this.mass;
+      this.ay += force * dy / dist / this.mass;
+    }
+    // Gravity well toward center
+    const dx = CX - this.x, dy = CY - this.y;
+    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+    this.ax += dx / dist * 0.03;
+    this.ay += dy / dist * 0.03;
+
+    const damp = 0.999;
+    this.vx = (this.vx + this.ax * dt) * damp;
+    this.vy = (this.vy + this.ay * dt) * damp;
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
+    this.energy = 0.5 * this.mass * (this.vx * this.vx + this.vy * this.vy);
+    this.trail.push([this.x, this.y, this.energy]);
+    if (this.trail.length > this.maxTrail) this.trail.shift();
+  }
+
+  draw(ctx, pal, t) {
+    if (this.trail.length < 2) return;
+    ctx.save();
+    for (let i = 1; i < this.trail.length; i++) {
+      const frac = i / this.trail.length;
+      const [x0, y0] = this.trail[i - 1];
+      const [x1, y1, e1] = this.trail[i];
+      const c = paletteColor(pal, t + frac * 0.5 + 0.2, frac * clamp(e1 * 0.5, 0.05, 1));
+      ctx.strokeStyle = `hsla(${c.h},${c.s}%,${c.l}%,${frac * 0.6})`;
+      ctx.lineWidth = frac * 1.5;
+      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+// ─── GYROSCOPIC ROTOR ────────────────────────────────────────────────────────
+class GyroRotor {
+  constructor(x, y) {
+    this.x = x; this.y = y;
+    this.theta = rnd(0, TAU);
+    this.phi = rnd(0, TAU);
+    this.psi = rnd(0, TAU);
+    this.dTheta = rnd(0.5, 2) * (Math.random() > 0.5 ? 1 : -1);
+    this.dPhi = rnd(0.3, 1.5) * (Math.random() > 0.5 ? 1 : -1);
+    this.dPsi = rnd(1, 3) * (Math.random() > 0.5 ? 1 : -1);
+    this.r = rnd(30, 80);
+    this.trail = [];
+    this.maxTrail = rndI(100, 250);
+    this.energy = 0;
+  }
+
+  step(dt) {
+    this.theta += this.dTheta * dt;
+    this.phi += this.dPhi * dt;
+    this.psi += this.dPsi * dt;
+    // Precession coupling
+    this.dTheta += Math.sin(this.phi) * 0.002;
+    this.dPhi += Math.sin(this.theta) * 0.001;
+
+    const tx = this.x + this.r * Math.sin(this.theta) * Math.cos(this.phi);
+    const ty = this.y + this.r * Math.sin(this.phi) * Math.cos(this.psi);
+    this.energy = 0.5 * (this.dTheta * this.dTheta + this.dPhi * this.dPhi + this.dPsi * this.dPsi);
+    this.trail.push([tx, ty, this.energy]);
+    if (this.trail.length > this.maxTrail) this.trail.shift();
+  }
+
+  draw(ctx, pal, t) {
+    if (this.trail.length < 2) return;
+    ctx.save();
+    for (let i = 1; i < this.trail.length; i++) {
+      const frac = i / this.trail.length;
+      const [x0, y0] = this.trail[i - 1];
+      const [x1, y1, e1] = this.trail[i];
+      const c = paletteColor(pal, t + frac * 0.4 + 0.4, frac * 0.8);
+      ctx.strokeStyle = `hsla(${c.h},${c.s}%,${c.l}%,${frac * 0.75})`;
+      ctx.lineWidth = frac * 2;
+      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+// ─── TESSELLATION LAYER ──────────────────────────────────────────────────────
+class TessLayer {
+  constructor(type, pal) {
+    this.type = type;
+    this.pal = pal;
+    this.points = [];
+    this.phase = 0;
+    this.speed = rnd(0.003, 0.015);
+    this.scale = rnd(0.4, 1.2);
+    this.alpha = rnd(0.05, 0.18);
+    this.cx = CX + rnd(-W * 0.2, W * 0.2);
+    this.cy = CY + rnd(-H * 0.2, H * 0.2);
+    this.rotation = rnd(0, TAU);
+    this.rotSpeed = rnd(-0.001, 0.001);
+    this.generate();
+  }
+
+  generate() {
+    this.points = [];
+    const s = this.scale;
+    switch (this.type) {
+      case 'hexagonal': this._genHex(s); break;
+      case 'penrose': this._genPenrose(s); break;
+      case 'apollonian': this._genApolloApprox(s); break;
+      case 'dragon': this._genDragon(s); break;
+      case 'koch': this._genKoch(s); break;
+      case 'hilbert': this._genHilbert(s); break;
+      case 'archimedean': this._genArchimedean(s); break;
+      case 'islamic': this._genIslamic(s); break;
+      case 'knotwork': this._genKnotwork(s); break;
+      case 'botanical': this._genBotanical(s); break;
+    }
+  }
+
+  _genHex(s) {
+    const size = 40 * s, rows = 8, cols = 8;
+    const dx = size * Math.sqrt(3), dy = size * 1.5;
+    for (let r = -rows; r <= rows; r++) {
+      for (let c = -cols; c <= cols; c++) {
+        const x = c * dx + (r % 2) * dx / 2;
+        const y = r * dy;
+        const pts = [];
+        for (let i = 0; i < 6; i++) {
+          const a = PI / 6 + i * PI / 3;
+          pts.push([x + size * Math.cos(a), y + size * Math.sin(a)]);
+        }
+        this.points.push({ type: 'poly', pts, phase: r * 0.3 + c * 0.2 });
+      }
+    }
+  }
+
+  _genPenrose(s) {
+    // P3 rhombus tiling approximation
+    const n = 5, r = 60 * s;
+    const phi = (1 + Math.sqrt(5)) / 2;
+    const angles = [PI / 10, PI / 10 + TAU / 5, PI / 10 + 2 * TAU / 5,
+                    PI / 10 + 3 * TAU / 5, PI / 10 + 4 * TAU / 5];
+    for (let ring = 0; ring < 5; ring++) {
+      const rr = ring * r;
+      for (let i = 0; i < n; i++) {
+        for (let j = 0; j < 3; j++) {
+          const a = angles[i] + j * TAU / 5;
+          const x = rr * Math.cos(a), y = rr * Math.sin(a);
+          const pts = [];
+          for (let k = 0; k < 5; k++) {
+            const aa = a + k * TAU / 5;
+            pts.push([x + r * 0.4 * Math.cos(aa), y + r * 0.4 * Math.sin(aa)]);
+          }
+          this.points.push({ type: 'poly', pts, phase: i * 0.4 + ring * 0.5 });
+        }
+      }
+    }
+  }
+
+  _genApolloApprox(s) {
+    // Nested circles approximating Apollonian gasket
+    const addCircle = (x, y, r, depth) => {
+      if (depth > 5 || r < 4) return;
+      this.points.push({ type: 'circle', x, y, r, phase: depth * 0.5 });
+      const nr = r / (1 + 1 / (depth + 1));
+      const offsets = [0, TAU / 3, 2 * TAU / 3];
+      for (const a of offsets) {
+        addCircle(x + (r - nr) * Math.cos(a), y + (r - nr) * Math.sin(a), nr, depth + 1);
+      }
+    };
+    addCircle(0, 0, 120 * s, 0);
+  }
+
+  _genDragon(s) {
+    // Dragon curve
+    let segs = [[0, 0, 20 * s, 0]];
+    for (let iter = 0; iter < 11; iter++) {
+      const next = [];
+      for (const [x1, y1, x2, y2] of segs) {
+        const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+        const px = -(y2 - y1) / 2, py = (x2 - x1) / 2;
+        next.push([x1, y1, mx + px, my + py]);
+        next.push([x2, y2, mx + px, my + py]);
+      }
+      segs = next;
+    }
+    segs.forEach((seg, i) => this.points.push({ type: 'line', pts: [[seg[0], seg[1]], [seg[2], seg[3]]], phase: i * 0.01 }));
+  }
+
+  _genKoch(s) {
+    const kochSeg = (x1, y1, x2, y2, depth) => {
+      if (depth === 0) {
+        this.points.push({ type: 'line', pts: [[x1, y1], [x2, y2]], phase: depth * 0.2 });
+        return;
+      }
+      const dx = x2 - x1, dy = y2 - y1;
+      const ax = x1 + dx / 3, ay = y1 + dy / 3;
+      const bx = x1 + 2 * dx / 3, by = y1 + 2 * dy / 3;
+      const px = (dx / 3) * Math.cos(PI / 3) - (dy / 3) * Math.sin(PI / 3);
+      const py = (dx / 3) * Math.sin(PI / 3) + (dy / 3) * Math.cos(PI / 3);
+      const mx = ax + px, my = ay + py;
+      kochSeg(x1, y1, ax, ay, depth - 1);
+      kochSeg(ax, ay, mx, my, depth - 1);
+      kochSeg(mx, my, bx, by, depth - 1);
+      kochSeg(bx, by, x2, y2, depth - 1);
+    };
+    const r = 100 * s;
+    for (let i = 0; i < 3; i++) {
+      const a1 = i * TAU / 3 - PI / 6, a2 = (i + 1) * TAU / 3 - PI / 6;
+      kochSeg(r * Math.cos(a1), r * Math.sin(a1), r * Math.cos(a2), r * Math.sin(a2), 4);
+    }
+  }
+
+  _genHilbert(s) {
+    const order = 4, n = Math.pow(2, order);
+    const size = 120 * s / n;
+    const pts = [];
+    for (let i = 0; i < n * n; i++) {
+      let x = 0, y = 0, rx, ry, t = i, s2 = 1;
+      while (s2 < n) {
+        rx = 1 & (t / 2 | 0); ry = 1 & (t ^ rx);
+        if (ry === 0) {
+          if (rx === 1) { x = s2 - 1 - x; y = s2 - 1 - y; }
+          [x, y] = [y, x];
+        }
+        x += s2 * rx; y += s2 * ry; t >>= 2; s2 <<= 1;
+      }
+      pts.push([x * size - n * size / 2, y * size - n * size / 2]);
+    }
+    for (let i = 1; i < pts.length; i++) {
+      this.points.push({ type: 'line', pts: [pts[i - 1], pts[i]], phase: i * 0.003 });
+    }
+  }
+
+  _genArchimedean(s) {
+    // 4.8.8 tiling
+    const a = 40 * s;
+    const dx = a * (1 + Math.sqrt(2)), dy = a * (1 + Math.sqrt(2));
+    for (let r = -4; r <= 4; r++) {
+      for (let c = -4; c <= 4; c++) {
+        const x = c * dx, y = r * dy;
+        // Square
+        this.points.push({ type: 'poly', pts: [[-a/2+x,-a/2+y],[a/2+x,-a/2+y],[a/2+x,a/2+y],[-a/2+x,a/2+y]], phase: r + c });
+        // Octagons
+        const oa = a * 0.7, ob = a * 0.3;
+        const oct = [];
+        for (let i = 0; i < 8; i++) {
+          const ang = i * PI / 4 + PI / 8;
+          oct.push([x + dx/2 + oa * Math.cos(ang), y + dy/2 + oa * Math.sin(ang)]);
+        }
+        this.points.push({ type: 'poly', pts: oct, phase: r * 0.5 + c * 0.3 });
+      }
+    }
+  }
+
+  _genIslamic(s) {
+    // 8-fold Islamic star pattern
+    const n = 8, r = 50 * s;
+    for (let ring = 0; ring < 3; ring++) {
+      const rr = ring * r * 2.2;
+      for (let k = 0; k < 8; k++) {
+        const cx = rr * Math.cos(k * TAU / 8), cy = rr * Math.sin(k * TAU / 8);
+        const star = [];
+        for (let i = 0; i < n * 2; i++) {
+          const a = i * PI / n;
+          const rr2 = i % 2 === 0 ? r : r * 0.4;
+          star.push([cx + rr2 * Math.cos(a), cy + rr2 * Math.sin(a)]);
+        }
+        this.points.push({ type: 'poly', pts: star, phase: ring + k * 0.3 });
+      }
+    }
+  }
+
+  _genKnotwork(s) {
+    // Norse knotwork interlace
+    const grid = 5, cell = 35 * s;
+    for (let i = 0; i < grid; i++) {
+      for (let j = 0; j < grid; j++) {
+        const x = (i - grid / 2) * cell, y = (j - grid / 2) * cell;
+        const pts = [];
+        const steps = 20;
+        for (let t = 0; t <= steps; t++) {
+          const tt = t / steps * TAU;
+          pts.push([x + cell * 0.4 * Math.cos(tt) * (1 + 0.3 * Math.cos(2 * tt)),
+                    y + cell * 0.4 * Math.sin(tt) * (1 + 0.3 * Math.sin(3 * tt))]);
+        }
+        this.points.push({ type: 'curve', pts, phase: i * 0.4 + j * 0.3 });
+      }
+    }
+  }
+
+  _genBotanical(s) {
+    // Art Nouveau botanical spirals
+    const branches = rndI(5, 9);
+    for (let b = 0; b < branches; b++) {
+      const baseAngle = b * TAU / branches;
+      const pts = [];
+      for (let t = 0; t < 100; t++) {
+        const tt = t / 100;
+        const r = tt * 100 * s;
+        const a = baseAngle + tt * TAU * 2 + Math.sin(tt * TAU * 3) * 0.5;
+        pts.push([r * Math.cos(a), r * Math.sin(a)]);
+      }
+      this.points.push({ type: 'curve', pts, phase: b * 0.5 });
+      // Leaf petals
+      for (let i = 0; i < 5; i++) {
+        const t = (i + 1) / 6;
+        const r = t * 100 * s;
+        const a = baseAngle + t * TAU * 2;
+        const leafPts = [];
+        for (let j = 0; j <= 20; j++) {
+          const lt = j / 20 * TAU;
+          const lr = 15 * s * Math.sin(lt / 2);
+          leafPts.push([r * Math.cos(a) + lr * Math.cos(a + lt * 0.3),
+                        r * Math.sin(a) + lr * Math.sin(a + lt * 0.3)]);
+        }
+        this.points.push({ type: 'curve', pts: leafPts, phase: b * 0.5 + i * 0.1 });
+      }
+    }
+  }
+
+  draw(ctx, t) {
+    this.phase += this.speed;
+    this.rotation += this.rotSpeed;
+    ctx.save();
+    ctx.translate(this.cx, this.cy);
+    ctx.rotate(this.rotation);
+
+    for (const shape of this.points) {
+      const ph = (this.phase + shape.phase) % 1;
+      const c = paletteColor(this.pal, ph + t, 0.6);
+      const alpha = this.alpha * (0.7 + 0.3 * Math.sin(this.phase * TAU + shape.phase));
+      ctx.strokeStyle = `hsla(${c.h},${c.s}%,${c.l}%,${alpha})`;
+      ctx.fillStyle = `hsla(${c.h},${c.s}%,${c.l}%,${alpha * 0.15})`;
+      ctx.lineWidth = 0.8;
+
+      if (shape.type === 'poly') {
+        ctx.beginPath();
+        ctx.moveTo(shape.pts[0][0], shape.pts[0][1]);
+        for (let i = 1; i < shape.pts.length; i++) ctx.lineTo(shape.pts[i][0], shape.pts[i][1]);
+        ctx.closePath(); ctx.stroke(); ctx.fill();
+      } else if (shape.type === 'circle') {
+        ctx.beginPath();
+        ctx.arc(shape.x, shape.y, shape.r, 0, TAU);
+        ctx.stroke(); ctx.fill();
+      } else if (shape.type === 'line') {
+        ctx.beginPath();
+        ctx.moveTo(shape.pts[0][0], shape.pts[0][1]);
+        ctx.lineTo(shape.pts[1][0], shape.pts[1][1]);
+        ctx.stroke();
+      } else if (shape.type === 'curve') {
+        ctx.beginPath();
+        ctx.moveTo(shape.pts[0][0], shape.pts[0][1]);
+        for (let i = 1; i < shape.pts.length; i++) ctx.lineTo(shape.pts[i][0], shape.pts[i][1]);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+}
+
+// ─── PARTICLE FIELD ──────────────────────────────────────────────────────────
+class Particle {
+  constructor() { this.reset(); }
+  reset() {
+    this.x = rnd(0, W); this.y = rnd(0, H);
+    this.vx = rnd(-0.5, 0.5); this.vy = rnd(-0.5, 0.5);
+    this.life = rnd(0.5, 1); this.decay = rnd(0.002, 0.008);
+    this.size = rnd(1, 3); this.hue = rnd(0, 360);
+  }
+  step() {
+    this.x += this.vx; this.y += this.vy;
+    this.life -= this.decay;
+    if (this.life <= 0 || this.x < 0 || this.x > W || this.y < 0 || this.y > H) this.reset();
+  }
+}
+
+// ─── AUDIO ENGINE ────────────────────────────────────────────────────────────
+function initAudio() {
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  masterGain = audioCtx.createGain();
+  masterGain.gain.value = 0.18;
+  masterGain.connect(audioCtx.destination);
+  state.audioNodes = [];
+  buildAudioGraph();
+}
+
+function buildAudioGraph() {
+  if (!audioCtx) return;
+  // Kill old nodes
+  for (const n of (state.audioNodes || [])) { try { n.stop(); } catch (e) {} }
+  state.audioNodes = [];
+
+  const now = audioCtx.currentTime;
+  const pal = state.palette;
+
+  // Modal synthesis: resonant modes based on palette base hue
+  const baseFreq = 55 + (pal.base / 360) * 110;
+  const harmonics = [1, 2, 3, 5, 8, 13]; // Fibonacci partials
+
+  for (let i = 0; i < 4; i++) {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    const filter = audioCtx.createBiquadFilter();
+
+    osc.type = ['sine', 'triangle', 'sine', 'sine'][i];
+    const freq = baseFreq * harmonics[i % harmonics.length] * (1 + i * 0.05);
+    osc.frequency.value = freq;
+    gain.gain.value = 0.04 / (i + 1);
+    filter.type = 'bandpass';
+    filter.frequency.value = freq;
+    filter.Q.value = 8;
+
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(masterGain);
+    osc.start(now);
+    state.audioNodes.push(osc);
+    state.audioNodes.push(gain);
+
+    // Slow LFO on gain
+    const lfo = audioCtx.createOscillator();
+    const lfoGain = audioCtx.createGain();
+    lfo.frequency.value = 0.05 + i * 0.03;
+    lfoGain.gain.value = gain.gain.value * 0.5;
+    lfo.connect(lfoGain);
+    lfoGain.connect(gain.gain);
+    lfo.start(now);
+    state.audioNodes.push(lfo);
+  }
+
+  // Resonant string model (Karplus-Strong via delay)
+  const bufSize = audioCtx.sampleRate * 0.1;
+  const noiseBuffer = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
+  const data = noiseBuffer.getChannelData(0);
+  for (let i = 0; i < bufSize; i++) data[i] = Math.random() * 2 - 1;
+
+  // Granular drone
+  const droneOsc = audioCtx.createOscillator();
+  const droneGain = audioCtx.createGain();
+  const droneFilter = audioCtx.createBiquadFilter();
+  droneOsc.type = 'sawtooth';
+  droneOsc.frequency.value = baseFreq / 2;
+  droneFilter.type = 'lowpass';
+  droneFilter.frequency.value = 300;
+  droneFilter.Q.value = 2;
+  droneGain.gain.value = 0.02;
+  droneOsc.connect(droneFilter);
+  droneFilter.connect(droneGain);
+  droneGain.connect(masterGain);
+  droneOsc.start(now);
+  state.audioNodes.push(droneOsc);
+
+  // Swarm oscillators
+  for (let i = 0; i < 3; i++) {
+    const osc = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = baseFreq * (1.5 + i * 0.618);
+    g.gain.value = 0.008;
+    // Slow random frequency modulation
+    const modOsc = audioCtx.createOscillator();
+    const modGain = audioCtx.createGain();
+    modOsc.frequency.value = 0.1 + i * 0.07;
+    modGain.gain.value = osc.frequency.value * 0.02;
+    modOsc.connect(modGain);
+    modGain.connect(osc.frequency);
+    osc.connect(g);
+    g.connect(masterGain);
+    osc.start(now); modOsc.start(now);
+    state.audioNodes.push(osc, modOsc);
+  }
+
+  state.audioBaseFreq = baseFreq;
+}
+
+function updateAudio(totalEnergy, phase) {
+  if (!audioCtx || !soundOn) return;
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  // Modulate master gain with total energy
+  const t = audioCtx.currentTime;
+  const targetGain = 0.05 + clamp(totalEnergy * 0.02, 0, 0.2);
+  masterGain.gain.setTargetAtTime(targetGain, t, 0.3);
+}
+
+function stopAudio() {
+  if (!audioCtx) return;
+  masterGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.5);
+}
+
+function startAudio() {
+  if (!audioCtx) { initAudio(); return; }
+  masterGain.gain.setTargetAtTime(0.18, audioCtx.currentTime, 0.5);
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+
+// ─── REGENERATE ──────────────────────────────────────────────────────────────
+function regenerate() {
+  const pal = makePalette();
+
+  // Physics objects
+  const nTriple = rndI(3, 8);
+  const triples = [];
+  for (let i = 0; i < nTriple; i++) {
+    const angle = i / nTriple * TAU;
+    const r = rnd(0, Math.min(W, H) * 0.25);
+    triples.push(new TriplePendulum(
+      CX + r * Math.cos(angle),
+      CY + r * Math.sin(angle)
+    ));
+  }
+
+  const nSprings = rndI(4, 12);
+  const springs = [];
+  for (let i = 0; i < nSprings; i++) {
+    springs.push(new SpringOscillator(
+      rnd(W * 0.2, W * 0.8),
+      rnd(H * 0.2, H * 0.8)
+    ));
+  }
+  // Link springs in a ring + some cross-links
+  for (let i = 0; i < springs.length; i++) {
+    springs[i].springs.push(springs[(i + 1) % springs.length]);
+    if (Math.random() > 0.5) springs[i].springs.push(springs[(i + 2) % springs.length]);
+  }
+
+  const nGyros = rndI(2, 6);
+  const gyros = [];
+  for (let i = 0; i < nGyros; i++) {
+    const angle = i / nGyros * TAU;
+    const r = rnd(W * 0.15, Math.min(W, H) * 0.35);
+    gyros.push(new GyroRotor(
+      CX + r * Math.cos(angle),
+      CY + r * Math.sin(angle)
+    ));
+  }
+
+  // Tessellation layers
+  const tessTypes = ['hexagonal','penrose','apollonian','dragon','koch','hilbert','archimedean','islamic','knotwork','botanical'];
+  const nTess = rndI(2, 5);
+  const tessLayers = [];
+  const chosen = [];
+  const shuffled = [...tessTypes].sort(() => Math.random() - 0.5);
+  for (let i = 0; i < nTess; i++) tessLayers.push(new TessLayer(shuffled[i], pal));
+
+  // Particles
+  const nParticles = Math.floor(W * H / 4000);
+  const particles = [];
+  for (let i = 0; i < nParticles; i++) particles.push(new Particle());
+
+  // Background style
+  const bgStyle = pick(['void', 'nebula', 'grid', 'radial']);
+
+  state = {
+    palette: pal,
+    triples, springs, gyros,
+    tessLayers, particles,
+    bgStyle,
+    t: 0,
+    audioNodes: state.audioNodes || [],
+    audioBaseFreq: state.audioBaseFreq || 110,
+  };
+
+  if (soundOn) buildAudioGraph();
+}
+
+// ─── BACKGROUND ──────────────────────────────────────────────────────────────
+function drawBackground(pal, t) {
+  const [r, g, b] = pal.bg;
+  ctx.fillStyle = `rgb(${r},${g},${b})`;
+  ctx.fillRect(0, 0, W, H);
+
+  // Subtle vignette
+  const vg = ctx.createRadialGradient(CX, CY, 0, CX, CY, Math.max(W, H) * 0.7);
+  vg.addColorStop(0, 'rgba(0,0,0,0)');
+  vg.addColorStop(1, 'rgba(0,0,0,0.6)');
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, W, H);
+
+  if (state.bgStyle === 'nebula') {
+    // Gradient bloom
+    const c = paletteColor(pal, t * 0.5, 0.3);
+    const ng = ctx.createRadialGradient(
+      CX + Math.sin(t * 0.3) * W * 0.2, CY + Math.cos(t * 0.2) * H * 0.2, 0,
+      CX, CY, Math.min(W, H) * 0.6
+    );
+    ng.addColorStop(0, `hsla(${c.h},${c.s}%,${c.l}%,0.08)`);
+    ng.addColorStop(1, 'transparent');
+    ctx.fillStyle = ng;
+    ctx.fillRect(0, 0, W, H);
+  } else if (state.bgStyle === 'grid') {
+    ctx.save();
+    ctx.strokeStyle = `rgba(255,255,255,0.03)`;
+    ctx.lineWidth = 0.5;
+    const grid = 40;
+    for (let x = 0; x < W; x += grid) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+    for (let y = 0; y < H; y += grid) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+    ctx.restore();
+  }
+}
+
+// ─── TRAIL FADE ──────────────────────────────────────────────────────────────
+function fadeCanvas() {
+  ctx.fillStyle = 'rgba(0,0,0,0.12)';
+  ctx.fillRect(0, 0, W, H);
+}
+
+// ─── HUD ─────────────────────────────────────────────────────────────────────
+function updateHUD(totalEnergy) {
+  if (!hudVisible) { hud.style.display = 'none'; return; }
+  hud.style.display = 'block';
+  const { palette: pal, triples, springs, gyros, tessLayers } = state;
+  hud.innerHTML = `
+    FPS: ${fps.toFixed(1)} &nbsp; Frame: ${frameCount}<br>
+    Pendulums: ${triples.length} &nbsp; Springs: ${springs.length} &nbsp; Gyros: ${gyros.length}<br>
+    Tessellations: ${tessLayers.map(t => t.type).join(', ')}<br>
+    Palette: ${pal.mode} &nbsp; Base: ${pal.base.toFixed(0)}° &nbsp; Accent: ${pal.accent.toFixed(0)}°<br>
+    Energy: ${totalEnergy.toFixed(2)} &nbsp; Sound: ${soundOn ? 'ON' : 'OFF'}<br>
+    Canvas: ${W}×${H}
+  `;
+}
+
+// ─── MAIN LOOP ───────────────────────────────────────────────────────────────
+let lastTime = 0;
+function loop(ts) {
+  animId = requestAnimationFrame(loop);
+  const dt = Math.min((ts - lastTime) / 1000, 0.033) * 60;
+  lastTime = ts;
+  frameCount++;
+
+  // FPS
+  fpsFrames++;
+  if (ts - lastFpsTime > 1000) {
+    fps = fpsFrames * 1000 / (ts - lastFpsTime);
+    fpsFrames = 0; lastFpsTime = ts;
+  }
+
+  const { palette: pal, triples, springs, gyros, tessLayers, particles } = state;
+  state.t += dt * 0.016;
+  const t = state.t;
+
+  // Step physics
+  let totalEnergy = 0;
+  for (const p of triples) { p.step(dt * 0.016); totalEnergy += p.energy; }
+  for (const s of springs) { s.step(dt, springs); totalEnergy += s.energy; }
+  for (const g of gyros) { g.step(dt * 0.016); totalEnergy += g.energy; }
+  for (const p of particles) p.step();
+
+  // Spectral cycling
+  const spectralT = t * pal.spectralSpeed;
+
+  // Draw
+  if (frameCount === 1) drawBackground(pal, t);
+  fadeCanvas();
+
+  // Tessellation layers (behind)
+  for (const layer of tessLayers) layer.draw(ctx, spectralT);
+
+  // Particles
+  ctx.save();
+  for (const p of particles) {
+    const c = paletteColor(pal, spectralT + p.hue / 360, p.life * 0.3);
+    ctx.fillStyle = `hsla(${c.h},${c.s}%,${c.l}%,${p.life * 0.15})`;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size, 0, TAU);
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // Physics trails
+  ctx.save();
+  ctx.globalCompositeOperation = 'screen';
+  for (const p of triples) p.draw(ctx, pal, spectralT);
+  ctx.globalCompositeOperation = 'source-over';
+  for (const s of springs) s.draw(ctx, pal, spectralT);
+  ctx.globalCompositeOperation = 'lighten';
+  for (const g of gyros) g.draw(ctx, pal, spectralT);
+  ctx.restore();
+
+  // Chromatic turbulence glow at junctions
+  if (frameCount % 3 === 0) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    for (const p of triples) {
+      if (!p.joints) continue;
+      for (let j = 1; j < p.joints.length; j++) {
+        const [jx, jy] = p.joints[j];
+        const energy = clamp(p.energy, 0, 3);
+        const c = paletteColor(pal, spectralT + j * 0.15, energy);
+        const grad = ctx.createRadialGradient(jx, jy, 0, jx, jy, energy * 8 + 4);
+        grad.addColorStop(0, `hsla(${c.h},${c.s}%,${c.l}%,0.6)`);
+        grad.addColorStop(1, 'transparent');
+        ctx.fillStyle = grad;
+        ctx.beginPath(); ctx.arc(jx, jy, energy * 8 + 4, 0, TAU); ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
+  // Audio update
+  if (soundOn) updateAudio(totalEnergy, t);
+
+  updateHUD(totalEnergy);
+}
+
+// ─── INPUT ───────────────────────────────────────────────────────────────────
+function doRegen() {
+  regenerate();
+  // Flash hint
+  hint.style.opacity = '0.8';
+  setTimeout(() => { hint.style.opacity = '0'; }, 2000);
+}
+
+window.addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+  if (k === ' ' || e.code === 'Space') { e.preventDefault(); doRegen(); }
+  else if (k === 'h') { hudVisible = !hudVisible; }
+  else if (k === 's') {
+    soundOn = !soundOn;
+    if (soundOn) startAudio();
+    else stopAudio();
+  }
+});
+
+canvas.addEventListener('click', () => doRegen());
+canvas.addEventListener('touchend', e => { e.preventDefault(); doRegen(); }, { passive: false });
+
+// Hide hint after 5s
+setTimeout(() => { hint.style.opacity = '0'; }, 5000);
+
+// ─── BOOT ────────────────────────────────────────────────────────────────────
+regenerate();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

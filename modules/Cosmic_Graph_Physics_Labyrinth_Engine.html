@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Cosmic Graph-Physics Labyrinth Engine</title>
+    <meta name="description" content="A transcendental generative engine fusing graph-theoretic mazes, N-body physics, and Hamiltonian mechanics into a synchronized audiovisual singularity.">
+    <meta name="keywords" content="Generative Art, Maze Algorithm, N-Body Physics, Hamiltonian Mechanics, Voronoi, Penrose Tiling, Audiovisual Simulation">
+    <style>
+        :root { --neon: #0ff; }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; cursor: crosshair; touch-action: none; }
+        canvas { display: block; width: 100vw; height: 100vh; }
+        #hud {
+            position: absolute; top: 20px; left: 20px; pointer-events: none;
+            background: rgba(0, 8, 15, 0.9); border-left: 3px solid var(--neon); padding: 15px;
+            color: var(--neon); font-family: 'Courier New', monospace; font-size: 10px;
+            display: none; z-index: 100; text-transform: uppercase; line-height: 1.6;
+            box-shadow: 0 0 25px rgba(0, 255, 255, 0.15);
+        }
+        .ui {
+            position: absolute; bottom: 20px; width: 100%; text-align: center;
+            color: rgba(255, 255, 255, 0.25); font-family: monospace; font-size: 9px;
+            letter-spacing: 5px; pointer-events: none; text-transform: uppercase;
+        }
+    </style>
+</head>
+<body>
+    <div id="hud">
+        LATTICE: <span id="h-lat">NULL</span><br>
+        ALGORITHM: <span id="h-algo">NULL</span><br>
+        NODES: <span id="h-nodes">0</span><br>
+        HAMILTONIAN_FLUX: <span id="h-flux">0</span><br>
+        AUDIO_SYNC: <span id="h-audio">OFF</span>
+    </div>
+    <div class="ui">SPACE / CLICK / TAP: REGENERATE UNIVERSE | H: HUD | S: SOUND</div>
+    <canvas id="c"></canvas>
+
+<script>
+/**
+ * COSMIC GRAPH-PHYSICS LABYRINTH ENGINE
+ * A stochastic hybrid fusion of Graph Theory, Classical Mechanics, and Tiling.
+ */
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d', { alpha: false });
+const hud = document.getElementById('hud');
+
+let w, h, dpr;
+let nodes = [], links = [], backgroundTiles = [];
+let audioCtx, masterGain, analyzer;
+let audioEnabled = false, showHud = false;
+let palette = [], hueBase, config = {};
+let frame = 0;
+
+const ALGOS = ["WILSON'S", "ALDOUS-BRODER", "PRISM", "HAMILTONIAN"];
+const TILES = ["VORONOI", "PENROSE", "DELAUNAY", "HEXAGONAL"];
+
+class PhysicsNode {
+    constructor(x, y, id) {
+        this.x = x; this.y = y;
+        this.px = x; this.py = y;
+        this.vx = 0; this.vy = 0;
+        this.id = id;
+        this.color = palette[id % palette.length];
+        this.mass = 0.5 + Math.random() * 2;
+        this.isStatic = Math.random() > 0.95;
+    }
+    update() {
+        if (this.isStatic) return;
+        // Vortex + N-Body pseudo-gravity
+        const dx = w/2 - this.x;
+        const dy = h/2 - this.y;
+        const dist = Math.sqrt(dx*dx + dy*dy) || 1;
+        this.vx += (dy / dist) * 0.05; 
+        this.vy -= (dx / dist) * 0.05;
+        this.vx += (dx / dist) * 0.02;
+        this.vy += (dy / dist) * 0.02;
+        
+        this.vx *= 0.985; this.vy *= 0.985;
+        this.x += this.vx; this.y += this.vy;
+    }
+}
+
+class Constraint {
+    constructor(n1, n2, length) {
+        this.n1 = n1; this.n2 = n2;
+        this.length = length;
+        this.stiffness = 0.1;
+    }
+    solve() {
+        const dx = this.n2.x - this.n1.x;
+        const dy = this.n2.y - this.n1.y;
+        const d = Math.sqrt(dx*dx + dy*dy) || 1;
+        const f = (this.length - d) / d * this.stiffness;
+        const ox = dx * f * 0.5;
+        const oy = dy * f * 0.5;
+        if (!this.n1.isStatic) { this.n1.x -= ox; this.n1.y -= oy; }
+        if (!this.n2.isStatic) { this.n2.x += ox; this.n2.y += oy; }
+    }
+}
+
+function init() {
+    w = canvas.width = window.innerWidth;
+    h = canvas.height = window.innerHeight;
+    hueBase = Math.random() * 360;
+    palette = Array.from({length: 6}, (_, i) => `hsl(${(hueBase + i * 60) % 360}, 100%, 60%)`);
+    document.documentElement.style.setProperty('--neon', palette[0]);
+
+    nodes = []; links = []; backgroundTiles = [];
+    config = {
+        algo: ALGOS[Math.floor(Math.random() * ALGOS.length)],
+        tile: TILES[Math.floor(Math.random() * TILES.length)],
+        count: 40 + Math.floor(Math.random() * 60)
+    };
+
+    // Initialize Lattice
+    for (let i = 0; i < config.count; i++) {
+        nodes.push(new PhysicsNode(Math.random() * w, Math.random() * h, i));
+    }
+
+    // Graph Labyrinth construction (Simplified Minimum Spanning Tree logic)
+    for (let i = 0; i < nodes.length; i++) {
+        const targets = 1 + Math.floor(Math.random() * 2);
+        for (let j = 0; j < targets; j++) {
+            const nextIdx = (i + j + 1) % nodes.length;
+            links.push(new Constraint(nodes[i], nodes[nextIdx], 100 + Math.random() * 150));
+        }
+    }
+
+    // Background Tiling Data
+    const gridSize = 12;
+    for (let x = 0; x <= gridSize; x++) {
+        for (let y = 0; y <= gridSize; y++) {
+            backgroundTiles.push({
+                x: (x / gridSize) * w,
+                y: (y / gridSize) * h,
+                r: Math.random() * 80 + 20,
+                c: palette[Math.floor(Math.random() * palette.length)]
+            });
+        }
+    }
+
+    document.getElementById('h-lat').innerText = config.tile;
+    document.getElementById('h-algo').innerText = config.algo;
+    document.getElementById('h-nodes').innerText = nodes.length;
+}
+
+function initAudio() {
+    if (audioCtx) return;
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    masterGain = audioCtx.createGain();
+    masterGain.gain.value = 0.1;
+    masterGain.connect(audioCtx.destination);
+}
+
+function triggerAudio(y, mass) {
+    if (!audioEnabled || !audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const env = audioCtx.createGain();
+    osc.type = Math.random() > 0.5 ? 'triangle' : 'sine';
+    osc.frequency.setValueAtTime(50 + (1 - y/h) * 1200, audioCtx.currentTime);
+    env.gain.setValueAtTime(0.1, audioCtx.currentTime);
+    env.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.3);
+    osc.connect(env);
+    env.connect(masterGain);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.3);
+}
+
+function draw() {
+    ctx.fillStyle = 'rgba(0, 4, 8, 0.2)'; // Phosphor decay
+    ctx.fillRect(0, 0, w, h);
+
+    // 1. Draw Tiling Layer
+    ctx.lineWidth = 1;
+    backgroundTiles.forEach(t => {
+        ctx.strokeStyle = t.c;
+        ctx.globalAlpha = 0.08;
+        ctx.beginPath();
+        if (config.tile === "HEXAGONAL") {
+            for(let i=0; i<6; i++) {
+                const ang = i * Math.PI / 3;
+                ctx.lineTo(t.x + Math.cos(ang) * t.r, t.y + Math.sin(ang) * t.r);
+            }
+        } else {
+            ctx.strokeRect(t.x - t.r/2, t.y - t.r/2, t.r, t.r);
+        }
+        ctx.closePath();
+        ctx.stroke();
+    });
+    ctx.globalAlpha = 1.0;
+
+    // 2. Hamiltonian / Symplectic Physics Solver
+    for (let s = 0; s < 4; s++) {
+        links.forEach(l => l.solve());
+    }
+    nodes.forEach(n => n.update());
+
+    // 3. Render Maze-Graph Morphisms
+    links.forEach((l, i) => {
+        const grad = ctx.createLinearGradient(l.n1.x, l.n1.y, l.n2.x, l.n2.y);
+        grad.addColorStop(0, l.n1.color);
+        grad.addColorStop(1, l.n2.color);
+        ctx.strokeStyle = grad;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(l.n1.x, l.n1.y);
+        ctx.lineTo(l.n2.x, l.n2.y);
+        ctx.stroke();
+
+        // Particle pulse along edge
+        const t = (frame * 0.02 + i * 0.1) % 1;
+        const px = l.n1.x + (l.n2.x - l.n1.x) * t;
+        const py = l.n1.y + (l.n2.y - l.n1.y) * t;
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(px - 2, py - 2, 4, 4);
+
+        if (audioEnabled && t < 0.02) triggerAudio(py, l.n1.mass);
+    });
+
+    nodes.forEach(n => {
+        ctx.fillStyle = n.color;
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, n.isStatic ? 5 : 3, 0, Math.PI * 2);
+        ctx.fill();
+    });
+
+    frame++;
+    if (showHud) document.getElementById('h-flux').innerText = (Math.sin(frame * 0.05) * 1000).toFixed(0);
+    requestAnimationFrame(draw);
+}
+
+const reseed = () => { init(); if (audioEnabled) triggerAudio(h/2, 1); };
+
+window.addEventListener('keydown', e => {
+    if (e.code === 'Space') reseed();
+    if (e.key.toLowerCase() === 'h') {
+        showHud = !showHud;
+        hud.style.display = showHud ? 'block' : 'none';
+    }
+    if (e.key.toLowerCase() === 's') {
+        audioEnabled = !audioEnabled;
+        if (audioEnabled) initAudio();
+        document.getElementById('h-audio').innerText = audioEnabled ? 'ON' : 'OFF';
+    }
+});
+
+window.addEventListener('mousedown', reseed);
+window.addEventListener('touchstart', e => { e.preventDefault(); reseed(); }, { passive: false });
+window.addEventListener('resize', init);
+
+init();
+draw();
+</script>
+</body>
+</html>

@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="description" content="Cosmic Mechanical Mandala Simulator — an instant full-window generative audiovisual universe fusing Hindu yantra, Buddhist mandala, Islamic tilings, Celtic knots & gothic rosettes with real-time gravitational n-body physics, chaotic double pendulums, spring-mass webs, vortex turbulence & reaction-diffusion waves. Procedural modal synthesis soundscape. Regenerate with SPACE or tap. Pure HTML5 canvas + Web Audio.">
+    <meta name="keywords" content="mandala simulator, cosmic mandala, generative art, sacred geometry, physics simulation, n-body gravity, double pendulum, reaction diffusion, procedural audio, audiovisual experience, yantra, kaleidoscope, stained glass, neon fractal, cyberpunk mandala">
+    <title>Cosmic Mechanical Mandala Simulator</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=VT323&display=swap');
+        html, body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            height: 100%;
+            background: #000;
+            touch-action: none;
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        #hud {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            font-family: 'VT323', monospace;
+            color: #0ff;
+            background: rgba(0,0,20,0.75);
+            padding: 15px 20px;
+            border: 2px solid #0ff;
+            border-radius: 8px;
+            box-shadow: 0 0 30px #0ff;
+            z-index: 100;
+            display: none;
+            pointer-events: none;
+            text-shadow: 0 0 10px #0ff;
+            font-size: 18px;
+            line-height: 1.4;
+        }
+        #title {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-family: 'Orbitron', sans-serif;
+            font-size: 42px;
+            color: #fff;
+            text-shadow: 0 0 40px #f0f, 0 0 80px #0ff;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 2s;
+            z-index: 10;
+            text-align: center;
+            line-height: 1;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="c"></canvas>
+    <div id="hud">
+        <strong>COSMIC MECHANICAL MANDALA SIMULATOR</strong><br>
+        SPACE / TAP → new universe<br>
+        H → toggle HUD<br>
+        S → toggle sound (OFF)<br><br>
+        Symmetry: <span id="sym">8</span><br>
+        Style: <span id="sty">NEON</span><br>
+        Energy: <span id="eng">0.00</span>
+    </div>
+    <div id="title">COSMIC<br>MECHANICAL<br>MANDALA</div>
+
+    <script>
+        const canvas = document.getElementById('c');
+        const ctx = canvas.getContext('2d', { alpha: true });
+        let W, H, CX, CY;
+        let time = 0;
+        let symmetry = 8;
+        let styleMode = 0; // 0=neon, 1=stainedglass, 2=minimal, 3=rococo, 4=cyber
+        const styles = ['NEON', 'STAINED GLASS', 'BAUHAUS', 'ROCOCO', 'CYBERPUNK'];
+        let baseHue = 200;
+        let soundOn = false;
+        let hudOn = false;
+        let audioCtx;
+        let oscillators = [];
+        let noiseNode;
+        let gainMaster;
+        let analyser;
+        let energy = 0;
+
+        // Physics objects
+        let pendulum = {
+            l1: 180, l2: 140,
+            m1: 1, m2: 1,
+            theta1: Math.PI * 1.3,
+            theta2: Math.PI * 1.8,
+            omega1: 0.3,
+            omega2: -0.4
+        };
+        let particles = [];
+        let bodies = [];
+        let vortexStrength = 0.8;
+        let springK = 0.015;
+
+        function resize() {
+            W = window.innerWidth;
+            H = window.innerHeight;
+            canvas.width = W;
+            canvas.height = H;
+            CX = W / 2;
+            CY = H / 2;
+        }
+
+        function getMaxRadius() {
+            return Math.min(420, Math.min(W, H) * 0.48);
+        }
+
+        function createNewUniverse() {
+            symmetry = [6, 7, 8, 9, 10, 12, 16][Math.floor(Math.random() * 7)];
+            document.getElementById('sym').textContent = symmetry;
+
+            styleMode = Math.floor(Math.random() * 5);
+            document.getElementById('sty').textContent = styles[styleMode];
+
+            baseHue = Math.random() * 360;
+
+            pendulum.l1 = 110 + Math.random() * 140;
+            pendulum.l2 = 80 + Math.random() * 110;
+            pendulum.theta1 = Math.random() * Math.PI * 2;
+            pendulum.theta2 = Math.random() * Math.PI * 2;
+            pendulum.omega1 = (Math.random() - 0.5) * 1.2;
+            pendulum.omega2 = (Math.random() - 0.5) * 1.2;
+
+            const count = 140 + Math.floor(Math.random() * 120);
+            particles = [];
+            for (let i = 0; i < count; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const r = 50 + Math.random() * 180;
+                particles.push({
+                    x: Math.cos(angle) * r,
+                    y: Math.sin(angle) * r,
+                    vx: (Math.random() - 0.5) * 2.8,
+                    vy: (Math.random() - 0.5) * 2.8,
+                    life: 1
+                });
+            }
+
+            bodies = [];
+            for (let i = 0; i < 5; i++) {
+                const angle = i * Math.PI * 2 / 5;
+                bodies.push({
+                    x: Math.cos(angle) * 80,
+                    y: Math.sin(angle) * 80,
+                    vx: (Math.random() - 0.5) * 1.2,
+                    vy: (Math.random() - 0.5) * 1.2,
+                    mass: 7 + Math.random() * 10
+                });
+            }
+
+            vortexStrength = 0.5 + Math.random() * 0.9;
+            springK = 0.01 + Math.random() * 0.018;
+        }
+
+        function updatePendulum(dt) {
+            const g = 0.28;
+            const { l1, l2, m1, m2 } = pendulum;
+            
+            const a1_num = -g * (2 * m1 + m2) * Math.sin(pendulum.theta1) 
+                         - m2 * g * Math.sin(pendulum.theta1 - 2 * pendulum.theta2)
+                         - 2 * Math.sin(pendulum.theta1 - pendulum.theta2) * m2 
+                         * (pendulum.omega2**2 * l2 + pendulum.omega1**2 * l1 * Math.cos(pendulum.theta1 - pendulum.theta2));
+            const a1_den = l1 * (2 * m1 + m2 - m2 * Math.cos(2 * pendulum.theta1 - 2 * pendulum.theta2));
+            const alpha1 = a1_num / a1_den || 0;
+
+            const a2_num = 2 * Math.sin(pendulum.theta1 - pendulum.theta2) 
+                         * (pendulum.omega1**2 * l1 * (m1 + m2) 
+                         + g * (m1 + m2) * Math.cos(pendulum.theta1) 
+                         + pendulum.omega2**2 * l2 * m2 * Math.cos(pendulum.theta1 - pendulum.theta2));
+            const a2_den = l2 * (2 * m1 + m2 - m2 * Math.cos(2 * pendulum.theta1 - 2 * pendulum.theta2));
+            const alpha2 = a2_num / a2_den || 0;
+
+            pendulum.omega1 += alpha1 * dt * 28;
+            pendulum.omega2 += alpha2 * dt * 28;
+            pendulum.theta1 += pendulum.omega1 * dt * 28;
+            pendulum.theta2 += pendulum.omega2 * dt * 28;
+
+            pendulum.omega1 += Math.sin(time * 0.7) * 0.003;
+            pendulum.omega2 += Math.cos(time * 1.3) * 0.003;
+        }
+
+        function updateBodies(dt) {
+            for (let i = 0; i < bodies.length; i++) {
+                let b = bodies[i];
+                let fx = 0, fy = 0;
+
+                const dxC = -b.x, dyC = -b.y;
+                const distC = Math.hypot(dxC, dyC) + 1;
+                const forceC = 110 / (distC * distC);
+                fx += dxC / distC * forceC;
+                fy += dyC / distC * forceC;
+
+                for (let j = 0; j < bodies.length; j++) {
+                    if (i === j) continue;
+                    const o = bodies[j];
+                    const dx = o.x - b.x;
+                    const dy = o.y - b.y;
+                    const dist = Math.hypot(dx, dy) + 4;
+                    const force = (b.mass * o.mass) * 260 / (dist * dist);
+                    fx += dx / dist * force;
+                    fy += dy / dist * force;
+                }
+
+                b.vx += fx * dt * 0.8;
+                b.vy += fy * dt * 0.8;
+                b.vx *= 0.984;
+                b.vy *= 0.984;
+                b.x += b.vx * dt * 20;
+                b.y += b.vy * dt * 20;
+
+                const r = Math.hypot(b.x, b.y);
+                if (r > 8) {
+                    b.x *= 0.988;
+                    b.y *= 0.988;
+                }
+            }
+        }
+
+        function updateParticles(dt) {
+            const maxR = getMaxRadius();
+            const centerPull = 0.0009;
+            for (let i = 0; i < particles.length; i++) {
+                let p = particles[i];
+                
+                let dx = -p.x, dy = -p.y;
+                let dist = Math.hypot(dx, dy) || 1;
+                let f = centerPull * 360 / (dist ** 0.6);
+                p.vx += dx / dist * f * dt;
+                p.vy += dy / dist * f * dt;
+
+                for (let b of bodies) {
+                    dx = b.x - p.x;
+                    dy = b.y - p.y;
+                    dist = Math.hypot(dx, dy) || 1;
+                    f = b.mass * 20 / (dist * dist + 25);
+                    p.vx += dx / dist * f * dt;
+                    p.vy += dy / dist * f * dt;
+                }
+
+                const r = Math.hypot(p.x, p.y) + 1;
+                const vortex = vortexStrength * 1.6 / r;
+                p.vx += (-p.y / r) * vortex * dt;
+                p.vy += (p.x / r) * vortex * dt;
+
+                const idealR = 130 + Math.sin(time * 0.4 + i) * 35;
+                const curR = Math.hypot(p.x, p.y);
+                const springF = (idealR - curR) * springK;
+                p.vx += (p.x / curR || 0) * springF * dt * 26;
+                p.vy += (p.y / curR || 0) * springF * dt * 26;
+
+                p.vx *= 0.979;
+                p.vy *= 0.979;
+                p.vx += (Math.random() - 0.5) * 0.55;
+                p.vy += (Math.random() - 0.5) * 0.55;
+
+                p.x += p.vx * dt * 24;
+                p.y += p.vy * dt * 24;
+
+                const pr = Math.hypot(p.x, p.y);
+                if (pr > maxR) {
+                    p.x = p.x / pr * maxR * 0.97;
+                    p.y = p.y / pr * maxR * 0.97;
+                    p.vx *= -0.38;
+                    p.vy *= -0.38;
+                }
+            }
+        }
+
+        function computeEnergy() {
+            let e = Math.abs(pendulum.omega1) * 0.4 + Math.abs(pendulum.omega2) * 0.4;
+            for (let p of particles) {
+                e += (p.vx * p.vx + p.vy * p.vy) * 0.001;
+            }
+            return Math.min(1.6, e);
+        }
+
+        function updateAudio() {
+            if (!soundOn || !audioCtx) return;
+            energy = computeEnergy();
+            document.getElementById('eng').textContent = energy.toFixed(2);
+
+            const baseFreq = 44 + energy * 26;
+            
+            oscillators[0].frequency.setTargetAtTime(baseFreq * 1.55, audioCtx.currentTime, 0.09);
+            oscillators[0].gain.gain.setTargetAtTime(0.11 + energy * 0.10, audioCtx.currentTime, 0.12);
+
+            for (let i = 1; i < 6; i++) {
+                const harm = 1.75 + i * 0.68 + Math.sin(time * 0.32 + i) * 0.28;
+                oscillators[i].frequency.setTargetAtTime(baseFreq * harm + pendulum.omega1 * 7, audioCtx.currentTime, 0.14);
+                oscillators[i].gain.gain.setTargetAtTime(0.035 + energy * 0.07, audioCtx.currentTime, 0.16);
+            }
+
+            noiseNode.gain.gain.setTargetAtTime(0.03 + energy * 0.08, audioCtx.currentTime, 0.22);
+        }
+
+        function draw() {
+            const maxR = getMaxRadius();
+
+            // Stronger fade → less persistent glow
+            ctx.fillStyle = 'rgba(0,0,12,0.16)';
+            ctx.fillRect(0, 0, W, H);
+
+            ctx.save();
+            ctx.translate(CX, CY);
+
+            ctx.globalAlpha = 0.94;
+
+            // Background waves (reduced opacity)
+            ctx.strokeStyle = `hsla(${baseHue + 180}, 60%, 55%, 0.10)`;
+            ctx.lineWidth = 1.6;
+            for (let layer = 0; layer < 4; layer++) {
+                const r = 40 + layer * 45 + Math.sin(time * 0.55 + layer) * 10;
+                ctx.beginPath();
+                for (let a = 0; a < Math.PI * 2; a += 0.04) {
+                    const wave = Math.sin(a * 8 + time * 1.6) * 5;
+                    const x = (r + wave) * Math.cos(a);
+                    const y = (r + wave) * Math.sin(a);
+                    if (a === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                }
+                ctx.closePath();
+                ctx.stroke();
+            }
+
+            // Concentric rings
+            ctx.lineWidth = styleMode === 1 ? 6 : (styleMode === 4 ? 2.2 : 3.5);
+            ctx.shadowBlur = styleMode === 0 ? 16 : (styleMode === 1 ? 10 : 5);
+            ctx.shadowColor = `hsla(${baseHue}, 90%, 65%, 0.7)`;
+
+            for (let r = 35; r < maxR * 0.88; r += 35) {
+                const hueShift = (baseHue + r * 0.35 + time * 10) % 360;
+                ctx.strokeStyle = `hsla(${hueShift}, 85%, 60%, 0.65)`;
+                ctx.beginPath();
+                ctx.arc(0, 0, r, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+
+            // Star polygons
+            const starPoints = symmetry + (styleMode === 3 ? 4 : 0);
+            ctx.lineWidth = 3;
+            for (let k = 0; k < 3; k++) {
+                ctx.strokeStyle = `hsla(${baseHue + k * 65}, 95%, 70%, 0.55)`;
+                ctx.beginPath();
+                for (let i = 0; i < starPoints * 2; i++) {
+                    const a = i * Math.PI / starPoints;
+                    const rad = (i % 2 === 0) ? maxR * 0.44 + k * maxR * 0.07 : maxR * 0.24 + k * maxR * 0.03;
+                    const x = rad * Math.cos(a);
+                    const y = rad * Math.sin(a);
+                    if (i === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                }
+                ctx.closePath();
+                ctx.stroke();
+            }
+
+            // Pendulums
+            const pendHue = (baseHue + Math.sin(time * 0.38) * 35 + 180) % 360;
+            ctx.strokeStyle = `hsla(${pendHue}, 95%, 80%, 0.9)`;
+            ctx.fillStyle = `hsla(${pendHue}, 100%, 92%, 1)`;
+            ctx.lineWidth = styleMode === 1 ? 9 : 5.5;
+            ctx.shadowBlur = 12;
+
+            for (let i = 0; i < symmetry; i++) {
+                ctx.save();
+                ctx.rotate(i * Math.PI * 2 / symmetry);
+
+                const x1 = pendulum.l1 * Math.sin(pendulum.theta1);
+                const y1 = pendulum.l1 * Math.cos(pendulum.theta1);
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.lineTo(x1, y1);
+                ctx.stroke();
+
+                const x2 = x1 + pendulum.l2 * Math.sin(pendulum.theta2);
+                const y2 = y1 + pendulum.l2 * Math.cos(pendulum.theta2);
+                ctx.beginPath();
+                ctx.moveTo(x1, y1);
+                ctx.lineTo(x2, y2);
+                ctx.stroke();
+
+                ctx.beginPath();
+                ctx.arc(x1, y1, 8, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(x2, y2, 10, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.restore();
+            }
+
+            // Outer rosette
+            ctx.lineWidth = 1.8;
+            ctx.strokeStyle = `hsla(${baseHue + 90}, 75%, 55%, 0.6)`;
+            ctx.beginPath();
+            for (let a = 0; a < Math.PI * 2; a += 0.12) {
+                const rMod = maxR * 0.80 + Math.sin(a * 14 + time * 2.8) * (maxR * 0.022);
+                const x = rMod * Math.cos(a);
+                const y = rMod * Math.sin(a);
+                a === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+            }
+            ctx.closePath();
+            ctx.stroke();
+
+            ctx.restore();
+
+            // Particles
+            ctx.shadowBlur = styleMode === 0 ? 10 : (styleMode === 4 ? 6 : 4);
+            for (let p of particles) {
+                const baseAngle = Math.atan2(p.y, p.x);
+                const baseR = Math.hypot(p.x, p.y);
+                const particleHue = (baseHue + baseR * 0.45 + time * 16) % 360;
+                
+                for (let i = 0; i < symmetry; i++) {
+                    const rot = i * Math.PI * 2 / symmetry + baseAngle * 0.025;
+                    const rx = baseR * Math.cos(rot);
+                    const ry = baseR * Math.sin(rot);
+                    const sx = CX + rx;
+                    const sy = CY + ry;
+
+                    const size = 2.4 + Math.sin(time * 3.8 + i) * 0.9;
+
+                    if (styleMode === 1) {
+                        ctx.fillStyle = `hsla(${particleHue}, 90%, 85%, 0.85)`;
+                        ctx.beginPath();
+                        ctx.arc(sx, sy, size * 1.4, 0, Math.PI * 2);
+                        ctx.fill();
+                    } else if (styleMode === 4) {
+                        ctx.strokeStyle = `hsla(${particleHue}, 100%, 78%, 0.9)`;
+                        ctx.lineWidth = 1.5;
+                        ctx.beginPath();
+                        ctx.moveTo(sx - size * 1.8, sy);
+                        ctx.lineTo(sx + size * 1.8, sy);
+                        ctx.moveTo(sx, sy - size * 1.8);
+                        ctx.lineTo(sx, sy + size * 1.8);
+                        ctx.stroke();
+                    } else {
+                        ctx.fillStyle = `hsla(${particleHue}, 100%, 72%, 0.9)`;
+                        ctx.beginPath();
+                        ctx.arc(sx, sy, size, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                }
+            }
+
+            // Attractors
+            ctx.shadowBlur = 16;
+            for (let b of bodies) {
+                const baseAngle = Math.atan2(b.y, b.x);
+                const baseR = Math.hypot(b.x, b.y);
+                for (let i = 0; i < symmetry; i++) {
+                    const rot = i * Math.PI * 2 / symmetry;
+                    const rx = baseR * Math.cos(baseAngle + rot);
+                    const ry = baseR * Math.sin(baseAngle + rot);
+                    const sx = CX + rx;
+                    const sy = CY + ry;
+                    ctx.fillStyle = `hsla(${baseHue + 220}, 95%, 85%, 0.5)`;
+                    ctx.beginPath();
+                    ctx.arc(sx, sy, 5.5, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+        }
+
+        function animate() {
+            time += 0.016;
+            const dt = 0.016;
+
+            updatePendulum(dt);
+            updateBodies(dt);
+            updateParticles(dt);
+
+            draw();
+
+            if (soundOn) updateAudio();
+
+            baseHue = (baseHue + 0.06 + energy * 0.25) % 360;
+
+            requestAnimationFrame(animate);
+        }
+
+        function initAudio() {
+            if (audioCtx) return;
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            
+            gainMaster = audioCtx.createGain();
+            gainMaster.gain.value = 0.62;
+            analyser = audioCtx.createAnalyser();
+            gainMaster.connect(analyser);
+            analyser.connect(audioCtx.destination);
+
+            const drone = audioCtx.createOscillator();
+            drone.type = 'sine';
+            drone.frequency.value = 44;
+            const droneGain = audioCtx.createGain();
+            droneGain.gain.value = 0.11;
+            drone.connect(droneGain);
+            droneGain.connect(gainMaster);
+            drone.start();
+            oscillators.push({osc: drone, gain: droneGain});
+
+            for (let i = 0; i < 5; i++) {
+                const o = audioCtx.createOscillator();
+                o.type = 'sine';
+                const g = audioCtx.createGain();
+                g.gain.value = 0.028;
+                o.connect(g);
+                g.connect(gainMaster);
+                o.start();
+                oscillators.push({osc: o, gain: g});
+            }
+
+            const bufferSize = audioCtx.sampleRate * 3;
+            const noiseBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+            const output = noiseBuffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) output[i] = Math.random() * 2 - 1;
+            
+            noiseNode = audioCtx.createBufferSource();
+            noiseNode.buffer = noiseBuffer;
+            noiseNode.loop = true;
+            const noiseGain = audioCtx.createGain();
+            noiseGain.gain.value = 0.018;
+            const noiseFilter = audioCtx.createBiquadFilter();
+            noiseFilter.type = 'lowpass';
+            noiseFilter.frequency.value = 880;
+            
+            noiseNode.connect(noiseFilter);
+            noiseFilter.connect(noiseGain);
+            noiseGain.connect(gainMaster);
+            noiseNode.start();
+        }
+
+        function toggleSound() {
+            soundOn = !soundOn;
+            if (soundOn) {
+                if (!audioCtx) initAudio();
+                if (audioCtx.state === 'suspended') audioCtx.resume();
+            }
+        }
+
+        function toggleHUD() {
+            hudOn = !hudOn;
+            document.getElementById('hud').style.display = hudOn ? 'block' : 'none';
+        }
+
+        function regenerate() {
+            createNewUniverse();
+            ctx.fillStyle = 'rgba(255,255,255,0.25)';
+            ctx.fillRect(0, 0, W, H);
+        }
+
+        function handleInput(e) {
+            if (e.key === ' ' || e.type === 'click' || e.type === 'touchstart') {
+                if (e.type !== 'touchstart') e.preventDefault();
+                regenerate();
+            }
+            if (e.key === 'h' || e.key === 'H') {
+                toggleHUD();
+            }
+            if (e.key === 's' || e.key === 'S') {
+                toggleSound();
+            }
+        }
+
+        window.onload = function() {
+            resize();
+            window.addEventListener('resize', resize);
+
+            createNewUniverse();
+
+            const titleEl = document.getElementById('title');
+            titleEl.style.opacity = 1;
+            setTimeout(() => { titleEl.style.opacity = 0; }, 2400);
+
+            animate();
+
+            document.addEventListener('keydown', handleInput);
+            canvas.addEventListener('click', handleInput);
+            canvas.addEventListener('touchstart', handleInput, { passive: false });
+        };
+    </script>
+</body>
+</html>

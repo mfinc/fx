@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Cosmic Particle Mechanics Garden – Generative Audiovisual Simulation</title>
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<meta name="description" content="Cosmic Particle Mechanics Garden – generative physics simulation combining particle systems, n-body dynamics, electrostatic fields, vortex flows, diffusion-limited aggregation, mechanical linkages, botanical fractals, and procedural ambient sound in a fullscreen HTML generative art experience.">
+<style>
+html,body{
+margin:0;
+padding:0;
+background:black;
+overflow:hidden;
+font-family:monospace;
+}
+canvas{
+display:block;
+}
+#hud{
+position:fixed;
+left:12px;
+top:10px;
+color:#fff;
+font-size:12px;
+line-height:1.4em;
+pointer-events:none;
+text-shadow:0 0 4px #000;
+}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud" style="display:none"></div>
+
+<script>
+const canvas=document.getElementById("c")
+const ctx=canvas.getContext("2d")
+const hud=document.getElementById("hud")
+
+let W,H
+function resize(){
+W=canvas.width=window.innerWidth
+H=canvas.height=window.innerHeight
+}
+window.addEventListener("resize",resize)
+resize()
+
+let particles=[]
+let anchors=[]
+let mech=[]
+let agg=[]
+let seed=0
+let palette=[]
+let vortex=0
+let hudOn=false
+let soundOn=false
+let audioCtx=null
+let masterGain=null
+let oscPool=[]
+
+function rnd(){return Math.random()}
+function rand(a,b){return a+rnd()*(b-a)}
+
+function randomPalette(){
+const sets=[
+["#8ef","#bdf","#fff","#88f","#4ff"],
+["#f6f","#f96","#ff0","#6ff","#9f6"],
+["#9ff","#6cf","#39f","#ccf","#fff"],
+["#ff9","#f9f","#9ff","#fff","#fc6"],
+["#6f6","#3f9","#9ff","#fff","#6ff"]
+]
+palette=sets[Math.floor(rnd()*sets.length)]
+}
+
+function reset(){
+seed=Math.floor(Math.random()*1e9)
+particles=[]
+anchors=[]
+mech=[]
+agg=[]
+randomPalette()
+vortex=rand(-0.3,0.3)
+
+const pcount=Math.floor(Math.min(140, W*H/9000))
+
+for(let i=0;i<pcount;i++){
+particles.push({
+x:rand(0,W),
+y:rand(0,H),
+vx:rand(-0.4,0.4),
+vy:rand(-0.4,0.4),
+m:rand(0.5,2),
+q:rand(-1,1)
+})
+}
+
+const anchorCount=10
+for(let i=0;i<anchorCount;i++){
+anchors.push({
+x:rand(0,W),
+y:rand(0,H),
+m:rand(6,12),
+q:rand(-4,4)
+})
+}
+
+createMechanisms()
+}
+
+function createMechanisms(){
+mech=[]
+
+for(let i=0;i<4;i++){
+let baseX=rand(W*0.2,W*0.8)
+let baseY=rand(H*0.2,H*0.8)
+let len=rand(40,90)
+let segs=4+Math.floor(rnd()*3)
+let chain=[]
+for(let s=0;s<segs;s++){
+chain.push({
+angle:rand(0,Math.PI*2),
+vel:rand(-0.02,0.02),
+len:len*rand(0.6,1)
+})
+}
+mech.push({type:"pendulum",baseX,baseY,chain})
+}
+
+for(let i=0;i<3;i++){
+let cx=rand(W*0.2,W*0.8)
+let cy=rand(H*0.2,H*0.8)
+let r=rand(30,70)
+let angle=rand(0,Math.PI*2)
+mech.push({type:"crank",cx,cy,r,angle})
+}
+}
+
+function initAudio(){
+audioCtx=new (window.AudioContext||window.webkitAudioContext)()
+masterGain=audioCtx.createGain()
+masterGain.gain.value=0.2
+masterGain.connect(audioCtx.destination)
+}
+
+function playTone(freq,amp){
+if(!soundOn)return
+let osc=audioCtx.createOscillator()
+let g=audioCtx.createGain()
+osc.type="sine"
+osc.frequency.value=freq
+g.gain.value=amp
+osc.connect(g)
+g.connect(masterGain)
+osc.start()
+osc.stop(audioCtx.currentTime+0.2)
+}
+
+function physics(){
+const G=0.02
+const K=0.04
+const dt=1
+
+for(let p of particles){
+
+let ax=0, ay=0
+
+for(let a of anchors){
+let dx=a.x-p.x
+let dy=a.y-p.y
+let d=Math.sqrt(dx*dx+dy*dy)+0.01
+
+let grav=G*a.m/(d*d)
+let elec=K*a.q*p.q/(d*d)
+
+ax+=dx/d*(grav+elec)
+ay+=dy/d*(grav+elec)
+}
+
+let cx=W/2
+let cy=H/2
+let dx=p.x-cx
+let dy=p.y-cy
+
+ax+=-dy*vortex*0.0005
+ay+=dx*vortex*0.0005
+
+p.vx+=ax*dt
+p.vy+=ay*dt
+
+p.vx*=0.995
+p.vy*=0.995
+
+p.x+=p.vx
+p.y+=p.vy
+
+if(p.x<0||p.x>W)p.vx*=-1
+if(p.y<0||p.y>H)p.vy*=-1
+
+for(let a of agg){
+let dx=p.x-a.x
+let dy=p.y-a.y
+if(dx*dx+dy*dy<25){
+agg.push({x:p.x,y:p.y})
+p.x=rand(0,W)
+p.y=rand(0,H)
+break
+}
+}
+}
+
+updateMechanisms()
+}
+
+function updateMechanisms(){
+for(let m of mech){
+
+if(m.type==="pendulum"){
+let x=m.baseX
+let y=m.baseY
+
+for(let seg of m.chain){
+seg.vel+=Math.sin(seg.angle)*-0.0005
+seg.angle+=seg.vel
+
+x+=Math.cos(seg.angle)*seg.len
+y+=Math.sin(seg.angle)*seg.len
+
+for(let p of particles){
+let dx=p.x-x
+let dy=p.y-y
+let d=Math.sqrt(dx*dx+dy*dy)+0.01
+if(d<40){
+p.vx+=dx/d*0.02
+p.vy+=dy/d*0.02
+}
+}
+}
+}
+
+if(m.type==="crank"){
+m.angle+=0.02
+let x=m.cx+Math.cos(m.angle)*m.r
+let y=m.cy+Math.sin(m.angle)*m.r
+
+for(let p of particles){
+let dx=p.x-x
+let dy=p.y-y
+let d=Math.sqrt(dx*dx+dy*dy)+0.01
+if(d<50){
+p.vx+=dx/d*0.015
+p.vy+=dy/d*0.015
+}
+}
+}
+}
+}
+
+function drawGrid(){
+ctx.globalAlpha=0.05
+const size=60
+for(let x=0;x<W;x+=size){
+for(let y=0;y<H;y+=size){
+ctx.strokeStyle=palette[(x+y)%palette.length]
+ctx.strokeRect(x,y,size,size)
+}
+}
+ctx.globalAlpha=1
+}
+
+function draw(){
+ctx.fillStyle="rgba(0,0,0,0.2)"
+ctx.fillRect(0,0,W,H)
+
+drawGrid()
+
+for(let a of agg){
+ctx.fillStyle=palette[2]
+ctx.fillRect(a.x,a.y,2,2)
+}
+
+for(let p of particles){
+let speed=Math.sqrt(p.vx*p.vx+p.vy*p.vy)
+ctx.fillStyle=palette[Math.floor(speed*10)%palette.length]
+ctx.beginPath()
+ctx.arc(p.x,p.y,2,0,Math.PI*2)
+ctx.fill()
+
+if(soundOn && speed>1.2){
+playTone(120+speed*200,0.03)
+}
+}
+
+ctx.strokeStyle=palette[4]
+
+for(let m of mech){
+
+if(m.type==="pendulum"){
+let x=m.baseX
+let y=m.baseY
+ctx.beginPath()
+ctx.moveTo(x,y)
+for(let seg of m.chain){
+x+=Math.cos(seg.angle)*seg.len
+y+=Math.sin(seg.angle)*seg.len
+ctx.lineTo(x,y)
+}
+ctx.stroke()
+}
+
+if(m.type==="crank"){
+let x=m.cx+Math.cos(m.angle)*m.r
+let y=m.cy+Math.sin(m.angle)*m.r
+ctx.beginPath()
+ctx.arc(x,y,6,0,Math.PI*2)
+ctx.stroke()
+}
+}
+}
+
+function loop(){
+physics()
+draw()
+
+if(hudOn){
+hud.innerHTML=
+"Cosmic Particle-Mechanics Garden<br>"+
+"Seed: "+seed+"<br>"+
+"Particles: "+particles.length+"<br>"+
+"Aggregates: "+agg.length+"<br>"+
+"Mechanisms: "+mech.length+"<br>"+
+"Sound: "+(soundOn?"ON":"OFF")
+}
+
+requestAnimationFrame(loop)
+}
+
+window.addEventListener("keydown",e=>{
+if(e.code==="Space")reset()
+
+if(e.key==="h"||e.key==="H"){
+hudOn=!hudOn
+hud.style.display=hudOn?"block":"none"
+}
+
+if(e.key==="s"||e.key==="S"){
+soundOn=!soundOn
+if(soundOn && !audioCtx) initAudio()
+}
+})
+
+canvas.addEventListener("click",reset)
+canvas.addEventListener("touchstart",reset)
+
+reset()
+loop()
+</script>
+</body>
+</html>

@@ -1,0 +1,1411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>CHROMATIC NEXUS — Color Science × Cybernetics × Atari 2600 × Robotics × Video Games</title>
+<meta name="description" content="An immersive hybrid fusion of color harmony systems, polytopes, 6502 assembly, Atari 2600 palettes, robotics, PCB circuits, cybernetic neurotechnology, Tron grids, category theory, and video game mechanics. Featuring chromaticity diagrams, HSV/HSL models, Pantone, Munsell, CIELAB, CMY/CMYK wheels, and more.">
+<meta name="keywords" content="color science, color harmony, color wheel, polytopes, 6502 assembly, Atari 2600, robotics, PCB circuits, cybernetics, neurotechnology, Tron, category theory, video games, chromaticity, HSV, HSL, Pantone, Munsell, CIELAB, CMY, CMYK, RGB, mazes, tilings, cyborgs, UFO, transhumanoid">
+<meta property="og:title" content="CHROMATIC NEXUS — Cybernetic Color Universe">
+<meta property="og:description" content="A hypnotic fusion of color science systems, robotics, Atari 2600, cybernetics, and video games.">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Courier New',monospace}
+  canvas{display:block;position:fixed;top:0;left:0}
+  #hud{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;display:none;z-index:10}
+  #hud-inner{position:absolute;top:12px;left:12px;color:#0ff;font-size:10px;line-height:1.6;text-shadow:0 0 6px #0ff;letter-spacing:1px;max-width:340px}
+  #hud-inner span{display:block}
+  #hud-br{position:absolute;bottom:12px;right:12px;color:#f0f;font-size:9px;text-align:right;text-shadow:0 0 6px #f0f;letter-spacing:1px}
+  #hud-br span{display:block}
+  #ctrl{position:fixed;bottom:10px;left:50%;transform:translateX(-50%);color:#555;font-size:9px;letter-spacing:2px;z-index:11;pointer-events:none;white-space:nowrap}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div id="hud-inner">
+    <span id="h1"></span><span id="h2"></span><span id="h3"></span>
+    <span id="h4"></span><span id="h5"></span><span id="h6"></span>
+    <span id="h7"></span><span id="h8"></span><span id="h9"></span>
+  </div>
+  <div id="hud-br">
+    <span>CHROMATIC NEXUS v6502</span>
+    <span>ATARI 2600 × PCB × TRON</span>
+    <span id="hfps"></span>
+  </div>
+</div>
+<div id="ctrl">SPACE / TAP = RANDOMIZE &nbsp;|&nbsp; H = HUD &nbsp;|&nbsp; S = SOUND</div>
+<script>
+// ============================================================
+// CHROMATIC NEXUS — Full Spectrum Cybernetic Color Engine
+// ============================================================
+const C = document.getElementById('c');
+const ctx = C.getContext('2d');
+let W, H, cx, cy;
+
+// --- State ---
+let hudOn = false, soundOn = false;
+let frame = 0, fps = 0, fpsT = performance.now(), fpsF = 0;
+let audioCtx = null;
+let seed = Math.random() * 9999 | 0;
+
+// Randomizable parameters
+let P = {};
+
+// Atari 2600 NTSC palette (128 colors)
+const ATARI = [
+  '#000000','#404040','#6c6c6c','#909090','#b0b0b0','#c8c8c8','#dcdcdc','#ececec',
+  '#444400','#646410','#848424','#a0a034','#b8b840','#d0d050','#e8e85c','#fcfc68',
+  '#702800','#844414','#985c28','#ac783c','#bc8c4c','#cca05c','#dcb468','#ecc878',
+  '#841800','#983418','#ac5030','#c06848','#d0805c','#e09470','#eca880','#fcbc94',
+  '#880000','#9c2020','#b03c3c','#c05858','#d07070','#e08888','#eca0a0','#fcb4b4',
+  '#78005c','#8c2074','#a03c88','#b0589c','#c070b0','#d084c0','#dc9cd0','#ecb0e0',
+  '#480078','#602090','#783ca4','#8c58b8','#a070cc','#b484dc','#c49cec','#d4b0fc',
+  '#140084','#302098','#4c3cac','#6858c0','#7c70d0','#9488e0','#a8a0ec','#bcb4fc',
+  '#000088','#1c209c','#3840b0','#505cc4','#6874d4','#7c8ce4','#90a4f4','#a4b8fc',
+  '#00187c','#1c3890','#3854a8','#5070bc','#6888cc','#7c9cdc','#90b4ec','#a4c8fc',
+  '#002c5c','#1c4c78','#386890','#5084ac','#689cc0','#7cb4d4','#90cce8','#a4e0fc',
+  '#003c2c','#1c5c48','#387c64','#509c80','#68b494','#7cd0ac','#90e4c0','#a4fcd4',
+  '#003c00','#205c20','#407c40','#5c9c5c','#74b474','#8cd08c','#a4e4a4','#b8fcb8',
+  '#143800','#345c1c','#507c38','#6c9850','#84b468','#9ccc7c','#b4e490','#c8fca4',
+  '#2c3000','#4c501c','#687034','#848c4c','#9ca864','#b4c078','#ccd488','#e0ec9c',
+  '#442800','#644818','#846830','#a08444','#b89c58','#d0b46c','#e8cc7c','#fce08c'
+];
+
+function atariColor(i){ return ATARI[((i|0)%128+128)%128]; }
+function randAtari(){ return atariColor(Math.random()*128|0); }
+
+// 6502 mnemonics pool
+const ASM6502 = ['LDA','STA','LDX','STX','LDY','STY','ADC','SBC','AND','ORA','EOR',
+  'CMP','CPX','CPY','BEQ','BNE','BCC','BCS','BMI','BPL','BVS','BVC','JMP','JSR',
+  'RTS','RTI','PHA','PLA','PHP','PLP','SEC','CLC','SEI','CLI','NOP','INX','INY',
+  'DEX','DEY','INC','DEC','ASL','LSR','ROL','ROR','TAX','TAY','TXA','TYA','TSX',
+  'TXS','BIT','BRK','SED','CLD','CLV'];
+const REGS = ['$00','$01','$D010','$D400','$C000','$A000','$2000','$4016','#$0F','#$FF'];
+function randAsm(){ 
+  let m=ASM6502[Math.random()*ASM6502.length|0];
+  let r=REGS[Math.random()*REGS.length|0];
+  return m+' '+r;
+}
+
+// Color systems
+function hsl(h,s,l){ return `hsl(${h},${s}%,${l}%)`; }
+function hsla(h,s,l,a){ return `hsla(${h},${s}%,${l}%,${a})`; }
+function rgb(r,g,b){ return `rgb(${r},${g},${b})`; }
+function rgba(r,g,b,a){ return `rgba(${r},${g},${b},${a})`; }
+
+// Randomize all parameters
+function randomize(){
+  seed = Math.random()*99999|0;
+  P = {
+    bgHue: Math.random()*360,
+    // Wheel params (6 independent wheels)
+    wheels: Array.from({length:6},(_,i)=>({
+      x: Math.random()*0.85+0.07,
+      y: Math.random()*0.85+0.07,
+      r: Math.random()*0.12+0.06,
+      speed: (Math.random()-0.5)*0.012,
+      phase: Math.random()*Math.PI*2,
+      type: Math.random()*10|0, // 0=RGB,1=CMY,2=HSV,3=HSL,4=RYB,5=Munsell,6=NCS,7=Pantone,8=CIELAB,9=Atari
+      segments: (Math.random()*24|0)+6,
+      alpha: Math.random()*0.5+0.3,
+      hueShift: Math.random()*360,
+      innerR: Math.random()*0.3+0.1,
+    })),
+    // Polytopes
+    polytopes: Array.from({length:4},()=>({
+      x: Math.random()*0.9+0.05,
+      y: Math.random()*0.9+0.05,
+      size: Math.random()*0.08+0.03,
+      sides: (Math.random()*5|0)+3,
+      speed: (Math.random()-0.5)*0.02,
+      phase: Math.random()*Math.PI*2,
+      depth: (Math.random()*3|0)+2,
+      colorH: Math.random()*360,
+      alpha: Math.random()*0.6+0.2,
+    })),
+    // Tron grid
+    gridCols: (Math.random()*20|0)+10,
+    gridRows: (Math.random()*14|0)+7,
+    gridHue: Math.random()*360,
+    gridSpeed: Math.random()*0.004+0.001,
+    // PCB circuit
+    pcbNodes: (Math.random()*12|0)+6,
+    pcbHue: Math.random()*360,
+    // Robots
+    robots: Array.from({length:3},()=>({
+      x: Math.random()*0.8+0.1,
+      y: Math.random()*0.8+0.1,
+      size: Math.random()*0.06+0.03,
+      speed: (Math.random()-0.5)*0.003,
+      hue: Math.random()*360,
+      type: Math.random()*4|0,
+    })),
+    // Maze
+    mazeW: (Math.random()*10|0)+8,
+    mazeH: (Math.random()*7|0)+6,
+    mazeHue: Math.random()*360,
+    // UFOs
+    ufos: Array.from({length:2},()=>({
+      x: Math.random(),
+      y: Math.random()*0.4+0.05,
+      speed: (Math.random()-0.5)*0.002,
+      hue: Math.random()*360,
+      size: Math.random()*0.04+0.02,
+    })),
+    // Chromaticity
+    chromaX: Math.random()*0.7+0.15,
+    chromaY: Math.random()*0.7+0.15,
+    chromaSize: Math.random()*0.18+0.1,
+    chromaAlpha: Math.random()*0.5+0.2,
+    // Swatches
+    swatchRows: (Math.random()*4|0)+2,
+    swatchCols: (Math.random()*12|0)+8,
+    swatchHue: Math.random()*360,
+    swatchType: Math.random()*8|0,
+    // ASM overlay
+    asmLines: (Math.random()*8|0)+4,
+    asmX: Math.random()*0.6,
+    asmY: Math.random()*0.6,
+    asmHue: Math.random()*360,
+    // Neurotechnology implants
+    implants: Array.from({length:3},()=>({
+      x: Math.random()*0.85+0.07,
+      y: Math.random()*0.85+0.07,
+      r: Math.random()*0.06+0.02,
+      hue: Math.random()*360,
+      rings: (Math.random()*4|0)+2,
+      speed: Math.random()*0.02+0.005,
+    })),
+    // Delta-E / metric display
+    deltaE: Math.random()*50+5,
+    // Color field
+    fieldHue: Math.random()*360,
+    fieldSat: Math.random()*60+40,
+    // Category theory nodes
+    catNodes: (Math.random()*5|0)+4,
+    catHue: Math.random()*360,
+    // Temporal evolution
+    tempoBands: (Math.random()*6|0)+4,
+    // Video game elements
+    invaders: Array.from({length:8},()=>({
+      x:Math.random(),y:Math.random()*0.3+0.05,
+      hue:Math.random()*360,size:Math.random()*0.025+0.01,
+      speed:(Math.random()-0.5)*0.003,
+    })),
+    // After-image / perceptual illusion
+    illusionHue: Math.random()*360,
+    illusionX: Math.random()*0.6+0.2,
+    illusionY: Math.random()*0.6+0.2,
+  };
+  // Also create maze structure
+  P.maze = buildMaze(P.mazeW, P.mazeH);
+  // PCB node positions
+  P.pcbNodePos = Array.from({length:P.pcbNodes},()=>({
+    x:Math.random(),y:Math.random(),hue:Math.random()*360,
+  }));
+}
+
+// --- Maze builder (DFS) ---
+function buildMaze(cols,rows){
+  let grid=Array.from({length:rows*cols},()=>({n:true,s:true,e:true,w:true,visited:false}));
+  function idx(x,y){return y*cols+x;}
+  function dfs(x,y){
+    grid[idx(x,y)].visited=true;
+    let dirs=[[0,-1,'n','s'],[0,1,'s','n'],[1,0,'e','w'],[-1,0,'w','e']].sort(()=>Math.random()-0.5);
+    for(let [dx,dy,d1,d2] of dirs){
+      let nx=x+dx,ny=y+dy;
+      if(nx>=0&&nx<cols&&ny>=0&&ny<rows&&!grid[idx(nx,ny)].visited){
+        grid[idx(x,y)][d1]=false;
+        grid[idx(nx,ny)][d2]=false;
+        dfs(nx,ny);
+      }
+    }
+  }
+  dfs(0,0);
+  return {grid,cols,rows};
+}
+
+// Resize
+function resize(){
+  W=C.width=window.innerWidth;
+  H=C.height=window.innerHeight;
+  cx=W/2; cy=H/2;
+}
+window.addEventListener('resize',resize);
+resize();
+
+// --- Sound ---
+function makeSound(){
+  if(!soundOn) return;
+  if(!audioCtx) audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+  let o=audioCtx.createOscillator();
+  let g=audioCtx.createGain();
+  o.connect(g); g.connect(audioCtx.destination);
+  o.type=['square','sawtooth','triangle'][Math.random()*3|0];
+  o.frequency.setValueAtTime(110+Math.random()*880,audioCtx.currentTime);
+  o.frequency.exponentialRampToValueAtTime(55+Math.random()*440,audioCtx.currentTime+0.2);
+  g.gain.setValueAtTime(0.08,audioCtx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+0.25);
+  o.start(); o.stop(audioCtx.currentTime+0.25);
+}
+
+// --- Color palette generators ---
+function getWheelColor(type, angle, sat, lit, alpha){
+  let h = (((angle*180/Math.PI)%360)+360)%360;
+  switch(type%10){
+    case 0: return hsla(h,sat,lit,alpha); // RGB/HSL
+    case 1: { // CMY — shift 180
+      return hsla((h+180)%360,sat,lit,alpha);
+    }
+    case 2: { // HSV approx
+      let l2 = 50*(1-(1-lit/100)*0.5);
+      return hsla(h,sat,l2,alpha);
+    }
+    case 3: { // RYB — map
+      let ryb=[0,15,30,45,60,75,90,135,180,225,270,315,360];
+      let rgb2=[0,8,17,26,34,41,48,120,180,240,270,300,360];
+      let seg=h/30|0; seg=Math.min(seg,11);
+      let t=(h-seg*30)/30;
+      let rh=rgb2[seg]+(rgb2[seg+1]-rgb2[seg])*t;
+      return hsla(rh,sat,lit,alpha);
+    }
+    case 4: { // Munsell-ish
+      let hues=[0,36,72,108,144,180,216,252,288,324];
+      let nearest=hues[Math.round(h/36)%10];
+      return hsla(nearest+(h%36)*0.6,sat*0.9,lit,alpha);
+    }
+    case 5: { // NCS
+      return hsla(h,sat*0.8,lit*1.1,alpha);
+    }
+    case 6: { // Pantone-ish (desaturated, shifted)
+      return hsla((h+30)%360,sat*0.7,lit*0.9+10,alpha);
+    }
+    case 7: { // CIELAB approximate
+      return hsla(h,Math.min(100,sat*1.2),lit*0.85+8,alpha);
+    }
+    case 8: { // Atari 2600
+      let ai=(h/360*127)|0;
+      return ATARI[ai]+'bb'; // hex with alpha appended (canvas will parse it)
+    }
+    default: return hsla(h,sat,lit,alpha);
+  }
+}
+
+// --- Drawing Primitives ---
+
+function drawColorWheel(wheel, t){
+  let x=wheel.x*W, y=wheel.y*H;
+  let r=wheel.r*Math.min(W,H);
+  let segs=wheel.segments;
+  let angle=t*wheel.speed+wheel.phase;
+  ctx.save();
+  ctx.translate(x,y);
+  ctx.rotate(angle);
+  // Outer ring
+  for(let i=0;i<segs;i++){
+    let a0=(i/segs)*Math.PI*2;
+    let a1=((i+1)/segs)*Math.PI*2;
+    let innerR=r*wheel.innerR;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(a0)*innerR,Math.sin(a0)*innerR);
+    ctx.arc(0,0,r,a0,a1);
+    ctx.arc(0,0,innerR,a1,a0,true);
+    ctx.closePath();
+    let hue=((i/segs)*360+wheel.hueShift)%360;
+    ctx.fillStyle=getWheelColor(wheel.type,hue*Math.PI/180,80,55,wheel.alpha);
+    ctx.fill();
+    // Inner spokes
+    ctx.strokeStyle=hsla(hue,90,80,wheel.alpha*0.3);
+    ctx.lineWidth=0.5;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(a0)*innerR,Math.sin(a0)*innerR);
+    ctx.lineTo(Math.cos(a0)*r,Math.sin(a0)*r);
+    ctx.stroke();
+  }
+  // Center circle
+  let grad=ctx.createRadialGradient(0,0,0,0,0,r*0.15);
+  grad.addColorStop(0,hsla(wheel.hueShift,70,90,wheel.alpha));
+  grad.addColorStop(1,hsla((wheel.hueShift+180)%360,70,20,wheel.alpha*0.5));
+  ctx.beginPath();
+  ctx.arc(0,0,r*0.15,0,Math.PI*2);
+  ctx.fillStyle=grad;
+  ctx.fill();
+  // Label
+  ctx.fillStyle=hsla(0,0,100,0.6);
+  ctx.font=`${Math.max(7,r*0.1)}px 'Courier New'`;
+  ctx.textAlign='center';
+  const types=['RGB','CMY','HSV','HSL','RYB','MUNSELL','NCS','PANTONE','CIELAB','ATARI'];
+  ctx.fillText(types[wheel.type%10],0,0);
+  ctx.restore();
+}
+
+function drawPolytope(p, t){
+  let x=p.x*W, y=p.y*H, s=p.size*Math.min(W,H);
+  ctx.save();
+  ctx.translate(x,y);
+  // Draw nested polytopes
+  for(let d=p.depth;d>=1;d--){
+    let rs=s*(d/p.depth);
+    let angle=t*p.speed+p.phase+d*0.3;
+    ctx.save();
+    ctx.rotate(angle);
+    ctx.beginPath();
+    for(let i=0;i<=p.sides;i++){
+      let a=(i/p.sides)*Math.PI*2-Math.PI/2;
+      let px=Math.cos(a)*rs, py=Math.sin(a)*rs;
+      i===0?ctx.moveTo(px,py):ctx.lineTo(px,py);
+    }
+    ctx.closePath();
+    let h=(p.colorH+d*30+t*20)%360;
+    ctx.strokeStyle=hsla(h,80,60,p.alpha*(d/p.depth));
+    ctx.lineWidth=1+d*0.3;
+    ctx.stroke();
+    // Vertex dots
+    for(let i=0;i<p.sides;i++){
+      let a=(i/p.sides)*Math.PI*2-Math.PI/2;
+      ctx.beginPath();
+      ctx.arc(Math.cos(a)*rs,Math.sin(a)*rs,2,0,Math.PI*2);
+      ctx.fillStyle=hsla((h+i*40)%360,90,70,p.alpha);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+function drawTronGrid(t){
+  let gc=P.gridCols, gr=P.gridRows;
+  let cw=W/gc, ch=H/gr;
+  let hue=P.gridHue;
+  ctx.save();
+  ctx.globalAlpha=0.15;
+  // Horizontal lines
+  for(let r=0;r<=gr;r++){
+    let pulse=Math.sin(r*0.4+t*P.gridSpeed*200)*0.5+0.5;
+    ctx.strokeStyle=hsla((hue+r*8)%360,90,50+pulse*30,0.7);
+    ctx.lineWidth=pulse*1.5+0.3;
+    ctx.beginPath();
+    ctx.moveTo(0,r*ch);
+    ctx.lineTo(W,r*ch);
+    ctx.stroke();
+  }
+  // Vertical lines
+  for(let c=0;c<=gc;c++){
+    let pulse=Math.sin(c*0.3+t*P.gridSpeed*150)*0.5+0.5;
+    ctx.strokeStyle=hsla((hue+180+c*6)%360,90,50+pulse*30,0.7);
+    ctx.lineWidth=pulse*1.2+0.2;
+    ctx.beginPath();
+    ctx.moveTo(c*cw,0);
+    ctx.lineTo(c*cw,H);
+    ctx.stroke();
+  }
+  // Random cell highlights (Tron recognizer glow)
+  ctx.globalAlpha=0.12;
+  let nt=Math.sin(t*0.001)*0.5+0.5;
+  let nc=Math.sin(t*0.0013+1.2)*0.5+0.5;
+  let nr=Math.sin(t*0.0017+2.5)*0.5+0.5;
+  let ci=nc*gc|0, ri=nr*gr|0;
+  ctx.fillStyle=hsla((hue+nt*180)%360,100,70,0.3);
+  ctx.fillRect(ci*cw,ri*ch,cw,ch);
+  ctx.restore();
+}
+
+function drawPCB(t){
+  let nodes=P.pcbNodePos;
+  let hue=P.pcbHue;
+  ctx.save();
+  ctx.globalAlpha=0.25;
+  // Draw traces
+  for(let i=0;i<nodes.length;i++){
+    for(let j=i+1;j<nodes.length;j++){
+      if(Math.random()<0.3){
+        let x1=nodes[i].x*W, y1=nodes[i].y*H;
+        let x2=nodes[j].x*W, y2=nodes[j].y*H;
+        let pulse=Math.sin(t*0.002+i*0.7+j*0.4)*0.5+0.5;
+        ctx.strokeStyle=hsla((hue+i*15)%360,85,40+pulse*30,0.5+pulse*0.3);
+        ctx.lineWidth=0.8+pulse;
+        // Manhattan routing
+        ctx.beginPath();
+        ctx.moveTo(x1,y1);
+        ctx.lineTo(x1,y2);
+        ctx.lineTo(x2,y2);
+        ctx.stroke();
+        // Animated signal pulse
+        let prog=(t*0.003+i*0.2)%1;
+        let px=x1*(1-prog)+x2*prog;
+        let py=y1*(1-prog)+y2*prog;
+        ctx.beginPath();
+        ctx.arc(px,py,3,0,Math.PI*2);
+        ctx.fillStyle=hsla((hue+j*20)%360,100,80,0.9);
+        ctx.fill();
+      }
+    }
+  }
+  // PCB pads
+  for(let i=0;i<nodes.length;i++){
+    let x=nodes[i].x*W, y=nodes[i].y*H;
+    ctx.beginPath();
+    ctx.arc(x,y,5,0,Math.PI*2);
+    ctx.fillStyle=hsla(nodes[i].hue,80,60,0.7);
+    ctx.fill();
+    ctx.strokeStyle=hsla(nodes[i].hue,60,90,0.5);
+    ctx.lineWidth=1;
+    ctx.stroke();
+    // IC chip symbol
+    if(i%3===0){
+      ctx.strokeStyle=hsla((hue+90)%360,70,50,0.4);
+      ctx.lineWidth=0.7;
+      ctx.strokeRect(x-8,y-5,16,10);
+      // Pins
+      for(let p=0;p<3;p++){
+        ctx.beginPath();
+        ctx.moveTo(x-8,y-3+p*3); ctx.lineTo(x-14,y-3+p*3);
+        ctx.moveTo(x+8,y-3+p*3); ctx.lineTo(x+14,y-3+p*3);
+        ctx.stroke();
+      }
+    }
+  }
+  ctx.restore();
+}
+
+function drawRobot(robot, t){
+  let x=robot.x*W, y=robot.y*H, s=robot.size*Math.min(W,H);
+  let h=robot.hue;
+  ctx.save();
+  ctx.translate(x,y);
+  let bob=Math.sin(t*0.002+robot.hue)*s*0.05;
+  ctx.translate(0,bob);
+  ctx.globalAlpha=0.7;
+  let typ=robot.type%4;
+  if(typ===0){
+    // Humanoid robot
+    // Body
+    ctx.fillStyle=hsla(h,70,30,0.8);
+    ctx.fillRect(-s*0.25,-s*0.3,s*0.5,s*0.5);
+    // Head
+    ctx.fillStyle=hsla(h,60,50,0.8);
+    ctx.fillRect(-s*0.18,-s*0.58,s*0.36,s*0.26);
+    // Eyes
+    ctx.fillStyle=hsla((h+120)%360,100,80,1);
+    let blink=Math.sin(t*0.003+h)*0.5+0.5>0.95?0:1;
+    if(blink){
+      ctx.fillRect(-s*0.12,-s*0.5,s*0.08,s*0.07);
+      ctx.fillRect(s*0.04,-s*0.5,s*0.08,s*0.07);
+    }
+    // Arms
+    ctx.fillStyle=hsla(h,65,40,0.8);
+    let armSwing=Math.sin(t*0.003+h)*s*0.15;
+    ctx.fillRect(-s*0.45,-s*0.2+armSwing,s*0.18,s*0.35);
+    ctx.fillRect(s*0.27,-s*0.2-armSwing,s*0.18,s*0.35);
+    // Legs
+    ctx.fillRect(-s*0.2,s*0.2,s*0.17,s*0.35);
+    ctx.fillRect(s*0.03,s*0.2,s*0.17,s*0.35);
+    // Antenna
+    ctx.strokeStyle=hsla((h+60)%360,100,70,1);
+    ctx.lineWidth=s*0.03;
+    ctx.beginPath(); ctx.moveTo(0,-s*0.58); ctx.lineTo(0,-s*0.8); ctx.stroke();
+    ctx.beginPath(); ctx.arc(0,-s*0.82,s*0.05,0,Math.PI*2); ctx.fillStyle=hsla((h+60)%360,100,80,1); ctx.fill();
+  } else if(typ===1){
+    // Tank-tread robot
+    ctx.fillStyle=hsla(h,50,25,0.85);
+    ctx.fillRect(-s*0.4,-s*0.2,s*0.8,s*0.3);
+    // Treads
+    for(let i=0;i<8;i++){
+      let tx=-s*0.38+i*(s*0.1);
+      let phase=(t*0.005+i*0.3)%1;
+      ctx.fillStyle=hsla(h,40,15+phase*20,0.9);
+      ctx.fillRect(tx,s*0.1,s*0.08,s*0.15);
+    }
+    // Turret
+    ctx.fillStyle=hsla((h+30)%360,60,40,0.9);
+    ctx.fillRect(-s*0.2,-s*0.42,s*0.4,s*0.25);
+    // Barrel
+    let barrelAngle=Math.sin(t*0.001+h)*0.5;
+    ctx.save(); ctx.translate(0,-s*0.28); ctx.rotate(barrelAngle);
+    ctx.fillStyle=hsla((h+60)%360,70,50,0.9);
+    ctx.fillRect(0,-s*0.04,s*0.45,s*0.08);
+    ctx.restore();
+    // Sensor eye
+    ctx.fillStyle=hsla((h+180)%360,100,70,1);
+    ctx.beginPath(); ctx.arc(s*0.15,-s*0.3,s*0.05,0,Math.PI*2); ctx.fill();
+  } else if(typ===2){
+    // Spider/legged robot
+    let legPhase=t*0.004;
+    for(let i=0;i<6;i++){
+      let la=(i/6)*Math.PI*2;
+      let lx=Math.cos(la)*s*0.5, ly=Math.sin(la)*s*0.5;
+      let midLx=Math.cos(la)*s*0.25+Math.sin(legPhase+i)*s*0.08;
+      let midLy=Math.sin(la)*s*0.25+Math.cos(legPhase+i)*s*0.08;
+      ctx.strokeStyle=hsla(h,70,50,0.8);
+      ctx.lineWidth=s*0.04;
+      ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(midLx,midLy); ctx.lineTo(lx,ly); ctx.stroke();
+      ctx.fillStyle=hsla((h+i*30)%360,80,60,0.9);
+      ctx.beginPath(); ctx.arc(lx,ly,s*0.06,0,Math.PI*2); ctx.fill();
+    }
+    ctx.fillStyle=hsla(h,80,40,0.9);
+    ctx.beginPath(); ctx.arc(0,0,s*0.25,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle=hsla((h+120)%360,100,80,1);
+    ctx.beginPath(); ctx.arc(0,0,s*0.1,0,Math.PI*2); ctx.fill();
+  } else {
+    // Floating drone
+    let hover=Math.sin(t*0.003+h)*s*0.08;
+    ctx.translate(0,hover);
+    // Body
+    ctx.fillStyle=hsla(h,60,35,0.85);
+    ctx.beginPath(); ctx.arc(0,0,s*0.25,0,Math.PI*2); ctx.fill();
+    // Rotors
+    for(let i=0;i<4;i++){
+      let ra=(i/4)*Math.PI*2+t*0.01;
+      let rx=Math.cos(ra)*s*0.35, ry=Math.sin(ra)*s*0.35;
+      ctx.save(); ctx.translate(rx,ry); ctx.rotate(t*0.02);
+      ctx.strokeStyle=hsla((h+90)%360,80,70,0.7);
+      ctx.lineWidth=s*0.04;
+      ctx.beginPath(); ctx.moveTo(-s*0.15,0); ctx.lineTo(s*0.15,0); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0,-s*0.15); ctx.lineTo(0,s*0.15); ctx.stroke();
+      ctx.restore();
+      ctx.strokeStyle=hsla(h,50,50,0.3);
+      ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(rx,ry); ctx.stroke();
+    }
+    // LED eye
+    ctx.fillStyle=hsla((h+180)%360,100,75+(Math.sin(t*0.005)*25),1);
+    ctx.beginPath(); ctx.arc(0,0,s*0.08,0,Math.PI*2); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawMaze(t){
+  let m=P.maze;
+  if(!m) return;
+  let cols=m.cols, rows=m.rows;
+  let pw=W/cols, ph=H/rows;
+  let hue=P.mazeHue;
+  ctx.save();
+  ctx.globalAlpha=0.18;
+  ctx.strokeStyle=hsla(hue,80,50,0.6);
+  ctx.lineWidth=1.2;
+  for(let y=0;y<rows;y++){
+    for(let x=0;x<cols;x++){
+      let cell=m.grid[y*cols+x];
+      let lx=x*pw, ly=y*ph;
+      if(cell.n){ctx.beginPath();ctx.moveTo(lx,ly);ctx.lineTo(lx+pw,ly);ctx.stroke();}
+      if(cell.s){ctx.beginPath();ctx.moveTo(lx,ly+ph);ctx.lineTo(lx+pw,ly+ph);ctx.stroke();}
+      if(cell.w){ctx.beginPath();ctx.moveTo(lx,ly);ctx.lineTo(lx,ly+ph);ctx.stroke();}
+      if(cell.e){ctx.beginPath();ctx.moveTo(lx+pw,ly);ctx.lineTo(lx+pw,ly+ph);ctx.stroke();}
+    }
+  }
+  // Animated path highlight
+  let pathX=(Math.sin(t*0.0007)*0.4+0.5)*cols|0;
+  let pathY=(Math.cos(t*0.0009)*0.4+0.5)*rows|0;
+  pathX=Math.max(0,Math.min(cols-1,pathX));
+  pathY=Math.max(0,Math.min(rows-1,pathY));
+  ctx.globalAlpha=0.4;
+  ctx.fillStyle=hsla((hue+t*0.05)%360,100,70,0.4);
+  ctx.fillRect(pathX*pw+1,pathY*ph+1,pw-2,ph-2);
+  ctx.restore();
+}
+
+function drawUFO(ufo, t){
+  let x=((ufo.x+t*ufo.speed*0.1)%1+1)%1*W;
+  let y=ufo.y*H + Math.sin(t*0.002+ufo.hue)*H*0.03;
+  let s=ufo.size*Math.min(W,H);
+  let h=ufo.hue;
+  ctx.save(); ctx.translate(x,y);
+  ctx.globalAlpha=0.75;
+  // Body
+  let bodyGrad=ctx.createEllipse?null:null;
+  ctx.fillStyle=hsla(h,70,35,0.85);
+  ctx.beginPath(); ctx.ellipse(0,0,s,s*0.4,0,0,Math.PI*2); ctx.fill();
+  // Dome
+  ctx.fillStyle=hsla(h,50,70,0.6);
+  ctx.beginPath(); ctx.ellipse(0,-s*0.2,s*0.5,s*0.4,0,Math.PI,0); ctx.fill();
+  // Lights
+  let nLights=6;
+  for(let i=0;i<nLights;i++){
+    let la=(i/nLights)*Math.PI*2+t*0.003;
+    let lx=Math.cos(la)*s*0.8, ly=Math.sin(la)*s*0.25;
+    let blink=(Math.sin(t*0.01+i*1.3)>0.3)?1:0.2;
+    ctx.fillStyle=hsla((h+i*30)%360,100,80,blink);
+    ctx.beginPath(); ctx.arc(lx,ly,s*0.06,0,Math.PI*2); ctx.fill();
+  }
+  // Beam
+  let beamAlpha=Math.max(0,Math.sin(t*0.001+h)*0.5+0.3);
+  let beamGrad=ctx.createLinearGradient(0,s*0.3,0,s*3);
+  beamGrad.addColorStop(0,hsla(h,100,80,beamAlpha*0.4));
+  beamGrad.addColorStop(1,hsla(h,100,80,0));
+  ctx.fillStyle=beamGrad;
+  ctx.beginPath();
+  ctx.moveTo(-s*0.2,s*0.3); ctx.lineTo(s*0.2,s*0.3);
+  ctx.lineTo(s*0.7,s*3); ctx.lineTo(-s*0.7,s*3); ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawChromaticity(t){
+  let x=P.chromaX*W, y=P.chromaY*H;
+  let s=P.chromaSize*Math.min(W,H);
+  ctx.save(); ctx.translate(x,y);
+  ctx.globalAlpha=P.chromaAlpha;
+  // CIE horseshoe approximation
+  let pts=[];
+  for(let i=0;i<=60;i++){
+    let ang=(i/60)*Math.PI;
+    let r=s*(0.4+Math.sin(ang)*0.3);
+    pts.push([Math.cos(ang*1.8-0.8)*r, Math.sin(ang*0.9-0.3)*r]);
+  }
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0],pts[0][1]);
+  for(let p of pts) ctx.lineTo(p[0],p[1]);
+  ctx.closePath();
+  // Fill with spectral gradient
+  for(let i=0;i<pts.length-1;i++){
+    let h=(i/pts.length)*360;
+    let gx=pts[i][0],gy=pts[i][1];
+    ctx.beginPath();
+    ctx.moveTo(0,0); ctx.lineTo(gx,gy);
+    ctx.lineTo(pts[i+1][0],pts[i+1][1]);
+    ctx.closePath();
+    ctx.fillStyle=hsla(h,90,55,0.6);
+    ctx.fill();
+  }
+  // Outline
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0],pts[0][1]);
+  for(let p of pts) ctx.lineTo(p[0],p[1]);
+  ctx.closePath();
+  ctx.strokeStyle=hsla(0,0,100,0.5);
+  ctx.lineWidth=1;
+  ctx.stroke();
+  // White point
+  ctx.fillStyle='rgba(255,255,255,0.8)';
+  ctx.beginPath(); ctx.arc(0,0,s*0.05,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle=rgba(255,255,255,0.7);
+  ctx.font=`${Math.max(7,s*0.08)}px 'Courier New'`;
+  ctx.textAlign='center';
+  ctx.fillText('CHROMATICITY',0,s*0.6);
+  ctx.restore();
+}
+
+function drawSwatches(t){
+  let cols=P.swatchCols, rows=P.swatchRows;
+  let sh=P.swatchHue;
+  let sw=W/cols, srh=H*0.12/rows;
+  let yoff=H*0.01;
+  ctx.save();
+  ctx.globalAlpha=0.5;
+  for(let r=0;r<rows;r++){
+    for(let c=0;c<cols;c++){
+      let hue, sat, lit;
+      switch(P.swatchType%8){
+        case 0: hue=(sh+c*(360/cols))%360; sat=80; lit=30+r*(40/rows); break; // stepped hue
+        case 1: hue=sh; sat=c*(100/cols); lit=30+r*(40/rows); break; // saturation scale
+        case 2: hue=(sh+c*15)%360; sat=70; lit=c*(100/cols); break; // lightness scale
+        case 3: { // Atari palette
+          let ai=(r*cols+c)%128;
+          ctx.fillStyle=ATARI[ai];
+          ctx.fillRect(c*sw,yoff+r*srh,sw-1,srh-1);
+          continue;
+        }
+        case 4: hue=(sh+c*(360/cols)+t*0.05)%360; sat=50+r*10; lit=45; break; // animated
+        case 5: hue=(sh+r*30+c*5)%360; sat=90-r*15; lit=40+r*8; break; // triadic
+        case 6: hue=c*(360/cols); sat=90; lit=50; break; // full spectrum strip
+        default: hue=(sh+c*7+r*23)%360; sat=70; lit=50; break;
+      }
+      ctx.fillStyle=hsl(hue,sat,lit);
+      ctx.fillRect(c*sw,yoff+r*srh,sw-1,srh-1);
+      // HEX overlay on hover-ish
+      if(cols<20 && srh>12){
+        let hexH=Math.round(hue).toString(16).padStart(2,'0');
+        ctx.fillStyle='rgba(0,0,0,0.4)';
+        ctx.font='6px Courier New';
+        ctx.fillText('#'+hexH+'xxxx',c*sw+2,yoff+r*srh+srh-2);
+      }
+    }
+  }
+  ctx.restore();
+}
+
+function drawASM(t){
+  let x=P.asmX*W, y=P.asmY*H;
+  let h=P.asmHue;
+  ctx.save();
+  ctx.globalAlpha=0.6;
+  ctx.font='11px "Courier New"';
+  let lineH=14;
+  let nLines=P.asmLines;
+  // Background panel
+  ctx.fillStyle=rgba(0,10,0,0.5);
+  ctx.fillRect(x-4,y-lineH,W*0.22,lineH*(nLines+1)+4);
+  ctx.strokeStyle=hsla(h,80,50,0.6);
+  ctx.lineWidth=0.7;
+  ctx.strokeRect(x-4,y-lineH,W*0.22,lineH*(nLines+1)+4);
+  for(let i=0;i<nLines;i++){
+    let addr=0x2000+i*3+(t*0.1|0)*7;
+    let addrStr='$'+addr.toString(16).toUpperCase().padStart(4,'0');
+    let ins=ASM6502[(i*7+seed+t*0.002|0)%ASM6502.length];
+    let op=REGS[(i*3+seed+t*0.003|0)%REGS.length];
+    let hex=(Math.random()*256|0).toString(16).toUpperCase().padStart(2,'0');
+    ctx.fillStyle=hsla((h+i*20)%360,80,65,0.9);
+    ctx.fillText(`${addrStr}: ${hex} ${ins} ${op}`,x,y+i*lineH);
+  }
+  // Memory dump
+  ctx.fillStyle=hsla((h+90)%360,70,55,0.7);
+  ctx.fillText('; ATARI 2600 6502 ASM',x,y+nLines*lineH);
+  ctx.restore();
+}
+
+function drawNeurotechImplant(imp, t){
+  let x=imp.x*W, y=imp.y*H, r=imp.r*Math.min(W,H);
+  let h=imp.hue;
+  ctx.save(); ctx.translate(x,y);
+  ctx.globalAlpha=0.6;
+  // Neural mesh rings
+  for(let ring=imp.rings;ring>=1;ring--){
+    let rr=r*(ring/imp.rings);
+    let pulse=Math.sin(t*imp.speed*ring+h)*0.5+0.5;
+    ctx.beginPath(); ctx.arc(0,0,rr,0,Math.PI*2);
+    ctx.strokeStyle=hsla((h+ring*25)%360,85,50+pulse*30,0.5-ring*0.05);
+    ctx.lineWidth=1+pulse*1.5;
+    ctx.stroke();
+    // Ring nodes
+    let nNodes=5+ring*2;
+    for(let n=0;n<nNodes;n++){
+      let na=(n/nNodes)*Math.PI*2+t*imp.speed*(ring%2?1:-1);
+      let nx=Math.cos(na)*rr, ny=Math.sin(na)*rr;
+      ctx.fillStyle=hsla((h+n*20+ring*30)%360,100,70,0.8);
+      ctx.beginPath(); ctx.arc(nx,ny,2,0,Math.PI*2); ctx.fill();
+      // Connector lines
+      if(ring>1){
+        let innerR=r*((ring-1)/imp.rings);
+        let ia=na+t*imp.speed*(ring%2?-1:1)*0.5;
+        ctx.strokeStyle=hsla((h+ring*15)%360,70,60,0.2);
+        ctx.lineWidth=0.5;
+        ctx.beginPath();
+        ctx.moveTo(nx,ny);
+        ctx.lineTo(Math.cos(ia)*innerR,Math.sin(ia)*innerR);
+        ctx.stroke();
+      }
+    }
+  }
+  // Core
+  let coreGrad=ctx.createRadialGradient(0,0,0,0,0,r*0.2);
+  coreGrad.addColorStop(0,hsla(h,100,80,0.9));
+  coreGrad.addColorStop(1,hsla((h+180)%360,100,20,0.1));
+  ctx.beginPath(); ctx.arc(0,0,r*0.2,0,Math.PI*2);
+  ctx.fillStyle=coreGrad; ctx.fill();
+  ctx.fillStyle='rgba(255,255,255,0.5)';
+  ctx.font=`${Math.max(7,r*0.18)}px "Courier New"`;
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText('NCY',0,0);
+  ctx.restore();
+}
+
+function drawCategoryTheory(t){
+  let n=P.catNodes;
+  let h=P.catHue;
+  let nodes=Array.from({length:n},(_,i)=>{
+    let a=(i/n)*Math.PI*2+t*0.0005;
+    let r=Math.min(W,H)*0.38;
+    return {x:cx+Math.cos(a)*r, y:cy+Math.sin(a)*r};
+  });
+  ctx.save(); ctx.globalAlpha=0.2;
+  // Morphisms (arrows)
+  for(let i=0;i<n;i++){
+    for(let j=0;j<n;j++){
+      if(i===j) continue;
+      if((i+j*n+seed)%5 !== 0) continue;
+      let x1=nodes[i].x, y1=nodes[i].y;
+      let x2=nodes[j].x, y2=nodes[j].y;
+      let pulse=Math.sin(t*0.002+i*0.6+j*0.4)*0.5+0.5;
+      ctx.strokeStyle=hsla((h+i*20+j*13)%360,70,50+pulse*20,0.4+pulse*0.2);
+      ctx.lineWidth=0.8+pulse;
+      // Curved arrow
+      let mx=(x1+x2)/2+Math.sin(i-j)*40;
+      let my=(y1+y2)/2+Math.cos(i-j)*40;
+      ctx.beginPath();
+      ctx.moveTo(x1,y1);
+      ctx.quadraticCurveTo(mx,my,x2,y2);
+      ctx.stroke();
+      // Arrowhead
+      let dx=x2-mx, dy=y2-my;
+      let len=Math.sqrt(dx*dx+dy*dy)||1;
+      let ux=dx/len, uy=dy/len;
+      ctx.beginPath();
+      ctx.moveTo(x2,y2);
+      ctx.lineTo(x2-ux*8+uy*4,y2-uy*8-ux*4);
+      ctx.lineTo(x2-ux*8-uy*4,y2-uy*8+ux*4);
+      ctx.closePath();
+      ctx.fillStyle=hsla((h+i*20)%360,80,60,0.5);
+      ctx.fill();
+    }
+  }
+  // Nodes (objects)
+  for(let i=0;i<n;i++){
+    ctx.globalAlpha=0.35;
+    ctx.fillStyle=hsla((h+i*30)%360,80,40,0.6);
+    ctx.beginPath(); ctx.arc(nodes[i].x,nodes[i].y,8,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle=hsla((h+i*30)%360,100,70,0.7);
+    ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.arc(nodes[i].x,nodes[i].y,8,0,Math.PI*2); ctx.stroke();
+    ctx.fillStyle=hsla(0,0,100,0.6);
+    ctx.font='8px Courier New';
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(String.fromCharCode(65+i),nodes[i].x,nodes[i].y);
+  }
+  ctx.restore();
+}
+
+function drawVideoGameInvader(inv, t){
+  let x=((inv.x + t*inv.speed*0.1)%1+1)%1*W;
+  let y=inv.y*H + Math.sin(t*0.003+inv.hue)*H*0.02;
+  let s=inv.size*Math.min(W,H);
+  let h=inv.hue;
+  ctx.save(); ctx.translate(x,y);
+  ctx.globalAlpha=0.7;
+  // Classic space invader pixel art
+  let pattern=[
+    [0,0,1,0,0,0,1,0,0],
+    [0,0,0,1,0,1,0,0,0],
+    [0,0,1,1,1,1,1,0,0],
+    [0,1,1,0,1,0,1,1,0],
+    [1,1,1,1,1,1,1,1,1],
+    [1,0,1,1,1,1,1,0,1],
+    [1,0,1,0,0,0,1,0,1],
+    [0,0,0,1,1,1,0,0,0],
+  ];
+  let ps=s/9;
+  pattern.forEach((row,r)=>{
+    row.forEach((px,c)=>{
+      if(px){
+        ctx.fillStyle=hsla((h+r*10)%360,90,60,0.9);
+        ctx.fillRect((c-4.5)*ps,(r-4)*ps,ps-0.5,ps-0.5);
+      }
+    });
+  });
+  ctx.restore();
+}
+
+function drawHSVCone(t){
+  let x=W*0.12, y=H*0.5;
+  let r=Math.min(W,H)*0.08;
+  ctx.save(); ctx.translate(x,y);
+  ctx.globalAlpha=0.45;
+  // HSV/HSL double cone
+  let segs=36;
+  for(let i=0;i<segs;i++){
+    let a0=(i/segs)*Math.PI*2+t*0.002;
+    let a1=((i+1)/segs)*Math.PI*2+t*0.002;
+    let h=(i/segs)*360;
+    // Top cone (HSV)
+    ctx.beginPath();
+    ctx.moveTo(0,-r*1.2);
+    ctx.arc(0,0,r,a0,a1);
+    ctx.closePath();
+    ctx.fillStyle=hsla(h,85,55,0.6);
+    ctx.fill();
+    // Bottom cone (HSL)
+    ctx.beginPath();
+    ctx.moveTo(0,r*1.2);
+    ctx.arc(0,0,r,a0,a1);
+    ctx.closePath();
+    ctx.fillStyle=hsla(h,70,35,0.5);
+    ctx.fill();
+  }
+  ctx.fillStyle='rgba(255,255,255,0.7)';
+  ctx.font='8px Courier New';
+  ctx.textAlign='center';
+  ctx.fillText('HSV/HSL',0,r*1.5);
+  ctx.restore();
+}
+
+function drawTemporalColorBands(t){
+  let bands=P.tempoBands;
+  let bh=H/bands;
+  ctx.save();
+  ctx.globalAlpha=0.15;
+  for(let i=0;i<bands;i++){
+    let hue=(P.fieldHue+i*(360/bands)+t*0.03)%360;
+    let sat=P.fieldSat+Math.sin(t*0.002+i)*20;
+    let wave=Math.sin(t*0.001*(i+1)+i)*W*0.05;
+    let grad=ctx.createLinearGradient(wave,0,W+wave,0);
+    grad.addColorStop(0,hsla(hue,sat,40,0));
+    grad.addColorStop(0.5,hsla((hue+30)%360,sat,55,0.8));
+    grad.addColorStop(1,hsla((hue+60)%360,sat,40,0));
+    ctx.fillStyle=grad;
+    ctx.fillRect(0,i*bh,W,bh);
+  }
+  ctx.restore();
+}
+
+function drawTronRecognizer(t){
+  let rx=W*0.85, ry=H*0.5;
+  let s=Math.min(W,H)*0.12;
+  ctx.save(); ctx.translate(rx,ry);
+  ctx.rotate(t*0.001);
+  ctx.globalAlpha=0.55;
+  let h=190+Math.sin(t*0.002)*30;
+  // Main body
+  ctx.strokeStyle=hsla(h,100,55,0.9);
+  ctx.lineWidth=2;
+  // Recognizer shape (classic Tron)
+  let pts=[
+    [0,-s],[s*0.4,-s*0.7],[s*0.7,-s*0.3],
+    [s*0.7,s*0.3],[s*0.4,s*0.7],[0,s],
+    [-s*0.4,s*0.7],[-s*0.7,s*0.3],
+    [-s*0.7,-s*0.3],[-s*0.4,-s*0.7]
+  ];
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0],pts[0][1]);
+  for(let p of pts) ctx.lineTo(p[0],p[1]);
+  ctx.closePath();
+  ctx.stroke();
+  // Inner structure
+  let innerPts=pts.map(p=>[p[0]*0.6,p[1]*0.6]);
+  ctx.beginPath();
+  ctx.moveTo(innerPts[0][0],innerPts[0][1]);
+  for(let p of innerPts) ctx.lineTo(p[0],p[1]);
+  ctx.closePath();
+  ctx.stroke();
+  // Cross beams
+  for(let i=0;i<pts.length;i+=2){
+    let ip=innerPts[i];
+    ctx.beginPath(); ctx.moveTo(pts[i][0],pts[i][1]); ctx.lineTo(ip[0],ip[1]); ctx.stroke();
+  }
+  // Glowing legs
+  for(let i=0;i<4;i++){
+    let legH=s*0.9+Math.sin(t*0.003+i)*s*0.1;
+    let lx=(i-1.5)*s*0.3;
+    ctx.strokeStyle=hsla(h,100,70,0.8);
+    ctx.lineWidth=3;
+    ctx.beginPath();
+    ctx.moveTo(lx,s*0.7); ctx.lineTo(lx,s*0.7+legH); ctx.stroke();
+    ctx.fillStyle=hsla(h,100,80,1);
+    ctx.beginPath(); ctx.arc(lx,s*0.7+legH,4,0,Math.PI*2); ctx.fill();
+  }
+  // Eye
+  let eyePulse=Math.sin(t*0.008)*0.5+0.5;
+  ctx.fillStyle=hsla(h,100,70+eyePulse*30,1);
+  ctx.beginPath(); ctx.arc(0,-s*0.2,s*0.12,0,Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+
+function drawOpponentProcess(t){
+  // Red-green / Blue-yellow / Black-white axes
+  let x=W*0.5, y=H*0.85;
+  let r=Math.min(W,H)*0.06;
+  ctx.save(); ctx.translate(x,y);
+  ctx.globalAlpha=0.5;
+  let spin=t*0.002;
+  // R-G axis
+  let gR=ctx.createLinearGradient(-r,0,r,0);
+  gR.addColorStop(0,hsla(0,100,50,0.7));
+  gR.addColorStop(0.5,hsla(0,0,50,0.3));
+  gR.addColorStop(1,hsla(120,100,40,0.7));
+  ctx.save(); ctx.rotate(spin);
+  ctx.fillStyle=gR;
+  ctx.fillRect(-r,-6,r*2,12);
+  ctx.restore();
+  // B-Y axis
+  let gBY=ctx.createLinearGradient(-r,0,r,0);
+  gBY.addColorStop(0,hsla(240,100,50,0.7));
+  gBY.addColorStop(1,hsla(60,100,55,0.7));
+  ctx.save(); ctx.rotate(spin+Math.PI/2);
+  ctx.fillStyle=gBY;
+  ctx.fillRect(-r,-6,r*2,12);
+  ctx.restore();
+  ctx.fillStyle='rgba(255,255,255,0.4)';
+  ctx.font='8px Courier New'; ctx.textAlign='center';
+  ctx.fillText('OPPONENT PROCESS',0,r+10);
+  ctx.restore();
+}
+
+function drawDeltaEMetric(t){
+  let x=W*0.03, y=H*0.8;
+  let de=P.deltaE+Math.sin(t*0.002)*5;
+  ctx.save(); ctx.translate(x,y);
+  ctx.globalAlpha=0.65;
+  // Color difference bar
+  let barW=W*0.12, barH=14;
+  let pct=Math.min(1,de/100);
+  let hue=pct<0.5?(1-pct*2)*120:0;
+  ctx.fillStyle='rgba(0,0,0,0.4)';
+  ctx.fillRect(0,0,barW,barH);
+  ctx.fillStyle=hsl(hue,80,50);
+  ctx.fillRect(0,0,barW*pct,barH);
+  ctx.strokeStyle='rgba(255,255,255,0.4)';
+  ctx.lineWidth=0.7;
+  ctx.strokeRect(0,0,barW,barH);
+  ctx.fillStyle='rgba(255,255,255,0.7)';
+  ctx.font='8px Courier New';
+  ctx.fillText(`ΔE: ${de.toFixed(1)}`,0,-4);
+  ctx.restore();
+}
+
+function drawColorGamut(t){
+  let x=W*0.88, y=H*0.2;
+  let s=Math.min(W,H)*0.07;
+  ctx.save(); ctx.translate(x,y);
+  ctx.globalAlpha=0.45;
+  ctx.rotate(t*0.001);
+  // sRGB triangle
+  let triPts=[[0,-s],[s*0.87,s*0.5],[-s*0.87,s*0.5]];
+  ctx.beginPath();
+  ctx.moveTo(triPts[0][0],triPts[0][1]);
+  ctx.lineTo(triPts[1][0],triPts[1][1]);
+  ctx.lineTo(triPts[2][0],triPts[2][1]);
+  ctx.closePath();
+  let g=ctx.createLinearGradient(-s,-s,s,s);
+  g.addColorStop(0,'rgba(255,0,0,0.5)');
+  g.addColorStop(0.5,'rgba(0,255,0,0.5)');
+  g.addColorStop(1,'rgba(0,0,255,0.5)');
+  ctx.fillStyle=g;
+  ctx.fill();
+  ctx.strokeStyle='rgba(255,255,255,0.5)';
+  ctx.lineWidth=1;
+  ctx.stroke();
+  // Adobe RGB (wider)
+  let triPts2=[[0,-s*1.2],[s*1.0,s*0.6],[-s*1.0,s*0.6]];
+  ctx.beginPath();
+  ctx.moveTo(triPts2[0][0],triPts2[0][1]);
+  ctx.lineTo(triPts2[1][0],triPts2[1][1]);
+  ctx.lineTo(triPts2[2][0],triPts2[2][1]);
+  ctx.closePath();
+  ctx.strokeStyle='rgba(0,255,255,0.4)';
+  ctx.stroke();
+  ctx.fillStyle='rgba(255,255,255,0.4)';
+  ctx.font='7px Courier New'; ctx.textAlign='center';
+  ctx.fillText('COLOR GAMUT',0,s*0.8);
+  ctx.restore();
+}
+
+function drawBackground(t){
+  // Deep space base
+  let bgH=P.bgHue;
+  let bg=ctx.createRadialGradient(cx,cy,0,cx,cy,Math.max(W,H)*0.8);
+  bg.addColorStop(0,hsla(bgH,20,5,1));
+  bg.addColorStop(0.5,hsla((bgH+30)%360,15,3,1));
+  bg.addColorStop(1,hsla((bgH+60)%360,10,2,1));
+  ctx.fillStyle=bg;
+  ctx.fillRect(0,0,W,H);
+  // Starfield
+  ctx.save();
+  let prng=lcg(seed);
+  for(let i=0;i<200;i++){
+    let sx=prng()*W, sy=prng()*H;
+    let sr=prng()*1.5+0.2;
+    let blink=Math.sin(t*0.001*(prng()*3+1)+prng()*6.28)*0.4+0.6;
+    ctx.globalAlpha=blink*0.5;
+    ctx.fillStyle=hsla(prng()*360,50,80,1);
+    ctx.beginPath(); ctx.arc(sx,sy,sr,0,Math.PI*2); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function lcg(seed){
+  let s=seed;
+  return function(){
+    s=(1664525*s+1013904223)&0xffffffff;
+    return (s>>>0)/0xffffffff;
+  };
+}
+
+function drawHeatmap(t){
+  let gx=W*0.6, gy=H*0.7, gw=W*0.15, gh=H*0.15;
+  let rows=8, cols=12;
+  let pw=gw/cols, ph=gh/rows;
+  ctx.save();
+  ctx.globalAlpha=0.4;
+  for(let r=0;r<rows;r++){
+    for(let c=0;c<cols;c++){
+      let v=Math.sin(c*0.6+r*0.8+t*0.003)*0.5+0.5;
+      let hue=v*240; // blue=cold, red=hot (inverted)
+      hue=(1-v)*240;
+      ctx.fillStyle=hsl(hue,90,40+v*25);
+      ctx.fillRect(gx+c*pw,gy+r*ph,pw-0.5,ph-0.5);
+    }
+  }
+  ctx.fillStyle='rgba(255,255,255,0.4)';
+  ctx.font='8px Courier New'; ctx.textAlign='left';
+  ctx.fillText('HEATMAP',gx,gy-4);
+  ctx.restore();
+}
+
+function drawMunsellWheel(t){
+  let x=W*0.5, y=H*0.5;
+  let r=Math.min(W,H)*0.42;
+  // Munsell hues: 10 principal hues
+  let munsellHues=['5R','5YR','5Y','5GY','5G','5BG','5B','5PB','5P','5RP'];
+  let hueDegrees=[0,36,72,108,144,180,216,252,288,324];
+  ctx.save(); ctx.globalAlpha=0.08;
+  for(let i=0;i<10;i++){
+    let a0=(i/10)*Math.PI*2-Math.PI/2+t*0.0003;
+    let a1=((i+1)/10)*Math.PI*2-Math.PI/2+t*0.0003;
+    // Chroma rings (5 levels)
+    for(let c=5;c>=1;c--){
+      let r1=r*(c/5), r2=r*((c-1)/5);
+      ctx.beginPath();
+      ctx.moveTo(x+Math.cos(a0)*r1,y+Math.sin(a0)*r1);
+      ctx.arc(x,y,r1,a0,a1);
+      ctx.arc(x,y,r2,a1,a0,true);
+      ctx.closePath();
+      ctx.fillStyle=hsla(hueDegrees[i],c*18,50,0.5);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+function drawCMYKWheel(t){
+  let x=W*0.3, y=H*0.7;
+  let r=Math.min(W,H)*0.07;
+  ctx.save(); ctx.translate(x,y);
+  ctx.rotate(-t*0.0015);
+  ctx.globalAlpha=0.55;
+  // CMY segments
+  let cmy=[[180,'C'],[300,'M'],[60,'Y']];
+  for(let [h,lbl] of cmy){
+    let a0=((h-60)/360)*Math.PI*2;
+    let a1=((h+60)/360)*Math.PI*2;
+    ctx.beginPath();
+    ctx.moveTo(0,0);
+    ctx.arc(0,0,r,a0,a1);
+    ctx.closePath();
+    ctx.fillStyle=hsla(h,90,45,0.7);
+    ctx.fill();
+    let ma=(a0+a1)/2;
+    ctx.fillStyle='rgba(255,255,255,0.7)';
+    ctx.font='bold 10px Courier New';
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(lbl,Math.cos(ma)*r*0.6,Math.sin(ma)*r*0.6);
+  }
+  // Black center
+  ctx.fillStyle='rgba(10,10,10,0.8)';
+  ctx.beginPath(); ctx.arc(0,0,r*0.22,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='rgba(255,255,255,0.5)';
+  ctx.font='7px Courier New'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText('K',0,0);
+  ctx.restore();
+}
+
+function drawAfterimage(t){
+  let x=P.illusionX*W, y=P.illusionY*H;
+  let s=Math.min(W,H)*0.04;
+  let h=P.illusionHue;
+  let pulse=(Math.sin(t*0.003)*0.5+0.5);
+  ctx.save(); ctx.translate(x,y);
+  ctx.globalAlpha=0.45;
+  // Complementary color grid illusion
+  let grid=4;
+  for(let r=0;r<grid;r++){
+    for(let c=0;c<grid;c++){
+      let cx2=(c-grid/2)*s*2.2, cy2=(r-grid/2)*s*2.2;
+      let ph=(r+c)%2;
+      let hh=ph?(h+180)%360:h;
+      ctx.fillStyle=hsla(hh,90,50+pulse*20,0.7);
+      ctx.fillRect(cx2-s*0.9,cy2-s*0.9,s*1.8,s*1.8);
+    }
+  }
+  // Gray dots at intersections (simultaneous contrast)
+  for(let r=0;r<=grid-1;r++){
+    for(let c=0;c<=grid-1;c++){
+      let cx2=(c-grid/2+0.5)*s*2.2, cy2=(r-grid/2+0.5)*s*2.2;
+      ctx.fillStyle='rgba(128,128,128,0.8)';
+      ctx.beginPath(); ctx.arc(cx2,cy2,s*0.15,0,Math.PI*2); ctx.fill();
+    }
+  }
+  ctx.fillStyle='rgba(255,255,255,0.3)';
+  ctx.font='7px Courier New'; ctx.textAlign='center';
+  ctx.fillText('SIMULTANEOUS CONTRAST',0,grid*s*1.2);
+  ctx.restore();
+}
+
+function drawCIELABSphere(t){
+  let x=W*0.92, y=H*0.6;
+  let r=Math.min(W,H)*0.055;
+  ctx.save(); ctx.translate(x,y);
+  ctx.rotate(t*0.001);
+  ctx.globalAlpha=0.5;
+  let segs=20;
+  for(let lat=0;lat<segs;lat++){
+    for(let lon=0;lon<segs;lon++){
+      let a=(lat/segs)*Math.PI-Math.PI/2;
+      let b=(lon/segs)*Math.PI*2;
+      let x2=Math.cos(a)*Math.cos(b)*r;
+      let y2=Math.cos(a)*Math.sin(b)*r;
+      let z=Math.sin(a);
+      let L=50+z*50;
+      let astar=Math.cos(b)*50;
+      let bstar=Math.sin(b)*50;
+      let h=Math.atan2(bstar,astar)*180/Math.PI;
+      let C=Math.sqrt(astar*astar+bstar*bstar);
+      ctx.fillStyle=hsla((h+360)%360,Math.min(100,C*2),L,0.5);
+      ctx.fillRect(x2-2,y2-2,4,4);
+    }
+  }
+  ctx.fillStyle='rgba(255,255,255,0.4)';
+  ctx.font='7px Courier New'; ctx.textAlign='center';
+  ctx.fillText('CIELAB',0,r+10);
+  ctx.restore();
+}
+
+// ============================================================
+// Main render loop
+// ============================================================
+function render(ts){
+  frame++;
+  fpsF++;
+  if(ts-fpsT>1000){ fps=fpsF; fpsF=0; fpsT=ts; }
+  let t=ts;
+
+  // Clear
+  ctx.clearRect(0,0,W,H);
+
+  // === LAYER 0: Background + Munsell wheel (deep, subtle) ===
+  drawBackground(t);
+  drawMunsellWheel(t);
+
+  // === LAYER 1: Temporal color bands ===
+  drawTemporalColorBands(t);
+
+  // === LAYER 2: Tron game grid ===
+  drawTronGrid(t);
+
+  // === LAYER 3: Maze ===
+  drawMaze(t);
+
+  // === LAYER 4: Color swatches strip ===
+  drawSwatches(t);
+
+  // === LAYER 5: Heatmap ===
+  drawHeatmap(t);
+
+  // === LAYER 6: Category theory morphisms ===
+  drawCategoryTheory(t);
+
+  // === LAYER 7: PCB circuits ===
+  drawPCB(t);
+
+  // === LAYER 8: Chromaticity diagram ===
+  drawChromaticity(t);
+
+  // === LAYER 9: Color wheels (6 independent) ===
+  for(let w of P.wheels) drawColorWheel(w, t);
+
+  // === LAYER 10: CMYK wheel ===
+  drawCMYKWheel(t);
+
+  // === LAYER 11: HSV/HSL double cone ===
+  drawHSVCone(t);
+
+  // === LAYER 12: Color gamut plot ===
+  drawColorGamut(t);
+
+  // === LAYER 13: CIELAB sphere ===
+  drawCIELABSphere(t);
+
+  // === LAYER 14: Opponent process ===
+  drawOpponentProcess(t);
+
+  // === LAYER 15: Delta-E metric ===
+  drawDeltaEMetric(t);
+
+  // === LAYER 16: After-image illusion ===
+  drawAfterimage(t);
+
+  // === LAYER 17: Polytopes ===
+  for(let p of P.polytopes) drawPolytope(p, t);
+
+  // === LAYER 18: Tron recognizer ===
+  drawTronRecognizer(t);
+
+  // === LAYER 19: UFOs ===
+  for(let u of P.ufos) drawUFO(u, t);
+
+  // === LAYER 20: Video game invaders ===
+  for(let inv of P.invaders) drawVideoGameInvader(inv, t);
+
+  // === LAYER 21: Neurotech implants ===
+  for(let imp of P.implants) drawNeurotechImplant(imp, t);
+
+  // === LAYER 22: Robots ===
+  for(let r of P.robots) drawRobot(r, t);
+
+  // === LAYER 23: 6502 ASM overlay ===
+  drawASM(t);
+
+  // === LAYER 24: RGB additive overlay circles (color mixing demo) ===
+  drawAdditiveRGB(t);
+
+  // === LAYER 25: HUD ===
+  if(hudOn) updateHUD(t);
+
+  requestAnimationFrame(render);
+}
+
+function drawAdditiveRGB(t){
+  let x=W*0.15, y=H*0.25;
+  let r=Math.min(W,H)*0.05;
+  let off=r*0.55;
+  ctx.save();
+  ctx.globalCompositeOperation='screen';
+  ctx.globalAlpha=0.3;
+  let ph=t*0.001;
+  // R
+  ctx.fillStyle='rgb(255,0,0)';
+  ctx.beginPath(); ctx.arc(x+Math.cos(ph)*off,y+Math.sin(ph)*off,r,0,Math.PI*2); ctx.fill();
+  // G
+  ctx.fillStyle='rgb(0,255,0)';
+  ctx.beginPath(); ctx.arc(x+Math.cos(ph+Math.PI*2/3)*off,y+Math.sin(ph+Math.PI*2/3)*off,r,0,Math.PI*2); ctx.fill();
+  // B
+  ctx.fillStyle='rgb(0,0,255)';
+  ctx.beginPath(); ctx.arc(x+Math.cos(ph+Math.PI*4/3)*off,y+Math.sin(ph+Math.PI*4/3)*off,r,0,Math.PI*2); ctx.fill();
+  ctx.globalCompositeOperation='source-over';
+  ctx.globalAlpha=0.5;
+  ctx.fillStyle='rgba(255,255,255,0.4)';
+  ctx.font='7px Courier New'; ctx.textAlign='center';
+  ctx.fillText('ADDITIVE RGB',x,y+r*1.5);
+  ctx.restore();
+}
+
+function updateHUD(t){
+  let d=document;
+  d.getElementById('h1').textContent=`FPS: ${fps} | FRAME: ${frame}`;
+  d.getElementById('h2').textContent=`SEED: ${seed}`;
+  d.getElementById('h3').textContent=`WHEELS: ${P.wheels.length} | POLYTOPES: ${P.polytopes.length}`;
+  d.getElementById('h4').textContent=`ROBOTS: ${P.robots.length} | UFOS: ${P.ufos.length}`;
+  d.getElementById('h5').textContent=`MAZE: ${P.mazeW}x${P.mazeH} | GRID: ${P.gridCols}x${P.gridRows}`;
+  d.getElementById('h6').textContent=`SWATCH: ${['STEPPED','SAT','LIT','ATARI','ANIM','TRIADIC','SPECTRUM','RANDOM'][P.swatchType%8]}`;
+  d.getElementById('h7').textContent=`DELTA-E: ${P.deltaE.toFixed(1)} | BANDS: ${P.tempoBands}`;
+  d.getElementById('h8').textContent=`SOUND: ${soundOn?'ON':'OFF'} | HUD: ON`;
+  d.getElementById('h9').textContent=`COLOR FIELD HUE: ${P.fieldHue.toFixed(0)}°`;
+  d.getElementById('hfps').textContent=`${W}×${H}`;
+}
+
+// --- Input ---
+function doRandomize(){
+  randomize();
+  makeSound();
+}
+
+window.addEventListener('keydown',(e)=>{
+  if(e.code==='Space'){e.preventDefault();doRandomize();}
+  if(e.key==='h'||e.key==='H'){
+    hudOn=!hudOn;
+    document.getElementById('hud').style.display=hudOn?'block':'none';
+  }
+  if(e.key==='s'||e.key==='S'){
+    soundOn=!soundOn;
+    if(soundOn&&!audioCtx) audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+  }
+});
+
+C.addEventListener('click',doRandomize);
+C.addEventListener('touchstart',(e)=>{e.preventDefault();doRandomize();},{passive:false});
+
+// --- Init ---
+randomize();
+requestAnimationFrame(render);
+</script>
+</body>
+</html>

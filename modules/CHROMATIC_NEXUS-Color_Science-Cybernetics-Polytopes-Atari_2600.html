@@ -1,0 +1,1234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>CHROMATIC NEXUS — Color Science · Cybernetics · Polytopes · Atari 2600 · Robotics · Category Theory · Tron Grid</title>
+<meta name="description" content="Immersive real-time fusion of color science wheels, HSV/HSL models, Atari 2600 palette, CMYK/RGB/RYB color systems, PCB circuit animations, Tron game grids, 6502 assembly syntax, robotic cybernetics, polytope geometry, category theory, and transhumanoid augmentation visuals. Interactive canvas art.">
+<meta name="keywords" content="color wheel, chromatic diagram, Atari 2600, 6502 assembly, robotics, Tron grid, polytope, PCB circuit, cybernetics, HSV, CMYK, Munsell, Pantone, category theory, color science, cyberpunk, transhumanoid">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Courier New',monospace}
+  canvas{display:block;position:fixed;top:0;left:0;width:100%!important;height:100%!important}
+  #hud{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;display:none;z-index:10}
+  #hud.visible{display:block}
+  .hud-panel{position:absolute;background:rgba(0,255,200,0.07);border:1px solid rgba(0,255,200,0.25);padding:8px 12px;font-size:10px;color:#0ffc9f;text-shadow:0 0 8px #0ffc9f;line-height:1.6;letter-spacing:1px;backdrop-filter:blur(2px)}
+  #hud-tl{top:12px;left:12px;max-width:280px}
+  #hud-tr{top:12px;right:12px;max-width:280px;text-align:right}
+  #hud-bl{bottom:12px;left:12px;max-width:320px}
+  #hud-br{bottom:12px;right:12px;max-width:280px;text-align:right}
+
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div class="hud-panel" id="hud-tl">
+    <div id="h-mode">MODE: CHROMATIC NEXUS</div>
+    <div id="h-seed">SEED: 000000</div>
+    <div id="h-fps">FPS: --</div>
+    <div id="h-layer">LAYERS: 24</div>
+    <div id="h-palette">PALETTE: ATARI2600</div>
+  </div>
+  <div class="hud-panel" id="hud-tr">
+    <div>SPACE / TAP — RANDOMIZE</div>
+    <div>H — TOGGLE HUD</div>
+    <div>S — TOGGLE SOUND</div>
+    <div id="h-sound">SOUND: OFF</div>
+    <div id="h-time">T: 0.000s</div>
+  </div>
+  <div class="hud-panel" id="hud-bl">
+    <div id="h-sys">SYS: COLOR WHEEL · PCB · POLYTOPE</div>
+    <div id="h-asm">6502: LDA #$FF · STA $C000 · BNE</div>
+    <div id="h-cat">CAT: Hom(A,B) · F:C→D · η:F⟹G</div>
+    <div id="h-robot">ROBOT: Δθ=±3.2° | ΔX=±12px</div>
+  </div>
+  <div class="hud-panel" id="hud-br">
+    <div id="h-color">HEX: #------</div>
+    <div id="h-cmyk">CMYK: 0,0,0,0</div>
+    <div id="h-munsell">MUNSELL: --H --/--</div>
+    <div id="h-cie">CIELAB: L* -- a* -- b* --</div>
+  </div>
+</div>
+
+
+<script>
+'use strict';
+// ─── GLOBALS ───────────────────────────────────────────────────────────────
+const C = document.getElementById('c');
+const X = C.getContext('2d');
+let W, H, cx, cy, t = 0, frame = 0, lastTime = 0, fps = 0, fpsAcc = 0, fpsFrames = 0;
+let hudVisible = false, soundOn = false, seed = 0;
+let RNG, params = {};
+let audioCtx = null;
+
+// Atari 2600 palette (NTSC) — 128 colors
+const ATARI = [
+  '#000000','#404040','#6c6c6c','#909090','#b0b0b0','#c8c8c8','#dcdcdc','#ececec',
+  '#444400','#646410','#848424','#a0a034','#b8b840','#d0d050','#e8e860','#fcfc74',
+  '#702800','#844414','#985c28','#ac783c','#bc8c4c','#cca05c','#dcb468','#ecc878',
+  '#841800','#983418','#ac5030','#c06848','#d0805c','#e09470','#eca880','#fcbc94',
+  '#880000','#9c2020','#b03c3c','#c05858','#d07070','#e08888','#eca0a0','#fcb4b4',
+  '#78005c','#8c2074','#a03c88','#b0589c','#c070b0','#d084c0','#dc9cd0','#ecb0e0',
+  '#480078','#602090','#783ca4','#8c58b8','#a070cc','#b484dc','#c49cec','#d4b0fc',
+  '#140084','#302098','#4c3cac','#6858c0','#7c70d0','#9488e0','#a8a0ec','#bcb4fc',
+  '#000088','#1c209c','#3840b0','#505cc0','#6874d0','#7c88e0','#90a0ec','#a4b4fc',
+  '#00187c','#1c3890','#3854a8','#5070bc','#6888cc','#7c9cdc','#90b4ec','#a4c8fc',
+  '#002c5c','#1e4c78','#386890','#5084ac','#689cc0','#7cb4d4','#90cce8','#a4e0fc',
+  '#003c2c','#1e5c48','#387c64','#509c80','#68b494','#7cccac','#90e4c0','#a4fcd4',
+  '#003c00','#205c20','#407c40','#5c9c5c','#74b474','#8cd08c','#a4e4a4','#b8fcb8',
+  '#143800','#345c1c','#507c38','#6c9850','#84b468','#9ccc7c','#b4e490','#c8fca4',
+  '#2c3000','#4c501c','#687034','#848c4c','#9ca864','#b4c078','#ccd488','#e0ec9c',
+  '#442800','#644818','#846830','#a08444','#b89c58','#d0b46c','#e8cc7c','#fce090'
+];
+
+// 6502 ASM fragments
+const ASM6502 = [
+  'LDA #$FF','STA $C000','LDX #$00','LDY #$08','BNE $F2','JSR $F000',
+  'PHA','PLA','TAX','TXA','INX','DEX','INY','DEY','CLC','SEC',
+  'ADC #$01','SBC #$01','AND #$0F','ORA #$F0','EOR #$AA','ROL A','ROR A',
+  'ASL A','LSR A','BIT $40','CMP #$10','BEQ $03','BMI $FA','BPL $06',
+  'JMP ($FFFC)','RTI','RTS','NOP','BRK','CPX #$00','CPY #$FF',
+  'LDA $D000','STA $D018','LDX $D001','STX $D002','LDA #$95','STA $D011',
+  'DEC $D000','INC $D001','STY $D016','LDA ($FB),Y','STA ($FD,X)',
+  '.BYTE $EA','ORG $F800','BCS LOOP','BCC NEXT','.WORD $FFFC'
+];
+
+// Category theory symbols
+const CATTHY = [
+  'Hom(A,B)','F:C→D','η:F⟹G','μ:T²→T','ε:Id→T',
+  'colim F','lim G','Nat(F,G)','Ob(C)','Mor(D)',
+  'A⊗B','A⊕B','[A,B]','∀f∘g','∃!h',
+  'π:E→B','σ:B→E','Σ-type','Π-type','Id_A',
+  'adjoint','monad T','comonad W','presheaf','sheaf'
+];
+
+// Color system labels
+const COLORLABELS = [
+  'HSV','HSL','CMYK','CIELAB','NCS','RAL','Munsell','Pantone',
+  'RYB Wheel','RGB Additive','CMY Subtractive','Triadic','Tetradic',
+  'Analogous','Split-Comp','Complementary','Chromaticity','Gamut',
+  'Delta-E','Spectral','Opponent','Perceptual','Adaptive','Temporal'
+];
+
+// PCB trace patterns
+const PCB_NODES = [];
+
+// ─── SEEDED RNG ─────────────────────────────────────────────────────────────
+function mkRNG(s){
+  let x=s>>>0||1;
+  return ()=>{x^=x<<13;x^=x>>17;x^=x<<5;return(x>>>0)/4294967296};
+}
+
+// ─── INIT PARAMS ────────────────────────────────────────────────────────────
+function initParams(){
+  seed = Math.floor(Math.random()*0xFFFFFF);
+  RNG = mkRNG(seed);
+  document.getElementById('h-seed').textContent='SEED: '+seed.toString(16).toUpperCase().padStart(6,'0');
+
+  params = {
+    wheelCount: 3+Math.floor(RNG()*5),
+    wheelSpeeds: Array.from({length:8},()=>(RNG()-0.5)*0.008),
+    wheelPhases: Array.from({length:8},()=>RNG()*Math.PI*2),
+    polyCount: 2+Math.floor(RNG()*4),
+    polyDims: Array.from({length:6},()=>3+Math.floor(RNG()*5)),
+    tronGridColor: ATARI[Math.floor(RNG()*ATARI.length)],
+    tronLineColor: ATARI[Math.floor(RNG()*ATARI.length)],
+    robotCount: 2+Math.floor(RNG()*4),
+    pcbDensity: 20+Math.floor(RNG()*40),
+    colorMode: Math.floor(RNG()*COLORLABELS.length),
+    bgPulse: RNG()>0.5,
+    mazeSize: 8+Math.floor(RNG()*12),
+    rainbowSpeed: 0.003+RNG()*0.015,
+    hsvSpin: RNG()*0.02,
+    swatchGrid: 4+Math.floor(RNG()*8),
+    patternSeed: Math.floor(RNG()*999),
+    noiseAmt: RNG()*0.4,
+    tronSpeed: 0.5+RNG()*2,
+    atariColors: Array.from({length:16},()=>ATARI[Math.floor(RNG()*ATARI.length)]),
+    asmIdx: Math.floor(RNG()*ASM6502.length),
+    catIdx: Math.floor(RNG()*CATTHY.length),
+    neuralDensity: 15+Math.floor(RNG()*30),
+    implantCount: 3+Math.floor(RNG()*6),
+    ufoCount: 1+Math.floor(RNG()*3),
+    mazeWalls: [],
+    activeColor: ATARI[Math.floor(RNG()*ATARI.length)],
+    labL: 20+RNG()*80, labA: (RNG()-0.5)*200, labB: (RNG()-0.5)*200,
+    cielabTick: 0
+  };
+
+  buildMaze(params.mazeSize);
+  buildPCBNodes(params.pcbDensity);
+  buildRobots();
+  buildNeurons(params.neuralDensity);
+  updateHUD();
+}
+
+// ─── MAZE ───────────────────────────────────────────────────────────────────
+let mazeData=[], mazeW=0, mazeH=0;
+function buildMaze(sz){
+  mazeW=sz; mazeH=Math.floor(sz*0.6);
+  mazeData=[];
+  // simple random maze with DFS
+  const cells=Array.from({length:mazeH},()=>Array.from({length:mazeW},()=>({v:false,r:true,d:true})));
+  const stack=[[0,0]]; cells[0][0].v=true; let vis=1; const total=mazeW*mazeH;
+  while(vis<total){
+    const[cx2,cy2]=stack[stack.length-1];
+    const nb=[];
+    if(cy2>0&&!cells[cy2-1][cx2].v)nb.push([cx2,cy2-1,0]);
+    if(cy2<mazeH-1&&!cells[cy2+1][cx2].v)nb.push([cx2,cy2+1,2]);
+    if(cx2>0&&!cells[cy2][cx2-1].v)nb.push([cx2-1,cy2,3]);
+    if(cx2<mazeW-1&&!cells[cy2][cx2+1].v)nb.push([cx2+1,cy2,1]);
+    if(nb.length){
+      const[nx,ny,dir]=nb[Math.floor(RNG()*nb.length)];
+      if(dir===1)cells[cy2][cx2].r=false;
+      if(dir===2)cells[cy2][cx2].d=false;
+      if(dir===3)cells[cy2][nx].r=false;
+      if(dir===0)cells[ny][cx2].d=false;
+      cells[ny][nx].v=true; stack.push([nx,ny]); vis++;
+    } else stack.pop();
+  }
+  mazeData=cells;
+}
+
+// ─── PCB ─────────────────────────────────────────────────────────────────────
+let pcbNodes=[], pcbEdges=[], pcbPulses=[];
+function buildPCBNodes(n){
+  pcbNodes=[]; pcbEdges=[]; pcbPulses=[];
+  for(let i=0;i<n;i++){
+    pcbNodes.push({x:RNG(),y:RNG(),type:Math.floor(RNG()*5),pulse:RNG()*Math.PI*2});
+  }
+  // connect nearby
+  for(let i=0;i<pcbNodes.length;i++){
+    for(let j=i+1;j<pcbNodes.length;j++){
+      const dx=pcbNodes[i].x-pcbNodes[j].x, dy=pcbNodes[i].y-pcbNodes[j].y;
+      const d=Math.sqrt(dx*dx+dy*dy);
+      if(d<0.18&&RNG()>0.3){
+        pcbEdges.push({a:i,b:j,t:RNG()*Math.PI*2,speed:0.01+RNG()*0.03});
+      }
+    }
+  }
+  // initial pulses
+  for(let i=0;i<5;i++){
+    if(pcbEdges.length>0){
+      const ei=Math.floor(RNG()*pcbEdges.length);
+      pcbPulses.push({edge:ei,pos:0,speed:0.005+RNG()*0.02,col:ATARI[Math.floor(RNG()*ATARI.length)]});
+    }
+  }
+}
+
+// ─── ROBOTS ──────────────────────────────────────────────────────────────────
+let robots=[];
+function buildRobots(){
+  robots=[];
+  for(let i=0;i<params.robotCount;i++){
+    robots.push({
+      x:0.1+RNG()*0.8, y:0.1+RNG()*0.8,
+      angle:RNG()*Math.PI*2, speed:(0.0003+RNG()*0.001)*(RNG()>0.5?1:-1),
+      turnRate:(RNG()-0.5)*0.04,
+      legPhase:RNG()*Math.PI*2,
+      color:ATARI[Math.floor(RNG()*ATARI.length)],
+      color2:ATARI[Math.floor(RNG()*ATARI.length)],
+      size:0.018+RNG()*0.025,
+      type:Math.floor(RNG()*4),
+      eyeColor:ATARI[Math.floor(RNG()*ATARI.length)],
+      armPhase:RNG()*Math.PI*2,
+      trailX:[],trailY:[]
+    });
+  }
+}
+
+// ─── NEURONS ─────────────────────────────────────────────────────────────────
+let neurons=[], neuroEdges=[];
+function buildNeurons(n){
+  neurons=[]; neuroEdges=[];
+  for(let i=0;i<n;i++){
+    neurons.push({x:RNG(),y:RNG(),fire:0,fireRate:0.002+RNG()*0.01,color:ATARI[Math.floor(RNG()*ATARI.length)],size:2+RNG()*5,implant:RNG()>0.7});
+  }
+  for(let i=0;i<neurons.length;i++){
+    const conns=1+Math.floor(RNG()*3);
+    for(let c=0;c<conns;c++){
+      const j=Math.floor(RNG()*neurons.length);
+      if(j!==i) neuroEdges.push({a:i,b:j,sig:0,speed:0.02+RNG()*0.05,col:neurons[i].color});
+    }
+  }
+}
+
+// ─── POLYTOPE PROJECTIONS ────────────────────────────────────────────────────
+function polytopeVertices(dim, type){
+  // hypercube in 'dim' dimensions → project to 2D
+  const n=1<<dim; const verts=[];
+  for(let i=0;i<n;i++){
+    const v=[];
+    for(let d=0;d<dim;d++) v.push((i>>d&1)?1:-1);
+    verts.push(v);
+  }
+  return verts;
+}
+function project4D(v4, angles){
+  // rotate in 4D planes then project
+  const[a,b,c,d,e,f]=angles;
+  let[x,y,z,w]=v4.length>=4?v4:[...v4,...Array(4-v4.length).fill(0)];
+  // XY plane
+  let nx=x*Math.cos(a)-y*Math.sin(a); let ny=x*Math.sin(a)+y*Math.cos(a); x=nx;y=ny;
+  // XZ
+  nx=x*Math.cos(b)-z*Math.sin(b); let nz=x*Math.sin(b)+z*Math.cos(b); x=nx;z=nz;
+  // XW
+  nx=x*Math.cos(c)-w*Math.sin(c); let nw=x*Math.sin(c)+w*Math.cos(c); x=nx;w=nw;
+  // YZ
+  ny=y*Math.cos(d)-z*Math.sin(d); nz=y*Math.sin(d)+z*Math.cos(d); y=ny;z=nz;
+  // perspective
+  const dist=3; const perspective4=dist/(dist-w*0.5);
+  const perspective3=dist/(dist-z*0.3);
+  return [x*perspective4*perspective3, y*perspective4*perspective3];
+}
+
+// ─── TRON GAME GRID ──────────────────────────────────────────────────────────
+let tronLines=[], tronRecognizers=[];
+function buildTronWorld(){
+  tronLines=[];
+  for(let i=0;i<8;i++){
+    tronLines.push({
+      x:RNG(), y:RNG(), dx:(RNG()-0.5)*0.008, dy:(RNG()-0.5)*0.008,
+      trail:[], maxTrail:80+Math.floor(RNG()*120),
+      color:ATARI[Math.floor(RNG()*ATARI.length)],
+      active:true
+    });
+  }
+  tronRecognizers=[];
+  for(let i=0;i<2+Math.floor(RNG()*3);i++){
+    tronRecognizers.push({
+      x:RNG(), y:RNG(), angle:RNG()*Math.PI*2, speed:0.002+RNG()*0.004,
+      size:0.04+RNG()*0.05, phase:RNG()*Math.PI*2,
+      color:ATARI[Math.floor(RNG()*ATARI.length)],
+      color2:ATARI[Math.floor(RNG()*ATARI.length)]
+    });
+  }
+}
+
+// ─── UFOs ──────────────────────────────────────────────────────────────────
+let ufos=[];
+function buildUFOs(){
+  ufos=[];
+  for(let i=0;i<(params.ufoCount||2);i++){
+    ufos.push({
+      x:RNG(), y:0.05+RNG()*0.3,
+      dx:(RNG()-0.5)*0.003, dy:(RNG()-0.5)*0.001,
+      phase:RNG()*Math.PI*2, size:0.02+RNG()*0.03,
+      color:ATARI[Math.floor(RNG()*ATARI.length)],
+      beamOn:RNG()>0.5, beamPulse:RNG()*Math.PI*2
+    });
+  }
+}
+
+// ─── COLOR WHEEL SYSTEM ──────────────────────────────────────────────────────
+const WHEEL_TYPES=['RYB','RGB','CMY','HSV','HSL','Munsell','Opponent','Spectral','Pantone'];
+
+function hsvToRgb(h,s,v){
+  h=((h%1)+1)%1;
+  const i=Math.floor(h*6), f=h*6-i, p=v*(1-s), q=v*(1-f*s), u=v*(1-(1-f)*s);
+  const t6=[[v,u,p],[q,v,p],[p,v,u],[p,q,v],[u,p,v],[v,p,q]];
+  const[r,g,b]=t6[i%6];
+  return `rgb(${Math.round(r*255)},${Math.round(g*255)},${Math.round(b*255)})`;
+}
+function hslStr(h,s,l){return `hsl(${Math.round(h*360)},${Math.round(s*100)}%,${Math.round(l*100)}%)`;}
+function labToRgb(L,a,b){
+  // approx
+  let y=(L+16)/116, x=a/500+y, z=y-b/200;
+  const f=v=>v>0.206897?v*v*v:0.12841*(v-4/29);
+  x=0.95047*f(x); y=1.00000*f(y); z=1.08883*f(z);
+  let r=x*3.2406+y*-1.5372+z*-0.4986, g=x*-0.9689+y*1.8758+z*0.0415, bl=x*0.0557+y*-0.2040+z*1.0570;
+  const lin=v=>v>0.0031308?1.055*Math.pow(v,1/2.4)-0.055:12.92*v;
+  return`rgb(${Math.round(Math.min(1,Math.max(0,lin(r)))*255)},${Math.round(Math.min(1,Math.max(0,lin(g)))*255)},${Math.round(Math.min(1,Math.max(0,lin(bl)))*255)})`;
+}
+
+// ─── DRAW FUNCTIONS ──────────────────────────────────────────────────────────
+
+function drawTronGrid(){
+  // background grid
+  const gc=params.tronGridColor||'#00ffff';
+  const gl=params.tronLineColor||'#004444';
+  X.save();
+  // dark base
+  const grad=X.createRadialGradient(cx,cy,0,cx,cy,Math.max(W,H)*0.7);
+  grad.addColorStop(0,'rgba(0,8,16,0.85)');
+  grad.addColorStop(1,'rgba(0,0,0,0.95)');
+  X.fillStyle=grad;
+  X.fillRect(0,0,W,H);
+
+  // perspective grid
+  X.strokeStyle=gl.replace(')',',0.35)').replace('rgb','rgba').replace('#','').length>10?gl+'55':gl+'55';
+  X.lineWidth=0.5;
+  const horizon=H*0.38;
+  const vp={x:W/2, y:horizon};
+  const gridLines=24;
+  // horizontal lines
+  for(let i=0;i<=gridLines;i++){
+    const prog=i/gridLines;
+    const y=horizon+(H-horizon)*Math.pow(prog,2.5);
+    const xSpread=W*(0.5+prog*3.5);
+    X.beginPath();
+    X.moveTo(cx-xSpread/2,y); X.lineTo(cx+xSpread/2,y);
+    const alpha=0.1+prog*0.5;
+    X.strokeStyle=`rgba(0,200,180,${alpha*0.6})`;
+    X.stroke();
+  }
+  // vanishing vertical lines
+  for(let i=-gridLines;i<=gridLines;i++){
+    const prog=Math.abs(i)/gridLines;
+    const xBase=cx+i*(W/gridLines*2);
+    X.beginPath();
+    X.moveTo(cx+(xBase-cx)*0.01,horizon); X.lineTo(xBase,H+20);
+    X.strokeStyle=`rgba(0,180,160,${0.08+prog*0.1})`;
+    X.stroke();
+  }
+  X.restore();
+}
+
+function drawTronLines(dt){
+  X.save();
+  tronLines.forEach(ln=>{
+    ln.trail.push({x:ln.x*W,y:ln.y*H});
+    if(ln.trail.length>ln.maxTrail) ln.trail.shift();
+    ln.x+=ln.dx; ln.y+=ln.dy;
+    if(ln.x<0||ln.x>1){ln.dx*=-1; if(Math.random()>0.7)ln.dy=(Math.random()-0.5)*0.008;}
+    if(ln.y<0||ln.y>1){ln.dy*=-1; if(Math.random()>0.7)ln.dx=(Math.random()-0.5)*0.008;}
+
+    // draw trail
+    if(ln.trail.length>2){
+      for(let i=1;i<ln.trail.length;i++){
+        const prog=i/ln.trail.length;
+        X.beginPath();
+        X.moveTo(ln.trail[i-1].x,ln.trail[i-1].y);
+        X.lineTo(ln.trail[i].x,ln.trail[i].y);
+        X.lineWidth=1.5*prog;
+        X.strokeStyle=ln.color+(Math.floor(prog*180).toString(16).padStart(2,'0'));
+        X.stroke();
+      }
+      // head glow
+      const head=ln.trail[ln.trail.length-1];
+      const grd=X.createRadialGradient(head.x,head.y,0,head.x,head.y,8);
+      grd.addColorStop(0,ln.color+'ff');
+      grd.addColorStop(1,ln.color+'00');
+      X.fillStyle=grd;
+      X.beginPath(); X.arc(head.x,head.y,6,0,Math.PI*2); X.fill();
+    }
+  });
+  X.restore();
+}
+
+function drawTronRecognizers(dt){
+  tronRecognizers.forEach(r=>{
+    r.x+=Math.cos(r.angle)*r.speed; r.y+=Math.sin(r.angle)*r.speed;
+    if(r.x<0)r.x=1; if(r.x>1)r.x=0; if(r.y<0)r.y=1; if(r.y>1)r.y=0;
+    r.phase+=0.04;
+    const rx=r.x*W, ry=r.y*H, rs=r.size*Math.min(W,H);
+    X.save(); X.translate(rx,ry); X.rotate(r.phase*0.3);
+    // recognizer body — classic Tron tank/recognizer shape
+    X.strokeStyle=r.color; X.lineWidth=1.5;
+    X.shadowColor=r.color; X.shadowBlur=12;
+    // main body hexagon
+    X.beginPath();
+    for(let i=0;i<6;i++){
+      const a=i/6*Math.PI*2-Math.PI/6;
+      i===0?X.moveTo(Math.cos(a)*rs,Math.sin(a)*rs):X.lineTo(Math.cos(a)*rs,Math.sin(a)*rs);
+    }
+    X.closePath(); X.stroke();
+    // legs
+    for(let i=0;i<4;i++){
+      const a=i/4*Math.PI*2+r.phase*0.5;
+      X.beginPath(); X.moveTo(0,0); X.lineTo(Math.cos(a)*rs*1.5,Math.sin(a)*rs*1.5);
+      X.strokeStyle=r.color2; X.lineWidth=0.8; X.stroke();
+    }
+    // eye
+    const eyeGrd=X.createRadialGradient(0,0,0,0,0,rs*0.3);
+    eyeGrd.addColorStop(0,'#ffffff'); eyeGrd.addColorStop(0.3,r.color); eyeGrd.addColorStop(1,'transparent');
+    X.fillStyle=eyeGrd; X.beginPath(); X.arc(0,0,rs*0.25,0,Math.PI*2); X.fill();
+    X.restore();
+  });
+}
+
+function drawColorWheels(dt){
+  const wc=params.wheelCount||4;
+  const baseR=Math.min(W,H)*0.08;
+  // place wheels at various positions
+  const positions=[
+    [0.15,0.2],[0.85,0.2],[0.15,0.78],[0.85,0.78],[0.5,0.12],[0.5,0.88],[0.08,0.5],[0.92,0.5]
+  ];
+  for(let wi=0;wi<wc&&wi<8;wi++){
+    const[px,py]=positions[wi];
+    const wx=px*W, wy=py*H;
+    const r=baseR*(0.7+(params.wheelPhases[wi]||0.3)%0.6+0.1); // deterministic per session
+    const phase=params.wheelPhases[wi]||0;
+    const speed=params.wheelSpeeds[wi]||0.005;
+    const rot=phase+t*speed;
+    const type=wi%WHEEL_TYPES.length;
+
+    X.save(); X.translate(wx,wy);
+    // draw segments
+    const segs=12+wi*4;
+    for(let s=0;s<segs;s++){
+      const a0=s/segs*Math.PI*2+rot;
+      const a1=(s+1)/segs*Math.PI*2+rot;
+      let col;
+      if(type===0){// RYB
+        const h=s/segs;
+        // RYB hue remap
+        col=hsvToRgb(h*0.83+0.05,0.9,0.9);
+      } else if(type===1){// RGB additive
+        col=hsvToRgb(s/segs,1,1);
+      } else if(type===2){// CMY
+        col=hsvToRgb(s/segs+0.5,0.8,0.85);
+      } else if(type===3){// HSV
+        const v=0.5+0.5*Math.sin(s/segs*Math.PI*2);
+        col=hsvToRgb(s/segs,1,v);
+      } else if(type===4){// HSL
+        col=hslStr(s/segs,0.9,0.5+0.1*Math.sin(s/segs*Math.PI*4));
+      } else if(type===5){// Munsell-like
+        col=hsvToRgb(s/segs,0.7+0.3*Math.sin(s/segs*Math.PI),0.7);
+      } else if(type===6){// Opponent
+        const hue=s/segs;
+        col=`rgb(${Math.round(Math.abs(Math.sin(hue*Math.PI))*255)},${Math.round(Math.abs(Math.sin((hue+0.33)*Math.PI))*255)},${Math.round(Math.abs(Math.sin((hue+0.67)*Math.PI))*255)})`;
+      } else if(type===7){// Spectral
+        col=ATARI[s%ATARI.length];
+      } else {// Pantone-ish
+        col=ATARI[(s*3+wi*7)%ATARI.length];
+      }
+
+      X.beginPath();
+      X.moveTo(0,0);
+      X.arc(0,0,r,a0,a1);
+      X.closePath();
+      X.fillStyle=col;
+      X.globalAlpha=0.55+0.3*Math.sin(t*0.7+s*0.3+wi);
+      X.fill();
+
+      // inner ring (darker)
+      X.beginPath();
+      X.moveTo(0,0);
+      X.arc(0,0,r*0.45,a0,a1);
+      X.closePath();
+      X.fillStyle=col;
+      X.globalAlpha=0.3;
+      X.fill();
+    }
+    // wheel border
+    X.globalAlpha=0.7;
+    X.strokeStyle=params.atariColors[wi%16]||'#00ffcc';
+    X.lineWidth=1.5;
+    X.shadowColor=params.atariColors[wi%16]||'#00ffcc';
+    X.shadowBlur=8;
+    X.beginPath(); X.arc(0,0,r,0,Math.PI*2); X.stroke();
+    X.beginPath(); X.arc(0,0,r*0.45,0,Math.PI*2); X.stroke();
+
+    // label
+    X.globalAlpha=0.9;
+    X.fillStyle='#ffffff'; X.font=`${Math.max(8,r*0.18)}px 'Courier New'`;
+    X.textAlign='center'; X.textBaseline='middle';
+    X.shadowColor='#000'; X.shadowBlur=4;
+    X.fillText(WHEEL_TYPES[type],0,0);
+    X.shadowBlur=0;
+    X.restore();
+  }
+}
+
+function drawPolytopes(dt){
+  const pc=params.polyCount||3;
+  const positions=[[0.5,0.5],[0.25,0.5],[0.75,0.5],[0.5,0.25],[0.5,0.75]];
+  for(let pi=0;pi<pc&&pi<5;pi++){
+    const[px,py]=positions[pi];
+    const cx2=px*W, cy2=py*H;
+    const dim=params.polyDims[pi]||4;
+    const scale=Math.min(W,H)*(0.06+pi*0.01);
+    const verts=polytopeVertices(Math.min(dim,5));
+    const angles=[
+      t*0.011+pi*0.7, t*0.009+pi*0.5, t*0.013+pi*0.3,
+      t*0.007+pi*0.9, t*0.017+pi*0.4, t*0.006+pi*1.1
+    ];
+
+    X.save(); X.translate(cx2,cy2);
+    const proj=verts.map(v=>project4D(v.slice(0,4).concat(Array(Math.max(0,4-v.length)).fill(0)),angles));
+
+    // edges (connect vertices that differ by exactly 1 bit)
+    const n=verts.length;
+    X.lineWidth=0.8;
+    for(let i=0;i<n;i++){
+      for(let j=i+1;j<n;j++){
+        let diff=0; for(let d=0;d<Math.min(dim,5);d++) if(((i>>d)&1)!==((j>>d)&1))diff++;
+        if(diff===1){
+          const col=hsvToRgb((i+j)/(n*2)+t*0.01,0.9,0.9);
+          X.strokeStyle=col;
+          X.globalAlpha=0.5;
+          X.shadowColor=col; X.shadowBlur=4;
+          X.beginPath();
+          X.moveTo(proj[i][0]*scale,proj[i][1]*scale);
+          X.lineTo(proj[j][0]*scale,proj[j][1]*scale);
+          X.stroke();
+        }
+      }
+    }
+    // vertices
+    proj.forEach((p,i)=>{
+      const col=ATARI[(i*7+pi*13)%ATARI.length];
+      X.fillStyle=col; X.globalAlpha=0.9;
+      X.shadowColor=col; X.shadowBlur=6;
+      X.beginPath(); X.arc(p[0]*scale,p[1]*scale,2.5,0,Math.PI*2); X.fill();
+    });
+    // label
+    X.globalAlpha=0.6; X.fillStyle='#aaffee';
+    X.font='8px Courier New'; X.textAlign='center'; X.shadowBlur=0;
+    X.fillText(`${dim}D-CUBE`,0,scale*1.5);
+    X.restore();
+  }
+}
+
+function drawPCB(dt){
+  X.save();
+  // traces
+  pcbEdges.forEach(e=>{
+    e.t+=e.speed;
+    const a=pcbNodes[e.a], b=pcbNodes[e.b];
+    const ax=a.x*W, ay=a.y*H, bx=b.x*W, by=b.y*H;
+    // manhattan-ish routing
+    const midx=(ax+bx)*0.5;
+    X.beginPath();
+    X.moveTo(ax,ay); X.lineTo(midx,ay); X.lineTo(midx,by); X.lineTo(bx,by);
+    X.strokeStyle='rgba(0,180,80,0.18)';
+    X.lineWidth=1; X.stroke();
+    // animated pulse along trace
+    const prog=(Math.sin(e.t)*0.5+0.5);
+    const px2=ax+(bx-ax)*prog, py2=ay+(by-ay)*prog;
+    const grd=X.createRadialGradient(px2,py2,0,px2,py2,5);
+    grd.addColorStop(0,'rgba(0,255,100,0.8)'); grd.addColorStop(1,'transparent');
+    X.fillStyle=grd; X.beginPath(); X.arc(px2,py2,4,0,Math.PI*2); X.fill();
+  });
+
+  // nodes/components
+  pcbNodes.forEach(n=>{
+    n.pulse+=0.05;
+    const nx=n.x*W, ny=n.y*H;
+    const glow=0.4+0.4*Math.sin(n.pulse);
+    const col=['#00ff80','#ff8000','#00c8ff','#ff0060','#ffff00'][n.type];
+    X.fillStyle=col;
+    X.globalAlpha=0.3+glow*0.4;
+    X.shadowColor=col; X.shadowBlur=8*glow;
+    // different component shapes
+    if(n.type===0){X.fillRect(nx-4,ny-4,8,8);}
+    else if(n.type===1){X.beginPath();X.arc(nx,ny,4,0,Math.PI*2);X.fill();}
+    else if(n.type===2){X.beginPath();X.moveTo(nx,ny-5);X.lineTo(nx+5,ny+4);X.lineTo(nx-5,ny+4);X.closePath();X.fill();}
+    else if(n.type===3){X.fillRect(nx-6,ny-2,12,4);}
+    else{X.beginPath();X.arc(nx,ny,3,0,Math.PI*2);X.fill();X.strokeStyle=col;X.lineWidth=1;X.beginPath();X.moveTo(nx-6,ny);X.lineTo(nx+6,ny);X.stroke();}
+    X.shadowBlur=0; X.globalAlpha=1;
+  });
+  X.restore();
+}
+
+function drawRobots(dt){
+  robots.forEach(rb=>{
+    // update
+    rb.x+=Math.cos(rb.angle)*rb.speed; rb.y+=Math.sin(rb.angle)*rb.speed;
+    rb.angle+=rb.turnRate;
+    rb.legPhase+=0.12; rb.armPhase+=0.08;
+    if(rb.x<0.02)rb.x=0.02; if(rb.x>0.98)rb.x=0.98;
+    if(rb.y<0.02)rb.y=0.02; if(rb.y>0.98)rb.y=0.98;
+    if(rb.x<0.03||rb.x>0.97) rb.angle=Math.PI-rb.angle;
+    if(rb.y<0.03||rb.y>0.97) rb.angle=-rb.angle;
+
+    // trail
+    rb.trailX.push(rb.x*W); rb.trailY.push(rb.y*H);
+    if(rb.trailX.length>30){rb.trailX.shift();rb.trailY.shift();}
+    X.save();
+    for(let i=1;i<rb.trailX.length;i++){
+      X.beginPath(); X.moveTo(rb.trailX[i-1],rb.trailY[i-1]); X.lineTo(rb.trailX[i],rb.trailY[i]);
+      X.strokeStyle=rb.color+(Math.floor(i/rb.trailX.length*60).toString(16).padStart(2,'0'));
+      X.lineWidth=0.5; X.stroke();
+    }
+    X.restore();
+
+    const rx=rb.x*W, ry=rb.y*H, rs=rb.size*Math.min(W,H);
+    X.save(); X.translate(rx,ry); X.rotate(rb.angle+Math.PI/2);
+
+    X.shadowColor=rb.color; X.shadowBlur=12;
+    // legs
+    for(let i=0;i<4;i++){
+      const side=i<2?-1:1;
+      const legY=((i%2)===0?-0.3:0.3)*rs;
+      const legX=side*rs*0.9;
+      const swing=Math.sin(rb.legPhase+i)*rs*0.4;
+      X.strokeStyle=rb.color; X.lineWidth=1.5;
+      X.beginPath(); X.moveTo(0,legY); X.lineTo(legX,legY+swing); X.stroke();
+      X.beginPath(); X.arc(legX,legY+swing,2,0,Math.PI*2); X.fillStyle=rb.color2; X.fill();
+    }
+    // body
+    X.fillStyle=rb.color;
+    X.globalAlpha=0.7;
+    if(rb.type===0){
+      X.fillRect(-rs*0.5,-rs*0.7,rs,rs*1.4);
+      X.fillStyle=rb.color2; X.fillRect(-rs*0.4,-rs*0.6,rs*0.8,rs*0.5);
+    } else if(rb.type===1){
+      X.beginPath(); X.arc(0,0,rs*0.6,0,Math.PI*2); X.fill();
+      X.beginPath(); X.arc(0,0,rs*0.4,0,Math.PI*2); X.fillStyle=rb.color2; X.fill();
+    } else if(rb.type===2){
+      X.beginPath(); X.moveTo(0,-rs*0.8); X.lineTo(rs*0.6,rs*0.5); X.lineTo(-rs*0.6,rs*0.5); X.closePath(); X.fill();
+    } else {
+      X.beginPath(); X.moveTo(-rs*0.4,-rs*0.7); X.lineTo(rs*0.4,-rs*0.7); X.lineTo(rs*0.6,rs*0.6); X.lineTo(-rs*0.6,rs*0.6); X.closePath(); X.fill();
+    }
+    // eye
+    X.globalAlpha=1;
+    X.fillStyle=rb.eyeColor; X.shadowColor=rb.eyeColor; X.shadowBlur=10;
+    X.beginPath(); X.arc(0,-rs*0.2,rs*0.12,0,Math.PI*2); X.fill();
+    // arms
+    for(let i=0;i<2;i++){
+      const side=i===0?-1:1;
+      const swing=Math.sin(rb.armPhase+i*Math.PI)*rs*0.5;
+      X.strokeStyle=rb.color2; X.lineWidth=1.2;
+      X.beginPath(); X.moveTo(side*rs*0.5,0); X.lineTo(side*rs*1.2,swing); X.stroke();
+    }
+    X.shadowBlur=0; X.restore();
+  });
+}
+
+function drawNeurons(dt){
+  X.save();
+  // edges/synapses
+  neuroEdges.forEach(e=>{
+    e.sig+=e.speed; if(e.sig>1)e.sig=0;
+    const a=neurons[e.a], b=neurons[e.b];
+    const ax=a.x*W, ay=a.y*H, bx=b.x*W, by=b.y*H;
+    X.beginPath(); X.moveTo(ax,ay); X.lineTo(bx,by);
+    X.strokeStyle=e.col+'22'; X.lineWidth=0.5; X.stroke();
+    // signal dot
+    const sx=ax+(bx-ax)*e.sig, sy=ay+(by-ay)*e.sig;
+    const grd=X.createRadialGradient(sx,sy,0,sx,sy,4);
+    grd.addColorStop(0,e.col+'cc'); grd.addColorStop(1,'transparent');
+    X.fillStyle=grd; X.beginPath(); X.arc(sx,sy,3,0,Math.PI*2); X.fill();
+  });
+  // neurons
+  neurons.forEach(n=>{
+    if(Math.random()<n.fireRate) n.fire=1;
+    if(n.fire>0) n.fire=Math.max(0,n.fire-0.05);
+    const nx=n.x*W, ny=n.y*H;
+    const brightness=0.3+n.fire*0.7;
+    X.globalAlpha=brightness;
+    if(n.implant){
+      // implant hexagon
+      X.strokeStyle=n.color; X.lineWidth=1.5; X.shadowColor=n.color; X.shadowBlur=n.fire*15;
+      X.beginPath();
+      for(let i=0;i<6;i++){const a=i/6*Math.PI*2;i===0?X.moveTo(nx+Math.cos(a)*(n.size+4),ny+Math.sin(a)*(n.size+4)):X.lineTo(nx+Math.cos(a)*(n.size+4),ny+Math.sin(a)*(n.size+4));}
+      X.closePath(); X.stroke();
+      // circuit traces from implant
+      if(n.fire>0.5){
+        for(let i=0;i<3;i++){
+          const a=i/3*Math.PI*2+t;
+          X.strokeStyle=n.color+(Math.floor(n.fire*200).toString(16).padStart(2,'0'));
+          X.beginPath(); X.moveTo(nx,ny); X.lineTo(nx+Math.cos(a)*20,ny+Math.sin(a)*20); X.stroke();
+        }
+      }
+    }
+    const grd=X.createRadialGradient(nx,ny,0,nx,ny,n.size*2);
+    grd.addColorStop(0,n.color+'ff'); grd.addColorStop(1,n.color+'00');
+    X.fillStyle=grd; X.beginPath(); X.arc(nx,ny,n.size,0,Math.PI*2); X.fill();
+    X.shadowBlur=0; X.globalAlpha=1;
+  });
+  X.restore();
+}
+
+function drawASMOverlay(){
+  X.save();
+  X.globalAlpha=0.18;
+  X.fillStyle='#00ff44';
+  X.font='9px Courier New';
+  X.textAlign='left';
+  const cols=Math.floor(W/200);
+  for(let c=0;c<cols;c++){
+    const lines=8;
+    for(let l=0;l<lines;l++){
+      const idx=(params.asmIdx+c*lines+l+Math.floor(t*0.5))%ASM6502.length;
+      const x=c*(W/cols)+10, y=H*0.42+l*14;
+      X.fillStyle=ATARI[(idx*3)%ATARI.length];
+      X.fillText(ASM6502[idx],x,y);
+    }
+  }
+  X.restore();
+}
+
+function drawCategoryOverlay(){
+  X.save();
+  X.globalAlpha=0.15;
+  X.font='10px Courier New'; X.textAlign='right';
+  const symbols=CATTHY;
+  const rows=6;
+  for(let r=0;r<rows;r++){
+    const idx=(params.catIdx+r+Math.floor(t*0.2))%symbols.length;
+    const x=W-20, y=H*0.55+r*18;
+    X.fillStyle=ATARI[(idx*5)%ATARI.length];
+    X.fillText(symbols[idx],x,y);
+  }
+  X.restore();
+}
+
+function drawColorSwatches(dt){
+  // Scattered swatch panels
+  const swatchData=[
+    {x:0.03,y:0.35,label:'ATARI 2600',cols:4,rows:4,type:'atari'},
+    {x:0.85,y:0.35,label:'CIELAB',cols:3,rows:4,type:'lab'},
+    {x:0.03,y:0.65,label:'HSV STEPPED',cols:4,rows:2,type:'hsv'},
+    {x:0.85,y:0.65,label:'CMYK',cols:4,rows:2,type:'cmyk'},
+  ];
+  swatchData.forEach(sw=>{
+    const sx=sw.x*W, sy=sw.y*H;
+    const sw2=14, pad=2;
+    X.save(); X.translate(sx,sy);
+    X.globalAlpha=0.8;
+    // panel bg
+    const pw=sw.cols*(sw2+pad)+pad, ph=sw.rows*(sw2+pad)+pad+18;
+    X.fillStyle='rgba(0,0,0,0.6)'; X.fillRect(-2,-20,pw+4,ph+4);
+    X.strokeStyle='rgba(100,255,200,0.3)'; X.lineWidth=0.5; X.strokeRect(-2,-20,pw+4,ph+4);
+    // label
+    X.fillStyle='#88ffcc'; X.font='7px Courier New'; X.textAlign='left';
+    X.fillText(sw.label,-2,-8);
+    // swatches
+    for(let row=0;row<sw.rows;row++){
+      for(let col=0;col<sw.cols;col++){
+        const i=row*sw.cols+col;
+        let col2;
+        if(sw.type==='atari'){
+          col2=ATARI[(i*7+params.patternSeed+Math.floor(t*0.3))%ATARI.length];
+        } else if(sw.type==='lab'){
+          const L=20+i*8, a2=(i%4-2)*40, b2=(Math.floor(i/4)-1)*40;
+          col2=labToRgb(L,a2,b2);
+        } else if(sw.type==='hsv'){
+          col2=hsvToRgb(i/(sw.cols*sw.rows)+t*0.01,0.8+row*0.1,0.7+col*0.08);
+        } else {
+          const c=col/sw.cols, m=row/sw.rows;
+          col2=`rgb(${Math.round((1-c)*(1-0.2)*255)},${Math.round((1-m)*(1-0.2)*255)},${Math.round(0.3*255)})`;
+        }
+        const bx=col*(sw2+pad), by=row*(sw2+pad);
+        X.fillStyle=col2;
+        X.fillRect(bx,by,sw2,sw2);
+        // hex label on hover size
+        X.fillStyle='rgba(0,0,0,0.4)'; X.fillRect(bx,by+sw2-6,sw2,6);
+      }
+    }
+    X.restore();
+  });
+}
+
+function drawMaze(dt){
+  if(!mazeData.length)return;
+  const mscale=Math.min(W,H)*0.0018;
+  const mw=mazeW, mh=mazeH;
+  const totalW=mw*(16*mscale), totalH=mh*(16*mscale);
+  const ox=(W-totalW)/2, oy=H*0.85-totalH/2;
+  const cs=16*mscale;
+  X.save(); X.globalAlpha=0.25;
+  X.strokeStyle=params.tronLineColor||'#00ffcc'; X.lineWidth=0.8;
+  X.shadowColor=params.tronLineColor||'#00ffcc'; X.shadowBlur=3;
+  // outer border
+  X.strokeRect(ox,oy,totalW,totalH);
+  for(let row=0;row<mh;row++){
+    for(let col=0;col<mw;col++){
+      const cell=mazeData[row][col];
+      const x=ox+col*cs, y=oy+row*cs;
+      if(cell.r){X.beginPath();X.moveTo(x+cs,y);X.lineTo(x+cs,y+cs);X.stroke();}
+      if(cell.d){X.beginPath();X.moveTo(x,y+cs);X.lineTo(x+cs,y+cs);X.stroke();}
+    }
+  }
+  X.shadowBlur=0; X.restore();
+}
+
+function drawUFOs(dt){
+  ufos.forEach(u=>{
+    u.x+=u.dx; u.y+=u.dy; u.phase+=0.05;
+    if(u.x<0)u.x=1; if(u.x>1)u.x=0;
+    if(u.y<0.01)u.dy=Math.abs(u.dy); if(u.y>0.45)u.dy=-Math.abs(u.dy);
+    const ux=u.x*W, uy=u.y*H, us=u.size*Math.min(W,H);
+    X.save(); X.translate(ux,uy);
+    // beam
+    if(u.beamOn){
+      u.beamPulse+=0.06;
+      const bAlpha=0.2+0.15*Math.sin(u.beamPulse);
+      const bGrd=X.createLinearGradient(0,us*0.3,0,H);
+      bGrd.addColorStop(0,u.color+Math.floor(bAlpha*255).toString(16).padStart(2,'0'));
+      bGrd.addColorStop(1,u.color+'00');
+      X.fillStyle=bGrd;
+      X.beginPath(); X.moveTo(-us*0.3,us*0.3); X.lineTo(-us*1.5,H); X.lineTo(us*1.5,H); X.lineTo(us*0.3,us*0.3); X.fill();
+    }
+    // body
+    X.shadowColor=u.color; X.shadowBlur=15;
+    const uGrd=X.createRadialGradient(0,-us*0.15,0,0,0,us);
+    uGrd.addColorStop(0,u.color+'ff'); uGrd.addColorStop(0.5,u.color+'88'); uGrd.addColorStop(1,u.color+'00');
+    X.fillStyle=uGrd;
+    // ellipse hull
+    X.beginPath(); X.ellipse(0,0,us,us*0.35,0,0,Math.PI*2); X.fill();
+    // dome
+    X.beginPath(); X.ellipse(0,-us*0.1,us*0.5,us*0.4,0,Math.PI,Math.PI*2); X.fill();
+    // lights
+    for(let i=0;i<6;i++){
+      const la=i/6*Math.PI*2+u.phase;
+      const lx=Math.cos(la)*us*0.7, ly=Math.sin(la)*us*0.15;
+      X.fillStyle=ATARI[(i*17+Math.floor(t))%ATARI.length];
+      X.beginPath(); X.arc(lx,ly,us*0.06,0,Math.PI*2); X.fill();
+    }
+    X.shadowBlur=0; X.restore();
+  });
+}
+
+function drawChromaticityDiagram(){
+  // simplified CIE diagram in corner
+  const px=W*0.45, py=H*0.5, psize=Math.min(W,H)*0.12;
+  X.save(); X.translate(px,py); X.globalAlpha=0.35;
+  // tongue shape approximation
+  const pts=[];
+  for(let i=0;i<=60;i++){
+    const a=i/60;
+    const r=psize*(0.5+0.4*Math.sin(a*Math.PI));
+    const ang=a*Math.PI*1.4-Math.PI*0.2;
+    pts.push([Math.cos(ang)*r, Math.sin(ang)*r]);
+  }
+  // gradient fill
+  const g=X.createLinearGradient(-psize,-psize,psize,psize);
+  g.addColorStop(0,'#ff0000'); g.addColorStop(0.25,'#00ff00');
+  g.addColorStop(0.5,'#0000ff'); g.addColorStop(0.75,'#ff00ff'); g.addColorStop(1,'#ffffff');
+  X.fillStyle=g;
+  X.beginPath(); pts.forEach((p,i)=>i===0?X.moveTo(p[0],p[1]):X.lineTo(p[0],p[1])); X.closePath(); X.fill();
+  X.strokeStyle='#ffffff44'; X.lineWidth=0.8; X.stroke();
+  X.globalAlpha=0.7; X.fillStyle='#aaffee'; X.font='8px Courier New'; X.textAlign='center';
+  X.fillText('CIE xy',0,psize*1.3);
+  X.restore();
+}
+
+function drawHSVModel(){
+  const px=W*0.55, py=H*0.52, r=Math.min(W,H)*0.07;
+  X.save(); X.translate(px,py);
+  X.globalAlpha=0.4;
+  const segs=36;
+  for(let v=0;v<6;v++){
+    for(let s=0;s<segs;s++){
+      const a0=s/segs*Math.PI*2, a1=(s+1)/segs*Math.PI*2;
+      const r0=r*v/6, r1=r*(v+1)/6;
+      const hue=s/segs, sat=(v+1)/6, val=0.8;
+      X.beginPath(); X.moveTo(Math.cos(a0)*r0,Math.sin(a0)*r0);
+      X.arc(0,0,r1,a0,a1); X.lineTo(Math.cos(a0)*r0,Math.sin(a0)*r0);
+      X.closePath();
+      X.fillStyle=hsvToRgb(hue+t*0.003,sat,val); X.fill();
+    }
+  }
+  X.strokeStyle='rgba(255,255,255,0.2)'; X.lineWidth=0.5;
+  for(let v=1;v<=6;v++){X.beginPath();X.arc(0,0,r*v/6,0,Math.PI*2);X.stroke();}
+  X.fillStyle='#ccffee'; X.font='8px Courier New'; X.textAlign='center'; X.globalAlpha=0.8;
+  X.fillText('HSV MODEL',0,r+14);
+  X.restore();
+}
+
+function drawColorBars(){
+  // Temporal evolving color strips
+  const bh=4, rows=12;
+  const bw=W*0.18;
+  X.save(); X.globalAlpha=0.5;
+  for(let r=0;r<rows;r++){
+    const y=H*(0.15+r*0.06);
+    const x=W*0.4;
+    for(let i=0;i<Math.floor(bw/8);i++){
+      const hue=(i/Math.floor(bw/8)+t*0.01+r*0.08)%1;
+      X.fillStyle=hsvToRgb(hue,0.85,0.9);
+      X.fillRect(x+i*8,y,8,bh);
+    }
+  }
+  X.restore();
+}
+
+function drawVideoGameElements(){
+  // scattered game-like pixels and sprites
+  X.save(); X.globalAlpha=0.22;
+  const spriteData=[
+    // simple pixel art patterns (5x5)
+    [[0,1,1,1,0],[1,0,0,0,1],[1,0,1,0,1],[1,0,0,0,1],[0,1,1,1,0]], // alien
+    [[0,0,1,0,0],[0,1,1,1,0],[1,1,1,1,1],[0,1,0,1,0],[1,0,0,0,1]], // robot head
+    [[1,1,0,1,1],[1,0,1,0,1],[0,1,1,1,0],[0,1,1,1,0],[1,0,0,0,1]], // face
+  ];
+  for(let si=0;si<6;si++){
+    const sprite=spriteData[si%spriteData.length];
+    const sx=(0.1+si*0.15)*W, sy=(0.06+Math.sin(t*0.4+si)*0.02)*H;
+    const psize=6;
+    const col=ATARI[(si*11+Math.floor(t))%ATARI.length];
+    sprite.forEach((row,ri)=>row.forEach((px2,ci)=>{
+      if(px2){X.fillStyle=col;X.fillRect(sx+ci*psize,sy+ri*psize,psize-1,psize-1);}
+    }));
+  }
+  X.restore();
+}
+
+function drawHeatmap(){
+  // small heatmap panel
+  const hx=W*0.42, hy=H*0.03, hw=W*0.16, hh=H*0.06;
+  X.save(); X.globalAlpha=0.45;
+  const steps=Math.floor(hw/6);
+  const grad=X.createLinearGradient(hx,0,hx+hw,0);
+  grad.addColorStop(0,'#0000ff'); grad.addColorStop(0.25,'#00ffff');
+  grad.addColorStop(0.5,'#00ff00'); grad.addColorStop(0.75,'#ffff00'); grad.addColorStop(1,'#ff0000');
+  X.fillStyle=grad; X.fillRect(hx,hy,hw,hh);
+  X.strokeStyle='rgba(255,255,255,0.3)'; X.lineWidth=0.5; X.strokeRect(hx,hy,hw,hh);
+  // tick marks
+  for(let i=0;i<=4;i++){
+    const x=hx+i/4*hw;
+    X.strokeStyle='rgba(255,255,255,0.5)'; X.lineWidth=0.5;
+    X.beginPath(); X.moveTo(x,hy+hh); X.lineTo(x,hy+hh+4); X.stroke();
+    X.fillStyle='#aaffee'; X.font='7px Courier New'; X.textAlign='center';
+    X.fillText(Math.round(i/4*100)+'%',x,hy+hh+12);
+  }
+  X.fillStyle='#88ffcc'; X.font='7px Courier New'; X.textAlign='center';
+  X.fillText('HEATMAP ΔE',hx+hw/2,hy-3);
+  X.restore();
+}
+
+function drawImplants(){
+  // cybernetic implant UI overlays around center
+  const count=params.implantCount||4;
+  for(let i=0;i<count;i++){
+    const angle=i/count*Math.PI*2+t*0.01;
+    const r2=Math.min(W,H)*0.38;
+    const ix=cx+Math.cos(angle)*r2, iy=cy+Math.sin(angle)*r2;
+    const col=ATARI[(i*19+Math.floor(t*0.5))%ATARI.length];
+    X.save(); X.translate(ix,iy); X.rotate(angle+t*0.02);
+    X.globalAlpha=0.25+0.1*Math.sin(t+i);
+    X.strokeStyle=col; X.lineWidth=1; X.shadowColor=col; X.shadowBlur=6;
+    // implant shape
+    X.strokeRect(-10,-10,20,20);
+    X.beginPath(); X.moveTo(-15,0); X.lineTo(15,0); X.stroke();
+    X.beginPath(); X.moveTo(0,-15); X.lineTo(0,15); X.stroke();
+    for(let c=0;c<4;c++){
+      const ca=c/4*Math.PI*2; X.beginPath(); X.arc(Math.cos(ca)*7,Math.sin(ca)*7,2,0,Math.PI*2);
+      X.fillStyle=col; X.fill();
+    }
+    X.shadowBlur=0; X.restore();
+  }
+}
+
+function drawColorSystemText(){
+  X.save();
+  X.globalAlpha=0.4;
+  X.font='bold 11px Courier New'; X.textAlign='center';
+  const label=COLORLABELS[Math.floor(t*0.3)%COLORLABELS.length];
+  X.fillStyle=params.atariColors[Math.floor(t*0.5)%16]||'#00ffcc';
+  X.fillText(label,cx,cy-Math.min(W,H)*0.18);
+  X.restore();
+}
+
+function drawComplementaryArcs(){
+  X.save(); X.globalAlpha=0.2;
+  const r3=Math.min(W,H)*0.28;
+  for(let i=0;i<6;i++){
+    const a=i/6*Math.PI*2+t*0.005;
+    const col=hsvToRgb(i/6,1,1);
+    X.strokeStyle=col; X.lineWidth=1;
+    X.beginPath(); X.arc(cx,cy,r3*(0.6+i*0.07),a,a+Math.PI); X.stroke();
+  }
+  X.restore();
+}
+
+function drawMunsellRing(){
+  X.save(); X.translate(cx,cy); X.globalAlpha=0.3;
+  const r4=Math.min(W,H)*0.22;
+  const steps=100;
+  for(let i=0;i<steps;i++){
+    const a0=i/steps*Math.PI*2, a1=(i+1)/steps*Math.PI*2;
+    const hue=i/steps;
+    const chroma=0.6+0.3*Math.sin(i*0.3+t*0.02);
+    X.beginPath(); X.moveTo(Math.cos(a0)*(r4-8),Math.sin(a0)*(r4-8));
+    X.arc(0,0,r4,a0,a1); X.lineTo(Math.cos(a1)*(r4-8),Math.sin(a1)*(r4-8));
+    X.arc(0,0,r4-8,a1,a0,true); X.closePath();
+    X.fillStyle=hsvToRgb(hue,chroma,0.8); X.fill();
+  }
+  X.font='9px Courier New'; X.textAlign='center'; X.fillStyle='#aaffee'; X.globalAlpha=0.6;
+  X.fillText('MUNSELL',0,r4+16);
+  X.restore();
+}
+
+// ─── SOUND ENGINE ────────────────────────────────────────────────────────────
+function initAudio(){
+  if(audioCtx)return;
+  audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+}
+function playTone(freq,dur,vol){
+  if(!soundOn||!audioCtx)return;
+  const osc=audioCtx.createOscillator();
+  const gain=audioCtx.createGain();
+  osc.connect(gain); gain.connect(audioCtx.destination);
+  osc.type='square'; osc.frequency.value=freq;
+  gain.gain.setValueAtTime(vol*0.08,audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+dur);
+  osc.start(); osc.stop(audioCtx.currentTime+dur);
+}
+
+// ─── RESIZE ──────────────────────────────────────────────────────────────────
+function resize(){
+  W=C.width=window.innerWidth;
+  H=C.height=window.innerHeight;
+  cx=W/2; cy=H/2;
+}
+
+// ─── HUD UPDATE ──────────────────────────────────────────────────────────────
+function updateHUD(){
+  if(!hudVisible)return;
+  const c=params.activeColor||'#00ffcc';
+  document.getElementById('h-color').textContent='HEX: '+c;
+  const r2=parseInt(c.slice(1,3),16)/255, g2=parseInt(c.slice(3,5),16)/255, b2=parseInt(c.slice(5,7),16)/255;
+  const K=1-Math.max(r2,g2,b2);
+  const safe=1-K<0.001;
+  document.getElementById('h-cmyk').textContent=safe?'CMYK: 0,0,0,100':`CMYK: ${Math.round((1-r2-K)/(1-K)*100)},${Math.round((1-g2-K)/(1-K)*100)},${Math.round((1-b2-K)/(1-K)*100)},${Math.round(K*100)}`;
+  document.getElementById('h-time').textContent='T: '+t.toFixed(3)+'s';
+  document.getElementById('h-fps').textContent='FPS: '+fps.toFixed(0);
+  document.getElementById('h-palette').textContent='PALETTE: '+COLORLABELS[params.colorMode||0];
+  document.getElementById('h-sys').textContent='SYS: '+COLORLABELS[(params.colorMode+3||3)%COLORLABELS.length]+' · PCB · POLYTOPE';
+  document.getElementById('h-asm').textContent='6502: '+ASM6502[Math.floor(t*0.5)%ASM6502.length];
+  document.getElementById('h-cat').textContent='CAT: '+CATTHY[Math.floor(t*0.2)%CATTHY.length];
+  const L=params.labL||50, a2=params.labA||0, b2v=params.labB||0;
+  document.getElementById('h-cie').textContent=`CIELAB: L*${L.toFixed(0)} a*${a2.toFixed(0)} b*${b2v.toFixed(0)}`;
+  document.getElementById('h-robot').textContent=`ROBOT: ${robots.length} ACTIVE | POLY:${params.polyCount}D`;
+}
+
+// ─── MAIN LOOP ───────────────────────────────────────────────────────────────
+function loop(ts){
+  requestAnimationFrame(loop);
+  const dt=Math.min((ts-lastTime)/1000,0.05); lastTime=ts; t+=dt;
+  // FPS
+  fpsAcc+=dt; fpsFrames++;
+  if(fpsAcc>=0.5){fps=fpsFrames/fpsAcc; fpsAcc=0; fpsFrames=0;}
+  frame++;
+
+  // Evolve params
+  params.labL=50+40*Math.sin(t*0.07);
+  params.labA=80*Math.sin(t*0.11);
+  params.labB=80*Math.cos(t*0.09);
+  params.activeColor=ATARI[Math.floor(t*3)%ATARI.length];
+
+  // Neural fires
+  if(Math.floor(t*10)%7===0&&soundOn) playTone(220+Math.floor(t*100)%440,0.08,0.3);
+
+  // PCB pulses spawn
+  if(frame%60===0&&pcbEdges.length>0){
+    pcbPulses.push({edge:Math.floor(Math.random()*pcbEdges.length),pos:0,speed:0.005+Math.random()*0.02,col:ATARI[Math.floor(Math.random()*ATARI.length)]});
+    if(pcbPulses.length>20)pcbPulses.shift();
+  }
+
+  // ── DRAW ──
+  // 1. Tron grid base
+  drawTronGrid();
+
+  // 2. Maze (subtle, bottom)
+  drawMaze(dt);
+
+  // 3. PCB layer
+  drawPCB(dt);
+
+  // 4. Neuron/implant layer
+  drawNeurons(dt);
+
+  // 5. Polytopes (center region)
+  drawPolytopes(dt);
+
+  // 6. Munsell ring
+  drawMunsellRing();
+
+  // 7. Complementary arcs
+  drawComplementaryArcs();
+
+  // 8. Color wheels (edges)
+  drawColorWheels(dt);
+
+  // 9. HSV model
+  drawHSVModel();
+
+  // 10. Chromaticity diagram
+  drawChromaticityDiagram();
+
+  // 11. Color swatches panels
+  drawColorSwatches(dt);
+
+  // 12. Color bars
+  drawColorBars();
+
+  // 13. Heatmap
+  drawHeatmap();
+
+  // 14. Tron lines
+  drawTronLines(dt);
+
+  // 15. Tron recognizers
+  drawTronRecognizers(dt);
+
+  // 16. Robots
+  drawRobots(dt);
+
+  // 17. UFOs
+  drawUFOs(dt);
+
+  // 18. Implants
+  drawImplants();
+
+  // 19. ASM overlay
+  drawASMOverlay();
+
+  // 20. Category theory overlay
+  drawCategoryOverlay();
+
+  // 21. Video game sprites
+  drawVideoGameElements();
+
+  // 22. System label
+  drawColorSystemText();
+
+  // 23. Subtle scanlines
+  X.save();
+  X.globalAlpha=0.04;
+  for(let y=0;y<H;y+=3){
+    X.fillStyle='#000000'; X.fillRect(0,y,W,1);
+  }
+  X.restore();
+
+  // HUD update
+  if(frame%10===0) updateHUD();
+}
+
+// ─── RANDOMIZE ───────────────────────────────────────────────────────────────
+function randomize(){
+  initParams();
+  buildTronWorld();
+  buildUFOs();
+
+  playTone(440,0.15,0.5); playTone(880,0.1,0.3);
+}
+
+function showToast(msg){}
+
+// ─── INPUT ───────────────────────────────────────────────────────────────────
+window.addEventListener('keydown',e=>{
+  if(e.code==='Space'||e.key===' '){e.preventDefault();randomize();}
+  if(e.key==='h'||e.key==='H'){
+    hudVisible=!hudVisible;
+    document.getElementById('hud').classList.toggle('visible',hudVisible);
+    showToast('HUD: '+(hudVisible?'ON':'OFF'));
+  }
+  if(e.key==='s'||e.key==='S'){
+    if(!audioCtx)initAudio();
+    soundOn=!soundOn;
+    document.getElementById('h-sound').textContent='SOUND: '+(soundOn?'ON':'OFF');
+    showToast('SOUND: '+(soundOn?'ON':'OFF'));
+  }
+});
+window.addEventListener('click',()=>randomize());
+window.addEventListener('touchend',e=>{e.preventDefault();randomize();},{passive:false});
+window.addEventListener('resize',resize);
+
+// ─── BOOT ────────────────────────────────────────────────────────────────────
+resize();
+initParams();
+buildTronWorld();
+buildUFOs();
+lastTime=performance.now();
+requestAnimationFrame(loop);
+showToast('CHROMATIC NEXUS INITIALIZED');
+</script>
+</body>
+</html>

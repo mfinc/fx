@@ -1,0 +1,1256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>CHROMATIC CYBERSPACE — Color Harmony × Atari 2600 × Robotics × Cybernetics × UFOs × Video Games</title>
+<meta name="description" content="An immersive generative art fusion of color science, color harmony wheels, polytopes, 6502 assembly language, Atari 2600 palette, robotics, PCB circuits, cybernetic neurotechnology, cyborgs, UFOs, mazes, tilings, and video game mechanics. A living, breathing chromatic machine organism.">
+<meta name="keywords" content="color harmony, color wheel, color science, chromaticity, Atari 2600, 6502 assembly, robotics, PCB circuits, cybernetics, neurotechnology, cyborgs, UFOs, video games, mazes, tilings, polytopes, generative art, color matching">
+<meta name="author" content="CHROMATIC CYBERSPACE System">
+<meta property="og:title" content="CHROMATIC CYBERSPACE — Fusion of Color Science & Cybernetics">
+<meta property="og:description" content="Living generative art: color harmony wheels, Atari 2600 palette, robotics, cybernetic implants, UFOs, mazes, and video game mechanics fused into one chromatic organism.">
+<meta property="og:type" content="website">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Courier New',monospace;}
+  canvas{display:block;position:fixed;top:0;left:0;}
+  #hud{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;display:none;z-index:10;}
+  #hud-panel{position:absolute;top:12px;left:12px;background:rgba(0,0,0,0.82);border:1px solid #0ff;color:#0ff;padding:10px 14px;font-size:10px;line-height:1.7;letter-spacing:1px;text-transform:uppercase;min-width:220px;}
+  #hud-panel .hud-title{color:#ff0;font-size:11px;font-weight:bold;border-bottom:1px solid #0ff;margin-bottom:6px;padding-bottom:4px;}
+  #hud-panel .hud-row{display:flex;justify-content:space-between;gap:16px;}
+  #hud-panel .hud-val{color:#f0f;}
+  #corner-info{position:absolute;bottom:12px;right:12px;background:rgba(0,0,0,0.75);border:1px solid #f0f;color:#f0f;padding:8px 12px;font-size:9px;line-height:1.8;letter-spacing:1px;text-align:right;}
+  #controls-hint{position:absolute;bottom:12px;left:12px;background:rgba(0,0,0,0.75);border:1px solid #ff0;color:#ff0;padding:8px 12px;font-size:9px;line-height:1.8;letter-spacing:1px;}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div id="hud-panel">
+    <div class="hud-title">▶ CHROMATIC CYBERSPACE v2600</div>
+    <div class="hud-row"><span>COLOR MODE</span><span class="hud-val" id="h-cmode">—</span></div>
+    <div class="hud-row"><span>HARMONY</span><span class="hud-val" id="h-harm">—</span></div>
+    <div class="hud-row"><span>ATARI PALETTE</span><span class="hud-val" id="h-pal">—</span></div>
+    <div class="hud-row"><span>MAZE SEED</span><span class="hud-val" id="h-maze">—</span></div>
+    <div class="hud-row"><span>ROBOT COUNT</span><span class="hud-val" id="h-rob">—</span></div>
+    <div class="hud-row"><span>UFO FLEET</span><span class="hud-val" id="h-ufo">—</span></div>
+    <div class="hud-row"><span>POLYTOPE</span><span class="hud-val" id="h-poly">—</span></div>
+    <div class="hud-row"><span>PCB NODES</span><span class="hud-val" id="h-pcb">—</span></div>
+    <div class="hud-row"><span>NEURAL LINKS</span><span class="hud-val" id="h-neu">—</span></div>
+    <div class="hud-row"><span>TICK</span><span class="hud-val" id="h-tick">—</span></div>
+    <div style="margin-top:6px;border-top:1px solid #0ff;padding-top:4px;font-size:8px;color:#888;">
+      6502 ASM | ATARI 2600 | COLOR SCIENCE<br>CHROMATICITY · TILING · POLYTOPES
+    </div>
+  </div>
+  <div id="corner-info">
+    CHROMATIC CYBERSPACE<br>
+    COLOR HARMONY ENGINE<br>
+    NEUROCYBERNETIC MATRIX
+  </div>
+  <div id="controls-hint">
+    SPACE / CLICK / TAP → RANDOMIZE<br>
+    H → TOGGLE HUD<br>
+    S → TOGGLE SOUND
+  </div>
+</div>
+
+<script>
+// ============================================================
+// CHROMATIC CYBERSPACE — Full Fusion Engine
+// Color Science × 6502 ASM × Atari 2600 × Robotics × Cybernetics
+// UFOs × Mazes × Tilings × Polytopes × Video Games
+// ============================================================
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H, cx, cy;
+
+// --- Atari 2600 Full NTSC Palette (128 colors) ---
+const ATARI_PALETTE = [
+  '#000000','#404040','#6c6c6c','#909090','#b0b0b0','#c8c8c8','#dcdcdc','#ececec',
+  '#444400','#646410','#848424','#a0a034','#b8b840','#d0d050','#e8e85c','#fcfc68',
+  '#702800','#844414','#985c28','#ac783c','#bc8c4c','#cca05c','#dcb468','#ecc878',
+  '#841800','#983418','#ac5030','#c06848','#d0805c','#e09470','#eca880','#fcbc94',
+  '#880000','#9c2020','#b03c3c','#c05858','#d07070','#e08888','#eca0a0','#fcb4b4',
+  '#78005c','#8c2074','#a03c88','#b0589c','#c070b0','#d084c0','#dc9cd0','#ecb0e0',
+  '#480078','#602090','#7840a8','#8c5cbc','#a074cc','#b488dc','#c49ce8','#d4b0f4',
+  '#140084','#302098','#4c3cac','#6858c0','#7c70d0','#9488e0','#a8a0ec','#bcb4f8',
+  '#000088','#1c209c','#3840b0','#505cc4','#6874d4','#7c8ce0','#90a4ec','#a4b8f8',
+  '#00187c','#1c3890','#3854a8','#5070bc','#6888cc','#7c9cdc','#90b4ec','#a4c8f8',
+  '#002c5c','#1c4c78','#386890','#5084ac','#689cc0','#7cb4d4','#90cce8','#a4e0fc',
+  '#003c2c','#1c5c48','#387c64','#509880','#68b494','#7ccca8','#90e4bc','#a4fcd0',
+  '#003c00','#205c20','#407c40','#5c9c5c','#74b474','#8cd08c','#a4e4a4','#b8fcb8',
+  '#143800','#345c1c','#507c38','#6c9850','#84b468','#9ccc7c','#b4e490','#c8fca4',
+  '#2c3000','#4c501c','#687034','#848c4c','#9ca864','#b4c078','#ccd488','#e0ec9c',
+  '#442800','#644818','#846830','#a08444','#b89c58','#d0b46c','#e8cc7c','#fce08c'
+];
+
+// --- 6502 Assembly Mnemonics (decorative) ---
+const ASM6502 = [
+  'LDA #$00','STA $D000','LDX #$FF','STX $D010','LDY #$08','BNE $FE02',
+  'JSR $F000','RTS','CLC','ADC #$01','SEC','SBC #$01','ROL A','ROR A',
+  'LSR A','ASL A','AND #$0F','ORA #$F0','EOR #$AA','CMP #$00','BEQ $FE',
+  'BCC $04','BCS $FC','INX','INY','DEX','DEY','PHA','PLA','PHP','PLP',
+  'TAX','TAY','TXA','TYA','TSX','TXS','NOP','BRK','JMP ($FFFE)',
+  'STA $C000','LDA $C080','BIT $C010','LDA #$80','STA $D015','LDA #$FF',
+  'STA $D018','LDX $D012','CPX #$C8','LDA #$2C','STA $2C','LDA #$00',
+  'STA $D020','STA $D021','LDA #$0E','STA $D011','LDA #$1B','STA $D016',
+];
+
+// --- Color Harmony Systems ---
+const HARMONY_SYSTEMS = [
+  'COMPLEMENTARY','ANALOGOUS','TRIADIC','SPLIT-COMPLEMENTARY',
+  'TETRADIC','SQUARE','COMPOUND','DOUBLE-SPLIT','MONOCHROMATIC',
+  'NATURAL','CLASH','NEAR-COMPLEMENTARY'
+];
+
+// --- State ---
+let params = {};
+let tick = 0;
+let hudVisible = false;
+let soundOn = false;
+let audioCtx = null;
+let entities = {};
+let mazeGrid = [];
+let mazeW, mazeH;
+let asmScrollY = 0;
+let globalHue = 0;
+let colorPhase = 0;
+let rng;
+
+// --- Seeded RNG ---
+function mkRng(seed) {
+  let s = seed >>> 0;
+  return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+}
+
+// --- Randomize All Parameters ---
+function randomizeAll() {
+  const seed = Math.random() * 0xFFFFFFFF | 0;
+  rng = mkRng(seed);
+  globalHue = rng() * 360;
+  colorPhase = rng() * Math.PI * 2;
+
+  params = {
+    seed,
+    harmonyIndex: Math.floor(rng() * HARMONY_SYSTEMS.length),
+    atariBase: Math.floor(rng() * ATARI_PALETTE.length),
+    mazeComplexity: 4 + Math.floor(rng() * 10),
+    robotCount: 3 + Math.floor(rng() * 8),
+    ufoCount: 2 + Math.floor(rng() * 6),
+    polyType: Math.floor(rng() * 6),
+    pcbNodes: 20 + Math.floor(rng() * 40),
+    neuralLinks: 8 + Math.floor(rng() * 20),
+    tilingType: Math.floor(rng() * 5),
+    wheelCount: 2 + Math.floor(rng() * 4),
+    rotDir: (rng() > 0.5) ? 1 : -1,
+    rotSpeed: 0.0003 + rng() * 0.0015,
+    bgHue: rng() * 360,
+    accentHue: (globalHue + 120 + rng() * 60) % 360,
+    warpStrength: 0.3 + rng() * 0.7,
+    glitchProb: rng() * 0.04,
+  };
+
+  buildMaze();
+  buildEntities();
+  updateHUD();
+}
+
+// --- Build Maze ---
+function buildMaze() {
+  const mc = params.mazeComplexity;
+  mazeW = mc * 2 + 1;
+  mazeH = Math.floor(mc * 1.2) * 2 + 1;
+  mazeGrid = Array.from({length: mazeH}, () => Array(mazeW).fill(1));
+  // DFS maze gen
+  const visited = Array.from({length: mazeH}, () => Array(mazeW).fill(false));
+  const stack = [[1, 1]];
+  mazeGrid[1][1] = 0;
+  visited[1][1] = true;
+  const dirs = [[0,2],[2,0],[0,-2],[-2,0]];
+  while (stack.length) {
+    const [r, c] = stack[stack.length - 1];
+    const shuffled = [...dirs].sort(() => rng() - 0.5);
+    let moved = false;
+    for (const [dr, dc] of shuffled) {
+      const nr = r + dr, nc = c + dc;
+      if (nr > 0 && nr < mazeH-1 && nc > 0 && nc < mazeW-1 && !visited[nr][nc]) {
+        mazeGrid[r + dr/2][c + dc/2] = 0;
+        mazeGrid[nr][nc] = 0;
+        visited[nr][nc] = true;
+        stack.push([nr, nc]);
+        moved = true;
+        break;
+      }
+    }
+    if (!moved) stack.pop();
+  }
+}
+
+// --- Build Entities ---
+function buildEntities() {
+  // Robots
+  entities.robots = Array.from({length: params.robotCount}, (_, i) => ({
+    x: rng() * W, y: rng() * H,
+    vx: (rng()-0.5)*1.5, vy: (rng()-0.5)*1.5,
+    size: 18 + rng()*24,
+    hue: (globalHue + i * 137.5) % 360,
+    asmIdx: Math.floor(rng() * ASM6502.length),
+    phase: rng() * Math.PI * 2,
+    eyePhase: rng() * Math.PI * 2,
+    armAngle: rng() * Math.PI,
+    type: Math.floor(rng() * 4),
+    implant: rng() > 0.4,
+    augments: Math.floor(rng() * 4),
+  }));
+
+  // UFOs
+  entities.ufos = Array.from({length: params.ufoCount}, (_, i) => ({
+    x: rng() * W, y: rng() * H * 0.5,
+    vx: (rng()-0.5)*1.2, vy: (rng()-0.4)*0.6,
+    size: 22 + rng()*28,
+    hue: (globalHue + i * 60 + 180) % 360,
+    beamOn: rng() > 0.4,
+    beamAngle: rng() * 0.4 - 0.2,
+    phase: rng() * Math.PI * 2,
+    lights: 5 + Math.floor(rng()*5),
+  }));
+
+  // PCB nodes
+  entities.pcbNodes = Array.from({length: params.pcbNodes}, () => ({
+    x: rng() * W, y: rng() * H,
+    r: 3 + rng()*7,
+    hue: (globalHue + rng()*120) % 360,
+    active: rng() > 0.3,
+    pulsePhase: rng() * Math.PI * 2,
+    type: Math.floor(rng()*4),
+  }));
+
+  // PCB traces (connect nodes)
+  entities.pcbTraces = [];
+  const n = entities.pcbNodes;
+  for (let i = 0; i < n.length; i++) {
+    const tries = 2 + Math.floor(rng()*3);
+    for (let t = 0; t < tries; t++) {
+      const j = Math.floor(rng() * n.length);
+      if (j !== i) {
+        const dist = Math.hypot(n[i].x - n[j].x, n[i].y - n[j].y);
+        if (dist < W * 0.25) {
+          entities.pcbTraces.push({a: i, b: j, active: rng()>0.3, phase: rng()*Math.PI*2});
+        }
+      }
+    }
+  }
+
+  // Neural links (cybernetic)
+  entities.neuralLinks = Array.from({length: params.neuralLinks}, () => ({
+    x: rng() * W, y: rng() * H,
+    r: 8 + rng()*20,
+    hue: (globalHue + 200 + rng()*60) % 360,
+    phase: rng() * Math.PI * 2,
+    spikes: 6 + Math.floor(rng()*8),
+    implantType: Math.floor(rng()*5),
+  }));
+
+  // Color wheel rings
+  entities.wheels = Array.from({length: params.wheelCount}, (_, i) => ({
+    x: rng() * W * 0.6 + W * 0.2,
+    y: rng() * H * 0.6 + H * 0.2,
+    r: 60 + rng() * 120,
+    innerR: 10 + rng() * 30,
+    segments: 12 + Math.floor(rng()*24),
+    rotOffset: rng() * Math.PI * 2,
+    speed: (rng()-0.5) * 0.008,
+    hueOffset: rng() * 360,
+    transparency: 0.3 + rng() * 0.5,
+    system: HARMONY_SYSTEMS[Math.floor(rng()*HARMONY_SYSTEMS.length)],
+    polyOverlay: rng() > 0.5,
+  }));
+
+  // ASM scroll lines
+  entities.asmLines = Array.from({length: 40}, (_, i) => ({
+    text: ASM6502[Math.floor(rng()*ASM6502.length)],
+    x: rng() * W,
+    y: rng() * H,
+    hue: (globalHue + rng()*180) % 360,
+    speed: 0.3 + rng()*0.8,
+    alpha: 0.15 + rng()*0.35,
+    size: 8 + Math.floor(rng()*8),
+  }));
+
+  // Game sprites (pixels)
+  entities.gameSprites = Array.from({length: 12}, () => ({
+    x: rng() * W, y: rng() * H,
+    vx: (rng()-0.5)*2, vy: (rng()-0.5)*2,
+    type: Math.floor(rng()*6),
+    hue: rng()*360,
+    size: 6 + rng()*14,
+    phase: rng()*Math.PI*2,
+  }));
+
+  // Polytope vertices
+  buildPolytope();
+
+  // Tiling
+  buildTiling();
+}
+
+// --- Polytope ---
+let polyVerts3D = [], polyEdges = [];
+function buildPolytope() {
+  const t = params.polyType;
+  polyVerts3D = [];
+  polyEdges = [];
+  if (t === 0) { // Tetrahedron
+    const v = [[1,1,1],[-1,-1,1],[-1,1,-1],[1,-1,-1]];
+    polyVerts3D = v;
+    polyEdges = [[0,1],[0,2],[0,3],[1,2],[1,3],[2,3]];
+  } else if (t === 1) { // Cube
+    for (let i = 0; i < 8; i++) polyVerts3D.push([(i&1)?1:-1,(i&2)?1:-1,(i&4)?1:-1]);
+    polyEdges = [[0,1],[1,3],[3,2],[2,0],[4,5],[5,7],[7,6],[6,4],[0,4],[1,5],[2,6],[3,7]];
+  } else if (t === 2) { // Octahedron
+    polyVerts3D = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
+    polyEdges = [[0,2],[0,3],[0,4],[0,5],[1,2],[1,3],[1,4],[1,5],[2,4],[2,5],[3,4],[3,5]];
+  } else if (t === 3) { // Dodecahedron (simplified)
+    const phi = (1+Math.sqrt(5))/2;
+    polyVerts3D = [
+      [1,1,1],[1,1,-1],[1,-1,1],[1,-1,-1],[-1,1,1],[-1,1,-1],[-1,-1,1],[-1,-1,-1],
+      [0,phi,1/phi],[0,phi,-1/phi],[0,-phi,1/phi],[0,-phi,-1/phi],
+      [1/phi,0,phi],[-1/phi,0,phi],[1/phi,0,-phi],[-1/phi,0,-phi],
+      [phi,1/phi,0],[phi,-1/phi,0],[-phi,1/phi,0],[-phi,-1/phi,0]
+    ];
+    polyEdges = [[0,8],[0,12],[0,16],[1,9],[1,14],[1,16],[2,10],[2,12],[2,17],[3,11],[3,14],[3,17],
+      [4,8],[4,13],[4,18],[5,9],[5,15],[5,18],[6,10],[6,13],[6,19],[7,11],[7,15],[7,19],
+      [8,9],[10,11],[12,13],[14,15],[16,17],[18,19]];
+  } else if (t === 4) { // 4D Tesseract (projected)
+    for (let i = 0; i < 16; i++) polyVerts3D.push([(i&1)?1:-1,(i&2)?1:-1,(i&4)?1:-1,(i&8)?1:-1]);
+    // edges where exactly one bit differs
+    for (let i = 0; i < 16; i++) for (let j = i+1; j < 16; j++) {
+      const xor = i^j;
+      if (xor && (xor & (xor-1)) === 0) polyEdges.push([i,j]);
+    }
+  } else { // Icosahedron
+    const phi = (1+Math.sqrt(5))/2;
+    polyVerts3D = [
+      [0,1,phi],[0,-1,phi],[0,1,-phi],[0,-1,-phi],
+      [1,phi,0],[-1,phi,0],[1,-phi,0],[-1,-phi,0],
+      [phi,0,1],[phi,0,-1],[-phi,0,1],[-phi,0,-1]
+    ];
+    polyEdges = [[0,1],[0,4],[0,5],[0,8],[0,10],[1,6],[1,7],[1,8],[1,10],[2,3],[2,4],[2,5],[2,9],[2,11],
+      [3,6],[3,7],[3,9],[3,11],[4,5],[4,8],[4,9],[5,10],[5,11],[6,7],[6,8],[6,9],[7,10],[7,11],[8,9],[10,11]];
+  }
+  // Normalize
+  const maxLen = Math.max(...polyVerts3D.map(v => Math.sqrt(v.reduce((s,x)=>s+x*x,0))));
+  polyVerts3D = polyVerts3D.map(v => v.map(x => x/maxLen));
+}
+
+// --- Tiling ---
+let tilingCells = [];
+function buildTiling() {
+  tilingCells = [];
+  const t = params.tilingType;
+  const spacing = 28 + rng()*20;
+  const cols = Math.ceil(W/spacing)+2, rows = Math.ceil(H/spacing)+2;
+  if (t === 0) { // Square
+    for (let r = -1; r < rows; r++) for (let c = -1; c < cols; c++) {
+      tilingCells.push({x: c*spacing, y: r*spacing, type:'sq', s:spacing*0.45, hue:(globalHue+r*17+c*23)%360});
+    }
+  } else if (t === 1) { // Hex
+    for (let r = -1; r < rows; r++) for (let c = -1; c < cols; c++) {
+      const xOff = (r%2)*spacing*0.5;
+      tilingCells.push({x: c*spacing+xOff, y: r*spacing*0.866, type:'hex', s:spacing*0.48, hue:(globalHue+r*13+c*19)%360});
+    }
+  } else if (t === 2) { // Triangle
+    for (let r = -1; r < rows*1.5; r++) for (let c = -1; c < cols; c++) {
+      const flip = (r+c)%2;
+      tilingCells.push({x: c*spacing*0.5, y: r*spacing*0.433, type:'tri', s:spacing*0.48, flip, hue:(globalHue+r*11+c*29)%360});
+    }
+  } else if (t === 3) { // Octagons+squares
+    for (let r = -1; r < rows; r++) for (let c = -1; c < cols; c++) {
+      tilingCells.push({x: c*spacing, y: r*spacing, type:'oct', s:spacing*0.42, hue:(globalHue+r*9+c*37)%360});
+    }
+  } else { // Penrose-ish rhombus
+    for (let r = -1; r < rows; r++) for (let c = -1; c < cols; c++) {
+      tilingCells.push({x: c*spacing+(r%2)*spacing*0.5, y: r*spacing*0.7, type:'rh', s:spacing*0.44, angle:(r*c*0.3), hue:(globalHue+r*7+c*43)%360});
+    }
+  }
+}
+
+// --- Project 3D/4D vertex to 2D ---
+function project(v, angleX, angleY, scale) {
+  let [x, y, z] = v.slice(0,3);
+  // 4D->3D if needed
+  if (v.length >= 4) {
+    const w = v[3];
+    const d = 1/(2.5 - w * 0.4);
+    x *= d; y *= d; z *= d;
+  }
+  // Rotate X
+  let y2 = y * Math.cos(angleX) - z * Math.sin(angleX);
+  let z2 = y * Math.sin(angleX) + z * Math.cos(angleX);
+  // Rotate Y
+  let x3 = x * Math.cos(angleY) + z2 * Math.sin(angleY);
+  let z3 = -x * Math.sin(angleY) + z2 * Math.cos(angleY);
+  const d2 = 1/(2.5 - z3 * 0.5);
+  return [cx + x3 * scale * d2, cy + y2 * scale * d2];
+}
+
+// --- Color Helpers ---
+function hsl(h, s, l, a=1) { return `hsla(${h%360},${s}%,${l}%,${a})`; }
+function atariColor(i, alpha=1) {
+  const hex = ATARI_PALETTE[((i|0) % ATARI_PALETTE.length + ATARI_PALETTE.length) % ATARI_PALETTE.length];
+  if (alpha >= 1) return hex;
+  const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+function harmonyColors(baseHue, count, system) {
+  const colors = [];
+  const s = HARMONY_SYSTEMS.indexOf(system);
+  for (let i = 0; i < count; i++) {
+    let h;
+    if (s===0) h = (baseHue + (i%2)*180) % 360;
+    else if (s===1) h = (baseHue + i*30) % 360;
+    else if (s===2) h = (baseHue + i*120) % 360;
+    else if (s===3) h = (baseHue + [0,150,210][i%3]) % 360;
+    else if (s===4) h = (baseHue + i*90) % 360;
+    else h = (baseHue + i*(360/count)) % 360;
+    colors.push(h);
+  }
+  return colors;
+}
+
+// --- Draw Color Wheel ---
+function drawColorWheel(w, t) {
+  const {x, y, r, innerR, segments, rotOffset, hueOffset, transparency, system} = w;
+  const angleStep = (Math.PI*2) / segments;
+  for (let i = 0; i < segments; i++) {
+    const a1 = rotOffset + i * angleStep;
+    const a2 = a1 + angleStep * 1.02;
+    const h = (hueOffset + (i/segments)*360) % 360;
+    const l = 45 + Math.sin(t*0.7+i*0.3)*15;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.arc(x, y, r, a1, a2);
+    ctx.closePath();
+    ctx.fillStyle = hsl(h, 85, l, transparency);
+    ctx.fill();
+    // Inner harmony ring
+    ctx.beginPath();
+    ctx.arc(x, y, innerR + (r-innerR)*0.35, a1, a2);
+    ctx.arc(x, y, innerR, a2, a1, true);
+    ctx.closePath();
+    ctx.fillStyle = hsl((h+180)%360, 90, 60, transparency*0.7);
+    ctx.fill();
+  }
+  // Wheel outline
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI*2);
+  ctx.strokeStyle = hsl(hueOffset, 100, 80, 0.5);
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(x, y, innerR, 0, Math.PI*2);
+  ctx.strokeStyle = hsl((hueOffset+90)%360, 100, 80, 0.6);
+  ctx.stroke();
+  // System label
+  ctx.font = `${7}px 'Courier New'`;
+  ctx.fillStyle = hsl(hueOffset, 100, 90, 0.6);
+  ctx.textAlign = 'center';
+  ctx.fillText(system, x, y + r + 12);
+}
+
+// --- Draw Chromaticity Diagram (CIE-like) ---
+function drawChromaticity(t) {
+  const cx2 = W*0.85, cy2 = H*0.15;
+  const scale = Math.min(W,H)*0.09;
+  ctx.save();
+  ctx.translate(cx2, cy2);
+  // Horseshoe shape approximation
+  for (let i = 0; i < 100; i++) {
+    const angle = (i/100)*Math.PI*1.4 - Math.PI*0.2;
+    const rx = Math.cos(angle)*scale*(0.7+0.3*Math.sin(i*0.3));
+    const ry = -Math.sin(angle)*scale*(0.5+0.2*Math.cos(i*0.4));
+    const h = (i/100)*300;
+    ctx.beginPath();
+    ctx.arc(rx, ry, 3, 0, Math.PI*2);
+    ctx.fillStyle = hsl(h, 100, 60, 0.5);
+    ctx.fill();
+  }
+  // Purple line
+  ctx.beginPath();
+  ctx.moveTo(-scale*0.6, scale*0.2);
+  ctx.lineTo(scale*0.3, scale*0.35);
+  ctx.strokeStyle = hsl((globalHue+270)%360, 80, 60, 0.4);
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  // White point
+  ctx.beginPath();
+  ctx.arc(0, 0, 4, 0, Math.PI*2);
+  ctx.fillStyle = `rgba(255,255,255,0.8)`;
+  ctx.fill();
+  ctx.font = '7px Courier New';
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  ctx.textAlign = 'center';
+  ctx.fillText('CIE xy', 0, scale+14);
+  ctx.restore();
+}
+
+// --- Draw Robot ---
+function drawRobot(rob, t) {
+  const {x, y, size, hue, phase, eyePhase, armAngle, type, implant, augments} = rob;
+  const s = size;
+  const ht = hsl(hue, 80, 55, 0.9);
+  const ht2 = hsl((hue+60)%360, 90, 70, 0.8);
+  const ht3 = hsl((hue+180)%360, 90, 65, 0.7);
+
+  ctx.save();
+  ctx.translate(x, y);
+  const bob = Math.sin(t*0.7+phase)*3;
+
+  // Body
+  ctx.fillStyle = ht;
+  ctx.strokeStyle = ht2;
+  ctx.lineWidth = 1.5;
+  if (type === 0) {
+    // Boxy robot
+    ctx.fillRect(-s*0.5, -s*0.6+bob, s, s*1.2);
+    ctx.strokeRect(-s*0.5, -s*0.6+bob, s, s*1.2);
+    // Head
+    ctx.fillStyle = ht2;
+    ctx.fillRect(-s*0.4, -s*1.1+bob, s*0.8, s*0.5);
+    ctx.strokeRect(-s*0.4, -s*1.1+bob, s*0.8, s*0.5);
+    // Eyes
+    ctx.fillStyle = `rgba(0,255,255,${0.7+0.3*Math.sin(eyePhase+t)})`;
+    ctx.fillRect(-s*0.28, -s*1.0+bob, s*0.18, s*0.18);
+    ctx.fillRect(s*0.1, -s*1.0+bob, s*0.18, s*0.18);
+    // Arms
+    ctx.strokeStyle = ht3;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(-s*0.5, -s*0.2+bob);
+    ctx.lineTo(-s*0.9, s*0.1+bob+Math.sin(t+armAngle)*s*0.15);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(s*0.5, -s*0.2+bob);
+    ctx.lineTo(s*0.9, s*0.1+bob+Math.sin(t+armAngle+1)*s*0.15);
+    ctx.stroke();
+    // Legs
+    ctx.strokeStyle = ht;
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(-s*0.2, s*0.6+bob);
+    ctx.lineTo(-s*0.2, s*1.0+bob);
+    ctx.moveTo(s*0.2, s*0.6+bob);
+    ctx.lineTo(s*0.2, s*1.0+bob);
+    ctx.stroke();
+    // ASM label
+    ctx.font = `${Math.max(6,s*0.22)}px Courier New`;
+    ctx.fillStyle = hsl(hue, 100, 80, 0.5);
+    ctx.textAlign = 'center';
+    ctx.fillText(ASM6502[rob.asmIdx % ASM6502.length], 0, s*1.2+bob);
+  } else if (type === 1) {
+    // Circular walker
+    ctx.beginPath();
+    ctx.arc(0, bob, s*0.5, 0, Math.PI*2);
+    ctx.fillStyle = ht;
+    ctx.fill();
+    ctx.stroke();
+    // Visor
+    ctx.beginPath();
+    ctx.arc(0, bob-s*0.05, s*0.3, Math.PI*0.1, Math.PI*0.9);
+    ctx.fillStyle = hsl((hue+120)%360, 100, 60, 0.6);
+    ctx.fill();
+    // Antennae
+    ctx.strokeStyle = ht3;
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 3; i++) {
+      const a = -Math.PI*0.5 + (i-1)*0.4;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(a)*s*0.5, Math.sin(a)*s*0.5+bob);
+      ctx.lineTo(Math.cos(a)*s*0.8, Math.sin(a)*s*0.8+bob);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(Math.cos(a)*s*0.85, Math.sin(a)*s*0.85+bob, 2, 0, Math.PI*2);
+      ctx.fillStyle = `#0ff`;
+      ctx.fill();
+    }
+    // Legs
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = ht2;
+    for (let i = 0; i < 4; i++) {
+      const la = Math.PI*0.1 + i*(Math.PI*0.8/3);
+      const legSway = Math.sin(t*1.2+i*1.5+phase)*s*0.2;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(la)*s*0.5, Math.sin(la)*s*0.5+bob);
+      ctx.lineTo(Math.cos(la)*s*0.9+legSway, Math.sin(la)*s*0.9+bob);
+      ctx.stroke();
+    }
+  } else if (type === 2) {
+    // Humanoid cyborg
+    const h2 = -s*0.8+bob;
+    // Head
+    ctx.fillStyle = ht2;
+    ctx.beginPath();
+    ctx.arc(0, h2, s*0.28, 0, Math.PI*2);
+    ctx.fill(); ctx.stroke();
+    // Implant lines on head
+    if (implant) {
+      ctx.strokeStyle = `rgba(0,255,200,0.7)`;
+      ctx.lineWidth = 1;
+      for (let i = 0; i < augments+2; i++) {
+        const a = (i/(augments+2))*Math.PI*2 + t*0.3;
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(a)*s*0.2, h2+Math.sin(a)*s*0.2);
+        ctx.lineTo(Math.cos(a)*s*0.32, h2+Math.sin(a)*s*0.32);
+        ctx.stroke();
+      }
+    }
+    // Eye
+    ctx.fillStyle = hsl((hue+200)%360,100,65, 0.9+0.1*Math.sin(eyePhase+t*3));
+    ctx.beginPath();
+    ctx.arc(-s*0.1, h2, s*0.07, 0, Math.PI*2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(s*0.1, h2, s*0.07, 0, Math.PI*2);
+    ctx.fillStyle = `rgba(255,50,50,0.9)`;
+    ctx.fill();
+    // Torso
+    ctx.fillStyle = ht;
+    ctx.fillRect(-s*0.3, h2+s*0.3, s*0.6, s*0.7);
+    ctx.strokeRect(-s*0.3, h2+s*0.3, s*0.6, s*0.7);
+    // Circuit lines on torso
+    ctx.strokeStyle = hsl((hue+90)%360, 100, 70, 0.4);
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 3; i++) {
+      ctx.beginPath();
+      ctx.moveTo(-s*0.25, h2+s*0.4+i*s*0.2);
+      ctx.lineTo(s*0.25, h2+s*0.4+i*s*0.2);
+      ctx.stroke();
+    }
+    // Arms
+    ctx.strokeStyle = ht3; ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(-s*0.3, h2+s*0.4);
+    ctx.lineTo(-s*0.65, h2+s*0.8+Math.sin(t+phase)*s*0.2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(s*0.3, h2+s*0.4);
+    ctx.lineTo(s*0.65, h2+s*0.8+Math.sin(t+phase+1)*s*0.2);
+    ctx.stroke();
+    // Legs
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.moveTo(-s*0.15, h2+s);
+    ctx.lineTo(-s*0.2, h2+s*1.5);
+    ctx.moveTo(s*0.15, h2+s);
+    ctx.lineTo(s*0.2, h2+s*1.5);
+    ctx.stroke();
+  } else {
+    // Spider robot
+    ctx.fillStyle = ht;
+    ctx.beginPath();
+    ctx.arc(0, bob, s*0.35, 0, Math.PI*2);
+    ctx.fill(); ctx.stroke();
+    // 8 legs
+    ctx.strokeStyle = ht3; ctx.lineWidth = 2;
+    for (let i = 0; i < 8; i++) {
+      const a = (i/8)*Math.PI*2;
+      const sway = Math.sin(t*1.5 + i*0.8 + phase)*s*0.15;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(a)*s*0.35, Math.sin(a)*s*0.35+bob);
+      const mx = Math.cos(a)*s*0.6+Math.cos(a+0.5)*sway;
+      const my = Math.sin(a)*s*0.6+Math.sin(a+0.5)*sway+bob;
+      ctx.lineTo(mx, my);
+      ctx.lineTo(Math.cos(a)*s*0.9+sway, Math.sin(a)*s*0.9+bob);
+      ctx.stroke();
+    }
+    // Central eye
+    ctx.fillStyle = hsl((hue+200)%360, 100, 65, 0.9);
+    ctx.beginPath();
+    ctx.arc(0, bob, s*0.12, 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  // PCB circuit overlay on robot
+  if (implant) {
+    ctx.strokeStyle = hsl((hue+120)%360, 100, 75, 0.35);
+    ctx.lineWidth = 0.8;
+    for (let i = 0; i < augments+1; i++) {
+      ctx.beginPath();
+      ctx.moveTo(-s*0.3+i*s*0.2, -s*0.5+bob);
+      ctx.lineTo(-s*0.3+i*s*0.2, s*0.5+bob);
+      ctx.stroke();
+    }
+  }
+
+  ctx.restore();
+}
+
+// --- Draw UFO ---
+function drawUFO(ufo, t) {
+  ctx.save();
+  ctx.translate(ufo.x, ufo.y + Math.sin(t*0.5+ufo.phase)*12);
+  const s = ufo.size;
+
+  // Beam
+  if (ufo.beamOn && Math.sin(t*0.3+ufo.phase) > 0) {
+    const blen = H*0.35 + Math.sin(t+ufo.phase)*H*0.1;
+    const bw = s*0.6;
+    const grad = ctx.createLinearGradient(0,0,0,blen);
+    grad.addColorStop(0, hsl(ufo.hue, 100, 80, 0.35));
+    grad.addColorStop(1, hsl(ufo.hue, 100, 70, 0));
+    ctx.beginPath();
+    ctx.moveTo(-bw*0.5, s*0.1);
+    ctx.lineTo(-bw, blen);
+    ctx.lineTo(bw, blen);
+    ctx.lineTo(bw*0.5, s*0.1);
+    ctx.closePath();
+    ctx.fillStyle = grad;
+    ctx.fill();
+    // Beam rings
+    for (let i = 1; i <= 4; i++) {
+      const ry = blen * (i/5);
+      const rw = bw*(i/5);
+      ctx.beginPath();
+      ctx.ellipse(0, ry, rw*0.5, rw*0.08, ufo.beamAngle, 0, Math.PI*2);
+      ctx.strokeStyle = hsl(ufo.hue, 100, 80, 0.2+Math.sin(t*2+i)*0.1);
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+  }
+
+  // Saucer body
+  const grad2 = ctx.createRadialGradient(0,-s*0.1,0,0,0,s);
+  grad2.addColorStop(0, hsl(ufo.hue, 60, 80, 0.9));
+  grad2.addColorStop(0.5, hsl(ufo.hue, 80, 50, 0.85));
+  grad2.addColorStop(1, hsl(ufo.hue, 90, 30, 0.8));
+  ctx.beginPath();
+  ctx.ellipse(0, 0, s, s*0.28, 0, 0, Math.PI*2);
+  ctx.fillStyle = grad2;
+  ctx.fill();
+  ctx.strokeStyle = hsl((ufo.hue+60)%360, 100, 80, 0.7);
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Dome
+  ctx.beginPath();
+  ctx.ellipse(0, -s*0.04, s*0.45, s*0.28, 0, Math.PI, 0);
+  ctx.fillStyle = hsl(ufo.hue, 50, 80, 0.5);
+  ctx.fill();
+  ctx.strokeStyle = hsl((ufo.hue+180)%360, 100, 80, 0.5);
+  ctx.stroke();
+
+  // Lights
+  for (let i = 0; i < ufo.lights; i++) {
+    const a = (i/ufo.lights)*Math.PI*2 + t*0.5;
+    const lx = Math.cos(a)*s*0.75;
+    const ly = Math.sin(a)*s*0.2;
+    const on = Math.sin(t*3+i*1.3) > 0;
+    ctx.beginPath();
+    ctx.arc(lx, ly, s*0.07, 0, Math.PI*2);
+    ctx.fillStyle = on ? hsl((ufo.hue+i*40)%360, 100, 80, 0.95) : hsl(ufo.hue, 30, 30, 0.5);
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+// --- Draw PCB ---
+function drawPCB(t) {
+  const nodes = entities.pcbNodes;
+  // Traces
+  for (const tr of entities.pcbTraces) {
+    const a = nodes[tr.a], b = nodes[tr.b];
+    if (!a || !b) continue;
+    const pulse = Math.sin(t*2+tr.phase) > 0.3;
+    ctx.beginPath();
+    // Manhattan routing
+    const mx = a.x + (b.x-a.x)*0.5;
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(mx, a.y);
+    ctx.lineTo(mx, b.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.strokeStyle = tr.active
+      ? hsl(nodes[tr.a].hue, 90, pulse?75:45, pulse?0.7:0.3)
+      : 'rgba(40,40,40,0.3)';
+    ctx.lineWidth = pulse ? 1.5 : 0.8;
+    ctx.stroke();
+    // Signal dot
+    if (tr.active && pulse) {
+      const pct = (t*0.5+tr.phase) % 1;
+      const px = a.x + (b.x-a.x)*pct;
+      const py = a.y + (b.y-a.y)*pct;
+      ctx.beginPath();
+      ctx.arc(px, py, 2.5, 0, Math.PI*2);
+      ctx.fillStyle = hsl(nodes[tr.a].hue, 100, 90, 0.9);
+      ctx.fill();
+    }
+  }
+
+  // Nodes
+  for (const node of nodes) {
+    const pulse = 0.6 + 0.4*Math.sin(t*2+node.pulsePhase);
+    ctx.beginPath();
+    ctx.arc(node.x, node.y, node.r*pulse, 0, Math.PI*2);
+    ctx.fillStyle = node.active
+      ? hsl(node.hue, 90, 55, 0.8*pulse)
+      : 'rgba(30,30,30,0.5)';
+    ctx.fill();
+    ctx.strokeStyle = hsl(node.hue, 100, 75, 0.5);
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    // Component type symbols
+    if (node.type === 0) {
+      ctx.fillStyle = hsl(node.hue, 100, 85, 0.6);
+      ctx.font = `${node.r}px Courier New`;
+      ctx.textAlign='center';
+      ctx.fillText(['R','C','U','IC'][node.type%4], node.x, node.y+node.r*0.4);
+    }
+  }
+}
+
+// --- Draw Neural/Cybernetic Links ---
+function drawNeural(t) {
+  for (const n of entities.neuralLinks) {
+    const pulse = Math.sin(t*1.5+n.phase);
+    const alpha = 0.2 + 0.15*pulse;
+    // Outer ring
+    ctx.beginPath();
+    ctx.arc(n.x, n.y, n.r, 0, Math.PI*2);
+    ctx.strokeStyle = hsl(n.hue, 90, 70, alpha*1.5);
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    // Spikes (neural dendrites)
+    ctx.strokeStyle = hsl(n.hue, 100, 80, alpha*1.8);
+    ctx.lineWidth = 1;
+    for (let i = 0; i < n.spikes; i++) {
+      const a = (i/n.spikes)*Math.PI*2 + t*0.2 + n.phase;
+      const innerR = n.r * (0.5+0.15*Math.sin(t*2+i));
+      const outerR = n.r * (1.2+0.3*Math.sin(t*1.5+i*1.3));
+      ctx.beginPath();
+      ctx.moveTo(n.x+Math.cos(a)*innerR, n.y+Math.sin(a)*innerR);
+      ctx.lineTo(n.x+Math.cos(a)*outerR, n.y+Math.sin(a)*outerR);
+      ctx.stroke();
+    }
+    // Central implant
+    ctx.beginPath();
+    ctx.arc(n.x, n.y, n.r*0.25, 0, Math.PI*2);
+    ctx.fillStyle = hsl((n.hue+180)%360, 100, 65, 0.6+0.3*pulse);
+    ctx.fill();
+    // Type label
+    const labels = ['NEURO','SYNAP','CORTEX','DENDRI','AXONAL'];
+    ctx.font = `${Math.max(6, n.r*0.22)}px Courier New`;
+    ctx.fillStyle = hsl(n.hue, 100, 85, 0.5);
+    ctx.textAlign='center';
+    ctx.fillText(labels[n.implantType], n.x, n.y+n.r*1.5);
+  }
+}
+
+// --- Draw Maze ---
+function drawMaze(t) {
+  if (!mazeGrid.length) return;
+  const mw = W*0.28, mh = H*0.28;
+  const mx0 = W*0.01, my0 = H*0.72;
+  const cellW = mw/mazeW, cellH = mh/mazeH;
+  const hueBase = (globalHue + t*10) % 360;
+  ctx.save();
+  ctx.globalAlpha = 0.5;
+  for (let r = 0; r < mazeH; r++) {
+    for (let c = 0; c < mazeW; c++) {
+      if (mazeGrid[r][c] === 1) {
+        const h = (hueBase + r*15 + c*11) % 360;
+        ctx.fillStyle = hsl(h, 80, 35, 0.7);
+        ctx.fillRect(mx0+c*cellW, my0+r*cellH, cellW+0.5, cellH+0.5);
+      }
+    }
+  }
+  // Maze border
+  ctx.strokeStyle = hsl(hueBase, 100, 70, 0.7);
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(mx0, my0, mw, mh);
+  // Moving player dot
+  const playerProgress = (t*0.1) % 1;
+  const px = mx0 + playerProgress*mw;
+  const py = my0 + (0.5+0.4*Math.sin(t*0.7))*mh;
+  ctx.beginPath();
+  ctx.arc(px, py, 4, 0, Math.PI*2);
+  ctx.fillStyle = hsl((hueBase+180)%360, 100, 80, 0.9);
+  ctx.fill();
+  ctx.restore();
+}
+
+// --- Draw Tiling ---
+function drawTiling(t) {
+  ctx.save();
+  ctx.globalAlpha = 0.13;
+  for (const cell of tilingCells) {
+    const h = (cell.hue + t*5) % 360;
+    const s2 = cell.s;
+    ctx.fillStyle = hsl(h, 75, 50, 1);
+    if (cell.type === 'sq') {
+      ctx.fillRect(cell.x-s2, cell.y-s2, s2*2, s2*2);
+      ctx.strokeStyle = hsl((h+60)%360, 90, 70, 0.5);
+      ctx.lineWidth = 0.7;
+      ctx.strokeRect(cell.x-s2, cell.y-s2, s2*2, s2*2);
+    } else if (cell.type === 'hex') {
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const a = (i/6)*Math.PI*2 - Math.PI/6;
+        const hx = cell.x + Math.cos(a)*s2;
+        const hy = cell.y + Math.sin(a)*s2;
+        i===0 ? ctx.moveTo(hx,hy) : ctx.lineTo(hx,hy);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = hsl((h+90)%360, 80, 65, 0.4);
+      ctx.lineWidth = 0.7;
+      ctx.stroke();
+    } else if (cell.type === 'tri') {
+      ctx.beginPath();
+      if (!cell.flip) {
+        ctx.moveTo(cell.x, cell.y-s2);
+        ctx.lineTo(cell.x+s2, cell.y+s2);
+        ctx.lineTo(cell.x-s2, cell.y+s2);
+      } else {
+        ctx.moveTo(cell.x, cell.y+s2);
+        ctx.lineTo(cell.x+s2, cell.y-s2);
+        ctx.lineTo(cell.x-s2, cell.y-s2);
+      }
+      ctx.closePath();
+      ctx.fill();
+    } else if (cell.type === 'oct') {
+      ctx.beginPath();
+      for (let i = 0; i < 8; i++) {
+        const a = (i/8)*Math.PI*2 + Math.PI/8;
+        const ox = cell.x + Math.cos(a)*s2;
+        const oy = cell.y + Math.sin(a)*s2;
+        i===0 ? ctx.moveTo(ox,oy) : ctx.lineTo(ox,oy);
+      }
+      ctx.closePath();
+      ctx.fill();
+    } else { // rhombus
+      const a = cell.angle || 0;
+      ctx.save();
+      ctx.translate(cell.x, cell.y);
+      ctx.rotate(a);
+      ctx.beginPath();
+      ctx.moveTo(0, -s2);
+      ctx.lineTo(s2*0.7, 0);
+      ctx.lineTo(0, s2);
+      ctx.lineTo(-s2*0.7, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+  ctx.restore();
+}
+
+// --- Draw Polytope ---
+function drawPolytope(t) {
+  if (!polyVerts3D.length) return;
+  const pscale = Math.min(W,H)*0.18;
+  const angleX = t*0.3*params.rotDir;
+  const angleY = t*0.4*params.rotDir;
+  const px0 = W*0.82, py0 = H*0.72;
+
+  // Project all vertices
+  const proj = polyVerts3D.map(v => project(v, angleX, angleY, pscale));
+  // Rebase to corner
+  const projected = proj.map(([x2,y2]) => [px0 + x2 - cx, py0 + y2 - cy]);
+
+  // Draw edges
+  for (const [a, b] of polyEdges) {
+    if (!projected[a] || !projected[b]) continue;
+    const h = (globalHue + a*40 + t*20) % 360;
+    ctx.beginPath();
+    ctx.moveTo(projected[a][0], projected[a][1]);
+    ctx.lineTo(projected[b][0], projected[b][1]);
+    ctx.strokeStyle = hsl(h, 90, 65, 0.55);
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+  // Draw vertices
+  for (let i = 0; i < projected.length; i++) {
+    const [vx, vy] = projected[i];
+    const h = (globalHue + i*60) % 360;
+    ctx.beginPath();
+    ctx.arc(vx, vy, 3.5, 0, Math.PI*2);
+    ctx.fillStyle = hsl(h, 100, 75, 0.85);
+    ctx.fill();
+  }
+  // Label
+  ctx.font = '7px Courier New';
+  ctx.fillStyle = hsl(globalHue, 100, 80, 0.4);
+  ctx.textAlign = 'center';
+  ctx.fillText(['TETRAHEDRON','CUBE','OCTAHEDRON','DODECAHEDRON','TESSERACT-4D','ICOSAHEDRON'][params.polyType]||'', px0, py0+pscale*0.9);
+}
+
+// --- Draw ASM Scroll ---
+function drawASM(t) {
+  for (const line of entities.asmLines) {
+    line.y -= line.speed;
+    if (line.y < -20) line.y = H + 20;
+    ctx.font = `${line.size}px 'Courier New'`;
+    ctx.fillStyle = hsl(line.hue, 85, 65, line.alpha);
+    ctx.textAlign = 'left';
+    ctx.fillText(line.text, line.x, line.y);
+  }
+}
+
+// --- Draw Game Sprites ---
+const SPRITE_TEMPLATES = [
+  // Pacman
+  (ctx, s, h, t) => {
+    const mouth = Math.abs(Math.sin(t*4))*0.7;
+    ctx.beginPath();
+    ctx.moveTo(0,0);
+    ctx.arc(0,0,s,mouth,Math.PI*2-mouth);
+    ctx.closePath();
+    ctx.fillStyle = hsl(h,100,65,0.85);
+    ctx.fill();
+  },
+  // Space invader
+  (ctx, s, h, t) => {
+    ctx.fillStyle = hsl(h, 80, 60, 0.85);
+    const pixels = [[1,0],[2,0],[0,1],[1,1],[2,1],[3,1],[0,2],[2,2],[3,2],[1,3],[3,3]];
+    const ps = s*0.3;
+    for (const [px,py] of pixels) ctx.fillRect((px-1.5)*ps, (py-1.5)*ps, ps*0.9, ps*0.9);
+  },
+  // Pong ball
+  (ctx, s, h, t) => {
+    ctx.beginPath();
+    ctx.arc(0, 0, s*0.4, 0, Math.PI*2);
+    ctx.fillStyle = hsl(h, 20, 90, 0.9);
+    ctx.fill();
+  },
+  // Asteroids ship
+  (ctx, s, h, t) => {
+    ctx.save();
+    ctx.rotate(t*0.5);
+    ctx.beginPath();
+    ctx.moveTo(0,-s*0.8);
+    ctx.lineTo(s*0.5, s*0.5);
+    ctx.lineTo(-s*0.5, s*0.5);
+    ctx.closePath();
+    ctx.strokeStyle = hsl(h,90,70,0.9);
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.restore();
+  },
+  // Breakout brick
+  (ctx, s, h, t) => {
+    ctx.fillStyle = hsl(h,80,55,0.85);
+    ctx.fillRect(-s, -s*0.35, s*2, s*0.7);
+    ctx.strokeStyle = hsl((h+60)%360,100,80,0.5);
+    ctx.lineWidth = 1;
+    ctx.strokeRect(-s, -s*0.35, s*2, s*0.7);
+  },
+  // Missile
+  (ctx, s, h, t) => {
+    ctx.fillStyle = hsl(h, 90, 60, 0.85);
+    ctx.fillRect(-s*0.15, -s, s*0.3, s*1.6);
+    ctx.beginPath();
+    ctx.moveTo(0,-s*1.2);
+    ctx.lineTo(s*0.2,-s*0.8);
+    ctx.lineTo(-s*0.2,-s*0.8);
+    ctx.closePath();
+    ctx.fill();
+    // Exhaust
+    ctx.beginPath();
+    ctx.arc(0, s*0.7+Math.sin(t*8)*s*0.15, s*0.18, 0, Math.PI*2);
+    ctx.fillStyle = hsl(30,100,65,0.7);
+    ctx.fill();
+  },
+];
+
+function drawGameSprites(t) {
+  for (const sp of entities.gameSprites) {
+    sp.x += sp.vx;
+    sp.y += sp.vy;
+    if (sp.x < -50) sp.x = W+50;
+    if (sp.x > W+50) sp.x = -50;
+    if (sp.y < -50) sp.y = H+50;
+    if (sp.y > H+50) sp.y = -50;
+    ctx.save();
+    ctx.translate(sp.x, sp.y);
+    SPRITE_TEMPLATES[sp.type % SPRITE_TEMPLATES.length](ctx, sp.size, sp.hue, t+sp.phase);
+    ctx.restore();
+  }
+}
+
+// --- Draw Background Gradient ---
+function drawBackground(t) {
+  const bg = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(W,H)*0.8);
+  const bh = (params.bgHue + t*2) % 360;
+  bg.addColorStop(0, hsl(bh, 40, 8, 1));
+  bg.addColorStop(0.5, hsl((bh+40)%360, 30, 5, 1));
+  bg.addColorStop(1, hsl((bh+80)%360, 50, 3, 1));
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+}
+
+// --- Scanlines ---
+function drawScanlines() {
+  ctx.fillStyle = 'rgba(0,0,0,0.04)';
+  for (let y = 0; y < H; y += 3) {
+    ctx.fillRect(0, y, W, 1);
+  }
+}
+
+// --- Glitch Effect ---
+function drawGlitch(t) {
+  if (Math.random() < params.glitchProb) {
+    const gy = Math.random() * H;
+    const gh = 4 + Math.random() * 20;
+    const gx = (Math.random()-0.5)*20;
+    const imgd = ctx.getImageData(0, gy, W, gh);
+    ctx.putImageData(imgd, gx, gy);
+    // Color shift
+    ctx.fillStyle = hsl(Math.random()*360, 100, 60, 0.04);
+    ctx.fillRect(0, gy, W, gh);
+  }
+}
+
+// --- Update HUD ---
+function updateHUD() {
+  const $ = id => document.getElementById(id);
+  $('h-cmode').textContent = 'NTSC/RGB/HSL';
+  $('h-harm').textContent = HARMONY_SYSTEMS[params.harmonyIndex];
+  $('h-pal').textContent = `IDX:${params.atariBase} ${ATARI_PALETTE[params.atariBase]}`;
+  $('h-maze').textContent = `0x${(params.seed>>>0).toString(16).toUpperCase().padStart(8,'0')}`;
+  $('h-rob').textContent = params.robotCount;
+  $('h-ufo').textContent = params.ufoCount;
+  $('h-poly').textContent = ['TETRA','CUBE','OCTA','DODECA','TESSERACT-4D','ICOSA'][params.polyType];
+  $('h-pcb').textContent = params.pcbNodes;
+  $('h-neu').textContent = params.neuralLinks;
+}
+
+// --- Resize ---
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  cx = W/2; cy = H/2;
+  if (rng) { buildTiling(); }
+}
+
+// --- Sound ---
+function initAudio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+}
+function playBlip() {
+  if (!soundOn || !audioCtx) return;
+  try {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.type = ['square','sawtooth','triangle'][Math.floor(Math.random()*3)];
+    osc.frequency.setValueAtTime(110 + Math.random()*880, audioCtx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(55 + Math.random()*440, audioCtx.currentTime+0.15);
+    gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime+0.15);
+    osc.start(audioCtx.currentTime);
+    osc.stop(audioCtx.currentTime+0.15);
+  } catch(e){}
+}
+
+// --- Main Loop ---
+function loop(ts) {
+  tick = ts * 0.001;
+  drawBackground(tick);
+  drawTiling(tick);
+  drawPCB(tick);
+  drawNeural(tick);
+  drawASM(tick);
+  drawMaze(tick);
+
+  // Color wheels
+  for (const w of entities.wheels) {
+    w.rotOffset += w.speed;
+    drawColorWheel(w, tick);
+  }
+
+  drawChromaticity(tick);
+  drawPolytope(tick);
+
+  // UFOs
+  for (const ufo of entities.ufos) {
+    ufo.x += ufo.vx;
+    ufo.y += ufo.vy;
+    if (ufo.x < -100) ufo.x = W+100;
+    if (ufo.x > W+100) ufo.x = -100;
+    if (ufo.y < -50) ufo.y = H*0.5;
+    if (ufo.y > H*0.5+50) ufo.y = -50;
+    drawUFO(ufo, tick);
+  }
+
+  // Robots
+  for (const rob of entities.robots) {
+    rob.x += rob.vx;
+    rob.y += rob.vy;
+    if (rob.x < -80) rob.x = W+80;
+    if (rob.x > W+80) rob.x = -80;
+    if (rob.y < -80) rob.y = H+80;
+    if (rob.y > H+80) rob.y = -80;
+    drawRobot(rob, tick);
+  }
+
+  drawGameSprites(tick);
+
+  // Atari palette strip along bottom
+  const stripH = 12;
+  for (let i = 0; i < ATARI_PALETTE.length; i++) {
+    const cx2 = (i / ATARI_PALETTE.length) * W;
+    const cw = W / ATARI_PALETTE.length;
+    const shift = Math.floor(tick*3+i) % ATARI_PALETTE.length;
+    ctx.fillStyle = ATARI_PALETTE[(params.atariBase + i + shift) % ATARI_PALETTE.length];
+    ctx.globalAlpha = 0.6;
+    ctx.fillRect(cx2, H - stripH, cw+1, stripH);
+  }
+  ctx.globalAlpha = 1;
+
+  // Moving harmony label
+  ctx.font = 'bold 9px Courier New';
+  ctx.fillStyle = hsl(globalHue, 100, 80, 0.4);
+  ctx.textAlign = 'right';
+  ctx.fillText(`HARMONY: ${HARMONY_SYSTEMS[params.harmonyIndex]} | 6502 ASM | ATARI 2600 | POLYTOPE | PCB | NEURAL`, W - 10, H - 18);
+
+  // HUD tick
+  if (hudVisible) document.getElementById('h-tick').textContent = tick.toFixed(2);
+
+  drawGlitch(tick);
+  drawScanlines();
+
+  requestAnimationFrame(loop);
+}
+
+// --- Controls ---
+function triggerRandomize() {
+  initAudio();
+  randomizeAll();
+  playBlip();
+}
+
+window.addEventListener('resize', resize);
+window.addEventListener('keydown', e => {
+  if (e.code === 'Space') { e.preventDefault(); triggerRandomize(); }
+  if (e.key === 'h' || e.key === 'H') {
+    hudVisible = !hudVisible;
+    document.getElementById('hud').style.display = hudVisible ? 'block' : 'none';
+  }
+  if (e.key === 's' || e.key === 'S') {
+    soundOn = !soundOn;
+    if (soundOn) initAudio();
+  }
+});
+window.addEventListener('click', triggerRandomize);
+window.addEventListener('touchstart', e => { e.preventDefault(); triggerRandomize(); }, {passive:false});
+
+// --- Init ---
+resize();
+randomizeAll();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

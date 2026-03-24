@@ -1,0 +1,956 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Chaotic Fluid Kaleidoscope — Navier–Stokes Strange Attractor Simulation</title>
+<meta name="description" content="Real-time interactive 2D Navier–Stokes fluid simulation driven by strange attractors (Lorenz, Rössler, Dadras, Halvorsen) with vorticity confinement, Delaunay triangulation mesh overlay, DFT spectral colour pipeline, and kaleidoscopic polar-domain warp rendering.">
+<meta name="keywords" content="fluid simulation, Navier-Stokes, Lorenz attractor, Rössler attractor, Halvorsen attractor, Dadras attractor, kaleidoscope, Delaunay triangulation, vorticity, stable fluids, generative art, WebAudio, canvas, chaos theory">
+<meta name="author" content="Chaotic Fluid Engine">
+<meta name="robots" content="index,follow">
+<meta name="theme-color" content="#000010">
+<meta property="og:title" content="Chaotic Fluid Kaleidoscope — Navier–Stokes Strange Attractor Simulation">
+<meta property="og:description" content="Watch fluid chaos bloom into kaleidoscopic symmetry — Lorenz, Rössler, Dadras, and Halvorsen strange attractors inject vortex energy into a real-time Navier–Stokes solver with spectral dye and Delaunay mesh rendering.">
+<meta property="og:type" content="website">
+<meta property="og:locale" content="en_US">
+<meta property="og:image" content="https://example.com/fluid-kaleidoscope-preview.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Chaotic Fluid Kaleidoscope">
+<meta name="twitter:description" content="Strange attractors drive real-time Navier–Stokes fluid dynamics rendered as a spectral kaleidoscope with Delaunay triangulation overlay.">
+<meta name="twitter:image" content="https://example.com/fluid-kaleidoscope-preview.png">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "Chaotic Fluid Kaleidoscope",
+  "description": "Real-time 2D Navier–Stokes fluid dynamics simulation featuring strange attractor vortex injection (Lorenz, Rössler, Dadras, Halvorsen), vorticity confinement, divergence-free Gauss-Seidel pressure projection, DFT spectral colour pipeline with rotating gradient, real-time Delaunay triangulation mesh coloured by strain rate, kaleidoscopic polar-domain warp post-processing, and Web Audio API resonant synthesis driven by fluid vorticity.",
+  "applicationCategory": "MultimediaApplication",
+  "operatingSystem": "Any",
+  "browserRequirements": "HTML5 Canvas 2D, Web Audio API, ES6+",
+  "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"},
+  "featureList": [
+    "Navier-Stokes stable-fluid solver (Jos Stam method)",
+    "Gauss-Seidel iterative pressure projection",
+    "Vorticity confinement forces",
+    "Strange attractor vortex sources: Lorenz, Rössler, Dadras, Halvorsen",
+    "DFT spectral colour pipeline with time-rotating gradient",
+    "Real-time Bowyer-Watson Delaunay triangulation",
+    "Strain-rate coloured glowing mesh edges",
+    "Kaleidoscopic domain-folded polar coordinate warp (4–18 folds)",
+    "Web Audio API bandpass noise synthesis with 8 vorticity-driven voices",
+    "Adaptive solver iteration budget for performance",
+    "Full re-randomisation on SPACE or click"
+  ],
+  "keywords": "Navier-Stokes, fluid dynamics, strange attractor, Lorenz, Rössler, kaleidoscope, Delaunay triangulation, vorticity, generative art"
+}
+</script>
+<style>
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+html, body { width:100%; height:100%; background:#000; overflow:hidden; }
+
+#c {
+  display:block;
+  position:fixed;
+  top:50%;
+  left:50%;
+  transform:translate(-50%,-50%);
+  width:min(100vw,100vh);
+  height:min(100vw,100vh);
+  image-rendering:auto;
+  cursor:crosshair;
+}
+
+#hud {
+  display:none;
+  position:fixed;
+  top:16px; left:16px;
+  z-index:100;
+  background:rgba(0,0,12,0.82);
+  color:#00eeff;
+  font:12px/1.75 'Courier New', Courier, monospace;
+  padding:12px 18px 10px;
+  border:1px solid rgba(0,200,255,0.25);
+  border-radius:3px;
+  pointer-events:none;
+  white-space:pre;
+  letter-spacing:0.03em;
+  text-shadow:0 0 10px rgba(0,220,255,0.8);
+  box-shadow:0 0 24px rgba(0,150,255,0.12), inset 0 0 12px rgba(0,0,30,0.5);
+}
+
+#hud::before {
+  content:'┌─ SYS ─────────────────────┐';
+  display:block;
+  color:rgba(0,200,255,0.5);
+  font-size:10px;
+  margin-bottom:4px;
+}
+
+#keys {
+  position:fixed;
+  bottom:16px;
+  left:50%;
+  transform:translateX(-50%);
+  color:rgba(255,255,255,0.28);
+  font:10.5px/1 'Courier New', monospace;
+  letter-spacing:0.08em;
+  pointer-events:none;
+  text-align:center;
+  white-space:nowrap;
+}
+
+#keys span { color:rgba(0,200,255,0.5); }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<div id="keys">
+  <span>SPACE</span> / <span>CLICK</span> — randomize &nbsp;&nbsp;&nbsp;
+  <span>H</span> — HUD &nbsp;&nbsp;&nbsp;
+  <span>S</span> — sound
+</div>
+
+<script>
+'use strict';
+(function () {
+
+// ════════════════════════════════════════════════════════════
+//  GLOBALS
+// ════════════════════════════════════════════════════════════
+
+const canvas = document.getElementById('c');
+const ctx    = canvas.getContext('2d', { alpha: false });
+const hudEl  = document.getElementById('hud');
+
+let N, sz;                          // grid dimension & array size
+let u, v, u0, v0;                   // velocity + source
+let dens, dens0;                    // dye density + source
+let pArr, divArr, curlArr;          // scratch fields
+
+let frameCount = 0;
+let t = 0;
+let avgDt = 16.7, fps = 60;
+let lastTime = 0;
+let solverIter = 12;
+let maxDens = 1;
+
+let hudVisible   = false;
+let soundEnabled = false;
+
+// ── Attractor ──────────────────────────────────────────────
+const ATTR_NAMES  = ['Lorenz', 'Rössler', 'Dadras', 'Halvorsen'];
+const ATTR_SCALES = [22, 9, 13, 7];   // tanh normalisation radii
+let attractorType = 0;
+let aState = { x: 0.1, y: 0.0, z: 0.0 };
+let aParams = {};
+
+// ── Vortices & Dye ─────────────────────────────────────────
+let numVortices = 5;
+
+// ── Kaleidoscope ───────────────────────────────────────────
+let folds = 8;
+let kMap  = null;   // Int32Array [sx,sy,...] lookup per pixel
+
+// ── Delaunay Particles ─────────────────────────────────────
+const NUM_PARTS = 72;
+let particles   = [];
+let cachedTris  = [];
+
+// ── Spectral Palette (DFT) ─────────────────────────────────
+const PAL_K = 8;
+let palR = [], palG = [], palB = [];
+let palPhase = 0;
+
+// ── Web Audio ──────────────────────────────────────────────
+let audioCtx   = null;
+let audioNodes = [];
+const NUM_PROBES = 8;
+const probes   = [];
+let noiseBuffer = null;
+
+// ── Offscreen canvas (pre-kaleido composition) ─────────────
+const off    = document.createElement('canvas');
+const offCtx = off.getContext('2d', { alpha: false });
+let offID, offPx;
+
+
+// ════════════════════════════════════════════════════════════
+//  SETUP & RE-RANDOMISE
+// ════════════════════════════════════════════════════════════
+
+function chooseN () {
+  const d = Math.min(window.innerWidth, window.innerHeight);
+  if (d >= 1100) return 384;
+  if (d >= 750)  return 320;
+  if (d >= 500)  return 256;
+  return 200;
+}
+
+function allocFluid (n) {
+  N  = n;
+  sz = (N + 2) * (N + 2);
+  u      = new Float32Array(sz);
+  v      = new Float32Array(sz);
+  u0     = new Float32Array(sz);
+  v0     = new Float32Array(sz);
+  dens   = new Float32Array(sz);
+  dens0  = new Float32Array(sz);
+  pArr   = new Float32Array(sz);
+  divArr = new Float32Array(sz);
+  curlArr= new Float32Array(sz);
+}
+
+function init () {
+  const n = chooseN();
+  allocFluid(n);
+  canvas.width  = N;
+  canvas.height = N;
+  off.width     = N;
+  off.height    = N;
+  offID = offCtx.createImageData(N, N);
+  offPx = offID.data;
+  randomize();
+}
+
+function randomize () {
+  u.fill(0); v.fill(0); u0.fill(0); v0.fill(0);
+  dens.fill(0); dens0.fill(0);
+
+  attractorType = Math.floor(Math.random() * 4);
+  initAttractor();
+
+  numVortices = 3 + Math.floor(Math.random() * 9);
+  folds       = 4 + Math.floor(Math.random() * 15);
+
+  randomizePalette();
+  buildKMap();
+
+  particles  = [];
+  cachedTris = [];
+  for (let i = 0; i < NUM_PARTS; i++) {
+    particles.push({
+      x: 2 + Math.random() * (N - 4),
+      y: 2 + Math.random() * (N - 4)
+    });
+  }
+
+  for (let i = 0; i < NUM_PROBES; i++) {
+    probes[i] = {
+      x: ((i + 0.5) / NUM_PROBES) * N,
+      y: 0.2 * N + Math.random() * 0.6 * N
+    };
+  }
+
+  maxDens = 1;
+  t       = 0;
+}
+
+
+// ════════════════════════════════════════════════════════════
+//  KALEIDOSCOPE LOOKUP MAP  (precomputed polar fold)
+// ════════════════════════════════════════════════════════════
+
+function buildKMap () {
+  kMap = new Int32Array(N * N * 2);
+  const cx    = N * 0.5;
+  const cy    = N * 0.5;
+  const angle = (Math.PI * 2) / folds;
+  const half  = angle * 0.5;
+
+  for (let y = 0; y < N; y++) {
+    for (let x = 0; x < N; x++) {
+      const dx = x - cx;
+      const dy = y - cy;
+      const r  = Math.sqrt(dx * dx + dy * dy);
+      let   th = Math.atan2(dy, dx);
+
+      // fold into [0, angle]
+      th = ((th % angle) + angle) % angle;
+      if (th > half) th = angle - th;
+
+      const sx = Math.max(0, Math.min(N - 1, (cx + r * Math.cos(th)) | 0));
+      const sy = Math.max(0, Math.min(N - 1, (cy + r * Math.sin(th)) | 0));
+
+      const idx      = (y * N + x) * 2;
+      kMap[idx]     = sx;
+      kMap[idx + 1] = sy;
+    }
+  }
+}
+
+
+// ════════════════════════════════════════════════════════════
+//  SPECTRAL COLOUR PALETTE  (DFT of randomised colour table)
+// ════════════════════════════════════════════════════════════
+
+function randomizePalette () {
+  palR = []; palG = []; palB = [];
+  for (let k = 0; k < PAL_K; k++) {
+    palR.push({ a: Math.random() - 0.5, b: Math.random() - 0.5 });
+    palG.push({ a: Math.random() - 0.5, b: Math.random() - 0.5 });
+    palB.push({ a: Math.random() - 0.5, b: Math.random() - 0.5 });
+  }
+  palPhase = Math.random() * Math.PI * 2;
+}
+
+// Evaluate the Fourier palette at normalised dye value [0,1]
+// with a time-evolving phase offset for colour rotation.
+function samplePalette (val, phase) {
+  let r = 0.5, g = 0.5, b = 0.5;
+  const phi = val * Math.PI * 2 + phase;
+  for (let k = 0; k < PAL_K; k++) {
+    const amp = 0.42 / (k + 1);   // 1/k harmonic rolloff keeps spectrum bounded
+    const c   = Math.cos((k + 1) * phi);
+    const s   = Math.sin((k + 1) * phi);
+    r += amp * (palR[k].a * c + palR[k].b * s);
+    g += amp * (palG[k].a * c + palG[k].b * s);
+    b += amp * (palB[k].a * c + palB[k].b * s);
+  }
+  // Clamp to byte
+  return [
+    r < 0 ? 0 : r > 1 ? 255 : (r * 255) | 0,
+    g < 0 ? 0 : g > 1 ? 255 : (g * 255) | 0,
+    b < 0 ? 0 : b > 1 ? 255 : (b * 255) | 0
+  ];
+}
+
+
+// ════════════════════════════════════════════════════════════
+//  NAVIER-STOKES STABLE FLUID SOLVER
+//  (Jos Stam, "Real-Time Fluid Dynamics for Games", GDC 2003)
+// ════════════════════════════════════════════════════════════
+
+function IX (x, y) { return x + (N + 2) * y; }
+
+function setBnd (b, x) {
+  for (let i = 1; i <= N; i++) {
+    x[IX(0,   i)] = b === 1 ? -x[IX(1, i)] : x[IX(1, i)];
+    x[IX(N+1, i)] = b === 1 ? -x[IX(N, i)] : x[IX(N, i)];
+    x[IX(i,   0)] = b === 2 ? -x[IX(i, 1)] : x[IX(i, 1)];
+    x[IX(i, N+1)] = b === 2 ? -x[IX(i, N)] : x[IX(i, N)];
+  }
+  x[IX(0,   0)]   = 0.5 * (x[IX(1,   0)] + x[IX(0,   1)]);
+  x[IX(0,   N+1)] = 0.5 * (x[IX(1, N+1)] + x[IX(0,   N)]);
+  x[IX(N+1, 0)]   = 0.5 * (x[IX(N,   0)] + x[IX(N+1, 1)]);
+  x[IX(N+1, N+1)] = 0.5 * (x[IX(N, N+1)] + x[IX(N+1, N)]);
+}
+
+// Gauss-Seidel relaxation for linear system  (1 + 4a)·x = x0 + a·Σneighbours
+function linSolve (b, x, x0, a, c, iter) {
+  const ci = 1.0 / c;
+  for (let k = 0; k < iter; k++) {
+    for (let j = 1; j <= N; j++) {
+      for (let i = 1; i <= N; i++) {
+        x[IX(i,j)] = (x0[IX(i,j)] + a * (
+          x[IX(i-1,j)] + x[IX(i+1,j)] +
+          x[IX(i,j-1)] + x[IX(i,j+1)]
+        )) * ci;
+      }
+    }
+    setBnd(b, x);
+  }
+}
+
+function diffuse (b, x, x0, diff, dt, iter) {
+  const a = dt * diff * N * N;
+  linSolve(b, x, x0, a, 1 + 4 * a, iter);
+}
+
+// Semi-Lagrangian back-advection
+function advect (b, d, d0, ux, vx, dt) {
+  const dt0 = dt * N;
+  for (let j = 1; j <= N; j++) {
+    for (let i = 1; i <= N; i++) {
+      let px = i - dt0 * ux[IX(i,j)];
+      let py = j - dt0 * vx[IX(i,j)];
+      if (px < 0.5)   px = 0.5;
+      if (px > N+0.5) px = N + 0.5;
+      if (py < 0.5)   py = 0.5;
+      if (py > N+0.5) py = N + 0.5;
+      const i0 = px | 0, i1 = i0 + 1;
+      const j0 = py | 0, j1 = j0 + 1;
+      const s1 = px - i0, s0 = 1 - s1;
+      const t1 = py - j0, t0 = 1 - t1;
+      d[IX(i,j)] = s0 * (t0 * d0[IX(i0,j0)] + t1 * d0[IX(i0,j1)]) +
+                   s1 * (t0 * d0[IX(i1,j0)] + t1 * d0[IX(i1,j1)]);
+    }
+  }
+  setBnd(b, d);
+}
+
+// Helmholtz projection: enforce ∇·u = 0 via pressure correction
+function project (ux, vx, pp, dv, iter) {
+  const hh   = 0.5 / N;  // half the grid cell width (= 0.5·h, h=1/N)
+  const hInv = 0.5 * N;  // 0.5 / h
+  for (let j = 1; j <= N; j++) {
+    for (let i = 1; i <= N; i++) {
+      dv[IX(i,j)] = -hh * (
+        ux[IX(i+1,j)] - ux[IX(i-1,j)] +
+        vx[IX(i,j+1)] - vx[IX(i,j-1)]
+      );
+      pp[IX(i,j)] = 0;
+    }
+  }
+  setBnd(0, dv); setBnd(0, pp);
+  linSolve(0, pp, dv, 1, 4, iter);
+  for (let j = 1; j <= N; j++) {
+    for (let i = 1; i <= N; i++) {
+      ux[IX(i,j)] -= hInv * (pp[IX(i+1,j)] - pp[IX(i-1,j)]);
+      vx[IX(i,j)] -= hInv * (pp[IX(i,j+1)] - pp[IX(i,j-1)]);
+    }
+  }
+  setBnd(1, ux); setBnd(2, vx);
+}
+
+// Vorticity confinement: re-inject kinetic energy lost to numerical diffusion
+function vorticityConfinement (ux, vx, dt, eps) {
+  // Compute scalar curl (z-component)
+  for (let j = 1; j <= N; j++) {
+    for (let i = 1; i <= N; i++) {
+      curlArr[IX(i,j)] = 0.5 * (
+        vx[IX(i+1,j)] - vx[IX(i-1,j)] -
+        ux[IX(i,j+1)] + ux[IX(i,j-1)]
+      );
+    }
+  }
+  // Confinement force: f = ε · (N̂ × ω) where N̂ = ∇|ω| / |∇|ω||
+  const ed = eps * dt;
+  for (let j = 2; j < N; j++) {
+    for (let i = 2; i < N; i++) {
+      const dwx = 0.5 * (Math.abs(curlArr[IX(i+1,j)]) - Math.abs(curlArr[IX(i-1,j)]));
+      const dwy = 0.5 * (Math.abs(curlArr[IX(i,j+1)]) - Math.abs(curlArr[IX(i,j-1)]));
+      const len = Math.sqrt(dwx * dwx + dwy * dwy) + 1e-5;
+      const w   = curlArr[IX(i,j)];
+      ux[IX(i,j)] += ed * (dwy / len) * w;
+      vx[IX(i,j)] -= ed * (dwx / len) * w;
+    }
+  }
+}
+
+function velStep (dt, visc, iter) {
+  // Add external forces
+  for (let i = 0; i < sz; i++) { u[i] += dt * u0[i]; v[i] += dt * v0[i]; }
+  // Diffuse
+  let tmp;
+  tmp = u0; u0 = u; u = tmp;   diffuse(1, u, u0, visc, dt, iter);
+  tmp = v0; v0 = v; v = tmp;   diffuse(2, v, v0, visc, dt, iter);
+  project(u, v, pArr, divArr, iter);
+  // Advect
+  tmp = u0; u0 = u; u = tmp;
+  tmp = v0; v0 = v; v = tmp;
+  advect(1, u, u0, u0, v0, dt);
+  advect(2, v, v0, u0, v0, dt);
+  project(u, v, pArr, divArr, iter);
+  vorticityConfinement(u, v, dt, 9.0);
+}
+
+function densStep (dt, diff, iter) {
+  for (let i = 0; i < sz; i++) dens[i] += dt * dens0[i];
+  let tmp;
+  tmp = dens0; dens0 = dens; dens = tmp;
+  diffuse(0, dens, dens0, diff, dt, iter);
+  tmp = dens0; dens0 = dens; dens = tmp;
+  advect(0, dens, dens0, u, v, dt);
+  // Gentle decay to prevent saturation
+  for (let i = 0; i < sz; i++) dens[i] *= 0.9988;
+}
+
+
+// ════════════════════════════════════════════════════════════
+//  STRANGE ATTRACTORS
+// ════════════════════════════════════════════════════════════
+
+function initAttractor () {
+  aState = { x: 0.1 + Math.random() * 0.2, y: 0.05, z: 0.05 };
+  switch (attractorType) {
+    case 0: // Lorenz
+      aParams = { sigma: 10, rho: 28, beta: 8 / 3 }; break;
+    case 1: // Rössler
+      aParams = { a: 0.2, b: 0.2, c: 5.7 }; break;
+    case 2: // Dadras
+      aParams = { p: 3, q: 2.7, r: 1.7, s: 2, e: 9 }; break;
+    case 3: // Halvorsen
+      aParams = { a: 1.4 + Math.random() * 0.3 }; break;
+  }
+  // Warm-up: orbit for 600 steps to reach the attractor basin
+  for (let k = 0; k < 600; k++) stepAttractor(0.002);
+}
+
+function stepAttractor (h) {
+  const { x, y, z } = aState;
+  let dx, dy, dz;
+  switch (attractorType) {
+    case 0: { // Lorenz: σ(y-x), x(ρ-z)-y, xy-βz
+      const { sigma, rho, beta } = aParams;
+      dx = sigma * (y - x);
+      dy = x * (rho - z) - y;
+      dz = x * y - beta * z;
+      break;
+    }
+    case 1: { // Rössler: -y-z, x+ay, b+z(x-c)
+      const { a, b, c } = aParams;
+      dx = -y - z;
+      dy = x + a * y;
+      dz = b + z * (x - c);
+      break;
+    }
+    case 2: { // Dadras
+      const { p, q, r, s, e } = aParams;
+      dx = y - p * x + q * y * z;
+      dy = r * y - x * z + z;
+      dz = e * x * y - s * z;
+      break;
+    }
+    case 3: { // Halvorsen: -a·x - 4y - 4z - y², cyclic
+      const { a } = aParams;
+      dx = -a * x - 4 * y - 4 * z - y * y;
+      dy = -a * y - 4 * z - 4 * x - z * z;
+      dz = -a * z - 4 * x - 4 * y - x * x;
+      break;
+    }
+  }
+  aState.x += dx * h;
+  aState.y += dy * h;
+  aState.z += dz * h;
+}
+
+// Map attractor state → grid coordinates via tanh (bounded, never leaves grid)
+function attractorToGrid () {
+  const sc = ATTR_SCALES[attractorType];
+  const ax = (0.5 + 0.43 * Math.tanh(aState.x / sc)) * N;
+  const ay = (0.5 + 0.43 * Math.tanh(aState.y / sc)) * N;
+  return { ax, ay };
+}
+
+
+// ════════════════════════════════════════════════════════════
+//  VORTEX INJECTION
+// ════════════════════════════════════════════════════════════
+
+function injectVortices () {
+  u0.fill(0); v0.fill(0); dens0.fill(0);
+
+  // Advance attractor a few steps per frame
+  for (let k = 0; k < 5; k++) stepAttractor(0.0025);
+  const { ax, ay } = attractorToGrid();
+
+  for (let vi = 0; vi < numVortices; vi++) {
+    const phase  = (vi / numVortices) * Math.PI * 2 + t * 0.08 + aState.z * 0.04;
+    const spread = N * (0.04 + 0.22 * (vi / (numVortices + 1)));
+    const vx     = ax + (vi === 0 ? 0 : Math.cos(phase) * spread);
+    const vy     = ay + (vi === 0 ? 0 : Math.sin(phase) * spread);
+    const sign   = (vi % 2 === 0) ? 1 : -1;
+    const str    = sign * (130 + Math.random() * 120);
+    const rad    = 3.5 + Math.random() * 5;
+
+    addVortex(vx, vy, str, rad);
+    injectDye(vx, vy, Math.ceil(rad) + 1);
+  }
+}
+
+function addVortex (cx, cy, strength, radius) {
+  const ir    = Math.ceil(radius * 3.5) | 0;
+  const gi    = (Math.round(cx)) | 0;
+  const gj    = (Math.round(cy)) | 0;
+  const inv2r2 = 1.0 / (2 * radius * radius);
+
+  for (let dj = -ir; dj <= ir; dj++) {
+    for (let di = -ir; di <= ir; di++) {
+      const ii = gi + di, jj = gj + dj;
+      if (ii < 1 || ii > N || jj < 1 || jj > N) continue;
+      const r2      = di * di + dj * dj;
+      const r       = Math.sqrt(r2) + 1e-5;
+      const falloff = Math.exp(-r2 * inv2r2);
+      const f       = strength * falloff / (r * r);
+      u0[IX(ii, jj)] -= dj * f;
+      v0[IX(ii, jj)] += di * f;
+    }
+  }
+}
+
+function injectDye (cx, cy, rad) {
+  const gi    = (Math.round(cx)) | 0;
+  const gj    = (Math.round(cy)) | 0;
+  const inv2r2 = 1.0 / (rad * rad * 0.6);
+
+  for (let dj = -rad; dj <= rad; dj++) {
+    for (let di = -rad; di <= rad; di++) {
+      const ii = gi + di, jj = gj + dj;
+      if (ii < 1 || ii > N || jj < 1 || jj > N) continue;
+      const falloff = Math.exp(-(di*di + dj*dj) * inv2r2);
+      dens0[IX(ii, jj)] += 22 * falloff;
+    }
+  }
+}
+
+
+// ════════════════════════════════════════════════════════════
+//  DELAUNAY TRIANGULATION  (Bowyer-Watson)
+// ════════════════════════════════════════════════════════════
+
+function circumcircle (pts, a, b, c) {
+  const ax = pts[a].x, ay = pts[a].y;
+  const bx = pts[b].x, by = pts[b].y;
+  const cx = pts[c].x, cy = pts[c].y;
+  const D  = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by));
+  if (Math.abs(D) < 1e-9) return null;
+  const a2 = ax*ax + ay*ay;
+  const b2 = bx*bx + by*by;
+  const c2 = cx*cx + cy*cy;
+  const ux = (a2*(by-cy) + b2*(cy-ay) + c2*(ay-by)) / D;
+  const uy = (a2*(cx-bx) + b2*(ax-cx) + c2*(bx-ax)) / D;
+  const r2 = (ax-ux)*(ax-ux) + (ay-uy)*(ay-uy);
+  return { x: ux, y: uy, r2 };
+}
+
+function bowyerWatson (pts) {
+  const n = pts.length;
+  if (n < 3) return [];
+
+  const M   = 1e5;
+  const all = pts.concat([
+    { x: -M,   y: -M },
+    { x: 3*M,  y: -M },
+    { x: N/2,  y: 3*M }
+  ]);
+  const si = n, sj = n+1, sk = n+2;
+  const cc0 = circumcircle(all, si, sj, sk);
+  let tris = [{ a: si, b: sj, c: sk, cc: cc0 }];
+
+  for (let pi = 0; pi < n; pi++) {
+    const px = all[pi].x, py = all[pi].y;
+    const badSet = new Set();
+    const poly   = [];
+
+    for (const tri of tris) {
+      const cc = tri.cc;
+      if (!cc) continue;
+      const dx = px - cc.x, dy = py - cc.y;
+      if (dx*dx + dy*dy <= cc.r2 + 1e-6) {
+        badSet.add(tri);
+        poly.push([tri.a, tri.b], [tri.b, tri.c], [tri.c, tri.a]);
+      }
+    }
+
+    tris = tris.filter(t => !badSet.has(t));
+
+    // Boundary = edges with no matching reverse edge (appear exactly once)
+    const bnd = poly.filter(([a, b]) =>
+      !poly.some(([c, d]) => c === b && d === a)
+    );
+
+    for (const [a, b] of bnd) {
+      const cc = circumcircle(all, a, b, pi);
+      tris.push({ a, b, c: pi, cc });
+    }
+  }
+
+  // Discard triangles connected to super-triangle vertices
+  return tris.filter(t => t.a < n && t.b < n && t.c < n);
+}
+
+function advectParticles (dt) {
+  const scale = dt * N * 0.38;
+  for (const p of particles) {
+    const ci = Math.max(1, Math.min(N, p.x | 0));
+    const cj = Math.max(1, Math.min(N, p.y | 0));
+    p.x += u[IX(ci, cj)] * scale;
+    p.y += v[IX(ci, cj)] * scale;
+    // Soft wrap-around
+    if (p.x < 1)   p.x += N - 3;
+    if (p.x > N)   p.x -= N - 3;
+    if (p.y < 1)   p.y += N - 3;
+    if (p.y > N)   p.y -= N - 3;
+  }
+}
+
+// Frobenius norm of rate-of-strain tensor ε = ½(∇u + (∇u)ᵀ)
+function strainAt (x, y) {
+  const i  = Math.max(1, Math.min(N-1, x | 0));
+  const j  = Math.max(1, Math.min(N-1, y | 0));
+  const dudx = (u[IX(i+1,j)] - u[IX(i-1,j)]) * 0.5;
+  const dudy = (u[IX(i,j+1)] - u[IX(i,j-1)]) * 0.5;
+  const dvdx = (v[IX(i+1,j)] - v[IX(i-1,j)]) * 0.5;
+  const dvdy = (v[IX(i,j+1)] - v[IX(i,j-1)]) * 0.5;
+  const e12  = 0.5 * (dudy + dvdx);
+  return Math.sqrt(dudx*dudx + dvdy*dvdy + 2*e12*e12);
+}
+
+
+// ════════════════════════════════════════════════════════════
+//  WEB AUDIO  (8 bandpass-filtered noise voices)
+// ════════════════════════════════════════════════════════════
+
+function initAudio () {
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+  // White-noise buffer (3 s loop)
+  const sr  = audioCtx.sampleRate;
+  const len = sr * 3;
+  noiseBuffer = audioCtx.createBuffer(1, len, sr);
+  const nd    = noiseBuffer.getChannelData(0);
+  for (let i = 0; i < len; i++) nd[i] = Math.random() * 2 - 1;
+
+  audioNodes = [];
+  for (let i = 0; i < NUM_PROBES; i++) {
+    const src = audioCtx.createBufferSource();
+    src.buffer = noiseBuffer;
+    src.loop   = true;
+
+    const flt = audioCtx.createBiquadFilter();
+    flt.type            = 'bandpass';
+    flt.frequency.value = 120 + i * 140;
+    flt.Q.value         = 10;
+
+    const gn  = audioCtx.createGain();
+    gn.gain.value = 0.11;
+
+    const pan = audioCtx.createStereoPanner();
+    pan.pan.value = (i / (NUM_PROBES - 1)) * 2 - 1;
+
+    src.connect(flt);
+    flt.connect(gn);
+    gn.connect(pan);
+    pan.connect(audioCtx.destination);
+    src.start();
+
+    audioNodes.push({ flt, gn, pan });
+  }
+}
+
+// Sample vorticity at probe points → drive filter frequency & Q
+function updateAudio () {
+  if (!audioCtx) return;
+  const now = audioCtx.currentTime;
+  for (let i = 0; i < NUM_PROBES; i++) {
+    const pr = probes[i];
+    const ci = Math.max(1, Math.min(N, pr.x | 0));
+    const cj = Math.max(1, Math.min(N, pr.y | 0));
+    const w  = Math.abs(curlArr[IX(ci, cj)]);
+    const wn = Math.min(1, w * 0.12);   // normalise
+    const node = audioNodes[i];
+    // High vorticity → higher freq, lower Q (broader/noisier)
+    // Low vorticity  → lower freq,  high  Q (narrow/resonant)
+    node.flt.frequency.setTargetAtTime(70 + wn * 1100, now, 0.07);
+    node.flt.Q.setTargetAtTime(Math.max(0.5, 30 * (1 - wn)), now, 0.07);
+    node.gn.gain.setTargetAtTime(0.07 + wn * 0.2, now, 0.07);
+    node.pan.pan.setTargetAtTime((pr.x / N) * 2 - 1, now, 0.1);
+  }
+}
+
+
+// ════════════════════════════════════════════════════════════
+//  RENDERING
+// ════════════════════════════════════════════════════════════
+
+function renderFluid () {
+  palPhase += 0.0022;
+
+  // Adaptive auto-range for density
+  let lmax = 0;
+  for (let j = 1; j <= N; j++) {
+    for (let i = 1; i <= N; i++) {
+      const d = dens[IX(i,j)];
+      if (d > lmax) lmax = d;
+    }
+  }
+  maxDens = maxDens * 0.975 + lmax * 0.025;
+  const dScale = maxDens < 0.001 ? 1 : 1 / maxDens;
+
+  for (let j = 1; j <= N; j++) {
+    for (let i = 1; i <= N; i++) {
+      const d   = Math.min(1, dens[IX(i,j)] * dScale);
+      const [r, g, b] = samplePalette(d, palPhase);
+      const idx = ((j - 1) * N + (i - 1)) * 4;
+      // Multiply colour by density: dark background, vivid dye
+      offPx[idx]     = (r * d) | 0;
+      offPx[idx + 1] = (g * d) | 0;
+      offPx[idx + 2] = (b * d) | 0;
+      offPx[idx + 3] = 255;
+    }
+  }
+  offCtx.putImageData(offID, 0, 0);
+}
+
+// Render Delaunay mesh with glowing edges coloured by strain rate
+function renderMesh () {
+  // Retriangulate every 3 frames for performance
+  if (frameCount % 3 === 0 && particles.length >= 3) {
+    cachedTris = bowyerWatson(particles);
+  }
+  if (!cachedTris.length) return;
+
+  offCtx.save();
+  offCtx.globalCompositeOperation = 'lighter';
+  offCtx.lineWidth = 0.65;
+
+  for (const tri of cachedTris) {
+    const pa = particles[tri.a];
+    const pb = particles[tri.b];
+    const pc = particles[tri.c];
+    if (!pa || !pb || !pc) continue;
+
+    // Strain rate at triangle centroid
+    const mx = (pa.x + pb.x + pc.x) / 3;
+    const my = (pa.y + pb.y + pc.y) / 3;
+    const sr = Math.min(1, strainAt(mx, my) * 1.8);
+
+    // Colour: low strain = cool cyan, high strain = hot orange-white
+    const cr = Math.min(255, (sr * 2 * 255) | 0);
+    const cg = (Math.sin(sr * Math.PI) * 180) | 0;
+    const cb = Math.max(0, ((1 - sr) * 255) | 0);
+    const alpha = 0.22 + sr * 0.58;
+
+    offCtx.strokeStyle = `rgba(${cr},${cg},${cb},${alpha})`;
+    offCtx.shadowColor = `rgba(${cr},${cg},${cb},0.75)`;
+    offCtx.shadowBlur  = 2 + sr * 4;
+
+    offCtx.beginPath();
+    offCtx.moveTo(pa.x, pa.y);
+    offCtx.lineTo(pb.x, pb.y);
+    offCtx.lineTo(pc.x, pc.y);
+    offCtx.closePath();
+    offCtx.stroke();
+  }
+  offCtx.restore();
+}
+
+// Apply precomputed kaleidoscope map: fold polar coordinates, sample source
+function applyKaleidoscope () {
+  const srcData = offCtx.getImageData(0, 0, N, N);
+  const src     = srcData.data;
+  const dstData = ctx.createImageData(N, N);
+  const dst     = dstData.data;
+
+  for (let i = 0; i < N * N; i++) {
+    const ki = i * 2;
+    const sx = kMap[ki];
+    const sy = kMap[ki + 1];
+    const si = (sy * N + sx) * 4;
+    const di = i * 4;
+    dst[di]     = src[si];
+    dst[di + 1] = src[si + 1];
+    dst[di + 2] = src[si + 2];
+    dst[di + 3] = 255;
+  }
+  ctx.putImageData(dstData, 0, 0);
+}
+
+
+// ════════════════════════════════════════════════════════════
+//  HUD
+// ════════════════════════════════════════════════════════════
+
+function updateHUD () {
+  if (!hudVisible) { hudEl.style.display = 'none'; return; }
+  hudEl.style.display = 'block';
+  hudEl.textContent =
+    `Attractor : ${ATTR_NAMES[attractorType]}\n` +
+    `Grid      : ${N} × ${N}\n` +
+    `Vortices  : ${numVortices}\n` +
+    `Fold sym  : ${folds}×\n` +
+    `FPS       : ${fps.toFixed(1)}\n` +
+    `Solver it : ${solverIter}\n` +
+    `Sound     : ${soundEnabled ? 'ON' : 'OFF'}\n` +
+    `t         : ${t.toFixed(2)}`;
+}
+
+
+// ════════════════════════════════════════════════════════════
+//  MAIN LOOP (requestAnimationFrame with adaptive solver budget)
+// ════════════════════════════════════════════════════════════
+
+function step (now) {
+  requestAnimationFrame(step);
+
+  const dtMs = now - lastTime;
+  lastTime = now;
+  if (dtMs > 250) return;  // skip long stall frames
+
+  avgDt = avgDt * 0.95 + dtMs * 0.05;
+  fps   = 1000 / avgDt;
+
+  // Adaptive iteration count: more iterations when we have headroom
+  if (avgDt > 30 && solverIter > 4)   solverIter--;
+  else if (avgDt < 20 && solverIter < 20) solverIter++;
+
+  const dt   = 0.1;
+  const visc = 0.000028;   // kinematic viscosity
+  const diff = 0.0000035;  // dye diffusivity
+
+  injectVortices();
+  velStep(dt, visc, solverIter);
+  densStep(dt, diff, solverIter);
+  advectParticles(dt);
+
+  renderFluid();
+  renderMesh();
+  applyKaleidoscope();
+
+  if (soundEnabled) updateAudio();
+  updateHUD();
+
+  t += dt;
+  frameCount++;
+}
+
+
+// ════════════════════════════════════════════════════════════
+//  EVENT HANDLERS
+// ════════════════════════════════════════════════════════════
+
+document.addEventListener('keydown', e => {
+  switch (e.code) {
+    case 'Space':
+      e.preventDefault();
+      randomize();
+      break;
+    case 'KeyH':
+      hudVisible = !hudVisible;
+      updateHUD();
+      break;
+    case 'KeyS':
+      soundEnabled = !soundEnabled;
+      if (soundEnabled) {
+        initAudio();
+        if (audioCtx) audioCtx.resume();
+      } else {
+        if (audioCtx) audioCtx.suspend();
+      }
+      break;
+  }
+});
+
+canvas.addEventListener('click', () => randomize());
+
+window.addEventListener('resize', () => {
+  const newN = chooseN();
+  if (newN !== N) {
+    allocFluid(newN);
+    canvas.width  = newN;
+    canvas.height = newN;
+    off.width     = newN;
+    off.height    = newN;
+    offID = offCtx.createImageData(newN, newN);
+    offPx = offID.data;
+    randomize();
+  }
+});
+
+
+// ════════════════════════════════════════════════════════════
+//  BOOT
+// ════════════════════════════════════════════════════════════
+
+init();
+lastTime = performance.now();
+requestAnimationFrame(step);
+
+})();
+</script>
+</body>
+</html>

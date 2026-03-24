@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Cosmic Meta-Abstract Simulation Forge</title>
+    <meta name="description" content="An ultra-optimized generative engine visualizing 4D hypercubes, E8 lattices, and fractal mazes through a real-time mass-spring physics reactor.">
+    <meta name="keywords" content="generative art, multidimensional tilings, E8 lattice, 4D hypercube, maze algorithms, physics simulation, procedural audio, mass-spring network">
+    <style>
+        :root { --neon: #0ff; }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; cursor: crosshair; touch-action: none; }
+        canvas { display: block; width: 100vw; height: 100vh; }
+        #hud {
+            position: absolute; top: 20px; left: 20px; pointer-events: none;
+            background: rgba(0, 5, 10, 0.9); border-left: 3px solid var(--neon); padding: 15px;
+            color: var(--neon); font-family: 'Courier New', monospace; font-size: 10px;
+            display: none; z-index: 100; text-transform: uppercase; line-height: 1.6;
+            box-shadow: 0 0 25px rgba(0, 255, 255, 0.15);
+        }
+        .ui {
+            position: absolute; bottom: 20px; width: 100%; text-align: center;
+            color: rgba(255, 255, 255, 0.2); font-family: monospace; font-size: 9px;
+            letter-spacing: 5px; pointer-events: none; text-transform: uppercase;
+        }
+    </style>
+</head>
+<body>
+    <div id="hud">
+        DIMENSION_SLICE: <span id="h-dim">4D_TESSERACT</span><br>
+        LATTICE_FLUX: <span id="h-flux">0</span><br>
+        NODES_ACTIVE: <span id="h-nodes">0</span><br>
+        GEOMETRY_STYLE: <span id="h-style">ISLAMIC_ARABESQUE</span><br>
+        AUDIO_RESONANCE: <span id="h-audio">OFF</span>
+    </div>
+    <div class="ui">SPACE / TAP: REFORGE UNIVERSE | H: HUD | S: SOUND</div>
+    <canvas id="forge"></canvas>
+
+<script>
+/**
+ * COSMIC META-ABSTRACT SIMULATION FORGE
+ * A stochastic hybrid fusion of Higher-Dimensional Projections and Mass-Spring Physics.
+ */
+
+const canvas = document.getElementById('forge');
+const ctx = canvas.getContext('2d', { alpha: false });
+const hud = document.getElementById('hud');
+
+let w, h, dpr;
+let nodes = [], links = [], projections = [];
+let audioCtx, masterGain, compressor;
+let audioEnabled = false, showHud = false;
+let palette = [], hueBase, config = {};
+let frame = 0;
+
+const DIMENSIONS = ["4D_HYPERCUBE", "5D_LATTICE", "8D_QUASICRYSTAL", "E8_SLICE"];
+const STYLES = ["CELTIC_MANDALA", "ISLAMIC_ARABESQUE", "ART_NOUVEAU", "AZTEC_ORNAMENT"];
+
+class PhysicsNode {
+    constructor(x, y, id) {
+        this.x = x; this.y = y;
+        this.px = x; this.py = y;
+        this.vx = 0; this.vy = 0;
+        this.id = id;
+        this.color = palette[id % palette.length];
+        this.isStatic = Math.random() > 0.96;
+    }
+    update() {
+        if (this.isStatic) return;
+        // Chaotic Attractor + Brownian Drift
+        const t = frame * 0.01;
+        this.vx += Math.sin(this.y * 0.01 + t) * 0.1;
+        this.vy += Math.cos(this.x * 0.01 - t) * 0.1;
+        this.vx *= 0.98; this.vy *= 0.98;
+        this.x += this.vx; this.y += this.vy;
+    }
+}
+
+class SpringLink {
+    constructor(n1, n2, len) {
+        this.n1 = n1; this.n2 = n2;
+        this.len = len;
+        this.stiffness = 0.05;
+    }
+    solve() {
+        const dx = this.n2.x - this.n1.x;
+        const dy = this.n2.y - this.n1.y;
+        const d = Math.sqrt(dx*dx + dy*dy) || 1;
+        const f = (this.len - d) / d * this.stiffness;
+        const ox = dx * f * 0.5;
+        const oy = dy * f * 0.5;
+        if (!this.n1.isStatic) { this.n1.x -= ox; this.n1.y -= oy; }
+        if (!this.n2.isStatic) { this.n2.x += ox; this.n2.y += oy; }
+    }
+}
+
+function init() {
+    w = canvas.width = window.innerWidth;
+    h = canvas.height = window.innerHeight;
+    hueBase = Math.random() * 360;
+    palette = Array.from({length: 6}, (_, i) => `hsl(${(hueBase + i * 60) % 360}, 100%, 60%)`);
+    document.documentElement.style.setProperty('--neon', palette);
+
+    nodes = []; links = []; projections = [];
+    config = {
+        dim: DIMENSIONS[Math.floor(Math.random() * DIMENSIONS.length)],
+        style: STYLES[Math.floor(Math.random() * STYLES.length)],
+        count: 40 + Math.floor(Math.random() * 60)
+    };
+
+    // Initialize Higher-Dimensional Projection Nodes
+    for (let i = 0; i < config.count; i++) {
+        nodes.push(new PhysicsNode(Math.random() * w, Math.random() * h, i));
+    }
+
+    // Graph Construction (Recursive Braid Maze Logic)
+    for (let i = 0; i < nodes.length; i++) {
+        const neighbors = 1 + Math.floor(Math.random() * 2);
+        for (let j = 0; j < neighbors; j++) {
+            const target = (i + j + 1) % nodes.length;
+            links.push(new SpringLink(nodes[i], nodes[target], 100 + Math.random() * 200));
+        }
+    }
+
+    // Static Tesselation Overlay (Hypercube Slices)
+    const gridSize = 12;
+    for (let x = 0; x <= gridSize; x++) {
+        for (let y = 0; y <= gridSize; y++) {
+            projections.push({
+                x: (x / gridSize) * w,
+                y: (y / gridSize) * h,
+                r: Math.random() * 80 + 20,
+                c: palette[Math.floor(Math.random() * palette.length)]
+            });
+        }
+    }
+
+    document.getElementById('h-dim').innerText = config.dim;
+    document.getElementById('h-style').innerText = config.style;
+    document.getElementById('h-nodes').innerText = nodes.length;
+}
+
+function initAudio() {
+    if (audioCtx) return;
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    masterGain = audioCtx.createGain();
+    compressor = audioCtx.createDynamicsCompressor();
+    masterGain.gain.value = 0.1;
+    masterGain.connect(compressor);
+    compressor.connect(audioCtx.destination);
+}
+
+function triggerAudio(y, freqMod) {
+    if (!audioEnabled || !audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const env = audioCtx.createGain();
+    osc.type = Math.random() > 0.5 ? 'triangle' : 'sine';
+    osc.frequency.setValueAtTime(40 + (1 - y/h) * 1000 + freqMod, audioCtx.currentTime);
+    env.gain.setValueAtTime(0.08, audioCtx.currentTime);
+    env.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.4);
+    osc.connect(env);
+    env.connect(masterGain);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.4);
+}
+
+function draw() {
+    // Shimmering Chromatic Turbulence (Phosphor Persistence)
+    ctx.fillStyle = 'rgba(0, 4, 8, 0.18)';
+    ctx.fillRect(0, 0, w, h);
+
+    // 1. Draw Multidimensional Projection Scaffold
+    ctx.lineWidth = 0.5;
+    projections.forEach(p => {
+        ctx.strokeStyle = p.c;
+        ctx.globalAlpha = 0.1;
+        ctx.beginPath();
+        if (config.style === "CELTIC_MANDALA") {
+            ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        } else {
+            ctx.strokeRect(p.x - p.r/2, p.y - p.r/2, p.r, p.r);
+        }
+        ctx.stroke();
+    });
+    ctx.globalAlpha = 1.0;
+
+    // 2. Physics Solver (Energy-based Multibody Dynamics)
+    for (let s = 0; s < 4; s++) {
+        links.forEach(l => l.solve());
+    }
+    nodes.forEach(n => n.update());
+
+    // 3. Render Maze-Morphism Labyrinth
+    links.forEach((l, i) => {
+        const grad = ctx.createLinearGradient(l.n1.x, l.n1.y, l.n2.x, l.n2.y);
+        grad.addColorStop(0, l.n1.color);
+        grad.addColorStop(1, l.n2.color);
+        ctx.strokeStyle = grad;
+        ctx.lineWidth = 1.8;
+        ctx.beginPath();
+        ctx.moveTo(l.n1.x, l.n1.y);
+        ctx.lineTo(l.n2.x, l.n2.y);
+        ctx.stroke();
+
+        // Luminous Flow Particle
+        const t = (frame * 0.015 + i * 0.05) % 1;
+        const px = l.n1.x + (l.n2.x - l.n1.x) * t;
+        const py = l.n1.y + (l.n2.y - l.n1.y) * t;
+        ctx.fillStyle = '#fff';
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = l.n1.color;
+        ctx.fillRect(px - 2, py - 2, 4, 4);
+        ctx.shadowBlur = 0;
+
+        if (audioEnabled && t < 0.015 && Math.random() > 0.9) triggerAudio(py, i % 50);
+    });
+
+    nodes.forEach(n => {
+        ctx.fillStyle = n.isStatic ? '#fff' : n.color;
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, n.isStatic ? 4 : 2, 0, Math.PI * 2);
+        ctx.fill();
+    });
+
+    frame++;
+    if (showHud) document.getElementById('h-flux').innerText = (Math.abs(Math.sin(frame*0.01))*1000).toFixed(2);
+    requestAnimationFrame(draw);
+}
+
+const forgeNew = () => { init(); if (audioEnabled) triggerAudio(h/2, 0); };
+
+window.addEventListener('keydown', e => {
+    if (e.code === 'Space') forgeNew();
+    if (e.key.toLowerCase() === 'h') {
+        showHud = !showHud;
+        hud.style.display = showHud ? 'block' : 'none';
+    }
+    if (e.key.toLowerCase() === 's') {
+        audioEnabled = !audioEnabled;
+        if (audioEnabled) initAudio();
+        document.getElementById('h-audio').innerText = audioEnabled ? 'ON' : 'OFF';
+    }
+});
+
+window.addEventListener('mousedown', forgeNew);
+window.addEventListener('touchstart', e => { e.preventDefault(); forgeNew(); }, { passive: false });
+window.addEventListener('resize', init);
+
+init();
+draw();
+</script>
+</body>
+</html>

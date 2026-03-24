@@ -1,0 +1,1194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Cosmic Mechanical Mandala Simulator</title>
+<meta name="description" content="A generative audiovisual simulator creating evolving mandala universes fusing Hindu yantra geometry, Buddhist mandala symmetry, Islamic geometric tilings, Celtic knotwork, and gothic rosettes with real-time physics simulations including n-body gravity, chaotic pendulums, spring-mass networks, vortex turbulence, and reaction-diffusion patterns. Mesmerizing kaleidoscopic radial symmetries with procedural audio.">
+<meta name="keywords" content="mandala generator, generative art, sacred geometry, yantra, Buddhist mandala, Islamic geometry, Celtic knotwork, gothic rosette, physics simulation, n-body gravity, double pendulum, reaction diffusion, procedural audio, audiovisual, fractal, kaleidoscope, psychedelic, interactive art, WebGL canvas, generative music, modal synthesis, granular synthesis, cymatics, symmetry, tiling patterns, stained glass, neon art, cyberpunk, Bauhaus, rococo, cosmic art, meditation visual, sacred art simulator">
+<meta name="author" content="Cosmic Mandala Simulator">
+<meta property="og:title" content="Cosmic Mechanical Mandala Simulator">
+<meta property="og:description" content="Evolving mandala universes fusing sacred geometry traditions with real-time physics and procedural audio.">
+<meta property="og:type" content="website">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Courier New',monospace}
+  canvas{display:block;width:100vw;height:100vh;cursor:crosshair}
+  #hud{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;display:none;z-index:10}
+  #hud-inner{position:absolute;top:16px;left:16px;color:rgba(255,255,255,0.75);font-size:11px;line-height:1.7;text-shadow:0 0 8px currentColor;letter-spacing:0.08em}
+  #hud-corner{position:absolute;bottom:16px;right:16px;color:rgba(255,255,255,0.5);font-size:10px;text-align:right;line-height:1.8;letter-spacing:0.1em}
+  #flash{position:fixed;top:0;left:0;width:100%;height:100%;background:#fff;opacity:0;pointer-events:none;z-index:20;transition:opacity 0.05s}
+  #tip{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,0.4);font-size:11px;letter-spacing:0.15em;pointer-events:none;z-index:15;transition:opacity 1s;text-align:center}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div id="hud-inner"></div>
+  <div id="hud-corner"></div>
+</div>
+<div id="flash"></div>
+<div id="tip">SPACE / TAP · NEW UNIVERSE &nbsp;|&nbsp; H · HUD &nbsp;|&nbsp; S · SOUND</div>
+<script>
+// ============================================================
+// COSMIC MECHANICAL MANDALA SIMULATOR
+// ============================================================
+'use strict';
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const hud = document.getElementById('hud');
+const hudInner = document.getElementById('hud-inner');
+const hudCorner = document.getElementById('hud-corner');
+const flash = document.getElementById('flash');
+const tip = document.getElementById('tip');
+
+let W, H, CX, CY, R;
+let hudVisible = false;
+let soundEnabled = false;
+let audioCtx = null;
+let masterGain = null;
+let frame = 0;
+let universe = null;
+let animId = null;
+let lastTime = 0;
+let fps = 60;
+
+// ============================================================
+// RESIZE
+// ============================================================
+function resize(){
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  CX = W/2; CY = H/2;
+  R = Math.min(W,H)*0.47;
+}
+window.addEventListener('resize', ()=>{ resize(); if(universe) universe.resize(); });
+resize();
+
+// ============================================================
+// MATH UTILS
+// ============================================================
+const TAU = Math.PI*2;
+const rnd = (a,b)=> a + Math.random()*(b-a);
+const rndI = (a,b)=> Math.floor(rnd(a,b+1));
+const rndEl = arr => arr[Math.floor(Math.random()*arr.length)];
+const lerp = (a,b,t) => a+(b-a)*t;
+const clamp = (v,a,b) => Math.max(a,Math.min(b,v));
+const wrap = (v,max) => ((v%max)+max)%max;
+const hsl = (h,s,l,a=1) => `hsla(${h|0},${s|0}%,${l|0}%,${a})`;
+const cos = Math.cos, sin = Math.sin, sqrt = Math.sqrt, abs = Math.abs, PI = Math.PI;
+
+function hsv2rgb(h,s,v){
+  h=h%360; s/=100; v/=100;
+  let c=v*s, x=c*(1-abs((h/60)%2-1)), m=v-c;
+  let r=0,g=0,b=0;
+  if(h<60){r=c;g=x}else if(h<120){r=x;g=c}else if(h<180){g=c;b=x}
+  else if(h<240){g=x;b=c}else if(h<300){r=x;b=c}else{r=c;b=x}
+  return [(r+m)*255,(g+m)*255,(b+m)*255];
+}
+
+// ============================================================
+// COLOR PALETTE SYSTEM
+// ============================================================
+class Palette {
+  constructor(){
+    this.mode = rndEl(['jewel','neon','bauhaus','rococo','cyberpunk','spectral','interference','harmonic']);
+    this.hueBase = rnd(0,360);
+    this.hueRange = rnd(60,180);
+    this.shift = rnd(0.02,0.12);
+    this.time = 0;
+    this.contrast = rnd(0.6,1.0);
+    this.saturation = rnd(70,100);
+  }
+  tick(dt){ this.time += dt * this.shift; this.hueBase = wrap(this.hueBase + dt*this.shift*30, 360); }
+  get(t, brightness=1, alpha=1){
+    let h,s,l;
+    const tm = this.time + t;
+    switch(this.mode){
+      case 'jewel':
+        h = wrap(this.hueBase + tm*120, 360);
+        s = 85 + sin(tm*3.7)*10;
+        l = 45 + sin(tm*2.3)*20;
+        break;
+      case 'neon':
+        h = wrap(this.hueBase + sin(tm*5)*this.hueRange, 360);
+        s = 100;
+        l = 50 + sin(tm*7)*25;
+        break;
+      case 'bauhaus': {
+        const colors4 = [[0,90,50],[200,90,50],[60,90,50],[0,0,10]];
+        const idx = Math.floor(wrap(tm*4,4));
+        [h,s,l] = colors4[idx]; h += sin(tm)*20;
+        break;
+      }
+      case 'rococo':
+        h = wrap(this.hueBase + sin(tm*2)*40 + cos(tm*3.1)*30, 360);
+        s = 60 + sin(tm)*20;
+        l = 65 + sin(tm*2.7)*15;
+        break;
+      case 'cyberpunk':
+        h = (sin(tm*3)>0) ? wrap(190+sin(tm*7)*30,360) : wrap(300+sin(tm*5)*20,360);
+        s = 100;
+        l = 45 + sin(tm*11)*20;
+        break;
+      case 'spectral':
+        h = wrap(tm*200, 360);
+        s = 90;
+        l = 50 + sin(tm*TAU)*15;
+        break;
+      case 'interference':
+        h = wrap(this.hueBase + sin(tm*3.14)*60 + sin(tm*5.77)*40, 360);
+        s = 85 + sin(tm*13)*15;
+        l = 40 + sin(tm*7+1)*25;
+        break;
+      case 'harmonic':
+        h = wrap(this.hueBase + tm*360/TAU, 360);
+        s = 80 + sin(tm*PHI_)*15;
+        l = 50;
+        break;
+      default:
+        h = wrap(this.hueBase + tm*90, 360);
+        s = 80; l = 50;
+    }
+    l = clamp(l * brightness * this.contrast, 5, 95);
+    return hsl(h, s, l, alpha);
+  }
+}
+const PHI_ = 1.6180339887;
+
+// ============================================================
+// PHYSICS: SYMPLECTIC N-BODY
+// ============================================================
+class NBodySystem {
+  constructor(n, radius){
+    this.n = n;
+    this.bodies = [];
+    this.G = rnd(500, 2000);
+    this.softening = rnd(20, 60);
+    for(let i=0;i<n;i++){
+      const angle = (i/n)*TAU + rnd(0,0.3);
+      const r = radius * rnd(0.2, 0.85);
+      this.bodies.push({
+        x: cos(angle)*r, y: sin(angle)*r,
+        vx: -sin(angle)*rnd(0.3,1.2)*sqrt(this.G/r),
+        vy: cos(angle)*rnd(0.3,1.2)*sqrt(this.G/r),
+        mass: rnd(0.5,3),
+        trail: []
+      });
+    }
+    // central attractor
+    this.bodies.push({x:0,y:0,vx:0,vy:0,mass:20+rnd(0,20),trail:[],fixed:true});
+  }
+  step(dt){
+    const eps2 = this.softening*this.softening;
+    const G = this.G;
+    // Verlet symplectic
+    for(let i=0;i<this.bodies.length;i++){
+      const b = this.bodies[i];
+      if(b.fixed) continue;
+      let ax=0,ay=0;
+      for(let j=0;j<this.bodies.length;j++){
+        if(i===j) continue;
+        const bj = this.bodies[j];
+        const dx=bj.x-b.x, dy=bj.y-b.y;
+        const dist2=dx*dx+dy*dy+eps2;
+        const inv = G*bj.mass/(dist2*sqrt(dist2));
+        ax+=dx*inv; ay+=dy*inv;
+      }
+      b.vx+=ax*dt; b.vy+=ay*dt;
+    }
+    for(const b of this.bodies){
+      if(b.fixed) continue;
+      b.x+=b.vx*dt; b.y+=b.vy*dt;
+      b.trail.push({x:b.x,y:b.y});
+      if(b.trail.length>80) b.trail.shift();
+    }
+  }
+  energy(){
+    let ke=0;
+    for(const b of this.bodies) ke+=0.5*b.mass*(b.vx*b.vx+b.vy*b.vy);
+    return ke;
+  }
+}
+
+// ============================================================
+// PHYSICS: CHAOTIC DOUBLE PENDULUM
+// ============================================================
+class DoublePendulum {
+  constructor(){
+    this.L1=rnd(0.15,0.35); this.L2=rnd(0.12,0.30);
+    this.m1=rnd(1,3); this.m2=rnd(1,3);
+    this.th1=rnd(-PI,PI); this.th2=rnd(-PI,PI);
+    this.w1=rnd(-2,2); this.w2=rnd(-2,2);
+    this.g=9.81*rnd(0.8,2.5);
+    this.trail=[];
+    this.scale=R*0.8;
+    this.energy0=this._energy();
+  }
+  _energy(){
+    const {L1,L2,m1,m2,g,th1,th2,w1,w2}=this;
+    const y1=-L1*cos(th1), y2=y1-L2*cos(th2);
+    const ke=0.5*m1*(L1*w1)**2+0.5*m2*((L1*w1)**2+(L2*w2)**2+2*L1*L2*w1*w2*cos(th1-th2));
+    const pe=-(m1+m2)*g*L1*cos(th1)-m2*g*L2*cos(th2);
+    return ke+pe;
+  }
+  step(dt){
+    // RK4
+    const f=(th1,th2,w1,w2)=>{
+      const {L1,L2,m1,m2,g}=this;
+      const d=th1-th2;
+      const denom1=(m1+m2)*L1-m2*L1*cos(d)*cos(d);
+      const denom2=(L2/L1)*denom1;
+      const a1=(m2*L1*w1*w1*sin(d)*cos(d)+m2*g*sin(th2)*cos(d)+m2*L2*w2*w2*sin(d)-(m1+m2)*g*sin(th1))/(denom1+1e-9);
+      const a2=(-m2*L2*w2*w2*sin(d)*cos(d)+(m1+m2)*g*sin(th1)*cos(d)-(m1+m2)*L1*w1*w1*sin(d)-(m1+m2)*g*sin(th2))/(denom2+1e-9);
+      return [w1,w2,a1,a2];
+    };
+    const k1=f(this.th1,this.th2,this.w1,this.w2);
+    const k2=f(this.th1+k1[0]*dt/2,this.th2+k1[1]*dt/2,this.w1+k1[2]*dt/2,this.w2+k1[3]*dt/2);
+    const k3=f(this.th1+k2[0]*dt/2,this.th2+k2[1]*dt/2,this.w1+k2[2]*dt/2,this.w2+k2[3]*dt/2);
+    const k4=f(this.th1+k3[0]*dt,this.th2+k3[1]*dt,this.w1+k3[2]*dt,this.w2+k3[3]*dt);
+    this.th1+=dt/6*(k1[0]+2*k2[0]+2*k3[0]+k4[0]);
+    this.th2+=dt/6*(k1[1]+2*k2[1]+2*k3[1]+k4[1]);
+    this.w1 +=dt/6*(k1[2]+2*k2[2]+2*k3[2]+k4[2]);
+    this.w2 +=dt/6*(k1[3]+2*k2[3]+2*k3[3]+k4[3]);
+    const x2=this.L1*sin(this.th1)*this.scale+(this.L1+this.L2)*0.1*sin(this.th2)*this.scale;
+    const y2=-this.L1*cos(this.th1)*this.scale-(this.L1+this.L2)*0.1*cos(this.th2)*this.scale;
+    this.tip={x:this.L1*sin(this.th1)*this.scale+this.L2*sin(this.th2)*this.scale,
+               y:-this.L1*cos(this.th1)*this.scale-this.L2*cos(this.th2)*this.scale};
+    this.trail.push({...this.tip});
+    if(this.trail.length>200) this.trail.shift();
+  }
+  get px1(){ return this.L1*sin(this.th1)*this.scale; }
+  get py1(){ return -this.L1*cos(this.th1)*this.scale; }
+  get px2(){ return this.px1+this.L2*sin(this.th2)*this.scale; }
+  get py2(){ return this.py1-this.L2*cos(this.th2)*this.scale; }
+  energy(){ return abs(this.w1)+abs(this.w2); }
+}
+
+// ============================================================
+// PHYSICS: SPRING-MASS WEB
+// ============================================================
+class SpringMassWeb {
+  constructor(n, rad){
+    this.nodes=[];
+    this.springs=[];
+    this.n=n;
+    const rings=3;
+    // center
+    this.nodes.push({x:0,y:0,vx:0,vy:0,mass:2,fx:0,fy:0});
+    for(let r=1;r<=rings;r++){
+      const cnt=n*r;
+      for(let i=0;i<cnt;i++){
+        const a=(i/cnt)*TAU;
+        const radius=rad*(r/rings);
+        this.nodes.push({
+          x:cos(a)*radius+rnd(-5,5),y:sin(a)*radius+rnd(-5,5),
+          vx:rnd(-0.5,0.5),vy:rnd(-0.5,0.5),mass:rnd(0.5,1.5),fx:0,fy:0
+        });
+      }
+    }
+    // Connect springs
+    for(let i=0;i<this.nodes.length;i++){
+      for(let j=i+1;j<this.nodes.length;j++){
+        const dx=this.nodes[i].x-this.nodes[j].x;
+        const dy=this.nodes[i].y-this.nodes[j].y;
+        const d=sqrt(dx*dx+dy*dy);
+        if(d<rad*0.5+10){
+          this.springs.push({a:i,b:j,rest:d,k:rnd(2,8),damp:rnd(0.02,0.08)});
+        }
+      }
+    }
+    this.damping=0.998;
+  }
+  step(dt){
+    for(const n of this.nodes){n.fx=0;n.fy=0;}
+    for(const s of this.springs){
+      const a=this.nodes[s.a], b=this.nodes[s.b];
+      const dx=b.x-a.x, dy=b.y-a.y;
+      const d=sqrt(dx*dx+dy*dy)+1e-9;
+      const f=s.k*(d-s.rest)/d;
+      const dv=(b.vx-a.vx)*dx/d+(b.vy-a.vy)*dy/d;
+      const fd=-s.damp*dv;
+      a.fx+=(f-fd)*dx; a.fy+=(f-fd)*dy;
+      b.fx-=(f-fd)*dx; b.fy-=(f-fd)*dy;
+    }
+    for(const n of this.nodes){
+      n.vx+=n.fx/n.mass*dt; n.vy+=n.fy/n.mass*dt;
+      n.vx*=this.damping; n.vy*=this.damping;
+      n.x+=n.vx*dt; n.y+=n.vy*dt;
+    }
+  }
+  energy(){
+    let e=0;
+    for(const n of this.nodes) e+=n.vx*n.vx+n.vy*n.vy;
+    return e/this.nodes.length;
+  }
+}
+
+// ============================================================
+// PHYSICS: VORTEX PARTICLES
+// ============================================================
+class VortexField {
+  constructor(n){
+    this.particles=[];
+    this.vortices=[];
+    const nv=rndI(2,5);
+    for(let i=0;i<nv;i++){
+      this.vortices.push({
+        x:rnd(-R*0.5,R*0.5),y:rnd(-R*0.5,R*0.5),
+        str:rnd(-300,300),
+        ox:rnd(-R*0.3,R*0.3),oy:rnd(-R*0.3,R*0.3),
+        freq:rnd(0.3,1.2),phase:rnd(0,TAU)
+      });
+    }
+    for(let i=0;i<n;i++){
+      const a=rnd(0,TAU), r=rnd(10,R*0.7);
+      this.particles.push({x:cos(a)*r,y:sin(a)*r,vx:0,vy:0,life:rnd(0,1),age:0});
+    }
+  }
+  step(dt,t){
+    for(const v of this.vortices){
+      v.x=v.ox+cos(t*v.freq+v.phase)*R*0.3;
+      v.y=v.oy+sin(t*v.freq+v.phase)*R*0.2;
+    }
+    for(const p of this.particles){
+      p.age+=dt*0.3;
+      if(p.age>1){p.age=0;const a=rnd(0,TAU),r=rnd(10,R*0.7);p.x=cos(a)*r;p.y=sin(a)*r;p.vx=0;p.vy=0;}
+      let ax=0,ay=0;
+      for(const v of this.vortices){
+        const dx=p.x-v.x, dy=p.y-v.y;
+        const d2=dx*dx+dy*dy+100;
+        const inv=v.str/d2;
+        ax+=-dy*inv; ay+=dx*inv;
+        ax+=-(dx)*inv*0.05; ay+=-(dy)*inv*0.05;
+      }
+      p.vx+=ax*dt; p.vy+=ay*dt;
+      const sp=sqrt(p.vx*p.vx+p.vy*p.vy);
+      if(sp>200){p.vx*=200/sp;p.vy*=200/sp;}
+      p.x+=p.vx*dt; p.y+=p.vy*dt;
+      const pr=sqrt(p.x*p.x+p.y*p.y);
+      if(pr>R*0.85){p.x*=R*0.85/pr;p.y*=R*0.85/pr;p.vx*=-0.3;p.vy*=-0.3;}
+    }
+  }
+  energy(){
+    let e=0;
+    for(const p of this.particles) e+=p.vx*p.vx+p.vy*p.vy;
+    return sqrt(e/this.particles.length);
+  }
+}
+
+// ============================================================
+// REACTION DIFFUSION (Gray-Scott on small grid)
+// ============================================================
+class ReactionDiffusion {
+  constructor(){
+    this.gW=80; this.gH=80;
+    this.u=new Float32Array(this.gW*this.gH);
+    this.v=new Float32Array(this.gW*this.gH);
+    this.u2=new Float32Array(this.gW*this.gH);
+    this.v2=new Float32Array(this.gW*this.gH);
+    this.f=rnd(0.029,0.062);
+    this.k=rnd(0.055,0.067);
+    this.Du=0.21; this.Dv=0.105;
+    this.u.fill(1);
+    // seed
+    for(let i=0;i<20;i++){
+      const cx=rndI(10,this.gW-10), cy=rndI(10,this.gH-10);
+      for(let dy=-3;dy<=3;dy++) for(let dx=-3;dx<=3;dx++){
+        const idx=(cy+dy)*this.gW+(cx+dx);
+        if(idx>=0&&idx<this.u.length){this.u[idx]=0.5;this.v[idx]=0.25+rnd(0,0.05);}
+      }
+    }
+  }
+  step(){
+    const {gW,gH,u,v,u2,v2,f,k,Du,Dv}=this;
+    for(let y=1;y<gH-1;y++){
+      for(let x=1;x<gW-1;x++){
+        const i=y*gW+x;
+        const lap_u=u[i-1]+u[i+1]+u[(y-1)*gW+x]+u[(y+1)*gW+x]-4*u[i];
+        const lap_v=v[i-1]+v[i+1]+v[(y-1)*gW+x]+v[(y+1)*gW+x]-4*v[i];
+        const uvv=u[i]*v[i]*v[i];
+        u2[i]=u[i]+Du*lap_u-uvv+f*(1-u[i]);
+        v2[i]=v[i]+Dv*lap_v+uvv-(f+k)*v[i];
+        u2[i]=clamp(u2[i],0,1); v2[i]=clamp(v2[i],0,1);
+      }
+    }
+    u.set(u2); v.set(v2);
+  }
+  getVal(nx,ny){
+    const x=clamp(Math.floor(nx*this.gW)|0,0,this.gW-1);
+    const y=clamp(Math.floor(ny*this.gH)|0,0,this.gH-1);
+    return this.v[y*this.gW+x];
+  }
+}
+
+// ============================================================
+// GEOMETRY GENERATORS
+// ============================================================
+function genYantraPoints(n, r, layers){
+  const pts=[];
+  for(let l=0;l<layers;l++){
+    const lr=r*(l+1)/layers;
+    for(let i=0;i<n;i++){
+      const a=(i/n)*TAU+(l%2)*PI/n;
+      pts.push({x:cos(a)*lr,y:sin(a)*lr,layer:l,idx:i});
+    }
+  }
+  return pts;
+}
+
+function drawIslamicTiling(ctx, cx, cy, r, t, pal){
+  const n=rndI(6,12);
+  const segments=rndI(3,7);
+  ctx.save();
+  ctx.translate(cx,cy);
+  for(let s=0;s<segments;s++){
+    const sr=r*(s+1)/segments;
+    const nextR=r*(s+2)/segments;
+    for(let i=0;i<n;i++){
+      const a1=(i/n)*TAU, a2=((i+1)/n)*TAU;
+      const mid=(a1+a2)/2;
+      ctx.beginPath();
+      ctx.moveTo(cos(a1)*sr, sin(a1)*sr);
+      ctx.lineTo(cos(mid)*(nextR||sr*1.15), sin(mid)*(nextR||sr*1.15));
+      ctx.lineTo(cos(a2)*sr, sin(a2)*sr);
+      ctx.closePath();
+      ctx.strokeStyle=pal.get(s/segments+i/n*0.3+t*0.1, 1, 0.7);
+      ctx.lineWidth=1+sin(t+i)*0.5;
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+function drawCelticKnot(ctx, cx, cy, r, t, pal, sym){
+  ctx.save();
+  ctx.translate(cx,cy);
+  const n=sym||8;
+  const twist=sin(t*0.3)*0.4+0.2;
+  for(let i=0;i<n;i++){
+    const a=(i/n)*TAU;
+    const a2=a+TAU/n;
+    const r1=r*rnd(0.3,0.5), r2=r*rnd(0.6,0.85);
+    ctx.beginPath();
+    const cp1x=cos(a+twist)*r1*1.5, cp1y=sin(a+twist)*r1*1.5;
+    const cp2x=cos(a2-twist)*r2*0.8, cp2y=sin(a2-twist)*r2*0.8;
+    ctx.moveTo(cos(a)*r1, sin(a)*r1);
+    ctx.bezierCurveTo(cp1x,cp1y, cp2x,cp2y, cos(a2)*r2, sin(a2)*r2);
+    ctx.strokeStyle=pal.get(i/n+t*0.05, 1.1, 0.7);
+    ctx.lineWidth=rnd(1.5,3.5);
+    ctx.stroke();
+    // mirror
+    ctx.beginPath();
+    ctx.moveTo(cos(a)*r2, sin(a)*r2);
+    ctx.bezierCurveTo(cp2x,cp2y, cp1x,cp1y, cos(a2)*r1, sin(a2)*r1);
+    ctx.strokeStyle=pal.get(i/n+0.5+t*0.05, 0.9, 0.5);
+    ctx.lineWidth=rnd(0.5,1.5);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawGothicRosette(ctx, cx, cy, r, t, pal){
+  ctx.save();
+  ctx.translate(cx,cy);
+  const petals=rndI(6,16);
+  for(let i=0;i<petals;i++){
+    const a=(i/petals)*TAU+t*0.02;
+    const pr=r*rnd(0.3,0.7);
+    ctx.save();
+    ctx.rotate(a);
+    ctx.beginPath();
+    ctx.ellipse(pr/2, 0, pr/2, pr*rnd(0.15,0.35), 0, 0, TAU);
+    const g=ctx.createRadialGradient(0,0,0,pr/2,0,pr);
+    const col1=pal.get(i/petals+t*0.03, 1.2, 0.8);
+    const col2=pal.get(i/petals+0.5+t*0.03, 0.8, 0.3);
+    g.addColorStop(0,col1);
+    g.addColorStop(1,col2);
+    ctx.fillStyle=g;
+    ctx.fill();
+    ctx.restore();
+  }
+  // center circle
+  const cg=ctx.createRadialGradient(0,0,0,0,0,r*0.15);
+  cg.addColorStop(0,pal.get(t*0.1,1.5,0.9));
+  cg.addColorStop(1,'transparent');
+  ctx.beginPath();
+  ctx.arc(0,0,r*0.15,0,TAU);
+  ctx.fillStyle=cg;
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawBuddhistMandala(ctx, cx, cy, r, t, pal, sym){
+  ctx.save();
+  ctx.translate(cx,cy);
+  const n=sym||8;
+  const rings=rndI(4,8);
+  for(let ring=0;ring<rings;ring++){
+    const rr=r*(ring+1)/rings;
+    for(let i=0;i<n*(ring+1);i++){
+      const a=(i/(n*(ring+1)))*TAU+t*(0.01+ring*0.005);
+      const a2=a+TAU/(n*(ring+1));
+      const mid=(a+a2)/2;
+      const innerR=ring===0?0:r*ring/rings;
+      // petal
+      ctx.beginPath();
+      ctx.arc(0,0,rr,a,a2);
+      if(ring>0) ctx.arc(0,0,innerR,a2,a,true);
+      ctx.closePath();
+      ctx.strokeStyle=pal.get(ring/rings+i/(n*rings)+t*0.02, 1, 0.6);
+      ctx.lineWidth=0.5+sin(t+ring+i)*0.5;
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+// ============================================================
+// PROCEDURAL AUDIO
+// ============================================================
+function initAudio(){
+  if(!audioCtx){
+    audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+    masterGain=audioCtx.createGain();
+    masterGain.gain.setValueAtTime(0.18,audioCtx.currentTime);
+    masterGain.connect(audioCtx.destination);
+  }
+  if(audioCtx.state==='suspended') audioCtx.resume();
+}
+
+class AudioEngine {
+  constructor(){
+    this.oscs=[];
+    this.grains=[];
+    this.modalOscs=[];
+    this.running=false;
+    this.baseFreq=rnd(55,220);
+    this.scale=rndEl([
+      [1,9/8,5/4,4/3,3/2,5/3,15/8], // major
+      [1,9/8,6/5,4/3,3/2,8/5,9/5],  // minor
+      [1,16/15,6/5,4/3,3/2,8/5,16/9], // phrygian-ish
+      [1,9/8,5/4,45/32,3/2,27/16,15/8], // lydian
+      [1,9/8,5/4,4/3,3/2,5/3,7/4],  // mixolydian
+    ]);
+    this.filters=[];
+    this.lfoTime=0;
+  }
+  start(){
+    if(this.running||!audioCtx) return;
+    this.running=true;
+    // Drone oscillators
+    for(let i=0;i<4;i++){
+      const osc=audioCtx.createOscillator();
+      const gain=audioCtx.createGain();
+      const filt=audioCtx.createBiquadFilter();
+      osc.type=rndEl(['sine','triangle','sawtooth','square']);
+      const ratio=this.scale[i%this.scale.length];
+      osc.frequency.value=this.baseFreq*ratio*(i<2?1:2);
+      gain.gain.value=0.04/Math.max(1,i);
+      filt.type='bandpass';
+      filt.frequency.value=this.baseFreq*ratio*rnd(1,4);
+      filt.Q.value=rnd(2,15);
+      osc.connect(filt);
+      filt.connect(gain);
+      gain.connect(masterGain);
+      osc.start();
+      this.oscs.push({osc,gain,filt,ratio,type:i});
+      this.filters.push(filt);
+    }
+    // Modal resonators
+    for(let i=0;i<6;i++){
+      const osc=audioCtx.createOscillator();
+      const gain=audioCtx.createGain();
+      osc.type='sine';
+      osc.frequency.value=this.baseFreq*this.scale[i%this.scale.length]*(rndI(1,5));
+      gain.gain.value=0;
+      osc.connect(gain);
+      gain.connect(masterGain);
+      osc.start();
+      this.modalOscs.push({osc,gain,baseFreq:osc.frequency.value});
+    }
+    this._startGrainLoop();
+  }
+  _startGrainLoop(){
+    const makeGrain=()=>{
+      if(!this.running||!audioCtx) return;
+      const osc=audioCtx.createOscillator();
+      const gain=audioCtx.createGain();
+      const filt=audioCtx.createBiquadFilter();
+      osc.type='sine';
+      const note=this.scale[rndI(0,this.scale.length-1)];
+      osc.frequency.value=this.baseFreq*note*rndI(1,4);
+      filt.type='bandpass';
+      filt.frequency.value=osc.frequency.value*rnd(0.9,1.8);
+      filt.Q.value=rnd(5,20);
+      const now=audioCtx.currentTime;
+      const dur=rnd(0.05,0.4);
+      gain.gain.setValueAtTime(0,now);
+      gain.gain.linearRampToValueAtTime(0.06,now+dur*0.1);
+      gain.gain.exponentialRampToValueAtTime(0.001,now+dur);
+      osc.connect(filt); filt.connect(gain); gain.connect(masterGain);
+      osc.start(now); osc.stop(now+dur);
+      const next=rnd(0.05,0.5);
+      this._grainTimer=setTimeout(makeGrain, next*1000);
+    };
+    makeGrain();
+  }
+  update(energy, freq, t){
+    if(!this.running||!audioCtx) return;
+    const now=audioCtx.currentTime;
+    for(const o of this.oscs){
+      const lfo=sin(t*0.3+o.ratio)*0.3+0.7;
+      o.osc.frequency.setTargetAtTime(this.baseFreq*o.ratio*(1+energy*0.01)*lfo, now, 0.1);
+      o.filt.frequency.setTargetAtTime(this.baseFreq*o.ratio*(1+energy*0.05), now, 0.2);
+    }
+    for(let i=0;i<this.modalOscs.length;i++){
+      const mo=this.modalOscs[i];
+      const v=clamp(energy*0.002*sin(t*0.5+i)*0.5,0,0.08);
+      mo.gain.gain.setTargetAtTime(v, now, 0.05);
+      mo.osc.frequency.setTargetAtTime(mo.baseFreq*(1+sin(t*0.7+i)*0.01), now, 0.15);
+    }
+  }
+  stop(){
+    this.running=false;
+    clearTimeout(this._grainTimer);
+    for(const o of this.oscs){ try{o.osc.stop();}catch(e){} }
+    for(const o of this.modalOscs){ try{o.osc.stop();}catch(e){} }
+    this.oscs=[]; this.modalOscs=[];
+  }
+}
+
+// ============================================================
+// MAIN UNIVERSE
+// ============================================================
+const STYLES=['jewel','neon','bauhaus','rococo','cyberpunk'];
+const GEOMS=['yantra','buddhist','islamic','celtic','gothic','fusion'];
+
+class Universe {
+  constructor(){
+    this.t=0;
+    this.palette=new Palette();
+    this.sym=rndI(4,12);
+    this.style=rndEl(STYLES);
+    this.geomType=rndEl(GEOMS);
+    this.bgDark=rnd(0,1)>0.3;
+
+    // Physics
+    this.nbody=new NBodySystem(rndI(4,10), R*0.6);
+    this.pendulums=[];
+    const np=rndI(1,4);
+    for(let i=0;i<np;i++) this.pendulums.push(new DoublePendulum());
+    this.springs=new SpringMassWeb(rndI(4,7), R*0.55);
+    this.vortex=new VortexField(rndI(60,150));
+    this.rdiff=Math.random()>0.5?new ReactionDiffusion():null;
+    if(this.rdiff){ for(let i=0;i<200;i++) this.rdiff.step(); }
+
+    // Layered rings config
+    this.rings=[];
+    const nr=rndI(4,9);
+    for(let i=0;i<nr;i++){
+      this.rings.push({
+        r:R*(i+1)/(nr+1),
+        speed:rnd(-0.3,0.3)*(i%2?1:-1),
+        segments:rndI(6,18),
+        phase:rnd(0,TAU),
+        type:rndEl(['arc','diamond','petal','triangle','cross','dot']),
+        lineW:rnd(0.5,3)
+      });
+    }
+
+    // Mandala arms
+    this.arms=[];
+    const na=this.sym;
+    for(let i=0;i<na;i++){
+      this.arms.push({
+        angle:(i/na)*TAU,
+        freq:rnd(0.2,1.5),
+        amp:rnd(0.1,0.4),
+        phase:rnd(0,TAU),
+        style:rndEl(['line','bezier','spiral','zigzag'])
+      });
+    }
+
+    // Audio
+    this.audio=null;
+
+    // Render offscreen for mandala symmetry
+    this.offCanvas=document.createElement('canvas');
+    this.offCanvas.width=W; this.offCanvas.height=H;
+    this.offCtx=this.offCanvas.getContext('2d');
+
+    // Tracers
+    this.tracers=[];
+    for(let i=0;i<this.sym*4;i++){
+      const a=rnd(0,TAU), r=rnd(R*0.05,R*0.75);
+      this.tracers.push({x:cos(a)*r, y:sin(a)*r, trail:[], color:rnd(0,1)});
+    }
+
+    // Rotation of whole
+    this.globalRot=0;
+    this.globalRotSpeed=rnd(-0.005,0.005);
+
+    // Zoom pulse
+    this.zoom=1;
+    this.zoomFreq=rnd(0.1,0.4);
+    this.zoomAmp=rnd(0.02,0.08);
+
+    // Energy
+    this.energy=0;
+    this.energySmooth=0;
+  }
+
+  resize(){
+    this.offCanvas.width=W; this.offCanvas.height=H;
+  }
+
+  startAudio(){
+    if(!this.audio){
+      initAudio();
+      this.audio=new AudioEngine();
+      this.audio.start();
+    }
+  }
+  stopAudio(){
+    if(this.audio){ this.audio.stop(); this.audio=null; }
+  }
+
+  step(dt){
+    this.t+=dt;
+    this.palette.tick(dt);
+    this.globalRot+=this.globalRotSpeed*dt;
+
+    // Physics steps
+    const physDt=Math.min(dt,0.033);
+    this.nbody.step(physDt);
+    for(const p of this.pendulums) p.step(physDt);
+    this.springs.step(physDt);
+    this.vortex.step(physDt, this.t);
+    if(this.rdiff && frame%3===0) this.rdiff.step();
+
+    // Energy aggregate
+    let e=this.nbody.energy()*0.001 + this.springs.energy()*10 + this.vortex.energy()*0.1;
+    for(const p of this.pendulums) e+=p.energy()*20;
+    this.energy=e;
+    this.energySmooth=lerp(this.energySmooth, e, 0.05);
+
+    // Update audio
+    if(this.audio) this.audio.update(this.energySmooth, 100+this.energySmooth*5, this.t);
+
+    // Zoom
+    this.zoom=1+sin(this.t*this.zoomFreq)*this.zoomAmp;
+  }
+
+  draw(){
+    const oc=this.offCtx;
+    oc.clearRect(0,0,W,H);
+
+    // Background
+    if(this.bgDark){
+      oc.fillStyle='rgba(0,0,0,0.15)';
+      oc.fillRect(0,0,W,H);
+    } else {
+      const bg=ctx.createRadialGradient(CX,CY,0,CX,CY,R*1.5);
+      bg.addColorStop(0, this.palette.get(this.t*0.01,0.1,0.12));
+      bg.addColorStop(1, this.palette.get(this.t*0.01+0.5,0.05,0.05));
+      oc.fillStyle=bg;
+      oc.fillRect(0,0,W,H);
+    }
+
+    oc.save();
+    oc.translate(CX,CY);
+    oc.rotate(this.globalRot);
+    oc.scale(this.zoom,this.zoom);
+
+    // Draw with radial symmetry
+    const sym=this.sym;
+    for(let s=0;s<sym;s++){
+      oc.save();
+      oc.rotate((s/sym)*TAU);
+
+      // Reaction diffusion texture layer
+      if(this.rdiff){
+        for(let xi=0;xi<20;xi++){
+          const nx=xi/20, ny=0.5;
+          const v=this.rdiff.getVal(nx,ny);
+          const r2=R*nx*0.85, a2=v*PI*2;
+          oc.beginPath();
+          oc.arc(r2,0,3+v*8,0,TAU);
+          oc.fillStyle=this.palette.get(v+this.t*0.05,1+v,0.6);
+          oc.fill();
+        }
+      }
+
+      // N-body trails
+      for(const b of this.nbody.bodies){
+        if(b.trail.length<2) continue;
+        oc.beginPath();
+        oc.moveTo(b.trail[0].x, b.trail[0].y);
+        for(let i=1;i<b.trail.length;i++){
+          oc.lineTo(b.trail[i].x, b.trail[i].y);
+        }
+        oc.strokeStyle=this.palette.get(b.mass/10+this.t*0.02, 1, 0.4+(s/sym)*0.3);
+        oc.lineWidth=0.8+s*0.05;
+        oc.stroke();
+      }
+
+      // N-body bodies
+      for(const b of this.nbody.bodies){
+        const rr=3+b.mass*2;
+        const g=oc.createRadialGradient(b.x,b.y,0,b.x,b.y,rr*3);
+        g.addColorStop(0,this.palette.get(b.mass+this.t*0.05,1.5,0.9));
+        g.addColorStop(1,'transparent');
+        oc.beginPath();
+        oc.arc(b.x,b.y,rr*3,0,TAU);
+        oc.fillStyle=g;
+        oc.fill();
+      }
+
+      // Pendulum trails
+      for(let pi=0;pi<this.pendulums.length;pi++){
+        const p=this.pendulums[pi];
+        if(p.trail.length<2) continue;
+        oc.beginPath();
+        oc.moveTo(p.trail[0].x, p.trail[0].y);
+        for(let i=1;i<p.trail.length;i++){
+          oc.lineTo(p.trail[i].x, p.trail[i].y);
+        }
+        oc.strokeStyle=this.palette.get(pi*0.25+this.t*0.03, 1.2, 0.55);
+        oc.lineWidth=1.5;
+        oc.stroke();
+        // draw rods
+        oc.beginPath();
+        oc.moveTo(0,0);
+        oc.lineTo(p.px1,p.py1);
+        oc.lineTo(p.px2,p.py2);
+        oc.strokeStyle=this.palette.get(pi*0.25+0.3+this.t*0.03,0.8,0.4);
+        oc.lineWidth=1;
+        oc.stroke();
+      }
+
+      // Spring-mass
+      for(const sp of this.springs.springs){
+        const a=this.springs.nodes[sp.a], b=this.springs.nodes[sp.b];
+        oc.beginPath();
+        oc.moveTo(a.x,a.y);
+        oc.lineTo(b.x,b.y);
+        const tension=sqrt((a.x-b.x)**2+(a.y-b.y)**2)-sp.rest;
+        oc.strokeStyle=this.palette.get(tension*0.01+this.t*0.02, 1, 0.3);
+        oc.lineWidth=0.5+abs(tension)*0.02;
+        oc.stroke();
+      }
+      for(const n of this.springs.nodes){
+        oc.beginPath();
+        oc.arc(n.x,n.y,2+n.mass,0,TAU);
+        oc.fillStyle=this.palette.get(n.mass+this.t*0.03,1.2,0.7);
+        oc.fill();
+      }
+
+      // Vortex particles
+      for(const p of this.vortex.particles){
+        const sz=1+p.age*3;
+        oc.beginPath();
+        oc.arc(p.x,p.y,sz,0,TAU);
+        oc.fillStyle=this.palette.get(p.life+this.t*0.02, 1.1, 0.5*p.age);
+        oc.fill();
+      }
+
+      // Geometric layer
+      this._drawGeom(oc, s, sym);
+
+      oc.restore();
+    }
+
+    // Rings overlay
+    this._drawRings(oc);
+
+    // Glowing center
+    const cgr=oc.createRadialGradient(0,0,0,0,0,R*0.12);
+    cgr.addColorStop(0, this.palette.get(this.t*0.1,2,1,0.9));
+    cgr.addColorStop(0.5, this.palette.get(this.t*0.1+0.3,1.5,0.7,0.4));
+    cgr.addColorStop(1,'transparent');
+    oc.beginPath();
+    oc.arc(0,0,R*0.12,0,TAU);
+    oc.fillStyle=cgr;
+    oc.fill();
+
+    // Outer glow
+    const ogr=oc.createRadialGradient(0,0,R*0.7,0,0,R*1.1);
+    ogr.addColorStop(0,'transparent');
+    ogr.addColorStop(1,'rgba(0,0,0,0.6)');
+    oc.beginPath();
+    oc.arc(0,0,R*1.1,0,TAU);
+    oc.fillStyle=ogr;
+    oc.fill();
+
+    oc.restore();
+
+    // Blit to main canvas
+    ctx.clearRect(0,0,W,H);
+    ctx.drawImage(this.offCanvas,0,0);
+
+    // Additional bloom pass (safe glow via shadow)
+    ctx.save();
+    ctx.globalCompositeOperation='screen';
+    ctx.globalAlpha=0.12;
+    ctx.shadowBlur=18;
+    ctx.shadowColor='rgba(255,255,255,0.5)';
+    ctx.drawImage(this.offCanvas,0,0);
+    ctx.globalAlpha=1;
+    ctx.shadowBlur=0;
+    ctx.restore();
+  }
+
+  _drawGeom(oc, s, sym){
+    const t=this.t;
+    const pal=this.palette;
+    switch(this.geomType){
+      case 'yantra': {
+        const layers=4;
+        for(let l=0;l<layers;l++){
+          const lr=R*(0.2+l*0.15);
+          const pts=genYantraPoints(3+l%2*2,lr,1);
+          oc.beginPath();
+          pts.forEach((p,i)=>i===0?oc.moveTo(p.x,p.y):oc.lineTo(p.x,p.y));
+          oc.closePath();
+          oc.strokeStyle=pal.get(l/layers+t*0.02+s/sym*0.3, 1, 0.6);
+          oc.lineWidth=1+l*0.3;
+          oc.stroke();
+        }
+        break;
+      }
+      case 'buddhist': {
+        drawBuddhistMandala(oc,0,0,R*0.7,t,pal,sym);
+        break;
+      }
+      case 'islamic': {
+        drawIslamicTiling(oc,0,0,R*0.8,t,pal);
+        break;
+      }
+      case 'celtic': {
+        drawCelticKnot(oc,0,0,R*0.6,t,pal,sym);
+        break;
+      }
+      case 'gothic': {
+        drawGothicRosette(oc,0,0,R*0.7,t,pal);
+        break;
+      }
+      case 'fusion': {
+        if(s%3===0) drawCelticKnot(oc,0,0,R*0.55,t,pal,sym);
+        else if(s%3===1) drawIslamicTiling(oc,0,0,R*0.6,t,pal);
+        else {
+          const pts2=genYantraPoints(4,R*0.45,3);
+          oc.beginPath();
+          pts2.forEach((p,i)=>i===0?oc.moveTo(p.x,p.y):oc.lineTo(p.x,p.y));
+          oc.closePath();
+          oc.strokeStyle=pal.get(t*0.05+s/sym,1,0.5); oc.lineWidth=1; oc.stroke();
+        }
+        break;
+      }
+    }
+
+    // Arm decorations
+    for(const arm of this.arms){
+      const r1=R*(0.1+abs(sin(t*arm.freq+arm.phase))*arm.amp);
+      const r2=r1+R*0.2;
+      oc.beginPath();
+      switch(arm.style){
+        case 'bezier':
+          oc.moveTo(r1,0);
+          oc.bezierCurveTo(r1*1.5,R*0.1, r2*0.8,R*0.08, r2, R*0.05);
+          break;
+        case 'spiral':
+          for(let i=0;i<20;i++){
+            const ai=(i/20)*PI*0.5;
+            const ri=r1+(r2-r1)*(i/20);
+            if(i===0) oc.moveTo(cos(ai)*ri,sin(ai)*ri);
+            else oc.lineTo(cos(ai)*ri,sin(ai)*ri);
+          }
+          break;
+        case 'zigzag':
+          oc.moveTo(r1,0);
+          for(let i=0;i<6;i++){
+            const zi=r1+(r2-r1)*(i/6);
+            oc.lineTo(zi, (i%2?1:-1)*R*0.05);
+          }
+          break;
+        default:
+          oc.moveTo(r1,0); oc.lineTo(r2,0);
+      }
+      oc.strokeStyle=pal.get(arm.phase+t*0.04,1,0.5);
+      oc.lineWidth=1.2;
+      oc.stroke();
+    }
+  }
+
+  _drawRings(oc){
+    oc.save();
+    const t=this.t;
+    for(const ring of this.rings){
+      const rot=ring.phase+t*ring.speed;
+      const n=ring.segments;
+      for(let i=0;i<n;i++){
+        const a=(i/n)*TAU+rot;
+        const a2=((i+1)/n)*TAU+rot;
+        const mid=(a+a2)/2;
+        oc.save();
+        oc.strokeStyle=this.palette.get(i/n+ring.phase*0.1+t*0.015, 1, 0.55);
+        oc.lineWidth=ring.lineW*(0.8+sin(t*0.5+i)*0.4);
+        switch(ring.type){
+          case 'arc':
+            oc.beginPath();
+            oc.arc(0,0,ring.r,a,a2);
+            oc.stroke();
+            break;
+          case 'diamond':
+            oc.beginPath();
+            oc.moveTo(cos(a)*ring.r*0.92, sin(a)*ring.r*0.92);
+            oc.lineTo(cos(mid)*ring.r*1.05, sin(mid)*ring.r*1.05);
+            oc.lineTo(cos(a2)*ring.r*0.92, sin(a2)*ring.r*0.92);
+            oc.lineTo(cos(mid)*ring.r*0.87, sin(mid)*ring.r*0.87);
+            oc.closePath();
+            oc.stroke();
+            break;
+          case 'petal':
+            oc.beginPath();
+            oc.moveTo(cos(a)*ring.r, sin(a)*ring.r);
+            oc.quadraticCurveTo(cos(mid)*ring.r*1.15, sin(mid)*ring.r*1.15, cos(a2)*ring.r, sin(a2)*ring.r);
+            oc.stroke();
+            break;
+          case 'triangle':
+            oc.beginPath();
+            oc.moveTo(cos(a)*ring.r, sin(a)*ring.r);
+            oc.lineTo(cos(mid)*ring.r*1.1, sin(mid)*ring.r*1.1);
+            oc.lineTo(cos(a2)*ring.r, sin(a2)*ring.r);
+            oc.stroke();
+            break;
+          case 'cross':
+            oc.beginPath();
+            oc.moveTo(cos(a)*ring.r, sin(a)*ring.r);
+            oc.lineTo(cos(a2)*ring.r, sin(a2)*ring.r);
+            oc.moveTo(cos(mid)*ring.r*0.88, sin(mid)*ring.r*0.88);
+            oc.lineTo(cos(mid)*ring.r*1.12, sin(mid)*ring.r*1.12);
+            oc.stroke();
+            break;
+          case 'dot':
+            oc.beginPath();
+            oc.arc(cos(mid)*ring.r, sin(mid)*ring.r, 3+ring.lineW, 0, TAU);
+            oc.fillStyle=this.palette.get(i/n+t*0.02, 1.2, 0.7);
+            oc.fill();
+            break;
+        }
+        oc.restore();
+      }
+    }
+    oc.restore();
+  }
+
+  getInfo(){
+    return {
+      style: this.style,
+      geom: this.geomType,
+      sym: this.sym,
+      palette: this.palette.mode,
+      nbodies: this.nbody.n,
+      pendulums: this.pendulums.length,
+      energy: this.energySmooth.toFixed(1)
+    };
+  }
+}
+
+// ============================================================
+// MAIN LOOP
+// ============================================================
+function createUniverse(){
+  if(universe){
+    if(soundEnabled) universe.stopAudio();
+  }
+  universe = new Universe();
+  if(soundEnabled){
+    universe.startAudio();
+  }
+  frame=0;
+  // Flash
+  flash.style.opacity='0.7';
+  setTimeout(()=>flash.style.opacity='0',100);
+}
+
+function updateHUD(){
+  if(!hudVisible || !universe) return;
+  const info=universe.getInfo();
+  hudInner.innerHTML=
+    `<span style="color:#0ff;opacity:0.9">COSMIC MANDALA SIMULATOR</span><br>` +
+    `─────────────────────────<br>` +
+    `STYLE &nbsp;&nbsp;: ${info.style.toUpperCase()}<br>` +
+    `GEOM &nbsp;&nbsp;: ${info.geom.toUpperCase()}<br>` +
+    `SYMMETRY: ${info.sym}-FOLD<br>` +
+    `PALETTE : ${info.palette.toUpperCase()}<br>` +
+    `N-BODIES: ${info.nbodies}<br>` +
+    `PENDULUM: ${info.pendulums}<br>` +
+    `ENERGY &nbsp;: ${info.energy}<br>` +
+    `FPS &nbsp;&nbsp;&nbsp;: ${fps.toFixed(0)}<br>` +
+    `SOUND &nbsp;: ${soundEnabled?'ON':'OFF'}`;
+  hudCorner.innerHTML=
+    `SPACE/TAP · NEW UNIVERSE<br>H · TOGGLE HUD<br>S · TOGGLE SOUND`;
+}
+
+let lastFpsTime=0, fpsCount=0;
+function loop(ts){
+  animId=requestAnimationFrame(loop);
+  const dt=Math.min((ts-lastTime)/1000, 0.05);
+  lastTime=ts;
+  fpsCount++;
+  if(ts-lastFpsTime>1000){ fps=fpsCount; fpsCount=0; lastFpsTime=ts; }
+  if(universe){
+    universe.step(dt);
+    universe.draw();
+    if(hudVisible) updateHUD();
+  }
+  frame++;
+}
+
+// ============================================================
+// INPUT
+// ============================================================
+window.addEventListener('keydown', e=>{
+  if(e.key===' '||e.key==='Enter'){
+    e.preventDefault();
+    createUniverse();
+  } else if(e.key==='h'||e.key==='H'){
+    hudVisible=!hudVisible;
+    hud.style.display=hudVisible?'block':'none';
+    if(hudVisible) updateHUD();
+  } else if(e.key==='s'||e.key==='S'){
+    soundEnabled=!soundEnabled;
+    if(soundEnabled){
+      initAudio();
+      if(universe) universe.startAudio();
+    } else {
+      if(universe) universe.stopAudio();
+    }
+    // brief tip
+    tip.style.opacity='1';
+    tip.textContent=`SOUND ${soundEnabled?'ON ♪':'OFF ×'}`;
+    setTimeout(()=>{tip.style.opacity='0';},2000);
+  }
+});
+
+canvas.addEventListener('click', ()=>createUniverse());
+canvas.addEventListener('touchstart', e=>{e.preventDefault();createUniverse();},{passive:false});
+
+// Fade tip
+setTimeout(()=>tip.style.opacity='0', 4000);
+
+// ============================================================
+// START
+// ============================================================
+resize();
+createUniverse();
+lastTime=performance.now();
+loop(performance.now());
+</script>
+</body>
+</html>

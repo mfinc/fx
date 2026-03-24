@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Category Theory Cyber Arcade Cosmos – Generative Tron Atari Vector Engine</title>
+
+<meta name="description" content="Generative Tron art engine combining Atari vector arcade aesthetics with cybernetic CRISPR evolution and category theory morphism diagrams. High-performance browser generative simulation with fractal mathematics, particle fields, neon spectral gradients and procedural arcade audio.">
+<meta name="keywords" content="generative Tron art, Atari vector graphics, CRISPR cyber evolution, category theory morphisms visualization, generative browser engine, neon fractal simulation, arcade generative art">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+
+<style>
+html,body{
+margin:0;
+padding:0;
+background:#000;
+overflow:hidden;
+font-family:monospace;
+}
+canvas{
+display:block;
+}
+#hud{
+position:fixed;
+left:10px;
+top:10px;
+color:#0ff;
+font-size:12px;
+pointer-events:none;
+opacity:.8;
+}
+</style>
+</head>
+
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+
+<script>
+const canvas=document.getElementById("c")
+const ctx=canvas.getContext("2d",{alpha:false})
+
+let W,H
+function resize(){
+W=canvas.width=window.innerWidth
+H=canvas.height=window.innerHeight
+}
+window.addEventListener("resize",resize)
+resize()
+
+/* ------------------ RANDOM UTILS ------------------ */
+
+const R=()=>Math.random()
+const TAU=Math.PI*2
+
+/* ------------------ GLOBAL STATE ------------------ */
+
+let nodes=[]
+let edges=[]
+let particles=[]
+let t=0
+
+let hudVisible=false
+let soundOn=false
+
+const hud=document.getElementById("hud")
+
+/* ------------------ AUDIO ------------------ */
+
+let audioCtx=null
+let osc,filter,gain
+
+function initAudio(){
+if(audioCtx) return
+audioCtx=new (window.AudioContext||window.webkitAudioContext)()
+
+osc=audioCtx.createOscillator()
+filter=audioCtx.createBiquadFilter()
+gain=audioCtx.createGain()
+
+osc.type="sawtooth"
+filter.type="lowpass"
+
+osc.connect(filter)
+filter.connect(gain)
+gain.connect(audioCtx.destination)
+
+gain.gain.value=0
+
+osc.start()
+}
+
+function updateAudio(){
+if(!soundOn||!audioCtx) return
+
+let energy=particles.length*0.0005 + nodes.length*0.001
+let freq=120 + energy*2000 + Math.sin(t*0.5)*80
+
+osc.frequency.value=freq
+filter.frequency.value=400 + energy*2000
+gain.gain.value=0.05
+}
+
+/* ------------------ PALETTE ------------------ */
+
+let palette=[]
+let hueShift=0
+
+function newPalette(){
+palette=[]
+let base=R()*360
+for(let i=0;i<6;i++){
+palette.push(`hsl(${(base+i*40)%360},100%,60%)`)
+}
+}
+
+/* ------------------ GRAPH GENERATION ------------------ */
+
+function generateGraph(){
+
+nodes=[]
+edges=[]
+particles=[]
+
+let n=80+Math.floor(R()*60)
+
+for(let i=0;i<n;i++){
+nodes.push({
+x:R()*W,
+y:R()*H,
+vx:(R()-0.5)*0.5,
+vy:(R()-0.5)*0.5
+})
+}
+
+for(let i=0;i<n*1.8;i++){
+let a=Math.floor(R()*nodes.length)
+let b=Math.floor(R()*nodes.length)
+if(a!==b) edges.push([a,b])
+}
+
+/* particles */
+
+let pcount=300
+
+for(let i=0;i<pcount;i++){
+particles.push({
+x:R()*W,
+y:R()*H,
+vx:(R()-0.5)*1,
+vy:(R()-0.5)*1
+})
+}
+
+}
+
+/* ------------------ VECTOR FIELD ------------------ */
+
+function field(x,y){
+let s=Math.sin(x*0.002 + t*0.3)
+let c=Math.cos(y*0.002 - t*0.2)
+return{
+x:c*0.6,
+y:s*0.6
+}
+}
+
+/* ------------------ FRACTAL DRAW ------------------ */
+
+function fractal(x,y,a,depth){
+if(depth<=0) return
+
+let len=20*depth
+
+let x2=x+Math.cos(a)*len
+let y2=y+Math.sin(a)*len
+
+ctx.beginPath()
+ctx.moveTo(x,y)
+ctx.lineTo(x2,y2)
+ctx.stroke()
+
+fractal(x2,y2,a+0.6,depth-1)
+fractal(x2,y2,a-0.6,depth-1)
+}
+
+/* ------------------ UPDATE ------------------ */
+
+function update(){
+
+t+=0.016
+hueShift+=0.1
+
+/* nodes drift */
+
+for(let n of nodes){
+
+let f=field(n.x,n.y)
+
+n.vx+=f.x*0.01
+n.vy+=f.y*0.01
+
+n.x+=n.vx
+n.y+=n.vy
+
+if(n.x<0)n.x+=W
+if(n.y<0)n.y+=H
+if(n.x>W)n.x-=W
+if(n.y>H)n.y-=H
+}
+
+/* particles */
+
+for(let p of particles){
+
+let f=field(p.x,p.y)
+
+p.vx+=f.x*0.05
+p.vy+=f.y*0.05
+
+p.x+=p.vx
+p.y+=p.vy
+
+p.vx*=0.98
+p.vy*=0.98
+
+if(p.x<0)p.x+=W
+if(p.y<0)p.y+=H
+if(p.x>W)p.x-=W
+if(p.y>H)p.y-=H
+}
+
+}
+
+/* ------------------ DRAW ------------------ */
+
+function draw(){
+
+ctx.fillStyle="rgba(0,0,0,0.2)"
+ctx.fillRect(0,0,W,H)
+
+/* neon gradient */
+
+let grad=ctx.createLinearGradient(0,0,W,H)
+grad.addColorStop(0,`hsl(${(hueShift)%360},100%,50%)`)
+grad.addColorStop(1,`hsl(${(hueShift+120)%360},100%,50%)`)
+
+ctx.strokeStyle=grad
+ctx.lineWidth=1
+
+/* edges (morphisms) */
+
+ctx.globalAlpha=0.6
+for(let e of edges){
+
+let a=nodes[e[0]]
+let b=nodes[e[1]]
+
+ctx.beginPath()
+ctx.moveTo(a.x,a.y)
+ctx.lineTo(b.x,b.y)
+ctx.stroke()
+}
+
+/* nodes */
+
+ctx.globalAlpha=1
+for(let n of nodes){
+
+ctx.beginPath()
+ctx.arc(n.x,n.y,2,0,TAU)
+ctx.fillStyle=palette[(Math.floor(n.x+n.y)%palette.length)]
+ctx.fill()
+
+/* fractal growth */
+
+fractal(n.x,n.y,(n.x+n.y)*0.01,3)
+
+}
+
+/* particles */
+
+ctx.globalAlpha=0.7
+for(let p of particles){
+
+ctx.beginPath()
+ctx.arc(p.x,p.y,1.2,0,TAU)
+ctx.fillStyle=`hsl(${(hueShift+p.x*0.1)%360},100%,60%)`
+ctx.fill()
+
+}
+
+/* HUD */
+
+if(hudVisible){
+hud.innerHTML=
+"CYBER ARCADE COSMOS<br>"+
+"nodes:"+nodes.length+
+"<br>edges:"+edges.length+
+"<br>particles:"+particles.length+
+"<br>sound:"+soundOn
+}else{
+hud.innerHTML=""
+}
+
+}
+
+/* ------------------ LOOP ------------------ */
+
+function loop(){
+update()
+draw()
+updateAudio()
+requestAnimationFrame(loop)
+}
+
+/* ------------------ INPUT ------------------ */
+
+function regenerate(){
+newPalette()
+generateGraph()
+}
+
+window.addEventListener("keydown",e=>{
+
+if(e.code==="Space"){
+regenerate()
+}
+
+if(e.key==="h"||e.key==="H"){
+hudVisible=!hudVisible
+}
+
+if(e.key==="s"||e.key==="S"){
+
+soundOn=!soundOn
+
+if(soundOn){
+initAudio()
+audioCtx.resume()
+}else{
+if(gain) gain.gain.value=0
+}
+
+}
+
+})
+
+canvas.addEventListener("click",regenerate)
+canvas.addEventListener("touchstart",regenerate)
+
+/* ------------------ START ------------------ */
+
+newPalette()
+generateGraph()
+loop()
+
+</script>
+</body>
+</html>
