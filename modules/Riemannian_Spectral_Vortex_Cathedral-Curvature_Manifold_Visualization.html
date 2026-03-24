@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Riemannian Spectral Vortex Cathedral — Curvature Manifold Visualization</title>
+<meta name="description" content="Interactive visualization of Riemannian manifold curvature via Ricci tensor flow heuristics, complex analytic phase portraits, signed distance field ray marching, and kaleidoscopic symmetry folding with dynamic harmonic spectral palettes.">
+<meta name="keywords" content="Riemannian geometry, spectral visualization, vortex, manifold curvature, Ricci flow, phase portrait, SDF ray marching, kaleidoscope, generative art">
+<meta property="og:title" content="Riemannian Spectral Vortex Cathedral">
+<meta property="og:description" content="GPU-efficient generative art derived from Riemannian manifold curvature simulations, Ricci tensor flow, spectral decomposition, and kaleidoscopic symmetry folding.">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Courier New',monospace}
+  canvas{display:block;width:100%;height:100%}
+  #hud{
+    position:fixed;top:0;left:0;right:0;padding:12px 16px;
+    background:linear-gradient(180deg,rgba(0,0,0,.7) 0%,transparent 100%);
+    color:rgba(255,255,255,.85);font-size:11px;letter-spacing:.08em;
+    pointer-events:none;opacity:0;transition:opacity .4s;z-index:10;
+    display:flex;flex-direction:column;gap:4px;
+  }
+  #hud.visible{opacity:1}
+  #hud .title{font-size:14px;font-weight:700;letter-spacing:.2em;color:rgba(255,220,120,.95);text-transform:uppercase}
+  #hud .row{display:flex;gap:20px;flex-wrap:wrap}
+  #hud .val{opacity:.75}
+  #hud .key{color:rgba(160,220,255,.9)}
+  #hint{
+    position:fixed;bottom:16px;left:50%;transform:translateX(-50%);
+    color:rgba(255,255,255,.35);font-size:10px;letter-spacing:.15em;
+    pointer-events:none;text-align:center;z-index:10;
+    animation:fadeHint 6s ease forwards;
+  }
+  @keyframes fadeHint{0%{opacity:0}10%{opacity:1}70%{opacity:1}100%{opacity:0}}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div class="title">Riemannian Spectral Vortex Cathedral</div>
+  <div class="row">
+    <span><span class="key">TEMPO</span> <span class="val" id="h-tempo"></span></span>
+    <span><span class="key">SYMM</span> <span class="val" id="h-symm"></span></span>
+    <span><span class="key">CURV</span> <span class="val" id="h-curv"></span></span>
+    <span><span class="key">LATTICE</span> <span class="val" id="h-lat"></span></span>
+    <span><span class="key">HARMONICS</span> <span class="val" id="h-harm"></span></span>
+  </div>
+  <div class="row">
+    <span><span class="key">PALETTE</span> <span class="val" id="h-pal"></span></span>
+    <span><span class="key">RICCI λ</span> <span class="val" id="h-ricci"></span></span>
+    <span><span class="key">SOUND</span> <span class="val" id="h-snd"></span></span>
+  </div>
+  <div class="row" style="margin-top:4px;opacity:.5;font-size:9px">
+    SPACE/CLICK randomize · H toggle HUD · S toggle sound
+  </div>
+</div>
+<div id="hint">SPACE or CLICK to randomize · H for HUD · S for sound</div>
+
+<script>
+"use strict";
+// ─────────────────────────────────────────────────────────────────────────────
+//  RIEMANNIAN SPECTRAL VORTEX CATHEDRAL
+//  All math runs on CPU via WebGL2 fragment shader.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const canvas = document.getElementById('c');
+const hud = document.getElementById('hud');
+
+// ── WebGL Setup ──────────────────────────────────────────────────────────────
+let gl = canvas.getContext('webgl2', {antialias:false,powerPreference:'high-performance'});
+if(!gl) gl = canvas.getContext('webgl', {antialias:false});
+
+// ── State ────────────────────────────────────────────────────────────────────
+let hudVisible = false;
+let soundOn = false;
+let audioCtx = null;
+let oscillators = [];
+let W=0, H=0, t=0, lastRaf=0;
+
+// ── Randomizable Parameters ──────────────────────────────────────────────────
+let P = {};
+function randomize() {
+  P = {
+    // Ricci tensor / curvature coefficients
+    ricci: Array.from({length:6}, () => (Math.random()*2-1)*1.5),
+    ricciLambda: Math.random()*2+0.3,
+    
+    // Lattice seeds (root lattice inspired)
+    latSeed: Array.from({length:4}, () => Math.random()*6.28),
+    latScale: Math.random()*1.5+0.5,
+    latType: Math.floor(Math.random()*4), // 0=A2,1=D4,2=E6,3=E8 heuristic
+    
+    // Harmonic expansion (Fourier)
+    harmonics: Array.from({length:8}, () => Math.random()*2-1),
+    harmPhase: Array.from({length:8}, () => Math.random()*6.28),
+    harmFreqs: Array.from({length:8}, () => Math.floor(Math.random()*7)+1),
+    
+    // Symmetry
+    symmOrder: Math.floor(Math.random()*9)+3,
+    symmTwist: (Math.random()*2-1)*0.8,
+    
+    // Spectral palette
+    palHue: Math.random()*360,
+    palSpread: Math.random()*180+60,
+    palSat: Math.random()*0.4+0.6,
+    palMode: Math.floor(Math.random()*3),
+    
+    // Vortex / SDF
+    vortexCount: Math.floor(Math.random()*4)+2,
+    vortexAngles: Array.from({length:6}, () => Math.random()*6.28),
+    vortexStrength: Array.from({length:6}, () => (Math.random()*2-1)*2),
+    sdfPoly: Math.floor(Math.random()*5)+3,
+    sdfTwist: (Math.random()-0.5)*4,
+    
+    // Phase portrait / Z-transform
+    phaseA: (Math.random()*2-1)*2,
+    phaseB: (Math.random()*2-1)*2,
+    phaseC: (Math.random()*2-1)*2,
+    zTransAlpha: Math.random()*0.8+0.1,
+    
+    // Gaussian / convolution params
+    gaussSigma: Math.random()*0.5+0.1,
+    
+    // Animation tempo
+    tempo: Math.random()*0.8+0.2,
+    tempoPhase: Math.random()*6.28,
+    
+    // Oscillator coupling (for sound)
+    eigenFreqs: Array.from({length:4}, () => 55*Math.pow(2, Math.floor(Math.random()*24)/12)),
+    fmRatio: Math.random()*4+0.5,
+    fmDepth: Math.random()*200+50,
+  };
+  if(soundOn) updateOscillators();
+  updateHUD();
+}
+
+// ── GLSL Shader Sources ───────────────────────────────────────────────────────
+const vert = `
+attribute vec2 a_pos;
+void main(){gl_Position=vec4(a_pos,0,1);}
+`;
+
+const frag = `
+precision highp float;
+
+uniform vec2 u_res;
+uniform float u_t;
+uniform float u_tempo;
+uniform float u_tempoPhase;
+
+// Ricci
+uniform float u_ricci[6];
+uniform float u_ricciLambda;
+
+// Lattice
+uniform float u_latSeed[4];
+uniform float u_latScale;
+uniform int u_latType;
+
+// Harmonics
+uniform float u_harmonics[8];
+uniform float u_harmPhase[8];
+uniform float u_harmFreqs[8];
+
+// Symmetry
+uniform int u_symmOrder;
+uniform float u_symmTwist;
+
+// Palette
+uniform float u_palHue;
+uniform float u_palSpread;
+uniform float u_palSat;
+uniform int u_palMode;
+
+// Vortex / SDF
+uniform int u_vortexCount;
+uniform float u_vortexAngles[6];
+uniform float u_vortexStrength[6];
+uniform int u_sdfPoly;
+uniform float u_sdfTwist;
+
+// Phase / Z
+uniform float u_phaseA;
+uniform float u_phaseB;
+uniform float u_phaseC;
+uniform float u_zTransAlpha;
+
+// Gaussian
+uniform float u_gaussSigma;
+
+// ── Math helpers ──────────────────────────────────────────────────────────────
+#define PI 3.14159265358979
+#define TAU 6.28318530717959
+
+vec2 cMul(vec2 a, vec2 b){return vec2(a.x*b.x-a.y*b.y, a.x*b.y+a.y*b.x);}
+vec2 cDiv(vec2 a, vec2 b){float d=dot(b,b)+1e-9;return vec2(dot(a,b),a.y*b.x-a.x*b.y)/d;}
+vec2 cExp(vec2 z){return exp(z.x)*vec2(cos(z.y),sin(z.y));}
+vec2 cLog(vec2 z){return vec2(log(length(z)+1e-9),atan(z.y,z.x));}
+vec2 cPow(vec2 z, float n){float r=pow(length(z)+1e-9,n);float a=atan(z.y,z.x)*n;return r*vec2(cos(a),sin(a));}
+float _cosh(float x){return (exp(x)+exp(-x))*0.5;}
+float _sinh(float x){return (exp(x)-exp(-x))*0.5;}
+vec2 cSin(vec2 z){return vec2(sin(z.x)*_cosh(z.y),cos(z.x)*_sinh(z.y));}
+
+float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+float hash1(float f){return fract(sin(f*127.1)*43758.5453);}
+float noise(vec2 p){
+  vec2 i=floor(p);vec2 f=fract(p);
+  vec2 u=f*f*(3.-2.*f);
+  return mix(mix(hash(i),hash(i+vec2(1,0)),u.x),
+             mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),u.x),u.y);
+}
+
+// ── Riemann curvature heuristic ───────────────────────────────────────────────
+// Approximate Ricci scalar from 6 tensor components + Einstein summation heuristic
+float ricciScalar(vec2 p, float t2){
+  // Simulate metric perturbation via oscillating Fourier modes
+  float g00 = 1.0 + u_ricci[0]*sin(p.x*2.+t2*0.3)*cos(p.y*1.7+t2*0.2);
+  float g11 = 1.0 + u_ricci[1]*cos(p.x*1.3+t2*0.25)*sin(p.y*2.1+t2*0.15);
+  float g01 = u_ricci[2]*sin((p.x+p.y)*1.5+t2*0.35);
+  // Christoffel-like corrections
+  float R = u_ricciLambda*(g00+g11+2.*g01*g01/(g00*g11+0.01));
+  R += u_ricci[3]*sin(length(p)*3.+t2*0.4);
+  R += u_ricci[4]*cos(atan(p.y,p.x)*3.+t2*0.28);
+  R += u_ricci[5]*sin(p.x*p.y*0.5+t2*0.18);
+  return R;
+}
+
+// ── Laplace / Z-transform spectral decomposition ─────────────────────────────
+float spectralZ(vec2 p, float t2){
+  // Z-transform: sum_{k} alpha^k * f(p - k*delta)
+  float acc=0.;
+  float alpha=u_zTransAlpha;
+  float ak=1.;
+  for(int k=0;k<8;k++){
+    float fk=float(k);
+    vec2 pk=p - fk*vec2(0.07,0.05);
+    acc += ak * sin(length(pk)*4.+t2*0.3+fk*0.8);
+    ak *= alpha;
+  }
+  // Laplace: Gaussian-weighted integral approximation
+  float lap=0.;
+  float sg=u_gaussSigma+0.05;
+  for(int i=-2;i<=2;i++){
+    for(int j=-2;j<=2;j++){
+      vec2 d=vec2(float(i),float(j))*sg*0.4;
+      float w=exp(-dot(d,d)/(2.*sg*sg));
+      lap+=w*sin(dot(p+d,vec2(3.1,2.7))+t2*0.22);
+    }
+  }
+  return acc*0.5 + lap*0.08;
+}
+
+// ── Harmonic Fourier expansion ─────────────────────────────────────────────
+float fourierField(vec2 p, float t2){
+  float v=0.;
+  for(int i=0;i<8;i++){
+    float fi=u_harmFreqs[i];
+    float phase=u_harmPhase[i]+t2*(0.1+float(i)*0.03);
+    v += u_harmonics[i]*sin(fi*(p.x+p.y)*1.2+phase);
+    v += u_harmonics[i]*cos(fi*(p.x-p.y)*0.9+phase*0.7);
+  }
+  return v*0.125;
+}
+
+// ── Root lattice heuristic (A2/D4/E6/E8 inspired) ─────────────────────────
+float latticeSDF(vec2 p, float t2){
+  vec2 lp=p*u_latScale;
+  float v=0.;
+  if(u_latType==0){
+    // A2: triangular lattice
+    vec2 a1=vec2(1.,0.);
+    vec2 a2=vec2(0.5,0.866);
+    float d1=abs(fract(dot(lp,a1)+u_latSeed[0]+t2*0.05)-0.5);
+    float d2=abs(fract(dot(lp,a2)+u_latSeed[1]+t2*0.04)-0.5);
+    float d3=abs(fract(dot(lp,a1-a2)+u_latSeed[2]+t2*0.06)-0.5);
+    v=min(min(d1,d2),d3);
+  } else if(u_latType==1){
+    // D4: checkerboard-like
+    vec2 b1=vec2(1.,1.);vec2 b2=vec2(1.,-1.);
+    float d1=abs(fract(dot(lp,b1)*0.5+u_latSeed[0]+t2*0.04)-0.5);
+    float d2=abs(fract(dot(lp,b2)*0.5+u_latSeed[1]+t2*0.05)-0.5);
+    v=min(d1,d2)*2.;
+  } else if(u_latType==2){
+    // E6 heuristic: hexagonal + rotation
+    for(int k=0;k<6;k++){
+      float ang=float(k)*PI/3.+u_latSeed[0]+t2*0.03;
+      vec2 dir=vec2(cos(ang),sin(ang));
+      v+=abs(fract(dot(lp,dir)+u_latSeed[int(mod(float(k),4.))]+t2*0.035)-0.5);
+    }
+    v/=6.;
+  } else {
+    // E8 heuristic: 8 directions
+    for(int k=0;k<8;k++){
+      float ang=float(k)*PI*0.25+u_latSeed[int(mod(float(k),4.))]+t2*0.025;
+      vec2 dir=vec2(cos(ang),sin(ang));
+      v+=abs(fract(dot(lp,dir)*1.2+t2*0.03)-0.5);
+    }
+    v/=8.;
+  }
+  return v;
+}
+
+// ── Complex analytic phase portrait ─────────────────────────────────────────
+float phasePortrait(vec2 p, float t2){
+  // f(z) = z^3 + a*z^2 + b*z + c (evolving coefficients)
+  vec2 z=p;
+  float ta=sin(t2*0.17)*u_phaseA;
+  float tb=cos(t2*0.13)*u_phaseB;
+  float tc=sin(t2*0.11+0.5)*u_phaseC;
+  vec2 fz = cPow(z,3.) 
+           + cMul(vec2(ta,0.),cPow(z,2.))
+           + cMul(vec2(tb,tc),z);
+  // Newton iteration step for coloring
+  vec2 fpz = 3.*cPow(z,2.) + 2.*vec2(ta,0.)*z + vec2(tb,tc);
+  vec2 nr = cDiv(fz, fpz+vec2(1e-6,0.));
+  return atan(nr.y,nr.x)/TAU + 0.5;
+}
+
+// ── SDF ray march: twisted polygon (higher-dim polytope inspired) ──────────
+float sdfPolyTwist(vec2 p, float t2){
+  float n=float(u_sdfPoly);
+  float twist=u_sdfTwist*length(p);
+  float ang=atan(p.y,p.x)+twist+t2*0.08;
+  float r=length(p);
+  // Polygon SDF
+  float sector=TAU/n;
+  float a=mod(ang,sector)-sector*0.5;
+  // Warp with vortex field
+  float vWarp=0.;
+  for(int i=0;i<6;i++){
+    if(i>=u_vortexCount) break;
+    float va=u_vortexAngles[i]+t2*(0.05+float(i)*0.012);
+    vec2 vdir=vec2(cos(va),sin(va));
+    float dist=dot(p,vdir);
+    vWarp+=u_vortexStrength[i]*sin(dist*3.+t2*0.2+float(i)*1.3);
+  }
+  float polyR=cos(a)/(cos(sector*0.5)+1e-6);
+  return (r/(polyR+0.3) - 1.0 + vWarp*0.15);
+}
+
+// ── Kaleidoscopic symmetry folding ──────────────────────────────────────────
+vec2 kaleidofold(vec2 p, float t2){
+  float n=float(u_symmOrder);
+  float ang=atan(p.y,p.x);
+  float r=length(p);
+  // Modular fold
+  float sector=TAU/n;
+  ang=mod(ang+u_symmTwist*t2*0.05,sector);
+  // Mirror within sector
+  ang=abs(ang-sector*0.5);
+  // Barycentric-inspired secondary fold
+  float subSector=sector*0.5;
+  ang=mod(ang,subSector);
+  ang=abs(ang-subSector*0.5);
+  return vec2(cos(ang),sin(ang))*r;
+}
+
+// ── HSV to RGB ───────────────────────────────────────────────────────────────
+vec3 hsv2rgb(vec3 c){
+  vec4 K=vec4(1.,2./3.,1./3.,3.);
+  vec3 p=abs(fract(c.xxx+K.xyz)*6.-K.www);
+  return c.z*mix(K.xxx,clamp(p-K.xxx,0.,1.),c.y);
+}
+
+// ── Dynamic spectral palette ─────────────────────────────────────────────────
+vec3 palette(float v, float t2){
+  float hue=(u_palHue/360. + v*u_palSpread/360. + t2*0.03);
+  float sat=u_palSat + 0.15*sin(t2*0.07+v*TAU);
+  float val=0.5+0.5*sin(v*TAU*2.+t2*0.1);
+  
+  if(u_palMode==1){
+    // Complementary
+    hue+=0.5*step(0.5,v);
+    val=0.4+0.6*val;
+  } else if(u_palMode==2){
+    // Triadic
+    hue+=floor(v*3.)/3.;
+    sat=0.9;
+  }
+  return hsv2rgb(vec3(fract(hue),clamp(sat,0.,1.),clamp(val,0.,1.)));
+}
+
+// ── Main ─────────────────────────────────────────────────────────────────────
+void main(){
+  vec2 uv=(gl_FragCoord.xy-u_res*0.5)/min(u_res.x,u_res.y);
+  float t2=u_t*u_tempo+u_tempoPhase;
+  
+  // Kaleidoscopic fold
+  vec2 kp=kaleidofold(uv*2.,t2);
+  
+  // Layer 1: Ricci curvature field
+  float ricci=ricciScalar(kp,t2);
+  
+  // Layer 2: Spectral Z-transform
+  float spec=spectralZ(kp,t2);
+  
+  // Layer 3: Fourier harmonic expansion
+  float harm=fourierField(kp,t2);
+  
+  // Layer 4: Root lattice
+  float lat=latticeSDF(kp,t2);
+  
+  // Layer 5: Phase portrait angle
+  float phase=phasePortrait(kp*0.7,t2);
+  
+  // Layer 6: SDF polytope / vortex
+  float sdf=sdfPolyTwist(kp,t2);
+  
+  // Composite signal
+  float sig = ricci*0.22 + spec*0.18 + harm*0.15 + (1.-lat)*0.2 + phase*0.15 + sin(sdf*PI)*0.1;
+  sig = fract(sig*0.5+0.5);
+  
+  // Secondary fold: gradient band vortex
+  float bands=sin(sig*TAU*6.+t2*0.15)*0.5+0.5;
+  float bands2=sin(sig*TAU*3.+t2*0.22+ricci*0.5)*0.5+0.5;
+  float v=mix(bands,bands2,0.5+0.5*sin(t2*0.09));
+  
+  // Cathedral arch: radial vignette structure
+  float r=length(uv);
+  float arch=sin(r*TAU*2.+t2*0.12)*0.15;
+  v=fract(v+arch);
+  
+  // Colourize
+  vec3 col=palette(v,t2);
+  
+  // Spectral shimmer overlay
+  float shimmer=sin(sig*TAU*12.+t2*0.4)*0.07;
+  col=clamp(col+shimmer,0.,1.);
+  
+  // Vignette
+  float vig=1.-smoothstep(0.5,1.4,r);
+  col*=vig;
+  
+  // Gamma
+  col=pow(col,vec3(0.88));
+  
+  gl_FragColor=vec4(col,1.);
+}
+`;
+
+// ── Compile Shader ───────────────────────────────────────────────────────────
+function compileShader(gl, src, type) {
+  const sh = gl.createShader(type);
+  gl.shaderSource(sh, src);
+  gl.compileShader(sh);
+  if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS))
+    console.error(gl.getShaderInfoLog(sh));
+  return sh;
+}
+
+const program = gl.createProgram();
+gl.attachShader(program, compileShader(gl, vert, gl.VERTEX_SHADER));
+gl.attachShader(program, compileShader(gl, frag, gl.FRAGMENT_SHADER));
+gl.linkProgram(program);
+gl.useProgram(program);
+
+// Quad
+const buf = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,1,1]), gl.STATIC_DRAW);
+const aPos = gl.getAttribLocation(program, 'a_pos');
+gl.enableVertexAttribArray(aPos);
+gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+// Uniform locations
+const U = {};
+['u_res','u_t','u_tempo','u_tempoPhase',
+ 'u_ricci','u_ricciLambda',
+ 'u_latSeed','u_latScale','u_latType',
+ 'u_harmonics','u_harmPhase','u_harmFreqs',
+ 'u_symmOrder','u_symmTwist',
+ 'u_palHue','u_palSpread','u_palSat','u_palMode',
+ 'u_vortexCount','u_vortexAngles','u_vortexStrength','u_sdfPoly','u_sdfTwist',
+ 'u_phaseA','u_phaseB','u_phaseC','u_zTransAlpha',
+ 'u_gaussSigma'
+].forEach(n => U[n] = gl.getUniformLocation(program, n));
+
+function setUniforms() {
+  const p = P;
+  gl.uniform2f(U.u_res, W, H);
+  gl.uniform1f(U.u_t, t);
+  gl.uniform1f(U.u_tempo, p.tempo);
+  gl.uniform1f(U.u_tempoPhase, p.tempoPhase);
+  gl.uniform1fv(U.u_ricci, p.ricci);
+  gl.uniform1f(U.u_ricciLambda, p.ricciLambda);
+  gl.uniform1fv(U.u_latSeed, p.latSeed);
+  gl.uniform1f(U.u_latScale, p.latScale);
+  gl.uniform1i(U.u_latType, p.latType);
+  gl.uniform1fv(U.u_harmonics, p.harmonics);
+  gl.uniform1fv(U.u_harmPhase, p.harmPhase);
+  gl.uniform1fv(U.u_harmFreqs, p.harmFreqs.map(Number));
+  gl.uniform1i(U.u_symmOrder, p.symmOrder);
+  gl.uniform1f(U.u_symmTwist, p.symmTwist);
+  gl.uniform1f(U.u_palHue, p.palHue);
+  gl.uniform1f(U.u_palSpread, p.palSpread);
+  gl.uniform1f(U.u_palSat, p.palSat);
+  gl.uniform1i(U.u_palMode, p.palMode);
+  gl.uniform1i(U.u_vortexCount, p.vortexCount);
+  gl.uniform1fv(U.u_vortexAngles, p.vortexAngles);
+  gl.uniform1fv(U.u_vortexStrength, p.vortexStrength);
+  gl.uniform1i(U.u_sdfPoly, p.sdfPoly);
+  gl.uniform1f(U.u_sdfTwist, p.sdfTwist);
+  gl.uniform1f(U.u_phaseA, p.phaseA);
+  gl.uniform1f(U.u_phaseB, p.phaseB);
+  gl.uniform1f(U.u_phaseC, p.phaseC);
+  gl.uniform1f(U.u_zTransAlpha, p.zTransAlpha);
+  gl.uniform1f(U.u_gaussSigma, p.gaussSigma);
+}
+
+// ── Resize ───────────────────────────────────────────────────────────────────
+function resize() {
+  const dpr = Math.min(window.devicePixelRatio||1, 2);
+  W = Math.floor(window.innerWidth * dpr);
+  H = Math.floor(window.innerHeight * dpr);
+  canvas.width = W;
+  canvas.height = H;
+  gl.viewport(0, 0, W, H);
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ── Render loop ──────────────────────────────────────────────────────────────
+function frame(now) {
+  const dt = Math.min((now - lastRaf) / 1000, 0.1);
+  lastRaf = now;
+  t += dt;
+  setUniforms();
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  requestAnimationFrame(frame);
+}
+
+// ── Sound ────────────────────────────────────────────────────────────────────
+function initAudio() {
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+}
+
+function stopOscillators() {
+  oscillators.forEach(o => { try{ o.osc.stop(); }catch(e){} });
+  oscillators = [];
+}
+
+function updateOscillators() {
+  if (!soundOn || !audioCtx) return;
+  stopOscillators();
+  const master = audioCtx.createGain();
+  master.gain.value = 0.06;
+  master.connect(audioCtx.destination);
+
+  P.eigenFreqs.forEach((freq, i) => {
+    // FM synthesis
+    const modFreq = freq * P.fmRatio;
+    const modDepth = P.fmDepth;
+    
+    const mod = audioCtx.createOscillator();
+    const modGain = audioCtx.createGain();
+    mod.frequency.value = modFreq;
+    modGain.gain.value = modDepth;
+    mod.connect(modGain);
+    
+    const car = audioCtx.createOscillator();
+    car.type = ['sine','sine','triangle','sawtooth'][i%4];
+    car.frequency.value = freq;
+    modGain.connect(car.frequency);
+    
+    const g = audioCtx.createGain();
+    g.gain.value = 0.25 / (i+1);
+    car.connect(g);
+    g.connect(master);
+    
+    mod.start(); car.start();
+    oscillators.push({osc:car, mod:mod});
+  });
+}
+
+function toggleSound() {
+  soundOn = !soundOn;
+  if (soundOn) {
+    initAudio();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    updateOscillators();
+  } else {
+    stopOscillators();
+  }
+  updateHUD();
+}
+
+// ── HUD update ───────────────────────────────────────────────────────────────
+function updateHUD() {
+  document.getElementById('h-tempo').textContent = P.tempo.toFixed(3);
+  document.getElementById('h-symm').textContent = `${P.symmOrder}-fold`;
+  document.getElementById('h-curv').textContent = P.ricci.slice(0,3).map(v=>v.toFixed(2)).join(', ');
+  document.getElementById('h-lat').textContent = ['A₂','D₄','E₆','E₈'][P.latType];
+  document.getElementById('h-harm').textContent = P.harmonics.slice(0,4).map(v=>v.toFixed(2)).join(', ');
+  document.getElementById('h-pal').textContent = `H:${P.palHue.toFixed(0)}° S:${P.palSpread.toFixed(0)}° M:${['HSV','Comp','Tri'][P.palMode]}`;
+  document.getElementById('h-ricci').textContent = P.ricciLambda.toFixed(3);
+  document.getElementById('h-snd').textContent = soundOn ? `ON — ${P.eigenFreqs.map(f=>f.toFixed(0)).join('Hz, ')}Hz` : 'OFF';
+}
+
+// ── Input ────────────────────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.key === ' ' || e.code === 'Space') { e.preventDefault(); randomize(); }
+  if (e.key === 'h' || e.key === 'H') {
+    hudVisible = !hudVisible;
+    hud.classList.toggle('visible', hudVisible);
+  }
+  if (e.key === 's' || e.key === 'S') toggleSound();
+});
+canvas.addEventListener('click', () => randomize());
+canvas.addEventListener('touchend', e => { e.preventDefault(); randomize(); }, {passive:false});
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+randomize();
+requestAnimationFrame(ts => { lastRaf = ts; requestAnimationFrame(frame); });
+</script>
+</body>
+</html>
