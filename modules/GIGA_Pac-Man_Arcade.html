@@ -1,0 +1,1150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GIGA Pac-Man Arcade</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            background: #000;
+            overflow: hidden;
+            font-family: 'Courier New', monospace;
+        }
+        #gameCanvas {
+            display: block;
+            image-rendering: pixelated;
+        }
+        #ui {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            color: #fff;
+            font-size: 20px;
+            text-shadow: 2px 2px 0 #000;
+            z-index: 100;
+        }
+        #lives {
+            margin-top: 10px;
+        }
+        .life {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            background: #ff0;
+            border-radius: 50%;
+            margin-right: 5px;
+            clip-path: polygon(0 0, 100% 0, 100% 40%, 50% 100%, 0 40%);
+        }
+        #gameOver {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #fff;
+            font-size: 48px;
+            text-align: center;
+            display: none;
+            text-shadow: 4px 4px 0 #f00;
+        }
+        #gigaIndicator {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            color: #f0f;
+            font-size: 24px;
+            font-weight: bold;
+            text-shadow: 0 0 20px #f0f, 0 0 40px #f0f;
+            display: none;
+            z-index: 100;
+        }
+        #gigaBar {
+            position: fixed;
+            top: 40px;
+            right: 10px;
+            width: 200px;
+            height: 20px;
+            border: 2px solid #fff;
+            background: #222;
+            z-index: 100;
+        }
+        #gigaFill {
+            height: 100%;
+            background: linear-gradient(90deg, #f0f, #f0f);
+            width: 0%;
+            transition: width 0.3s;
+        }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <div>SCORE: <span id="score">0</span></div>
+        <div id="lives"></div>
+    </div>
+    <div id="gigaIndicator">⚡ GIGA MODE ⚡</div>
+    <div id="gigaBar"><div id="gigaFill"></div></div>
+    <div id="gameOver">
+        GAME OVER<br>
+        <span style="font-size: 24px;">Restarting...</span>
+    </div>
+    <canvas id="gameCanvas"></canvas>
+
+<script>
+// ==========================================
+// GIGA PAC-MAN - Complete Arcade Game
+// ==========================================
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+// Game Constants
+const WORLD_WIDTH = 2000;
+const WORLD_HEIGHT = 2000;
+const MAZE_CELL_SIZE = 40;
+const COLS = Math.floor(WORLD_WIDTH / MAZE_CELL_SIZE);
+const ROWS = Math.floor(WORLD_HEIGHT / MAZE_CELL_SIZE);
+const VIEWPORT_WIDTH = window.innerWidth;
+const VIEWPORT_HEIGHT = window.innerHeight;
+
+// Game State
+let gameState = {
+    score: 0,
+    lives: 5,
+    gameOver: false,
+    pelletsEaten: 0,
+    gigaMode: false,
+    camera: { x: 0, y: 0 },
+    pellets: [],
+    walls: [],
+    particles: [],
+    ghosts: [],
+    lastTime: 0,
+    restartTimer: 0
+};
+
+// Audio Context
+let audioCtx = null;
+
+function initAudio() {
+    if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+}
+
+// Sound Synthesis
+const Sounds = {
+    chomp: () => {
+        if (!audioCtx) return;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(400, audioCtx.currentTime + 0.1);
+        gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.1);
+    },
+    
+    ghostEaten: () => {
+        if (!audioCtx) return;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.frequency.setValueAtTime(200, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime + 0.3);
+        gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+        osc.type = 'sawtooth';
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.3);
+    },
+    
+    wallSmash: () => {
+        if (!audioCtx) return;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.frequency.setValueAtTime(100, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(50, audioCtx.currentTime + 0.2);
+        gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
+        osc.type = 'square';
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.2);
+        
+        // Add noise burst
+        const bufferSize = audioCtx.sampleRate * 0.15;
+        const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+            data[i] = Math.random() * 2 - 1;
+        }
+        const noise = audioCtx.createBufferSource();
+        const noiseGain = audioCtx.createGain();
+        noise.buffer = buffer;
+        noise.connect(noiseGain);
+        noiseGain.connect(audioCtx.destination);
+        noiseGain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+        noiseGain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+        noise.start();
+    },
+    
+    death: () => {
+        if (!audioCtx) return;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.frequency.setValueAtTime(880, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(55, audioCtx.currentTime + 0.8);
+        gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.8);
+        osc.type = 'sawtooth';
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.8);
+    },
+    
+    gigaActivate: () => {
+        if (!audioCtx) return;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.frequency.setValueAtTime(200, audioCtx.currentTime);
+        osc.frequency.linearRampToValueAtTime(800, audioCtx.currentTime + 0.5);
+        gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+        gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 1);
+        osc.type = 'sawtooth';
+        osc.start();
+        osc.stop(audioCtx.currentTime + 1);
+    },
+    
+    ambientPulse: () => {
+        if (!audioCtx) return;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.frequency.setValueAtTime(50, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.03, audioCtx.currentTime);
+        gain.gain.linearRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+        osc.type = 'sine';
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.5);
+    }
+};
+
+// Ambient pulse interval
+setInterval(() => {
+    if (!gameState.gameOver) Sounds.ambientPulse();
+}, 1000);
+
+// Wall Class
+class Wall {
+    constructor(x, y, width, height, isOuter) {
+        this.x = x;
+        this.y = y;
+        this.w = width;
+        this.h = height;
+        this.isOuter = isOuter; // Outer walls are indestructible
+        this.exists = true;
+        this.flash = 0;
+    }
+    
+    draw() {
+        if (!this.exists) return;
+        ctx.save();
+        if (this.flash > 0) {
+            ctx.fillStyle = '#fff';
+            this.flash--;
+        } else {
+            ctx.fillStyle = this.isOuter ? '#0066ff' : '#2266cc';
+        }
+        ctx.fillRect(this.x, this.y, this.w, this.h);
+        
+        // Wall border
+        ctx.strokeStyle = this.isOuter ? '#0088ff' : '#3388dd';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(this.x, this.y, this.w, this.h);
+        ctx.restore();
+    }
+    
+    destroy() {
+        if (this.isOuter) return false; // Cannot destroy outer walls
+        this.exists = false;
+        return true;
+    }
+    
+    checkCollision(x, y, radius) {
+        if (!this.exists) return false;
+        const closestX = Math.max(this.x, Math.min(x, this.x + this.w));
+        const closestY = Math.max(this.y, Math.min(y, this.y + this.h));
+        const distanceX = x - closestX;
+        const distanceY = y - closestY;
+        const distanceSquared = distanceX * distanceX + distanceY * distanceY;
+        return distanceSquared < radius * radius;
+    }
+    
+    getBounds() {
+        return { left: this.x, right: this.x + this.w, top: this.y, bottom: this.y + this.h };
+    }
+}
+
+// Pellet Class
+class Pellet {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.eaten = false;
+        this.pulse = Math.random() * Math.PI * 2;
+    }
+    
+    draw() {
+        if (this.eaten) return;
+        this.pulse += 0.1;
+        const size = 4 + Math.sin(this.pulse) * 2;
+        ctx.save();
+        ctx.fillStyle = '#ffaa88';
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, size, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Glow effect
+        ctx.shadowColor = '#ffaa88';
+        ctx.shadowBlur = 10;
+        ctx.fill();
+        ctx.restore();
+    }
+}
+
+// Particle Class
+class Particle {
+    constructor(x, y, color, speed, life) {
+        this.x = x;
+        this.y = y;
+        this.vx = (Math.random() - 0.5) * speed;
+        this.vy = (Math.random() - 0.5) * speed;
+        this.color = color;
+        this.life = life;
+        this.maxLife = life;
+        this.size = Math.random() * 5 + 2;
+    }
+    
+    update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        this.life--;
+        this.size *= 0.95;
+    }
+    
+    draw() {
+        ctx.save();
+        ctx.globalAlpha = this.life / this.maxLife;
+        ctx.fillStyle = this.color;
+        ctx.fillRect(this.x, this.y, this.size, this.size);
+        ctx.restore();
+    }
+}
+
+// Ghost Class
+class Ghost {
+    constructor(x, y, color) {
+        this.x = x;
+        this.y = y;
+        this.radius = 18;
+        this.color = color;
+        this.speed = 2;
+        this.vx = 0;
+        this.vy = 0;
+        this.alive = true;
+        this.respawnTimer = 0;
+        this.fleeing = false;
+        this.scatterTimer = 0;
+        this.animFrame = 0;
+    }
+    
+    update(pacman) {
+        if (!this.alive) {
+            this.respawnTimer--;
+            if (this.respawnTimer <= 0) {
+                this.respawn();
+            }
+            return;
+        }
+        
+        this.animFrame++;
+        
+        // Check if eaten by GIGA Pac-Man
+        const dx = pacman.x - this.x;
+        const dy = pacman.y - this.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        
+        if (pacman.gigaMode && dist < pacman.radius + this.radius) {
+            this.alive = false;
+            this.respawnTimer = 180; // 3 seconds at 60fps
+            gameState.score += 200;
+            Sounds.ghostEaten();
+            createParticles(this.x, this.y, this.color, 10);
+            return;
+        }
+        
+        // Ghost AI - flee or chase
+        this.fleeing = pacman.gigaMode;
+        
+        let targetX = pacman.x;
+        let targetY = pacman.y;
+        
+        if (this.fleeing) {
+            // Run away from Pac-Man
+            targetX = this.x - dx * 2;
+            targetY = this.y - dy * 2;
+        } else if (this.scatterTimer > 0) {
+            this.scatterTimer--;
+            // Scatter to corners
+            switch(this.color) {
+                case '#ff0000': targetX = WORLD_WIDTH - 50; targetY = 50; break;
+                case '#ffb8ff': targetX = 50; targetY = 50; break;
+                case '#00ffff': targetX = WORLD_WIDTH - 50; targetY = WORLD_HEIGHT - 50; break;
+                case '#ffb852': targetX = 50; targetY = WORLD_HEIGHT - 50; break;
+            }
+        }
+        
+        const angle = Math.atan2(targetY - this.y, targetX - this.x);
+        const variance = (Math.random() - 0.5) * 0.5; // Some randomness
+        const moveAngle = angle + variance;
+        
+        const desiredVx = Math.cos(moveAngle) * this.speed * (this.fleeing ? 1.5 : 1);
+        const desiredVy = Math.sin(moveAngle) * this.speed * (this.fleeing ? 1.5 : 1);
+        
+        // Try to move, check collisions
+        const testX = this.x + desiredVx;
+        const testY = this.y + desiredVy;
+        
+        if (!this.checkWallCollision(testX, this.y)) {
+            this.x += desiredVx;
+        } else {
+            this.vx *= -0.5;
+        }
+        
+        if (!this.checkWallCollision(this.x, testY)) {
+            this.y += desiredVy;
+        } else {
+            this.vy *= -0.5;
+        }
+        
+        // Keep within bounds
+        this.x = Math.max(this.radius, Math.min(WORLD_WIDTH - this.radius, this.x));
+        this.y = Math.max(this.radius, Math.min(WORLD_HEIGHT - this.radius, this.y));
+        
+        // Randomly scatter
+        if (Math.random() < 0.005 && this.scatterTimer === 0) {
+            this.scatterTimer = 120;
+        }
+    }
+    
+    checkWallCollision(x, y) {
+        for (let wall of gameState.walls) {
+            if (wall.exists && wall.checkCollision(x, y, this.radius - 2)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    respawn() {
+        // Find safe spawn location
+        const locations = [
+            {x: WORLD_WIDTH - 100, y: 100},
+            {x: 100, y: 100},
+            {x: WORLD_WIDTH - 100, y: WORLD_HEIGHT - 100},
+            {x: 100, y: WORLD_HEIGHT - 100}
+        ];
+        let idx = Math.floor(Math.random() * locations.length);
+        this.x = locations[idx].x;
+        this.y = locations[idx].y;
+        this.alive = true;
+        this.scatterTimer = 0;
+    }
+    
+    draw(viewX, viewY, viewW, viewH) {
+        if (!this.alive) return;
+        
+        // Only draw if visible
+        if (this.x + this.radius < viewX || this.x - this.radius > viewX + viewW ||
+            this.y + this.radius < viewY || this.y - this.radius > viewY + viewH) {
+            return;
+        }
+        
+        ctx.save();
+        
+        // Ghost body
+        ctx.fillStyle = this.fleeing ? '#4444ff' : this.color;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y - 5, this.radius, Math.PI, 0);
+        ctx.lineTo(this.x + this.radius, this.y + this.radius - 5);
+        
+        // Wavy bottom
+        for (let i = 0; i < 4; i++) {
+            const waveX = this.x + this.radius - (i + 1) * (this.radius * 2 / 4);
+            ctx.lineTo(waveX + this.radius / 4, this.y + this.radius - 5 + (i % 2 === 0 ? 5 : -3));
+        }
+        
+        ctx.lineTo(this.x - this.radius, this.y + this.radius - 5);
+        ctx.closePath();
+        ctx.fill();
+        
+        // Eyes
+        const eyeOffset = Math.sin(this.animFrame * 0.1) * 2;
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.arc(this.x - 7, this.y - 8, 6, 0, Math.PI * 2);
+        ctx.arc(this.x + 7, this.y - 8, 6, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Pupils
+        ctx.fillStyle = '#00f';
+        ctx.beginPath();
+        ctx.arc(this.x - 7 + eyeOffset, this.y - 8, 3, 0, Math.PI * 2);
+        ctx.arc(this.x + 7 + eyeOffset, this.y - 8, 3, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Fleeing indicator
+        if (this.fleeing) {
+            ctx.fillStyle = '#fff';
+            ctx.font = '12px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('!', this.x, this.y - 20);
+        }
+        
+        ctx.restore();
+    }
+}
+
+// Pac-Man Class
+class PacMan {
+    constructor() {
+        this.reset();
+    }
+    
+    reset() {
+        this.x = WORLD_WIDTH / 2;
+        this.y = WORLD_HEIGHT / 2;
+        this.baseRadius = 20;
+        this.radius = this.baseRadius;
+        this.baseSpeed = 3;
+        this.speed = this.baseSpeed;
+        this.vx = this.baseSpeed;
+        this.vy = 0;
+        this.angle = 0;
+        this.mouthOpen = 0.2;
+        this.mouthSpeed = 0.15;
+        this.pelletsEaten = 0;
+        this.gigaMode = false;
+        this.dead = false;
+        this.deathAnim = 0;
+    }
+    
+    eatPellet() {
+        this.pelletsEaten++;
+        gameState.pelletsEaten++;
+        gameState.score += 10;
+        
+        // Growth
+        this.radius = this.baseRadius + this.pelletsEaten * 1.5;
+        this.speed = Math.max(1.5, this.baseSpeed - this.pelletsEaten * 0.05);
+        
+        // GIGA mode activation
+        if (this.pelletsEaten >= 15 && !this.gigaMode) {
+            this.gigaMode = true;
+            Sounds.gigaActivate();
+        }
+        
+        Sounds.chomp();
+        updateUI();
+    }
+    
+    die() {
+        if (this.dead) return;
+        this.dead = true;
+        this.vx = 0;
+        this.vy = 0;
+        Sounds.death();
+        createParticles(this.x, this.y, '#ff0', 20);
+        gameState.lives--;
+        updateUI();
+        
+        if (gameState.lives <= 0) {
+            gameState.gameOver = true;
+            document.getElementById('gameOver').style.display = 'block';
+        }
+    }
+    
+    update() {
+        if (this.dead) {
+            this.deathAnim++;
+            if (this.deathAnim > 60) {
+                if (gameState.lives > 0) {
+                    this.reset();
+                } else {
+                    gameState.restartTimer++;
+                    if (gameState.restartTimer > 180) {
+                        restartGame();
+                    }
+                }
+            }
+            return;
+        }
+        
+        // AI chooses direction based on pellet proximity
+        this.aiMove();
+        
+        // Animate mouth
+        this.mouthOpen += this.mouthSpeed;
+        if (this.mouthOpen > 0.8 || this.mouthOpen < 0.1) {
+            this.mouthSpeed *= -1;
+        }
+        
+        // Calculate next position
+        let nextX = this.x + this.vx;
+        let nextY = this.y + this.vy;
+        
+        // Check wall collisions
+        let hitWallX = false;
+        let hitWallY = false;
+        let smashedWall = null;
+        
+        for (let wall of gameState.walls) {
+            if (!wall.exists) continue;
+            
+            if (wall.checkCollision(nextX, this.y, this.radius)) {
+                if (this.gigaMode && !wall.isOuter) {
+                    if (wall.destroy()) {
+                        smashedWall = wall;
+                        Sounds.wallSmash();
+                        createParticles(wall.x + wall.w/2, wall.y + wall.h/2, '#4488ff', 15);
+                        gameState.score += 50;
+                    }
+                } else {
+                    hitWallX = true;
+                }
+            }
+            
+            if (wall.checkCollision(this.x, nextY, this.radius)) {
+                if (this.gigaMode && !wall.isOuter) {
+                    if (wall.destroy()) {
+                        smashedWall = wall;
+                        Sounds.wallSmash();
+                        createParticles(wall.x + wall.w/2, wall.y + wall.h/2, '#4488ff', 15);
+                        gameState.score += 50;
+                    }
+                } else {
+                    hitWallY = true;
+                }
+            }
+        }
+        
+        // Update position
+        if (!hitWallX) this.x = nextX;
+        if (!hitWallY) this.y = nextY;
+        
+        // Strict boundary enforcement - NEVER exceed outer walls
+        this.x = Math.max(this.radius, Math.min(WORLD_WIDTH - this.radius, this.x));
+        this.y = Math.max(this.radius, Math.min(WORLD_HEIGHT - this.radius, this.y));
+        
+        // Update angle based on velocity
+        if (this.vx !== 0 || this.vy !== 0) {
+            this.angle = Math.atan2(this.vy, this.vx);
+        }
+        
+        // Check pellet collisions
+        for (let pellet of gameState.pellets) {
+            if (!pellet.eaten) {
+                const dx = this.x - pellet.x;
+                const dy = this.y - pellet.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist < this.radius + 8) {
+                    pellet.eaten = true;
+                    this.eatPellet();
+                }
+            }
+        }
+        
+        // Check ghost collisions
+        for (let ghost of gameState.ghosts) {
+            if (ghost.alive) {
+                const dx = this.x - ghost.x;
+                const dy = this.y - ghost.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                
+                if (dist < this.radius + ghost.radius) {
+                    if (this.gigaMode) {
+                        ghost.alive = false;
+                        ghost.respawnTimer = 180;
+                        gameState.score += 200;
+                        Sounds.ghostEaten();
+                        createParticles(ghost.x, ghost.y, ghost.color, 10);
+                    } else {
+                        this.die();
+                    }
+                }
+            }
+        }
+    }
+    
+    aiMove() {
+        // Find nearest uneaten pellet
+        let nearest = null;
+        let nearestDist = Infinity;
+        
+        for (let pellet of gameState.pellets) {
+            if (!pellet.eaten) {
+                const dx = pellet.x - this.x;
+                const dy = pellet.y - this.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist < nearestDist) {
+                    nearestDist = dist;
+                    nearest = pellet;
+                }
+            }
+        }
+        
+        // Calculate direction
+        let targetX, targetY;
+        
+        if (nearest && nearestDist < 300) {
+            // Go for nearest pellet if it's reasonably close
+            targetX = nearest.x;
+            targetY = nearest.y;
+        } else {
+            // Wander toward uneaten pellets in general direction
+            let activePellets = gameState.pellets.filter(p => !p.eaten);
+            if (activePellets.length > 0) {
+                // Pick a quadrant with pellets
+                let quadrantPellets = activePellets.filter(p => {
+                    if (this.vx > 0) return p.x > this.x;
+                    if (this.vx < 0) return p.x < this.x;
+                    if (this.vy > 0) return p.y > this.y;
+                    return p.y < this.y;
+                });
+                
+                if (quadrantPellets.length === 0) quadrantPellets = activePellets;
+                
+                let target = quadrantPellets[Math.floor(Math.random() * Math.min(5, quadrantPellets.length))];
+                targetX = target.x;
+                targetY = target.y;
+            } else {
+                targetX = this.x + this.vx * 10;
+                targetY = this.y + this.vy * 10;
+            }
+        }
+        
+        // Execute change only occasionally to avoid jitter
+        if (Math.random() < 0.1) {
+            const angle = Math.atan2(targetY - this.y, targetX - this.x);
+            const newVx = Math.cos(angle) * this.speed;
+            const newVy = Math.sin(angle) * this.speed;
+            
+            // Test if new direction is valid
+            let canMove = true;
+            for (let wall of gameState.walls) {
+                if (wall.exists && wall.checkCollision(this.x + newVx * 2, this.y + newVy * 2, this.radius)) {
+                    if (!this.gigaMode || wall.isOuter) {
+                        canMove = false;
+                        break;
+                    }
+                }
+            }
+            
+            if (canMove) {
+                this.vx = newVx;
+                this.vy = newVy;
+            } else {
+                // Try perpendicular directions
+                const perp1 = { x: -newVy / this.speed * this.speed, y: newVx / this.speed * this.speed };
+                const perp2 = { x: newVy / this.speed * this.speed, y: -newVx / this.speed * this.speed };
+                
+                for (let dir of [perp1, perp2]) {
+                    if (!this.checkWallCollision(this.x + dir.x * 2, this.y + dir.y * 2)) {
+                        this.vx = dir.x;
+                        this.vy = dir.y;
+                        break;
+                    }
+                }
+            }
+        }
+        
+        // Random direction change to explore
+        if (Math.random() < 0.05) {
+            const randomAngle = Math.random() * Math.PI * 2;
+            this.vx = Math.cos(randomAngle) * this.speed;
+            this.vy = Math.sin(randomAngle) * this.speed;
+        }
+    }
+    
+    checkWallCollision(x, y) {
+        for (let wall of gameState.walls) {
+            if (wall.exists && wall.checkCollision(x, y, this.radius)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    draw(viewX, viewY, viewW, viewH) {
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.rotate(this.angle);
+        
+        // GIGA mode glow
+        if (this.gigaMode) {
+            ctx.shadowColor = '#ff00ff';
+            ctx.shadowBlur = 30 + Math.sin(Date.now() / 100) * 10;
+        }
+        
+        // Body
+        ctx.fillStyle = this.gigaMode ? '#ffaaff' : '#ffff00';
+        ctx.beginPath();
+        
+        let mouthAngle = this.dead ? Math.min(Math.PI, this.deathAnim * 0.05) : this.mouthOpen;
+        
+        ctx.arc(0, 0, this.radius, mouthAngle, 2 * Math.PI - mouthAngle);
+        ctx.lineTo(0, 0);
+        ctx.closePath();
+        ctx.fill();
+        
+        // Outline
+        ctx.strokeStyle = this.gigaMode ? '#ff88ff' : '#ccbb00';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        
+        // Eye
+        ctx.fillStyle = '#000';
+        ctx.beginPath();
+        ctx.arc(5, -this.radius * 0.3, 3, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.restore();
+    }
+}
+
+// Create particles
+function createParticles(x, y, color, count) {
+    for (let i = 0; i < count; i++) {
+        gameState.particles.push(new Particle(x, y, color, 8, 30 + Math.random() * 30));
+    }
+}
+
+// Generate maze
+function generateMaze() {
+    gameState.walls = [];
+    gameState.pellets = [];
+    
+    const wallThickness = MAZE_CELL_SIZE * 0.8;
+    
+    // Outer boundary walls (indestructible)
+    gameState.walls.push(new Wall(0, 0, WORLD_WIDTH, wallThickness, true)); // Top
+    gameState.walls.push(new Wall(0, WORLD_HEIGHT - wallThickness, WORLD_WIDTH, wallThickness, true)); // Bottom
+    gameState.walls.push(new Wall(0, 0, wallThickness, WORLD_HEIGHT, true)); // Left
+    gameState.walls.push(new Wall(WORLD_WIDTH - wallThickness, 0, wallThickness, WORLD_HEIGHT, true)); // Right
+    
+    // Inner maze walls (destructible)
+    // Create a maze pattern
+    for (let row = 2; row < ROWS - 2; row++) {
+        for (let col = 2; col < COLS - 2; col++) {
+            // Leave center area open for start
+            if (row > ROWS/2 - 3 && row < ROWS/2 + 3 && col > COLS/2 - 3 && col < COLS/2 + 3) {
+                continue;
+            }
+            
+            // Random wall placement with corridors
+            if (Math.random() < 0.25) {
+                const x = col * MAZE_CELL_SIZE + (MAZE_CELL_SIZE - wallThickness) / 2;
+                const y = row * MAZE_CELL_SIZE + (MAZE_CELL_SIZE - wallThickness) / 2;
+                
+                // Some horizontal, some vertical walls
+                if (Math.random() < 0.5) {
+                    gameState.walls.push(new Wall(x, y, MAZE_CELL_SIZE * 2, wallThickness, false));
+                } else {
+                    gameState.walls.push(new Wall(x, y, wallThickness, MAZE_CELL_SIZE * 2, false));
+                }
+            }
+        }
+    }
+    
+    // Add some larger structures
+    for (let i = 0; i < 8; i++) {
+        const x = 150 + Math.random() * (WORLD_WIDTH - 300);
+        const y = 150 + Math.random() * (WORLD_HEIGHT - 300);
+        const w = 60 + Math.random() * 80;
+        const h = 60 + Math.random() * 80;
+        gameState.walls.push(new Wall(x, y, w, h, false));
+    }
+    
+    // Place pellets in empty spaces
+    for (let row = 1; row < ROWS - 1; row++) {
+        for (let col = 1; col < COLS - 1; col++) {
+            const x = col * MAZE_CELL_SIZE + MAZE_CELL_SIZE / 2;
+            const y = row * MAZE_CELL_SIZE + MAZE_CELL_SIZE / 2;
+            
+            // Check if position is free
+            let free = true;
+            for (let wall of gameState.walls) {
+                if (wall.checkCollision(x, y, 8)) {
+                    free = false;
+                    break;
+                }
+            }
+            
+            if (free && Math.random() < 0.6) {
+                gameState.pellets.push(new Pellet(x, y));
+            }
+        }
+    }
+}
+
+// Initialize ghosts
+function initGhosts() {
+    const ghostColors = ['#ff0000', '#ffb8ff', '#00ffff', '#ffb852'];
+    const startPositions = [
+        {x: WORLD_WIDTH - 100, y: 100},
+        {x: 100, y: 100},
+        {x: WORLD_WIDTH - 100, y: WORLD_HEIGHT - 100},
+        {x: 100, y: WORLD_HEIGHT - 100}
+    ];
+    
+    gameState.ghosts = [];
+    for (let i = 0; i < 4; i++) {
+        gameState.ghosts.push(new Ghost(startPositions[i].x, startPositions[i].y, ghostColors[i]));
+    }
+}
+
+// Initialize game
+function initGame() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    
+    generateMaze();
+    initGhosts();
+    
+    if (!gameState.pacman) {
+        gameState.pacman = new PacMan();
+    } else {
+        gameState.pacman.reset();
+    }
+    
+    gameState.score = 0;
+    gameState.lives = 5;
+    gameState.gameOver = false;
+    gameState.pelletsEaten = 0;
+    gameState.restartTimer = 0;
+    gameState.particles = [];
+    
+    document.getElementById('gameOver').style.display = 'none';
+    updateUI();
+}
+
+// Restart game
+function restartGame() {
+    initGame();
+}
+
+// Update UI
+function updateUI() {
+    document.getElementById('score').textContent = gameState.score;
+    
+    const livesContainer = document.getElementById('lives');
+    livesContainer.innerHTML = '';
+    for (let i = 0; i < gameState.lives; i++) {
+        const life = document.createElement('span');
+        life.className = 'life';
+        livesContainer.appendChild(life);
+    }
+    
+    // GIGA mode indicator
+    const gigaIndicator = document.getElementById('gigaIndicator');
+    const gigaFill = document.getElementById('gigaFill');
+    
+    if (gameState.pacman) {
+        const progress = Math.min(100, (gameState.pacman.pelletsEaten / 15) * 100);
+        gigaFill.style.width = progress + '%';
+        
+        if (gameState.pacman.gigaMode) {
+            gigaIndicator.style.display = 'block';
+            gigaFill.style.background = 'linear-gradient(90deg, #ff00ff, #ff88ff)';
+        } else {
+            gigaIndicator.style.display = 'none';
+            gigaFill.style.background = '#2266cc';
+        }
+    }
+}
+
+// Update camera to follow Pac-Man
+function updateCamera() {
+    const pacman = gameState.pacman;
+    const viewW = canvas.width;
+    const viewH = canvas.height;
+    
+    // Target camera position (centered on Pac-Man)
+    let targetX = pacman.x - viewW / 2;
+    let targetY = pacman.y - viewH / 2;
+    
+    // Clamp to world bounds
+    targetX = Math.max(0, Math.min(WORLD_WIDTH - viewW, targetX));
+    targetY = Math.max(0, Math.min(WORLD_HEIGHT - viewH, targetY));
+    
+    // Smooth camera following
+    gameState.camera.x += (targetX - gameState.camera.x) * 0.1;
+    gameState.camera.y += (targetY - gameState.camera.y) * 0.1;
+    
+    // Final clamp to ensure we never show outside world
+    gameState.camera.x = Math.max(0, Math.min(WORLD_WIDTH - viewW, gameState.camera.x));
+    gameState.camera.y = Math.max(0, Math.min(WORLD_HEIGHT - viewH, gameState.camera.y));
+}
+
+// Draw grid background
+function drawGrid() {
+    const gridSize = 50;
+    const offsetX = -gameState.camera.x % gridSize;
+    const offsetY = -gameState.camera.y % gridSize;
+    
+    ctx.strokeStyle = '#111';
+    ctx.lineWidth = 1;
+    
+    ctx.translate(-gameState.camera.x, -gameState.camera.y);
+    
+    ctx.beginPath();
+    for (let x = 0; x <= WORLD_WIDTH; x += gridSize) {
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, WORLD_HEIGHT);
+    }
+    for (let y = 0; y <= WORLD_HEIGHT; y += gridSize) {
+        ctx.moveTo(0, y);
+        ctx.lineTo(WORLD_WIDTH, y);
+    }
+    ctx.stroke();
+    
+    // Draw world boundary
+    ctx.strokeStyle = '#0044aa';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+    
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+}
+
+// Main render function
+function render() {
+    // Clear screen
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // Draw background grid
+    drawGrid();
+    
+    // Setup view bounds for culling
+    const viewX = gameState.camera.x;
+    const viewY = gameState.camera.y;
+    const viewW = canvas.width;
+    const viewH = canvas.height;
+    
+    ctx.save();
+    ctx.translate(-viewX, -viewY);
+    
+    // Draw walls
+    for (let wall of gameState.walls) {
+        wall.draw();
+    }
+    
+    // Draw pellets
+    for (let pellet of gameState.pellets) {
+        pellet.draw();
+    }
+    
+    // Draw ghosts
+    for (let ghost of gameState.ghosts) {
+        ghost.draw(viewX, viewY, viewW, viewH);
+    }
+    
+    // Draw particles
+    for (let particle of gameState.particles) {
+        particle.draw();
+    }
+    
+    // Draw Pac-Man
+    gameState.pacman.draw(viewX, viewY, viewW, viewH);
+    
+    ctx.restore();
+}
+
+// Main game loop
+function gameLoop(timestamp) {
+    if (!gameState.lastTime) gameState.lastTime = timestamp;
+    const deltaTime = timestamp - gameState.lastTime;
+    gameState.lastTime = timestamp;
+    
+    if (!gameState.gameOver) {
+        // Update Pac-Man
+        gameState.pacman.update();
+        
+        // Update ghosts
+        for (let ghost of gameState.ghosts) {
+            ghost.update(gameState.pacman);
+        }
+        
+        // Update particles
+        for (let i = gameState.particles.length - 1; i >= 0; i--) {
+            gameState.particles[i].update();
+            if (gameState.particles[i].life <= 0) {
+                gameState.particles.splice(i, 1);
+            }
+        }
+        
+        // Update camera
+        updateCamera();
+        
+        // Check pellet respawn
+        const remaining = gameState.pellets.filter(p => !p.eaten).length;
+        if (remaining < gameState.pellets.length * 0.2) {
+            // Respawn some pellets
+            for (let pellet of gameState.pellets) {
+                if (pellet.eaten && Math.random() < 0.3 && !gameState.pacman.checkWallCollision(pellet.x, pellet.y)) {
+                    pellet.eaten = false;
+                }
+            }
+        }
+    } else {
+        gameState.restartTimer++;
+        if (gameState.restartTimer > 180) {
+            restartGame();
+        }
+    }
+    
+    render();
+    requestAnimationFrame(gameLoop);
+}
+
+// Handle window resize
+window.addEventListener('resize', () => {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+});
+
+// Start game
+initAudio();
+initGame();
+requestAnimationFrame(gameLoop);
+
+// Initialize audio on first click (browser requirement)
+window.addEventListener('click', () => {
+    initAudio();
+}, { once: true });
+</script>
+</body>
+</html>

@@ -1,0 +1,855 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#000000">
+<title>Fractal Storm Engine — Multidimensional Kaleidoscopic Attractor Visualizer</title>
+<meta name="description" content="Real-time fractal storm engine combining Julia sets, Lorenz attractors, Perlin noise domain warping, Möbius transformations, and kaleidoscopic Coxeter symmetry with generative soundscape synthesis.">
+<meta name="keywords" content="fractal, Julia set, Mandelbrot, Lorenz attractor, kaleidoscope, Coxeter symmetry, generative art, canvas, WebAudio, Perlin noise, Möbius transformation">
+<meta name="author" content="Fractal Storm Engine">
+<meta name="robots" content="index, follow">
+<meta property="og:title" content="Fractal Storm Engine — Multidimensional Attractor Visualizer">
+<meta property="og:description" content="An immersive real-time generative art experience combining fractal mathematics, chaos theory attractors, and kaleidoscopic symmetry with a generative soundscape.">
+<meta property="og:type" content="website">
+<meta property="og:image:alt" content="Fractal Storm Engine - Kaleidoscopic fractal visualization">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Fractal Storm Engine">
+<meta name="twitter:description" content="Real-time fractal storm: Julia sets, Lorenz attractors, Möbius transforms, kaleidoscopic symmetry & generative sound.">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "CreativeWork",
+  "name": "Fractal Storm Engine",
+  "description": "A real-time multidimensional fractal storm engine combining Mandelbrot/Julia escape-time iteration with Lorenz attractor trajectory injection, Perlin noise domain warping, Möbius transformation cycling, and kaleidoscopic Coxeter reflection patterns. Features generative soundscape synthesis via Web Audio API.",
+  "creator": {
+    "@type": "SoftwareApplication",
+    "name": "Fractal Storm Engine",
+    "applicationCategory": "Multimedia",
+    "operatingSystem": "Any (Web Browser)"
+  },
+  "genre": ["Generative Art", "Mathematical Visualization", "Interactive Media"],
+  "keywords": "fractal, Julia set, Lorenz attractor, kaleidoscope, generative art, Perlin noise, Möbius transformation, Coxeter symmetry, Web Audio API",
+  "audience": {"@type": "Audience", "audienceType": "General Public"},
+  "accessibilityFeature": ["alternativeText", "keyboardControl"],
+  "interactivityType": "active",
+  "learningResourceType": "Interactive Visualization"
+}
+</script>
+<style>
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+html, body {
+  width: 100%; height: 100%;
+  background: #000;
+  overflow: hidden;
+  font-family: 'Courier New', monospace;
+  touch-action: none;
+}
+#c {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  cursor: crosshair;
+}
+#hud {
+  display: none;
+  position: fixed;
+  top: 14px; left: 14px;
+  color: #00ffc8;
+  font: 11px/1.8 'Courier New', monospace;
+  background: rgba(0,0,0,0.72);
+  padding: 10px 16px;
+  border: 1px solid rgba(0,255,200,0.25);
+  border-radius: 2px;
+  pointer-events: none;
+  white-space: pre;
+  letter-spacing: 0.04em;
+  text-shadow: 0 0 8px rgba(0,255,200,0.6);
+  box-shadow: 0 0 20px rgba(0,255,200,0.08);
+}
+#tip {
+  position: fixed;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: rgba(255,255,255,0.35);
+  font: 12px/1 'Courier New', monospace;
+  letter-spacing: 0.12em;
+  pointer-events: none;
+  transition: opacity 2.5s ease;
+  white-space: nowrap;
+}
+#sound-indicator {
+  position: fixed;
+  top: 14px; right: 14px;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: #333;
+  pointer-events: none;
+  transition: background 0.3s, box-shadow 0.3s;
+}
+#sound-indicator.on {
+  background: #00ffc8;
+  box-shadow: 0 0 12px #00ffc8, 0 0 24px rgba(0,255,200,0.4);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%,100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<div id="tip">SPACE / CLICK: Randomize &nbsp;·&nbsp; H: HUD &nbsp;·&nbsp; S: Sound</div>
+<div id="sound-indicator"></div>
+
+<script>
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║              FRACTAL STORM ENGINE — CORE SYSTEMS                ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+const canvas   = document.getElementById('c');
+const ctx      = canvas.getContext('2d', { alpha: false, willReadFrequently: false });
+const hudEl    = document.getElementById('hud');
+const tipEl    = document.getElementById('tip');
+const soundLED = document.getElementById('sound-indicator');
+
+// ── Viewport & Render State ──────────────────────────────────────────
+let W = 0, H = 0;               // display size
+let RW = 1, RH = 1;             // render buffer size
+let adaptiveScale = 0.55;       // fraction of display pixels to render
+let offscreen, offCtx;
+let imageData, buf32;           // 32-bit pixel buffer
+let frameCount = 0;
+let lastTime   = 0;
+let fps        = 60;
+let animId     = null;
+let t          = 0;             // time in seconds
+
+// ── HUD & Sound ──────────────────────────────────────────────────────
+let hudVisible    = false;
+let soundEnabled  = false;
+let audioCtx      = null;
+let masterGain    = null;
+let oscillators   = [];
+let gainNodes     = [];
+let analyserNode  = null;
+let fftBuf        = null;
+
+// ── Parameters (fully randomizable) ──────────────────────────────────
+let P = {};
+
+// ── Lorenz Attractor State ────────────────────────────────────────────
+let lx = 0.1, ly = 0, lz = 25;
+const LORENZ_TRAIL = 2400;       // max trajectory points (xyz triplets)
+let lorenzBuf = new Float32Array(LORENZ_TRAIL * 3);
+let lorenzHead = 0;
+let lorenzCount = 0;
+
+// ── Perlin Noise Tables ───────────────────────────────────────────────
+let noisePermutation = new Uint8Array(512);
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║                     PERLIN NOISE ENGINE                         ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+function noiseInit(seed) {
+  const arr = new Uint8Array(256);
+  for (let i = 0; i < 256; i++) arr[i] = i;
+  // Seeded shuffle (mulberry32-ish)
+  let s = (seed ^ 0xdeadbeef) >>> 0;
+  const rng = () => {
+    s  = Math.imul(s ^ (s >>> 15), s | 1);
+    s ^= s + Math.imul(s ^ (s >>> 7), s | 61);
+    return ((s ^ (s >>> 14)) >>> 0) / 0x100000000;
+  };
+  for (let i = 255; i > 0; i--) {
+    const j = (rng() * (i + 1)) | 0;
+    const tmp = arr[i]; arr[i] = arr[j]; arr[j] = tmp;
+  }
+  for (let i = 0; i < 512; i++) noisePermutation[i] = arr[i & 255];
+}
+
+function _fade(t) { return t * t * t * (t * (t * 6 - 15) + 10); }
+function _lerp(a, b, t) { return a + t * (b - a); }
+function _grad2(h, x, y) {
+  const v = h & 3;
+  const u = v < 2 ? x : y, w = v < 2 ? y : x;
+  return ((v & 1) ? -u : u) + ((v & 2) ? -w : w);
+}
+
+function noise2(x, y) {
+  const p  = noisePermutation;
+  const xi = Math.floor(x) & 255, yi = Math.floor(y) & 255;
+  const xf = x - Math.floor(x), yf = y - Math.floor(y);
+  const u  = _fade(xf), v = _fade(yf);
+  const aa = p[p[xi]     + yi    ];
+  const ab = p[p[xi]     + yi + 1];
+  const ba = p[p[xi + 1] + yi    ];
+  const bb = p[p[xi + 1] + yi + 1];
+  return _lerp(
+    _lerp(_grad2(aa, xf,     yf    ), _grad2(ba, xf - 1, yf    ), u),
+    _lerp(_grad2(ab, xf,     yf - 1), _grad2(bb, xf - 1, yf - 1), u),
+    v
+  );
+}
+
+function fbm(x, y, oct, lacunarity, gain) {
+  let val = 0, amp = 1.0, freq = 1.0, norm = 0;
+  for (let i = 0; i < oct; i++) {
+    val  += noise2(x * freq, y * freq) * amp;
+    norm += amp;
+    amp  *= gain;
+    freq *= lacunarity;
+  }
+  return val / norm;
+}
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║                      COLOR MATHEMATICS                          ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+// HSV → packed RGBA (0xAABBGGRR for canvas ImageData)
+function hsv2rgba(h, s, v) {
+  h = ((h % 1) + 1) % 1;
+  const i  = (h * 6) | 0;
+  const f  = h * 6 - i;
+  const p  = v * (1 - s);
+  const q  = v * (1 - f * s);
+  const tv = v * (1 - (1 - f) * s);
+  let r, g, b;
+  switch (i % 6) {
+    case 0: r=v;  g=tv; b=p;  break;
+    case 1: r=q;  g=v;  b=p;  break;
+    case 2: r=p;  g=v;  b=tv; break;
+    case 3: r=p;  g=q;  b=v;  break;
+    case 4: r=tv; g=p;  b=v;  break;
+    default:r=v;  g=p;  b=q;  break;
+  }
+  return (255 << 24) | ((b * 255 | 0) << 16) | ((g * 255 | 0) << 8) | (r * 255 | 0);
+}
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║                   COMPLEX NUMBER HELPERS                        ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+// Returns [real, imag] arrays inline to avoid allocation
+let _cmulR = 0, _cmulI = 0;
+function cmul(ar, ai, br, bi) { _cmulR = ar*br - ai*bi; _cmulI = ar*bi + ai*br; }
+function cdiv(ar, ai, br, bi) {
+  const d = br*br + bi*bi + 1e-12;
+  _cmulR = (ar*br + ai*bi)/d;
+  _cmulI = (ai*br - ar*bi)/d;
+}
+
+// Möbius: w = (a·z + b) / (c·z + d)
+function mobius(zr, zi) {
+  cmul(P.mA_r, P.mA_i, zr, zi); const nr = _cmulR + P.mB_r, ni = _cmulI + P.mB_i;
+  cmul(P.mC_r, P.mC_i, zr, zi); const dr = _cmulR + P.mD_r, di = _cmulI + P.mD_i;
+  cdiv(nr, ni, dr, di);
+}
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║                     FRACTAL ITERATION                           ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+// Smooth Julia escape-time coloring
+function julia(zr, zi, cr, ci, maxIter) {
+  let i = 0, zr2 = zr*zr, zi2 = zi*zi;
+  while (i < maxIter && zr2 + zi2 < 16.0) {
+    zi  = 2*zr*zi + ci;
+    zr  = zr2 - zi2 + cr;
+    zr2 = zr*zr; zi2 = zi*zi;
+    i++;
+  }
+  if (i === maxIter) return -1;
+  // Continuous (smooth) iteration count
+  const m = zr2 + zi2;
+  return i - Math.log2(Math.log2(m)) + 4.0;
+}
+
+// Burning Ship variant for interior decoration
+function burningShip(zr, zi, cr, ci, maxIter) {
+  let i = 0, zr2 = 0, zi2 = 0;
+  while (i < maxIter && zr2 + zi2 < 4.0) {
+    zr  = Math.abs(zr); zi = Math.abs(zi);
+    const tmp = zr2 - zi2 + cr;
+    zi  = 2*zr*zi + ci;
+    zr  = tmp;
+    zr2 = zr*zr; zi2 = zi*zi;
+    i++;
+  }
+  if (i === maxIter) return -1;
+  return i + 1 - Math.log2(Math.log2(zr2 + zi2));
+}
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║                    LORENZ ATTRACTOR                             ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+function stepLorenz(steps) {
+  const { lSigma, lRho, lBeta, lDt } = P;
+  for (let s = 0; s < steps; s++) {
+    const dx = lSigma * (ly - lx);
+    const dy = lx * (lRho - lz) - ly;
+    const dz = lx * ly - lBeta * lz;
+    lx += dx * lDt;
+    ly += dy * lDt;
+    lz += dz * lDt;
+    const base = lorenzHead * 3;
+    lorenzBuf[base]     = lx;
+    lorenzBuf[base + 1] = ly;
+    lorenzBuf[base + 2] = lz;
+    lorenzHead = (lorenzHead + 1) % LORENZ_TRAIL;
+    if (lorenzCount < LORENZ_TRAIL) lorenzCount++;
+  }
+}
+
+// Get Lorenz influence at a point (fast approximate)
+function lorenzInfluence(px, py) {
+  if (lorenzCount < 2) return 0;
+  let minD2 = Infinity;
+  const sc = 1.0 / 22.0; // normalize attractor scale
+  // Sample recent points
+  const step = Math.max(1, (lorenzCount / 40) | 0);
+  for (let i = 0; i < lorenzCount; i += step) {
+    const idx  = ((lorenzHead - i - 1 + LORENZ_TRAIL) % LORENZ_TRAIL) * 3;
+    const dx   = lorenzBuf[idx]   * sc - px;
+    const dy   = lorenzBuf[idx+1] * sc - py;
+    const d2   = dx*dx + dy*dy;
+    if (d2 < minD2) minD2 = d2;
+  }
+  return Math.exp(-minD2 * 8.0);
+}
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║                   RANDOMIZE ALL PARAMETERS                      ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+function randomize() {
+  const rf = (a, b) => a + Math.random() * (b - a);
+  const ri = (a, b) => (a + Math.random() * (b - a + 1)) | 0;
+
+  // Julia set
+  const angle = rf(0, Math.PI * 2);
+  const mag   = rf(0.2, 0.85);
+  P.cR        = Math.cos(angle) * mag;
+  P.cI        = Math.sin(angle) * mag;
+  P.maxIter   = ri(56, 140);
+  P.juliaScale= rf(0.7, 2.2);
+  P.useBShip  = Math.random() < 0.3; // 30% chance Burning Ship variant
+
+  // Domain warp
+  P.warpStr   = rf(0.15, 1.1);
+  P.warpFreq  = rf(0.4, 3.5);
+  P.warpOct   = ri(2, 5);
+  P.warpTimeS = rf(0.04, 0.18);
+
+  // Kaleidoscopic symmetry (6–24, even)
+  P.symOrder  = ri(3, 12) * 2;   // 6, 8, 10 … 24
+  P.symShiftS = rf(0.005, 0.04);
+
+  // Möbius transform
+  const mk = () => ({ r: rf(-1, 1), i: rf(-1, 1) });
+  const mA = mk(), mB = mk(), mC = mk(), mD = mk();
+  P.mA_r = mA.r; P.mA_i = mA.i;
+  P.mB_r = mB.r * 0.5; P.mB_i = mB.i * 0.5;
+  P.mC_r = mC.r * 0.25; P.mC_i = mC.i * 0.25;
+  P.mD_r = 0.8 + Math.abs(mD.r) * 0.4; P.mD_i = mD.i * 0.2;
+  P.mobStr   = rf(0.0, 0.55);
+  P.mobSpeed = rf(0.08, 0.45);
+
+  // Lorenz attractor
+  P.lSigma   = rf(5, 22);
+  P.lRho     = rf(14, 45);
+  P.lBeta    = rf(1.5, 4.2);
+  P.lDt      = rf(0.003, 0.009);
+
+  // fBm cloud
+  P.cloudOct = ri(3, 7);
+  P.cloudFreq= rf(0.8, 3.5);
+  P.cloudSca = rf(0.25, 0.85);
+
+  // Color - phase-shifted sine triad
+  P.hueBase  = Math.random();
+  P.hueSpeed = rf(0.04, 0.28);
+  P.hueFreq  = rf(0.8, 7.0);
+  P.satBase  = rf(0.65, 1.0);
+  P.valBase  = rf(0.45, 0.9);
+  P.phaseR   = rf(0, Math.PI * 2);
+  P.phaseG   = rf(0, Math.PI * 2);
+  P.phaseB   = rf(0, Math.PI * 2);
+  P.harmonics= ri(1, 5);
+  P.colorMix = rf(0.1, 0.55); // fractal/noise mix weight
+
+  // Noise seed
+  P.noiseSeed= ri(1, 0xFFFF);
+
+  // Lorenz reset
+  lx = rf(-5, 5); ly = rf(-5, 5); lz = rf(20, 30);
+  lorenzHead = 0; lorenzCount = 0;
+
+  noiseInit(P.noiseSeed);
+
+  if (soundEnabled) scheduleAudioUpdate();
+}
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║                     PIXEL RENDERING                             ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+function renderPixel(px, py, time) {
+  // Isotropic coordinate mapping: 1 unit = min(RW,RH)/2 pixels in BOTH axes.
+  // This guarantees circles are circular and the fractal is never stretched,
+  // regardless of the screen's aspect ratio.
+  const halfMin = Math.min(RW, RH) * 0.5;
+  let x = (px - RW * 0.5) / halfMin;
+  let y = (py - RH * 0.5) / halfMin;
+
+  // ─── Möbius transformation (animated blend) ─────────────────────
+  const ms = P.mobStr * (0.5 + 0.5 * Math.sin(time * P.mobSpeed));
+  if (ms > 0.005) {
+    mobius(x, y);
+    const mr = _cmulR, mi = _cmulI;
+    const mag = mr*mr + mi*mi;
+    if (mag < 16.0) { // clamp near singularity
+      x = x + (mr - x) * ms;
+      y = y + (mi - y) * ms;
+    }
+  }
+
+  // ─── Polar kaleidoscopic symmetry ────────────────────────────────
+  const r      = Math.sqrt(x*x + y*y);
+  let   theta  = Math.atan2(y, x);
+
+  // Slow-shift symmetry order (smooth)
+  const sector = (Math.PI * 2) / P.symOrder;
+  // Fold into primary sector
+  theta = ((theta % sector) + sector) % sector;
+  if (theta > sector * 0.5) theta = sector - theta;
+
+  // Back to Cartesian (fold)
+  const kx = r * Math.cos(theta);
+  const ky = r * Math.sin(theta);
+
+  // ─── Perlin noise domain warping ────────────────────────────────
+  const wt = time * P.warpTimeS;
+  const wx = fbm(kx * P.warpFreq + wt + 0.0, ky * P.warpFreq + wt + 3.7, P.warpOct, 2.05, 0.48);
+  const wy = fbm(kx * P.warpFreq + wt + 8.3, ky * P.warpFreq + wt + 1.9, P.warpOct, 2.05, 0.48);
+
+  let wx2 = kx + wx * P.warpStr;
+  let wy2 = ky + wy * P.warpStr;
+
+  // ─── Julia / Burning Ship iteration ─────────────────────────────
+  const zr  = wx2 * P.juliaScale;
+  const zi  = wy2 * P.juliaScale;
+  const ht  = time * 0.13;
+  const cr  = P.cR + Math.sin(ht * 0.71) * 0.09;
+  const ci  = P.cI + Math.cos(ht * 0.53) * 0.09;
+
+  const escape = P.useBShip
+    ? burningShip(zr, zi, cr, ci, P.maxIter)
+    : julia(zr, zi, cr, ci, P.maxIter);
+
+  // ─── fBm cloud texture ──────────────────────────────────────────
+  const cx   = px / RW * P.cloudFreq + time * 0.025;
+  const cy   = py / RH * P.cloudFreq + time * 0.018;
+  const cloud = fbm(cx, cy, P.cloudOct, 2.1, 0.5) * 0.5 + 0.5;
+
+  // ─── Lorenz attractor influence ──────────────────────────────────
+  const lorenz = lorenzInfluence(kx, ky);
+
+  // ─── Color computation ───────────────────────────────────────────
+  let hue, sat, val;
+  const timeHue = P.hueBase + time * P.hueSpeed;
+
+  if (escape < 0) {
+    // Interior of set — dark cloud/lorenz composite
+    hue = timeHue + cloud * 0.12 + lorenz * 0.08;
+    sat = 0.85 * P.satBase;
+    val = (cloud * P.cloudSca * 0.5 + lorenz * 0.4) * P.valBase;
+    // Add faint trapped light
+    val += 0.04 * Math.sin(kx * 4.0 + time) * Math.sin(ky * 4.0 + time * 1.3);
+  } else {
+    const tn = Math.min(1.0, escape / P.maxIter);
+
+    // Fourier harmonic overlay on escape coordinate
+    let harmonicH = 0;
+    for (let h = 1; h <= P.harmonics; h++) {
+      harmonicH += Math.sin(escape * P.hueFreq * 0.4 * h + time * h * 0.08 + P.phaseR) / h;
+    }
+    harmonicH *= 0.08;
+
+    // Phase-shifted sine triad
+    const s1 = Math.sin(escape * P.hueFreq * 0.5  + P.phaseR + time * 0.19) * 0.14;
+    const s2 = Math.sin(escape * P.hueFreq * 0.31 + P.phaseG + time * 0.11) * 0.10;
+    const s3 = Math.cos(escape * P.hueFreq * 0.73 + P.phaseB + time * 0.15) * 0.10;
+
+    hue = timeHue + s1 + s2 + s3 + harmonicH + lorenz * 0.07;
+    sat = P.satBase * (0.65 + Math.abs(Math.sin(escape * 0.28 + P.phaseR)) * 0.35);
+    val = P.valBase * (0.5 + tn * 0.5);
+
+    // Lorenz glow along attractor trajectory
+    val += lorenz * 0.25;
+
+    // fBm cloud multiplicative blend (banded texture)
+    val *= (0.35 + cloud * 0.65);
+  }
+
+  // Clamp
+  sat = sat < 0 ? 0 : sat > 1 ? 1 : sat;
+  val = val < 0 ? 0 : val > 1 ? 1 : val;
+
+  return hsv2rgba(hue, sat, val);
+}
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║                       MAIN RENDER LOOP                         ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+function render(timestamp) {
+  animId = requestAnimationFrame(render);
+
+  const dt = timestamp - lastTime;
+  if (dt < 12) return; // ~83fps max throttle — RAF does actual 60fps sync
+
+  // EMA FPS
+  fps       = fps * 0.94 + (1000 / Math.max(dt, 1)) * 0.06;
+  lastTime  = timestamp;
+  t         = timestamp * 0.001;
+  frameCount++;
+
+  // ─── Adaptive resolution ─────────────────────────────────────────
+  if (frameCount % 90 === 0) {
+    if      (fps < 38 && adaptiveScale > 0.30) { adaptiveScale = Math.max(0.30, adaptiveScale - 0.08); rebuildBuffers(); }
+    else if (fps > 55 && adaptiveScale < 0.80) { adaptiveScale = Math.min(0.80, adaptiveScale + 0.04); rebuildBuffers(); }
+  }
+
+  // ─── Step Lorenz attractor ───────────────────────────────────────
+  stepLorenz(12);
+
+  // ─── Pixel render pass ───────────────────────────────────────────
+  const b32 = buf32;
+  const rw  = RW, rh = RH;
+
+  for (let py = 0; py < rh; py++) {
+    const row = py * rw;
+    for (let px = 0; px < rw; px++) {
+      b32[row + px] = renderPixel(px, py, t);
+    }
+  }
+
+  // ─── Blit render buffer ──────────────────────────────────────────
+  offCtx.putImageData(imageData, 0, 0);
+
+  // ─── Lorenz trajectory overlay ───────────────────────────────────
+  if (lorenzCount > 4) {
+    const sc     = Math.min(rw, rh) * 0.011;
+    const cxOff  = rw * 0.5;
+    const cyOff  = rh * 0.5;
+    const trailN = Math.min(lorenzCount - 1, 600);
+
+    offCtx.save();
+    offCtx.lineWidth = 0.6;
+    offCtx.lineCap   = 'round';
+
+    for (let i = 0; i < trailN; i++) {
+      const age   = i / trailN;
+      const alpha = (1 - age) * 0.7;
+      const i0    = ((lorenzHead - i - 1 + LORENZ_TRAIL) % LORENZ_TRAIL) * 3;
+      const i1    = ((lorenzHead - i - 2 + LORENZ_TRAIL) % LORENZ_TRAIL) * 3;
+      const x0    = lorenzBuf[i0] * sc + cxOff;
+      const y0    = lorenzBuf[i0+1] * sc + cyOff;
+      const x1    = lorenzBuf[i1] * sc + cxOff;
+      const y1    = lorenzBuf[i1+1] * sc + cyOff;
+      const hue   = ((t * 0.09 + age * 0.6) % 1 + 1) % 1;
+      const hi    = (hue * 6) | 0;
+      const f     = hue * 6 - hi;
+      let r = 0, g = 0, b = 0;
+      switch (hi % 6) {
+        case 0: r=1;   g=f;   b=0;   break;
+        case 1: r=1-f; g=1;   b=0;   break;
+        case 2: r=0;   g=1;   b=f;   break;
+        case 3: r=0;   g=1-f; b=1;   break;
+        case 4: r=f;   g=0;   b=1;   break;
+        default:r=1;   g=0;   b=1-f; break;
+      }
+      offCtx.strokeStyle = `rgba(${r*255|0},${g*255|0},${b*255|0},${alpha})`;
+      offCtx.beginPath();
+      offCtx.moveTo(x0, y0);
+      offCtx.lineTo(x1, y1);
+      offCtx.stroke();
+    }
+    offCtx.restore();
+  }
+
+  // ─── Scale to display canvas ─────────────────────────────────────
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(offscreen, 0, 0, W, H);
+
+  // ─── HUD overlay ─────────────────────────────────────────────────
+  if (hudVisible) updateHUD();
+
+  // ─── Audio sync ──────────────────────────────────────────────────
+  if (soundEnabled && frameCount % 25 === 0) syncAudioToPixels();
+}
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║                        RESIZE & BUFFERS                        ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+function rebuildBuffers() {
+  // Derive RH from RW using the exact display aspect ratio so RW/RH === W/H
+  // and ctx.drawImage never applies non-uniform scaling to the buffer.
+  RW = Math.max(120, Math.round(W * adaptiveScale));
+  RH = Math.max(68,  Math.round(RW * H / W));
+
+  offscreen       = document.createElement('canvas');
+  offscreen.width  = RW;
+  offscreen.height = RH;
+  offCtx          = offscreen.getContext('2d');
+  imageData       = offCtx.createImageData(RW, RH);
+  // Create a Uint32Array view for faster pixel writes
+  buf32 = new Uint32Array(imageData.data.buffer);
+}
+
+function resize() {
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width  = W;
+  canvas.height = H;
+  rebuildBuffers();
+}
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║                           HUD DISPLAY                          ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+function updateHUD() {
+  hudEl.style.display = 'block';
+  hudEl.textContent = [
+    `╔═══ FRACTAL STORM ENGINE ═══╗`,
+    `  FPS: ${fps.toFixed(1).padStart(5)}  Res: ${RW}×${RH}`,
+    `  Frame: ${frameCount}`,
+    `╠═══ JULIA / FRACTAL ════════╣`,
+    `  C: (${P.cR.toFixed(4)}, ${P.cI.toFixed(4)})`,
+    `  Iter: ${P.maxIter}  Scale: ${P.juliaScale.toFixed(3)}`,
+    `  Mode: ${P.useBShip ? 'Burning Ship' : 'Julia'}`,
+    `╠═══ SYMMETRY ════════════════╣`,
+    `  Order: ${P.symOrder}-fold Coxeter`,
+    `╠═══ LORENZ ATTRACTOR ════════╣`,
+    `  σ=${P.lSigma.toFixed(2)}  ρ=${P.lRho.toFixed(2)}  β=${P.lBeta.toFixed(2)}`,
+    `  Trail: ${lorenzCount} pts`,
+    `╠═══ DOMAIN WARP (fBm) ═══════╣`,
+    `  Str: ${P.warpStr.toFixed(3)}  Freq: ${P.warpFreq.toFixed(3)}`,
+    `  Oct: ${P.warpOct}  Cloud Oct: ${P.cloudOct}`,
+    `╠═══ COLOR ═══════════════════╣`,
+    `  Hue: ${P.hueBase.toFixed(3)}  Spd: ${P.hueSpeed.toFixed(3)}`,
+    `  Freq: ${P.hueFreq.toFixed(3)}  Harm: ${P.harmonics}`,
+    `  Möbius Str: ${P.mobStr.toFixed(3)}`,
+    `╠═══ SOUND ═══════════════════╣`,
+    `  ${soundEnabled ? '◉ ACTIVE' : '○ OFF'} (press S)`,
+    `╚════════════════════════════╝`,
+    `  [SPACE/Click: Randomize]`,
+    `  [H: Toggle HUD]`,
+  ].join('\n');
+}
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║                    WEB AUDIO API SOUNDSCAPE                     ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+let audioUpdatePending = false;
+
+function scheduleAudioUpdate() {
+  if (!audioUpdatePending) {
+    audioUpdatePending = true;
+    setTimeout(() => { audioUpdatePending = false; buildOscillators(); }, 50);
+  }
+}
+
+function initAudioContext() {
+  if (audioCtx) return;
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
+  audioCtx   = new AC();
+  masterGain = audioCtx.createGain();
+  masterGain.gain.value = 0.18;
+  masterGain.connect(audioCtx.destination);
+}
+
+function buildOscillators() {
+  if (!audioCtx || !soundEnabled) return;
+  // Tear down existing
+  oscillators.forEach(o => { try { o.stop(audioCtx.currentTime + 0.05); } catch(e) {} });
+  oscillators = [];
+  gainNodes.forEach(g => { try { g.disconnect(); } catch(e) {} });
+  gainNodes = [];
+
+  // Base frequency derived from Julia C magnitude
+  const baseFreq = 55.0 * (1.0 + Math.abs(P.cR) * 1.7 + Math.abs(P.cI) * 1.2);
+  const numOsc   = 6 + P.harmonics * 2;
+
+  for (let i = 0; i < numOsc; i++) {
+    if (!soundEnabled) break;
+    const osc = audioCtx.createOscillator();
+    const gn  = audioCtx.createGain();
+
+    osc.type = i % 3 === 0 ? 'sine' : 'triangle';
+
+    // Harmonic series shaped by symmetry order
+    const ratio   = (i + 1) * (P.symOrder / 12.0);
+    osc.frequency.value = Math.min(baseFreq * ratio * 0.5, 4000);
+
+    // Gaussian envelope — peaks at middle oscillators
+    const dist   = (i - numOsc * 0.5) / (numOsc * 0.5);
+    const gaussA = Math.exp(-dist * dist * 2.2) * 0.12 / Math.sqrt(i + 1);
+    gn.gain.value = gaussA;
+
+    osc.connect(gn);
+    gn.connect(masterGain);
+    osc.start(audioCtx.currentTime);
+
+    oscillators.push(osc);
+    gainNodes.push(gn);
+  }
+}
+
+// Lightweight real-time "FFT" via DFT on pixel column luminance
+function syncAudioToPixels() {
+  if (!soundEnabled || !audioCtx || oscillators.length === 0) return;
+  const K = Math.min(oscillators.length, 12);
+  const N = RH;
+  const col = (RW >> 1);
+
+  // Collect luminance samples from center column
+  const lum = new Float32Array(N);
+  for (let row = 0; row < N; row++) {
+    const i  = (row * RW + col) * 4;
+    const d  = imageData.data;
+    lum[row] = (d[i] * 0.299 + d[i+1] * 0.587 + d[i+2] * 0.114) / 255.0;
+  }
+
+  // DFT magnitude for K frequencies (subsampled for speed)
+  const step = Math.max(1, (N / 48) | 0);
+  const mags = new Float32Array(K);
+  for (let k = 1; k <= K; k++) {
+    let re = 0, im = 0, cnt = 0;
+    for (let n = 0; n < N; n += step) {
+      const a = 2 * Math.PI * k * n / N;
+      re += lum[n] * Math.cos(a);
+      im -= lum[n] * Math.sin(a);
+      cnt++;
+    }
+    mags[k - 1] = Math.sqrt(re*re + im*im) / cnt;
+  }
+
+  // Lorenz velocity for amplitude envelope modulation
+  let lorenzV = 0.5;
+  if (lorenzCount > 1) {
+    const i0 = ((lorenzHead - 1 + LORENZ_TRAIL) % LORENZ_TRAIL) * 3;
+    const i1 = ((lorenzHead - 2 + LORENZ_TRAIL) % LORENZ_TRAIL) * 3;
+    const dvx = lorenzBuf[i0] - lorenzBuf[i1];
+    const dvy = lorenzBuf[i0+1] - lorenzBuf[i1+1];
+    lorenzV = Math.min(2.0, Math.sqrt(dvx*dvx + dvy*dvy));
+  }
+  // Gaussian envelope riding velocity
+  const envMod = 0.15 + 0.85 * Math.exp(-lorenzV * lorenzV * 0.2);
+
+  const now = audioCtx.currentTime;
+  for (let i = 0; i < oscillators.length; i++) {
+    const mag    = mags[i % K] || 0;
+    const target = Math.min(0.25, mag * envMod * 0.35 / Math.sqrt(i + 1));
+    gainNodes[i].gain.setTargetAtTime(target, now, 0.08);
+
+    // Slightly shift frequencies with Lorenz state
+    const baseF = oscillators[i].frequency.value;
+    const drift = 1.0 + (lx / 25.0) * 0.04;
+    oscillators[i].frequency.setTargetAtTime(baseF * drift, now, 0.5);
+  }
+}
+
+function toggleSound() {
+  soundEnabled = !soundEnabled;
+  soundLED.className = soundEnabled ? 'on' : '';
+
+  if (soundEnabled) {
+    initAudioContext();
+    if (audioCtx && audioCtx.state === 'suspended') {
+      audioCtx.resume().then(() => buildOscillators());
+    } else {
+      buildOscillators();
+    }
+  } else {
+    // Fade out & stop all oscillators
+    oscillators.forEach(o => {
+      try { o.stop(audioCtx.currentTime + 0.1); } catch(e) {}
+    });
+    oscillators = [];
+    gainNodes.forEach(g => { try { g.disconnect(); } catch(e) {} });
+    gainNodes = [];
+    // Don't close audioCtx — reuse on re-enable
+  }
+}
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║                      EVENT HANDLERS                            ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+window.addEventListener('resize', () => {
+  resize();
+});
+
+document.addEventListener('keydown', e => {
+  switch (e.code) {
+    case 'Space':
+      e.preventDefault();
+      randomize();
+      flashCanvas();
+      break;
+    case 'KeyH':
+      hudVisible = !hudVisible;
+      if (!hudVisible) hudEl.style.display = 'none';
+      break;
+    case 'KeyS':
+      toggleSound();
+      break;
+  }
+});
+
+canvas.addEventListener('click', () => {
+  randomize();
+  flashCanvas();
+});
+
+canvas.addEventListener('touchend', e => {
+  e.preventDefault();
+  randomize();
+  flashCanvas();
+}, { passive: false });
+
+function flashCanvas() {
+  // Brief white flash on randomize
+  ctx.fillStyle = 'rgba(255,255,255,0.08)';
+  ctx.fillRect(0, 0, W, H);
+}
+
+// ─── Tip fade ────────────────────────────────────────────────────────
+setTimeout(() => { tipEl.style.opacity = '0'; }, 6000);
+setTimeout(() => { tipEl.style.display = 'none'; }, 8600);
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║                         BOOTSTRAP                              ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+resize();
+randomize();
+requestAnimationFrame(render);
+
+</script>
+</body>
+</html>

@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GL Matrix — Screensaver</title>
+<meta name="description" content="An immersive full-screen Matrix-style digital rain screensaver built with HTML5 Canvas. Features 8 color themes including classic green, blood red, ice blue, gold, violet, cyan, and rainbow. Press SPACE or click to randomize colors, speeds, and effects instantly.">
+<meta name="keywords" content="matrix screensaver, digital rain, HTML5 canvas, matrix code animation, katakana rain, green code rain, browser screensaver, matrix effect, glitch animation, cyberpunk screensaver, interactive screensaver, fullscreen animation, javascript screensaver, matrix wallpaper">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%;
+    background: #000;
+    overflow: hidden;
+    cursor: crosshair;
+    font-family: 'Courier New', monospace;
+    user-select: none;
+  }
+  canvas {
+    display: block;
+    position: fixed;
+    top: 0; left: 0;
+  }
+  #hud {
+    position: fixed;
+    bottom: 28px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 10px 22px;
+    background: rgba(0,0,0,0.55);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 40px;
+    backdrop-filter: blur(8px);
+    transition: opacity 0.6s;
+    pointer-events: none;
+  }
+  #hud.fade { opacity: 0; }
+  #hud span {
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.45);
+  }
+  #hud kbd {
+    font-family: inherit;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    padding: 3px 9px;
+    border-radius: 5px;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.18);
+    color: rgba(255,255,255,0.7);
+  }
+  #flash {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0;
+    background: #fff;
+    transition: opacity 0.08s;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="flash"></div>
+<div id="hud">
+  <span>Randomize</span>
+  <kbd>SPACE</kbd>
+  <span>or</span>
+  <span>CLICK</span>
+</div>
+
+<script>
+// ─── GL Matrix Screensaver ────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const hud = document.getElementById('hud');
+const flash = document.getElementById('flash');
+
+// Katakana + latin + numbers + misc symbols
+const CHARS =
+  'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン' +
+  'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%&*+-=<>[]{}|/\\~^';
+
+let W, H, cols, drops, config;
+
+// ─── Config randomiser ────────────────────────────────────────────────────────
+function randBetween(a, b) { return a + Math.random() * (b - a); }
+function randInt(a, b)     { return Math.floor(randBetween(a, b + 1)); }
+function randHSL(hBase, hRange, s, l) {
+  const h = ((hBase + randBetween(-hRange, hRange)) + 360) % 360;
+  return `hsl(${h.toFixed(1)},${s}%,${l}%)`;
+}
+
+function pickTheme() {
+  // palette presets — pick one at random, then slightly mutate
+  const palettes = [
+    { name: 'matrix',    hBase:  120, hRange: 15, bg: '#000',      trail: 'rgba(0,0,0,0.045)', headBrightness: 100, midBrightness: 55, tailBrightness: 28 },
+    { name: 'phosphor',  hBase:  105, hRange: 25, bg: '#000205',   trail: 'rgba(0,0,0,0.04)',  headBrightness: 100, midBrightness: 65, tailBrightness: 35 },
+    { name: 'blood',     hBase:    0, hRange: 18, bg: '#050000',   trail: 'rgba(0,0,0,0.05)',  headBrightness: 100, midBrightness: 55, tailBrightness: 28 },
+    { name: 'ice',       hBase:  200, hRange: 25, bg: '#000308',   trail: 'rgba(0,0,0,0.045)', headBrightness: 100, midBrightness: 65, tailBrightness: 38 },
+    { name: 'gold',      hBase:   45, hRange: 18, bg: '#020100',   trail: 'rgba(0,0,0,0.045)', headBrightness: 100, midBrightness: 60, tailBrightness: 32 },
+    { name: 'violet',    hBase:  280, hRange: 22, bg: '#010005',   trail: 'rgba(0,0,0,0.04)',  headBrightness: 100, midBrightness: 60, tailBrightness: 30 },
+    { name: 'cyan',      hBase:  185, hRange: 20, bg: '#000304',   trail: 'rgba(0,0,0,0.045)', headBrightness: 100, midBrightness: 60, tailBrightness: 30 },
+    { name: 'rainbow',   hBase: null, hRange:180, bg: '#000',      trail: 'rgba(0,0,0,0.042)', headBrightness: 100, midBrightness: 60, tailBrightness: 30 },
+  ];
+  const p = palettes[randInt(0, palettes.length - 1)];
+
+  const fontSize   = randInt(12, 22);
+  const speed      = randBetween(28, 90);   // ms per tick
+  const tailLength = randInt(12, 48);
+  const density    = randBetween(0.65, 0.95);
+  const glitch     = Math.random() < 0.45;  // glitch effect chance
+
+  return { ...p, fontSize, speed, tailLength, density, glitch };
+}
+
+// ─── Setup ────────────────────────────────────────────────────────────────────
+function resize() {
+  W = canvas.width  = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  initDrops();
+}
+
+function initDrops() {
+  cols  = Math.floor(W / config.fontSize) + 1;
+  drops = Array.from({ length: cols }, () => ({
+    y:      randInt(-120, 0),                // current row
+    speed:  randBetween(0.5, 1.5),           // per-column speed multiplier
+    tail:   randInt(config.tailLength >> 1, config.tailLength),
+    chars:  [],                              // char per row slot in tail
+    hueOff: randBetween(-30, 30),            // per-column hue jitter (rainbow)
+  }));
+}
+
+function randomise() {
+  config = pickTheme();
+  // fill bg
+  ctx.fillStyle = config.bg;
+  ctx.fillRect(0, 0, W, H);
+  initDrops();
+
+  // flash
+  flash.style.transition = 'none';
+  flash.style.opacity = '0.35';
+  requestAnimationFrame(() => {
+    flash.style.transition = 'opacity 0.4s';
+    flash.style.opacity = '0';
+  });
+}
+
+// ─── Draw loop ────────────────────────────────────────────────────────────────
+let last = 0, timer = null;
+
+function draw(ts) {
+  if (ts - last < config.speed) { requestAnimationFrame(draw); return; }
+  last = ts;
+
+  // trailing fade
+  ctx.fillStyle = config.trail;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.font = `${config.fontSize}px 'Courier New', monospace`;
+  ctx.textAlign = 'center';
+
+  const fs  = config.fontSize;
+  const hB  = config.hBase;
+  const hR  = config.hRange;
+  const sat = 100;
+
+  drops.forEach((d, i) => {
+    const x = i * fs + fs / 2;
+
+    // pick chars for this tick
+    const ch = CHARS[randInt(0, CHARS.length - 1)];
+    if (!d.chars) d.chars = [];
+    d.chars[d.y] = ch;
+
+    // draw tail
+    for (let t = 0; t < d.tail; t++) {
+      const row = Math.floor(d.y) - t;
+      if (row < 0) continue;
+      const y = row * fs;
+      if (y > H) continue;
+
+      const tchar = d.chars[row] || CHARS[randInt(0, CHARS.length - 1)];
+      const frac  = 1 - t / d.tail;
+
+      let hue;
+      if (hB === null) {
+        // rainbow: hue based on column + time drift
+        hue = ((i * 8 + d.hueOff + last * 0.05) % 360 + 360) % 360;
+      } else {
+        hue = ((hB + d.hueOff + (hR ? randBetween(-hR * 0.15, hR * 0.15) : 0)) + 360) % 360;
+      }
+
+      if (t === 0) {
+        // head — bright white-ish
+        ctx.shadowColor = `hsl(${hue},${sat}%,80%)`;
+        ctx.shadowBlur  = 14;
+        ctx.fillStyle   = `hsl(${hue},20%,${config.headBrightness}%)`;
+      } else if (t < 3) {
+        ctx.shadowColor = `hsl(${hue},${sat}%,55%)`;
+        ctx.shadowBlur  = 8;
+        ctx.fillStyle   = `hsl(${hue},${sat}%,${config.midBrightness}%)`;
+      } else {
+        ctx.shadowBlur  = 0;
+        const l = config.tailBrightness * frac;
+        ctx.fillStyle   = `hsl(${hue},${sat}%,${l}%)`;
+      }
+
+      // glitch: random char swap
+      const drawChar = (config.glitch && Math.random() < 0.015)
+        ? CHARS[randInt(0, CHARS.length - 1)]
+        : tchar;
+
+      ctx.fillText(drawChar, x, y + fs);
+    }
+
+    // advance
+    d.y += d.speed;
+
+    // reset when tail scrolls off bottom
+    if (d.y * fs > H + d.tail * fs && Math.random() > (1 - config.density)) {
+      d.y     = randInt(-30, 0);
+      d.speed = randBetween(0.5, 1.5);
+      d.tail  = randInt(config.tailLength >> 1, config.tailLength);
+      d.chars = [];
+      d.hueOff= randBetween(-30, 30);
+    }
+  });
+
+  requestAnimationFrame(draw);
+}
+
+// ─── HUD auto-hide ────────────────────────────────────────────────────────────
+let hudTimer;
+function showHud() {
+  hud.classList.remove('fade');
+  clearTimeout(hudTimer);
+  hudTimer = setTimeout(() => hud.classList.add('fade'), 3200);
+}
+
+// ─── Boot ─────────────────────────────────────────────────────────────────────
+config = pickTheme();
+resize();
+window.addEventListener('resize', resize);
+
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space') { e.preventDefault(); randomise(); showHud(); }
+});
+document.addEventListener('click',  () => { randomise(); showHud(); });
+document.addEventListener('mousemove', showHud);
+
+showHud();
+requestAnimationFrame(draw);
+</script>
+</body>
+</html>

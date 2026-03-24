@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Generative Quintuple Pendulum Audiovisual Chaos</title>
+
+<meta name="description" content="A generative audiovisual chaos simulation featuring a randomized quintuple pendulum system. Physics driven generative art with synchronized sound synthesis and evolving chaotic motion.">
+
+<meta name="keywords" content="generative art, chaotic pendulum, quintuple pendulum, audiovisual synthesis, physics art, chaotic motion, interactive generative art, pendulum simulation, webgl generative art, creative coding">
+
+<meta property="og:title" content="Generative Quintuple Pendulum Audiovisual Chaos">
+<meta property="og:description" content="Interactive generative audiovisual physics artwork based on a chaotic quintuple pendulum.">
+<meta property="og:type" content="website">
+
+<style>
+html,body{
+margin:0;
+padding:0;
+overflow:hidden;
+background:black;
+font-family:monospace;
+}
+
+canvas{
+display:block;
+}
+
+#hud{
+position:fixed;
+top:10px;
+left:10px;
+color:white;
+font-size:12px;
+background:rgba(0,0,0,0.4);
+padding:10px;
+border-radius:6px;
+display:none;
+}
+
+</style>
+</head>
+<body>
+
+<canvas id="c"></canvas>
+<div id="hud"></div>
+
+<script>
+
+const canvas=document.getElementById("c")
+const ctx=canvas.getContext("2d")
+const hud=document.getElementById("hud")
+
+function resize(){
+canvas.width=window.innerWidth
+canvas.height=window.innerHeight
+}
+window.addEventListener("resize",resize)
+resize()
+
+const N=5
+
+let lengths=[]
+let masses=[]
+let angles=[]
+let velocities=[]
+
+let gravity
+let damping
+
+let colors=[]
+let trailColor
+let bgColor
+
+let trail=[]
+
+let hudVisible=false
+let soundEnabled=false
+
+let audioCtx
+let oscillators=[]
+let gains=[]
+let filters=[]
+let panners=[]
+
+function rand(a,b){return a+Math.random()*(b-a)}
+
+function randColor(){
+return `hsl(${Math.random()*360},${50+Math.random()*50}%,${30+Math.random()*50}%)`
+}
+
+function regenerate(){
+
+lengths=[]
+masses=[]
+angles=[]
+velocities=[]
+colors=[]
+
+gravity=rand(6,16)
+damping=rand(0.998,0.9999)
+
+for(let i=0;i<N;i++){
+
+lengths.push(rand(80,200))
+masses.push(rand(0.5,4))
+
+angles.push(rand(-Math.PI,Math.PI))
+velocities.push(rand(-2,2))
+
+colors.push(randColor())
+
+}
+
+trailColor=randColor()
+bgColor=`hsl(${Math.random()*360},20%,4%)`
+
+trail=[]
+
+initAudio()
+
+}
+
+function initAudio(){
+
+if(!audioCtx) return
+
+oscillators.forEach(o=>o.stop())
+
+oscillators=[]
+gains=[]
+filters=[]
+panners=[]
+
+for(let i=0;i<N;i++){
+
+let osc=audioCtx.createOscillator()
+let gain=audioCtx.createGain()
+let filter=audioCtx.createBiquadFilter()
+let pan=audioCtx.createStereoPanner()
+
+osc.type=["sine","triangle","sawtooth"][Math.floor(Math.random()*3)]
+
+filter.type="lowpass"
+
+osc.connect(filter)
+filter.connect(pan)
+pan.connect(gain)
+gain.connect(audioCtx.destination)
+
+osc.start()
+
+gain.gain.value=0
+
+oscillators.push(osc)
+gains.push(gain)
+filters.push(filter)
+panners.push(pan)
+
+}
+
+}
+
+function positions(){
+
+let pts=[]
+let x=0
+let y=0
+
+for(let i=0;i<N;i++){
+
+x+=lengths[i]*Math.sin(angles[i])
+y+=lengths[i]*Math.cos(angles[i])
+
+pts.push({x,y})
+
+}
+
+return pts
+
+}
+
+function step(dt){
+
+let acc=new Array(N).fill(0)
+
+for(let i=0;i<N;i++){
+
+let torque=0
+
+for(let j=i;j<N;j++){
+torque+=-gravity*Math.sin(angles[i])*masses[j]
+}
+
+acc[i]=torque/(lengths[i]*masses[i])
+
+}
+
+for(let i=0;i<N;i++){
+
+velocities[i]+=acc[i]*dt
+velocities[i]*=damping
+angles[i]+=velocities[i]*dt
+
+}
+
+}
+
+function updateAudio(){
+
+if(!soundEnabled || !audioCtx) return
+
+let energy=0
+
+for(let i=0;i<N;i++){
+
+energy+=Math.abs(velocities[i])
+
+let freq=120+Math.abs(velocities[i])*180
+
+oscillators[i].frequency.value=freq
+
+gains[i].gain.value=0.03+Math.abs(velocities[i])*0.02
+
+filters[i].frequency.value=400+energy*200
+
+panners[i].pan.value=Math.sin(angles[i])
+
+}
+
+}
+
+function draw(){
+
+ctx.fillStyle=bgColor
+ctx.fillRect(0,0,canvas.width,canvas.height)
+
+ctx.save()
+ctx.translate(canvas.width/2,canvas.height/5)
+
+let pts=positions()
+
+trail.push(pts[N-1])
+
+if(trail.length>1000) trail.shift()
+
+ctx.beginPath()
+for(let p of trail) ctx.lineTo(p.x,p.y)
+
+ctx.strokeStyle=trailColor
+ctx.lineWidth=2
+ctx.globalAlpha=0.6
+ctx.stroke()
+ctx.globalAlpha=1
+
+let x=0
+let y=0
+
+for(let i=0;i<N;i++){
+
+let nx=x+lengths[i]*Math.sin(angles[i])
+let ny=y+lengths[i]*Math.cos(angles[i])
+
+ctx.beginPath()
+ctx.moveTo(x,y)
+ctx.lineTo(nx,ny)
+
+ctx.strokeStyle=colors[i]
+ctx.lineWidth=2+Math.abs(velocities[i])*2
+ctx.stroke()
+
+ctx.beginPath()
+ctx.arc(nx,ny,8*masses[i],0,Math.PI*2)
+
+ctx.fillStyle=colors[i]
+ctx.shadowColor=colors[i]
+ctx.shadowBlur=20
+ctx.fill()
+
+ctx.shadowBlur=0
+
+x=nx
+y=ny
+
+}
+
+ctx.restore()
+
+if(hudVisible){
+
+hud.style.display="block"
+
+hud.innerHTML=
+`Generative Quintuple Pendulum<br>
+Gravity: ${gravity.toFixed(2)}<br>
+Damping: ${damping.toFixed(5)}<br>
+Trail length: ${trail.length}<br>
+Sound: ${soundEnabled?"ON":"OFF"}`
+}
+else{
+hud.style.display="none"
+}
+
+}
+
+function loop(){
+
+for(let i=0;i<4;i++) step(0.016)
+
+updateAudio()
+draw()
+
+requestAnimationFrame(loop)
+
+}
+
+function toggleSound(){
+
+soundEnabled=!soundEnabled
+
+if(soundEnabled){
+
+if(!audioCtx) audioCtx=new AudioContext()
+
+initAudio()
+
+}else{
+
+gains.forEach(g=>g.gain.value=0)
+
+}
+
+}
+
+window.addEventListener("keydown",e=>{
+
+if(e.code==="Space") regenerate()
+
+if(e.key==="h"||e.key==="H"){
+hudVisible=!hudVisible
+}
+
+if(e.key==="s"||e.key==="S"){
+toggleSound()
+}
+
+})
+
+canvas.addEventListener("mousedown",regenerate)
+canvas.addEventListener("touchstart",regenerate)
+
+regenerate()
+loop()
+
+</script>
+</body>
+</html>

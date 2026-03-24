@@ -1,0 +1,776 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>GL Matrix — Generative Digital Rain Screensaver</title>
+<meta name="description" content="An immersive, fully generative Matrix-style digital rain screensaver built with HTML5 Canvas and Web Audio API. Features infinite randomized color palettes, dynamic glyph streams, real-time synthesized soundscapes, glitch effects, particle explosions, and depth-of-field blur. Press SPACE or click/tap to randomize everything. Press H for HUD, S for sound.">
+<meta name="keywords" content="matrix screensaver, digital rain, generative art, HTML5 canvas animation, katakana rain, matrix code, cyberpunk animation, browser screensaver, matrix effect, glitch art, particle system, web audio api, interactive art, fullscreen animation, javascript art, procedural animation, code rain, matrix wallpaper, ambient sound, generative screensaver, webgl matrix, digital art, cyber aesthetic, terminal screensaver, hacker aesthetic">
+<meta name="author" content="GL Matrix Generative Art">
+<meta name="robots" content="index, follow">
+<meta property="og:title" content="GL Matrix — Generative Digital Rain Screensaver">
+<meta property="og:description" content="Immersive generative digital rain art with infinite color palettes, glitch effects, and ambient soundscapes. Click or press SPACE to randomize everything.">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#000000">
+<style>
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+html, body {
+  width: 100%; height: 100%;
+  background: #000;
+  overflow: hidden;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+canvas {
+  display: block;
+  position: fixed;
+  top: 0; left: 0;
+  cursor: crosshair;
+}
+#overlay-canvas {
+  position: fixed;
+  top: 0; left: 0;
+  pointer-events: none;
+}
+#flash {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  mix-blend-mode: screen;
+  transition: opacity 0.05s;
+}
+/* HUD */
+#hud {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  pointer-events: none;
+  font-family: 'Courier New', 'Lucida Console', monospace;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+#hud.visible { opacity: 1; }
+#hud-top {
+  position: absolute;
+  top: 24px; left: 28px; right: 28px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+#hud-title {
+  font-size: 10px;
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.2);
+  line-height: 1.8;
+}
+#hud-title span {
+  display: block;
+  font-size: 14px;
+  letter-spacing: 0.2em;
+  color: rgba(255,255,255,0.5);
+}
+#hud-stats {
+  text-align: right;
+  font-size: 10px;
+  letter-spacing: 0.15em;
+  color: rgba(255,255,255,0.25);
+  line-height: 2;
+}
+#hud-stats em {
+  font-style: normal;
+  color: rgba(255,255,255,0.55);
+}
+#hud-bottom {
+  position: absolute;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 20px;
+  background: rgba(0,0,0,0.5);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 40px;
+  backdrop-filter: blur(12px);
+  white-space: nowrap;
+}
+#hud-bottom span {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.3);
+}
+#hud-bottom kbd {
+  font-family: inherit;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  padding: 3px 9px;
+  border-radius: 4px;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.15);
+  color: rgba(255,255,255,0.6);
+}
+#hud-bottom .sep {
+  width: 1px; height: 12px;
+  background: rgba(255,255,255,0.1);
+}
+#sound-indicator {
+  position: fixed;
+  top: 20px; right: 24px;
+  font-family: 'Courier New', monospace;
+  font-size: 9px;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.2);
+  opacity: 0;
+  transition: opacity 0.5s;
+}
+#sound-indicator.visible { opacity: 1; }
+#palette-badge {
+  position: fixed;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: 'Courier New', monospace;
+  font-size: 10px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.0);
+  transition: color 0.8s ease, opacity 0.8s ease;
+  pointer-events: none;
+  opacity: 0;
+}
+#palette-badge.show {
+  color: rgba(255,255,255,0.4);
+  opacity: 1;
+}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<canvas id="overlay-canvas"></canvas>
+<div id="flash"></div>
+<div id="hud">
+  <div id="hud-top">
+    <div id="hud-title">
+      GL Matrix
+      <span>Generative Digital Rain</span>
+    </div>
+    <div id="hud-stats">
+      Palette: <em id="stat-palette">—</em><br>
+      Speed: <em id="stat-speed">—</em><br>
+      Columns: <em id="stat-cols">—</em><br>
+      FPS: <em id="stat-fps">—</em>
+    </div>
+  </div>
+  <div id="hud-bottom">
+    <kbd>SPACE</kbd><span>or</span><kbd>CLICK</kbd><span>randomize</span>
+    <div class="sep"></div>
+    <kbd>H</kbd><span>hud</span>
+    <div class="sep"></div>
+    <kbd>S</kbd><span>sound</span>
+  </div>
+</div>
+<div id="sound-indicator">♪ SOUND ON</div>
+<div id="palette-badge" id="palette-badge"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════════════
+//  GL MATRIX — Vastly Improved Generative Art Screensaver
+// ═══════════════════════════════════════════════════════════════════════════════
+'use strict';
+
+const canvas  = document.getElementById('c');
+const ctx     = canvas.getContext('2d');
+const oCanvas = document.getElementById('overlay-canvas');
+const oCtx    = oCanvas.getContext('2d');
+const flashEl = document.getElementById('flash');
+const hudEl   = document.getElementById('hud');
+const soundEl = document.getElementById('sound-indicator');
+const badgeEl = document.getElementById('palette-badge');
+
+// State
+let W, H, cols, drops, cfg;
+let hudVisible    = false;
+let soundEnabled  = false;
+let audioCtx      = null;
+let particles     = [];
+let glitchFrames  = 0;
+let scanlineY     = 0;
+let frameCount    = 0;
+let fpsLast       = performance.now();
+let fps           = 60;
+let generation    = 0;
+
+// ─── Character Sets ─────────────────────────────────────────────────────────
+const KATAKANA = 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン';
+const LATIN    = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+const NUMS     = '0123456789';
+const SYM      = '@#$%&*+-=<>[]{}|/\\~^Ξ§ψΩΔΣΠΛΘΦ░▒▓█▄▀■□▪▫';
+const BINARY   = '01';
+const HEX      = '0123456789ABCDEF';
+const ARABIC   = '٠١٢٣٤٥٦٧٨٩';
+const CYRILLIC = 'АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ';
+const GREEK    = 'ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩ';
+
+function buildCharset(type) {
+  switch(type) {
+    case 'classic':  return KATAKANA + LATIN + NUMS + SYM;
+    case 'binary':   return BINARY + '01010101' + NUMS.slice(0,4);
+    case 'hex':      return HEX + '0x' + SYM.slice(0,8);
+    case 'mixed':    return KATAKANA + CYRILLIC + GREEK + NUMS + SYM;
+    case 'minimal':  return LATIN + NUMS + '+-=<>|/\\_.,:;';
+    case 'symbols':  return SYM + GREEK + '₀₁₂₃₄₅₆₇₈₉∞∂∇∫√';
+    case 'arabic':   return ARABIC + NUMS + SYM.slice(0,10);
+    default:         return KATAKANA + LATIN + NUMS + SYM;
+  }
+}
+
+// ─── Utility ─────────────────────────────────────────────────────────────────
+const rnd  = (a, b) => a + Math.random() * (b - a);
+const rndI = (a, b) => Math.floor(rnd(a, b + 1));
+const pick = arr => arr[rndI(0, arr.length - 1)];
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+// ─── Palette System ──────────────────────────────────────────────────────────
+function generatePalette() {
+  // Randomly generate a fully unique color palette every time
+  const mode = pick(['monochrome','duotone','tricolor','complementary','rainbow','analog','neon','ghost','fire','deep']);
+
+  const baseHue = rnd(0, 360);
+  let colors = [];
+
+  if (mode === 'monochrome') {
+    const h = baseHue;
+    const s = rnd(70, 100);
+    colors = [
+      { h, s, lHead: rnd(88, 100), lMid: rnd(50, 70), lTail: rnd(20, 40) }
+    ];
+  } else if (mode === 'duotone') {
+    const h1 = baseHue, h2 = (baseHue + rnd(140, 220)) % 360;
+    colors = [
+      { h: h1, s: rnd(80, 100), lHead: 95, lMid: 55, lTail: 22 },
+      { h: h2, s: rnd(80, 100), lHead: 95, lMid: 55, lTail: 22 },
+    ];
+  } else if (mode === 'tricolor') {
+    const steps = [0, 120, 240];
+    colors = steps.map(off => ({ h: (baseHue + off) % 360, s: rnd(75, 100), lHead: 95, lMid: 55, lTail: 22 }));
+  } else if (mode === 'complementary') {
+    const h1 = baseHue, h2 = (baseHue + 180) % 360;
+    colors = [
+      { h: h1, s: rnd(85, 100), lHead: 98, lMid: 60, lTail: 25 },
+      { h: h2, s: rnd(85, 100), lHead: 98, lMid: 60, lTail: 25 },
+    ];
+  } else if (mode === 'rainbow') {
+    colors = [{ h: -1, s: 100, lHead: 98, lMid: 62, lTail: 28 }]; // -1 = dynamic
+  } else if (mode === 'analog') {
+    colors = [-20,-10,0,10,20].map(off => ({
+      h: (baseHue + off + 360) % 360,
+      s: rnd(80, 100),
+      lHead: 95, lMid: 55, lTail: 22
+    }));
+  } else if (mode === 'neon') {
+    const neonHues = [pick([0,30,60,90,120,180,270,300,330])];
+    colors = neonHues.map(h => ({ h, s: 100, lHead: 100, lMid: 70, lTail: 35 }));
+  } else if (mode === 'ghost') {
+    const h = baseHue;
+    colors = [{ h, s: rnd(0, 30), lHead: 100, lMid: 65, lTail: 20 }];
+  } else if (mode === 'fire') {
+    colors = [
+      { h: rnd(0,15),  s: 100, lHead: 100, lMid: 65, lTail: 30 },
+      { h: rnd(20,45), s: 100, lHead: 95,  lMid: 55, lTail: 22 },
+      { h: rnd(45,60), s: 90,  lHead: 90,  lMid: 50, lTail: 18 },
+    ];
+  } else { // deep
+    colors = [{ h: baseHue, s: rnd(40,80), lHead: 80, lMid: 40, lTail: 15 }];
+  }
+
+  // Background: dark version of palette or pure black
+  const bgStyle = pick(['pure','tinted','ultra-dark']);
+  let bgColor = '#000000';
+  if (bgStyle === 'tinted' && colors[0]) {
+    const h = colors[0].h >= 0 ? colors[0].h : baseHue;
+    bgColor = `hsl(${h},${rnd(40,80)}%,${rnd(2,5)}%)`;
+  } else if (bgStyle === 'ultra-dark' && colors[0]) {
+    const h = colors[0].h >= 0 ? colors[0].h : baseHue;
+    bgColor = `hsl(${h},${rnd(20,50)}%,${rnd(1,3)}%)`;
+  }
+
+  // Trail opacity
+  const trailAlpha = rnd(0.030, 0.065);
+  const trailColor = `rgba(0,0,0,${trailAlpha.toFixed(4)})`;
+
+  return { mode, colors, bgColor, trailColor, baseHue };
+}
+
+// ─── Config ──────────────────────────────────────────────────────────────────
+const CHAR_TYPES = ['classic','binary','hex','mixed','minimal','symbols','arabic'];
+const FLOW_MODES = ['rain','surge','wave','pulse','vortex'];
+
+function makeConfig() {
+  const palette   = generatePalette();
+  const fontSize  = rndI(11, 26);
+  const speed     = rnd(20, 95);
+  const tailLen   = rndI(10, 60);
+  const density   = rnd(0.55, 0.98);
+  const charType  = pick(CHAR_TYPES);
+  const CHARS     = buildCharset(charType);
+  const flowMode  = pick(FLOW_MODES);
+  const glitchOn  = Math.random() < 0.5;
+  const glitchRate= rnd(0.008, 0.04);
+  const scanlines = Math.random() < 0.4;
+  const vignette  = Math.random() < 0.6;
+  const bloom     = Math.random() < 0.55;
+  const charMutRate = rnd(0.02, 0.12); // chars in tail randomly mutate
+  const speedJitter = rnd(0.3, 1.8);
+  const depthField  = Math.random() < 0.35; // some columns are "blurred" (dimmed)
+  const particles3d = Math.random() < 0.3;
+
+  // Per-column hue jitter max
+  const hueJitter = rnd(5, 45);
+
+  return {
+    palette, fontSize, speed, tailLen, density,
+    CHARS, charType, flowMode, glitchOn, glitchRate,
+    scanlines, vignette, bloom, charMutRate, speedJitter,
+    depthField, particles3d, hueJitter
+  };
+}
+
+// ─── Drops ───────────────────────────────────────────────────────────────────
+function initDrops() {
+  cols  = Math.floor(W / cfg.fontSize) + 2;
+  drops = Array.from({ length: cols }, (_, i) => makeDropExt(i));
+}
+
+function makeDropExt(i) {
+  const phase = (cfg.flowMode === 'wave') ? Math.sin(i / cols * Math.PI * 2) * 20 : 0;
+  return {
+    y:       rndI(-80, 0) + phase,
+    speed:   rnd(0.4, 1.2) * rndI(1, Math.round(cfg.speedJitter + 1)),
+    tail:    rndI(Math.max(4, cfg.tailLen >> 1), cfg.tailLen),
+    chars:   new Map(),
+    hueOff:  rnd(-cfg.hueJitter, cfg.hueJitter),
+    depth:   cfg.depthField ? rnd(0.3, 1.0) : 1.0,
+    colorIdx: rndI(0, cfg.palette.colors.length - 1),
+    active:  true,
+    phase:   i / cols,
+  };
+}
+
+// ─── Draw ────────────────────────────────────────────────────────────────────
+let last = 0;
+
+function getHue(colDef, dropPhase, colIdx, now) {
+  if (colDef.h === -1) {
+    // rainbow
+    return ((colIdx * 7 + dropPhase * 50 + now * 0.04) % 360 + 360) % 360;
+  }
+  return (colDef.h + rnd(-2, 2) + 360) % 360;
+}
+
+function draw(ts) {
+  requestAnimationFrame(draw);
+  if (ts - last < cfg.speed) return;
+  const dt = ts - last;
+  last = ts;
+
+  // FPS
+  frameCount++;
+  if (ts - fpsLast > 500) {
+    fps = Math.round(frameCount / ((ts - fpsLast) / 1000));
+    frameCount = 0;
+    fpsLast = ts;
+    if (hudVisible) updateStats();
+  }
+
+  // Trail fade
+  ctx.fillStyle = cfg.palette.trailColor;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.font = `${cfg.fontSize}px 'Courier New', monospace`;
+  ctx.textAlign = 'center';
+
+  const fs = cfg.fontSize;
+  const now = ts;
+
+  // Flow modifiers
+  let globalSpeedMod = 1;
+  if (cfg.flowMode === 'surge') {
+    globalSpeedMod = 0.5 + 1.5 * (0.5 + 0.5 * Math.sin(now * 0.0008));
+  } else if (cfg.flowMode === 'pulse') {
+    globalSpeedMod = Math.abs(Math.sin(now * 0.001)) * 1.5 + 0.2;
+  }
+
+  drops.forEach((d, i) => {
+    if (!d.active) return;
+    const x = i * fs + fs * 0.5;
+
+    // Vortex: columns spiral speed
+    let speedMod = globalSpeedMod;
+    if (cfg.flowMode === 'vortex') {
+      speedMod = 0.4 + 1.2 * Math.abs(Math.sin((i / cols) * Math.PI * 2 + now * 0.0005));
+    }
+
+    // Assign char for this row
+    const row = Math.floor(d.y);
+    if (!d.chars.has(row) || (Math.random() < cfg.charMutRate)) {
+      d.chars.set(row, pick([...cfg.CHARS]));
+    }
+
+    const col = cfg.palette.colors[d.colorIdx] || cfg.palette.colors[0];
+
+    // Draw tail
+    for (let t = 0; t < d.tail; t++) {
+      const r = row - t;
+      if (r < 0) continue;
+      const py = r * fs;
+      if (py > H + fs) continue;
+
+      const frac = 1 - t / d.tail;
+      const hue  = getHue(col, d.phase, i, now);
+      const depthDim = d.depth;
+
+      let ch = d.chars.get(r) || pick([...cfg.CHARS]);
+      if (cfg.glitchOn && Math.random() < cfg.glitchRate) {
+        ch = pick([...cfg.CHARS]);
+      }
+
+      if (t === 0) {
+        // Head: near-white, full bloom
+        const sat = col.h === -1 ? 60 : 15;
+        ctx.shadowColor = `hsl(${hue},${col.s}%,70%)`;
+        ctx.shadowBlur  = cfg.bloom ? 18 : 6;
+        ctx.fillStyle   = `hsla(${hue},${sat}%,${col.lHead}%,${depthDim})`;
+      } else if (t < 4) {
+        // Near-head: bright saturated
+        ctx.shadowColor = `hsl(${hue},${col.s}%,50%)`;
+        ctx.shadowBlur  = cfg.bloom ? 10 : 4;
+        ctx.fillStyle   = `hsla(${hue},${col.s}%,${col.lMid}%,${(frac * depthDim).toFixed(3)})`;
+      } else {
+        // Tail: fade out
+        ctx.shadowBlur  = 0;
+        const l = col.lTail * frac * depthDim;
+        const a = frac * depthDim;
+        ctx.fillStyle   = `hsla(${hue},${col.s}%,${l.toFixed(1)}%,${a.toFixed(3)})`;
+      }
+
+      ctx.fillText(ch, x, py + fs);
+    }
+
+    // Advance
+    d.y += d.speed * speedMod;
+
+    // Reset
+    if (d.y * fs > H + d.tail * fs && Math.random() > (1 - cfg.density)) {
+      const nd = makeDropExt(i);
+      drops[i] = nd;
+    }
+  });
+
+  ctx.shadowBlur = 0;
+
+  // Particles
+  updateParticles(ts);
+
+  // Overlay effects
+  drawOverlay(ts);
+}
+
+// ─── Particles ───────────────────────────────────────────────────────────────
+function spawnParticles(x, y, palette) {
+  const count = rndI(8, 22);
+  const col = palette.colors[rndI(0, palette.colors.length - 1)];
+  const hue = col.h >= 0 ? col.h : rnd(0, 360);
+  for (let i = 0; i < count; i++) {
+    const angle = rnd(0, Math.PI * 2);
+    const speed = rnd(1, 5);
+    particles.push({
+      x, y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      life: 1,
+      decay: rnd(0.025, 0.07),
+      size: rnd(2, 6),
+      hue,
+      sat: col.s,
+      ch: pick([...cfg.CHARS]),
+    });
+  }
+}
+
+function updateParticles(ts) {
+  if (!particles.length) return;
+  particles = particles.filter(p => p.life > 0);
+  particles.forEach(p => {
+    p.x  += p.vx;
+    p.y  += p.vy;
+    p.vy += 0.12;
+    p.life -= p.decay;
+    const a = Math.max(0, p.life);
+    ctx.font      = `${Math.round(p.size + p.life * 4)}px 'Courier New', monospace`;
+    ctx.fillStyle = `hsla(${p.hue},${p.sat}%,70%,${a.toFixed(3)})`;
+    ctx.shadowColor = `hsl(${p.hue},${p.sat}%,60%)`;
+    ctx.shadowBlur  = 8;
+    ctx.fillText(p.ch, p.x, p.y);
+    ctx.shadowBlur  = 0;
+  });
+}
+
+// ─── Overlay: scanlines, vignette ────────────────────────────────────────────
+function drawOverlay(ts) {
+  oCtx.clearRect(0, 0, W, H);
+
+  // Scanlines
+  if (cfg.scanlines) {
+    const lineH = 3;
+    const gap   = 6;
+    oCtx.fillStyle = 'rgba(0,0,0,0.08)';
+    for (let y = 0; y < H; y += gap) {
+      oCtx.fillRect(0, y, W, lineH);
+    }
+    // Moving scanline
+    scanlineY = (scanlineY + 1.2) % H;
+    const sg = oCtx.createLinearGradient(0, scanlineY - 30, 0, scanlineY + 30);
+    sg.addColorStop(0, 'rgba(255,255,255,0)');
+    sg.addColorStop(0.5,'rgba(255,255,255,0.025)');
+    sg.addColorStop(1, 'rgba(255,255,255,0)');
+    oCtx.fillStyle = sg;
+    oCtx.fillRect(0, scanlineY - 30, W, 60);
+  }
+
+  // Vignette
+  if (cfg.vignette) {
+    const vg = oCtx.createRadialGradient(W/2, H/2, H*0.25, W/2, H/2, H*0.82);
+    vg.addColorStop(0, 'rgba(0,0,0,0)');
+    vg.addColorStop(1, 'rgba(0,0,0,0.7)');
+    oCtx.fillStyle = vg;
+    oCtx.fillRect(0, 0, W, H);
+  }
+
+  // Global glitch flash
+  if (glitchFrames > 0) {
+    glitchFrames--;
+    const gh = rndI(2, 18);
+    const gy = rndI(0, H - gh);
+    const gx = rndI(-30, 30);
+    oCtx.drawImage(canvas, gx, gy, W, gh, 0, gy, W, gh);
+    oCtx.fillStyle = `rgba(${rndI(0,255)},${rndI(0,255)},${rndI(0,255)},0.03)`;
+    oCtx.fillRect(0, 0, W, H);
+  }
+}
+
+// ─── Audio ───────────────────────────────────────────────────────────────────
+let noiseNode, gainNode, filterNode, amGain, amOsc, droneOsc, droneGain;
+
+function startAudio() {
+  if (audioCtx) return;
+  try {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    gainNode  = audioCtx.createGain();
+    gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+    gainNode.connect(audioCtx.destination);
+
+    // White noise
+    const bufLen = audioCtx.sampleRate * 2;
+    const buf = audioCtx.createBuffer(1, bufLen, audioCtx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < bufLen; i++) d[i] = (Math.random() * 2 - 1) * 0.35;
+    noiseNode = audioCtx.createBufferSource();
+    noiseNode.buffer = buf;
+    noiseNode.loop = true;
+
+    // Filter
+    filterNode = audioCtx.createBiquadFilter();
+    filterNode.type = 'bandpass';
+    filterNode.frequency.setValueAtTime(800 + rnd(200, 1200), audioCtx.currentTime);
+    filterNode.Q.setValueAtTime(rnd(2, 12), audioCtx.currentTime);
+
+    // AM modulation
+    amOsc  = audioCtx.createOscillator();
+    amGain = audioCtx.createGain();
+    amOsc.frequency.setValueAtTime(rnd(0.1, 0.5), audioCtx.currentTime);
+    amOsc.connect(amGain.gain);
+    amGain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+    amOsc.start();
+
+    noiseNode.connect(filterNode);
+    filterNode.connect(amGain);
+    amGain.connect(gainNode);
+
+    // Drone
+    droneOsc  = audioCtx.createOscillator();
+    droneGain = audioCtx.createGain();
+    droneOsc.type = 'sine';
+    droneOsc.frequency.setValueAtTime(pick([40,50,60,80,100]), audioCtx.currentTime);
+    droneGain.gain.setValueAtTime(0.025, audioCtx.currentTime);
+    droneOsc.connect(droneGain);
+    droneGain.connect(gainNode);
+    droneOsc.start();
+
+    noiseNode.start();
+
+    // Fade in
+    gainNode.gain.linearRampToValueAtTime(0.18, audioCtx.currentTime + 1.5);
+  } catch(e) { audioCtx = null; }
+}
+
+function stopAudio() {
+  if (!audioCtx) return;
+  gainNode.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.5);
+  setTimeout(() => {
+    try { noiseNode.stop(); droneOsc.stop(); amOsc.stop(); } catch(e){}
+    audioCtx.close();
+    audioCtx = null;
+  }, 600);
+}
+
+function retuneDrone() {
+  if (!audioCtx || !filterNode) return;
+  const t = audioCtx.currentTime;
+  filterNode.frequency.linearRampToValueAtTime(800 + rnd(200,1800), t + 1.5);
+  filterNode.Q.linearRampToValueAtTime(rnd(2,14), t + 1.5);
+  amOsc.frequency.linearRampToValueAtTime(rnd(0.05, 0.6), t + 2);
+  droneOsc.frequency.linearRampToValueAtTime(pick([40,50,60,70,80,100,120]), t + 2);
+}
+
+// ─── Click burst sound ────────────────────────────────────────────────────────
+function burstSound() {
+  if (!audioCtx || !soundEnabled) return;
+  const osc  = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = 'sawtooth';
+  osc.frequency.setValueAtTime(pick([880,1200,1600,2000]), audioCtx.currentTime);
+  osc.frequency.exponentialRampToValueAtTime(30, audioCtx.currentTime + 0.2);
+  gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.25);
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.start();
+  osc.stop(audioCtx.currentTime + 0.25);
+}
+
+// ─── Resize ──────────────────────────────────────────────────────────────────
+function resize() {
+  W = canvas.width  = oCanvas.width  = window.innerWidth;
+  H = canvas.height = oCanvas.height = window.innerHeight;
+  // Refill background
+  ctx.fillStyle = cfg ? cfg.palette.bgColor : '#000';
+  ctx.fillRect(0, 0, W, H);
+  initDrops();
+}
+
+// ─── Randomise ───────────────────────────────────────────────────────────────
+function randomise(fromInteraction) {
+  generation++;
+  cfg = makeConfig();
+
+  ctx.fillStyle = cfg.palette.bgColor;
+  ctx.fillRect(0, 0, W, H);
+  particles = [];
+  initDrops();
+
+  // Trigger glitch burst
+  glitchFrames = rndI(4, 12);
+
+  // Flash
+  const col = cfg.palette.colors[0];
+  const hue = col.h >= 0 ? col.h : cfg.palette.baseHue;
+  flashEl.style.background = `hsl(${hue},80%,70%)`;
+  flashEl.style.transition = 'none';
+  flashEl.style.opacity    = '0.28';
+  requestAnimationFrame(() => {
+    flashEl.style.transition = 'opacity 0.5s ease';
+    flashEl.style.opacity    = '0';
+  });
+
+  // Spawn particle burst at center
+  if (fromInteraction) {
+    spawnParticles(W/2, H/2, cfg.palette);
+    burstSound();
+    if (soundEnabled) retuneDrone();
+  }
+
+  // Badge
+  badgeEl.textContent = cfg.palette.mode.toUpperCase() + ' · ' + cfg.charType.toUpperCase();
+  badgeEl.style.color = `hsl(${hue},80%,60%)`;
+  badgeEl.classList.remove('show');
+  void badgeEl.offsetWidth;
+  badgeEl.classList.add('show');
+  clearTimeout(badgeEl._t);
+  badgeEl._t = setTimeout(() => badgeEl.classList.remove('show'), 2200);
+
+  if (hudVisible) updateStats();
+}
+
+// ─── HUD ─────────────────────────────────────────────────────────────────────
+function updateStats() {
+  document.getElementById('stat-palette').textContent =
+    cfg.palette.mode + ' / ' + cfg.charType;
+  document.getElementById('stat-speed').textContent =
+    cfg.speed.toFixed(0) + 'ms · ' + cfg.flowMode;
+  document.getElementById('stat-cols').textContent = (cols || 0).toString();
+  document.getElementById('stat-fps').textContent  = fps.toString();
+}
+
+function toggleHUD() {
+  hudVisible = !hudVisible;
+  hudEl.classList.toggle('visible', hudVisible);
+  if (hudVisible) updateStats();
+}
+
+function toggleSound() {
+  soundEnabled = !soundEnabled;
+  soundEl.classList.toggle('visible', soundEnabled);
+  soundEl.textContent = soundEnabled ? '♪ SOUND ON' : '';
+  if (soundEnabled) {
+    startAudio();
+    retuneDrone();
+  } else {
+    stopAudio();
+  }
+}
+
+// ─── Boot ────────────────────────────────────────────────────────────────────
+cfg = makeConfig();
+W   = canvas.width  = oCanvas.width  = window.innerWidth;
+H   = canvas.height = oCanvas.height = window.innerHeight;
+ctx.fillStyle = cfg.palette.bgColor;
+ctx.fillRect(0, 0, W, H);
+initDrops();
+
+window.addEventListener('resize', resize);
+
+// Keyboard
+document.addEventListener('keydown', e => {
+  if (e.key === ' ' || e.code === 'Space') {
+    e.preventDefault();
+    randomise(true);
+  } else if (e.key === 'h' || e.key === 'H') {
+    toggleHUD();
+  } else if (e.key === 's' || e.key === 'S') {
+    toggleSound();
+  }
+});
+
+// Click / touch
+document.addEventListener('click', e => {
+  // Spawn burst at click position too
+  spawnParticles(e.clientX, e.clientY, cfg.palette);
+  randomise(true);
+});
+
+document.addEventListener('touchstart', e => {
+  e.preventDefault();
+  const t = e.touches[0];
+  spawnParticles(t.clientX, t.clientY, cfg.palette);
+  randomise(true);
+}, { passive: false });
+
+requestAnimationFrame(draw);
+</script>
+</body>
+</html>

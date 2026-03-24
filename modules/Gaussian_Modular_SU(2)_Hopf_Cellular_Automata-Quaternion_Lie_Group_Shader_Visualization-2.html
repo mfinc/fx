@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Gaussian Modular SU(2) Hopf Cellular Automata – Quaternion Lie Group Shader Visualization</title>
+<meta name="description" content="Immersive fullscreen WebGL2 generative art: real-time Hopf fibration, SU(2) quaternion Lie group rotations, Gaussian integer modular cellular automata, de Bruijn convolution kernels, Z-transform domain coloring, and binaural audio synthesis driven by discrete Fourier transforms — all parameters fully randomized each generation for infinite variation.">
+<meta name="keywords" content="generative art, WebGL2 shader, Hopf fibration visualization, SU(2) quaternion, Lie group rendering, modular arithmetic cellular automata, Gaussian integer lattice, quaternion exponential map, de Bruijn convolution, modular exponentiation, HSV domain coloring, Z-transform poles, binaural beat synthesis, DFT audio generation, procedural art, real-time shader, 4D projection, mathematics visualization, interactive generative art, randomized color palette, audio visual synchronization, WebAudio API, cellular automaton art, mathematical art, topology visualization, fiber bundle art">
+<meta name="robots" content="index, follow">
+<meta property="og:title" content="Gaussian Modular SU(2) Hopf Cellular Automata Visualization">
+<meta property="og:description" content="Real-time WebGL2 generative art fusing Hopf fibrations, quaternion Lie groups, modular cellular automata, and synchronized binaural audio synthesis.">
+<meta property="og:type" content="website">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{width:100%;height:100%;background:#000;overflow:hidden;font-family:'Courier New',monospace;}
+canvas{display:block;width:100%;height:100%;}
+#hud{
+  position:fixed;top:0;left:0;width:100%;height:100%;
+  pointer-events:none;display:none;
+}
+#hud-inner{
+  position:absolute;top:16px;left:16px;
+  color:rgba(255,255,255,0.85);
+  font-size:11px;line-height:1.7;
+  background:rgba(0,0,0,0.45);
+  border:1px solid rgba(255,255,255,0.12);
+  border-radius:4px;
+  padding:10px 14px;
+  letter-spacing:0.06em;
+  text-transform:uppercase;
+  backdrop-filter:blur(4px);
+}
+#hud-inner span{color:rgba(140,255,210,0.9);}
+#hint{
+  position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
+  color:rgba(255,255,255,0.25);font-size:10px;letter-spacing:0.18em;
+  text-transform:uppercase;pointer-events:none;
+  transition:opacity 2s;
+}
+#flash{
+  position:fixed;inset:0;pointer-events:none;
+  opacity:0;background:rgba(255,255,255,0.06);
+  transition:opacity 0.08s;
+}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="hud"><div id="hud-inner" id="hud-text"></div></div>
+<div id="hint">SPACE / CLICK / TAP · REGENERATE &nbsp;|&nbsp; H · HUD &nbsp;|&nbsp; S · SOUND</div>
+<div id="flash"></div>
+
+<script>
+'use strict';
+
+/* ─────────────────────────────────────────────
+   CANVAS / GL SETUP
+───────────────────────────────────────────── */
+const canvas = document.getElementById('gl');
+const gl = canvas.getContext('webgl2', {antialias:false, alpha:false, preserveDrawingBuffer:false});
+if(!gl){ document.body.innerHTML='<p style="color:#f55;padding:20px">WebGL2 not supported.</p>'; }
+
+let W=0, H=0;
+function resize(){
+  W = canvas.width  = window.innerWidth  * (window.devicePixelRatio||1)|0;
+  H = canvas.height = window.innerHeight * (window.devicePixelRatio||1)|0;
+  gl.viewport(0,0,W,H);
+}
+window.addEventListener('resize', resize);
+resize();
+
+/* ─────────────────────────────────────────────
+   RANDOMIZATION STATE
+───────────────────────────────────────────── */
+let P = {}; // all parameters
+
+function rand(a,b){ return a + Math.random()*(b-a); }
+function randInt(a,b){ return a + Math.floor(Math.random()*(b-a+1)); }
+function randChoice(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
+
+function randomize(){
+  P = {
+    // cellular automata
+    modulus        : randInt(2, 16),
+    kernelSize     : randInt(2, 9),
+    gridScale      : rand(8, 35),
+    timeScale      : rand(0.03, 0.18),
+
+    // quaternion / Hopf
+    qScale         : rand(0.2, 1.1),
+    hopfTwist      : rand(0.0, 6.28318),
+    lieFreq        : rand(0.5, 3.0),
+    liePhase       : rand(0.0, 6.28318),
+
+    // color — fully randomized
+    hueBase        : Math.random(),         // base hue offset
+    hueSpread      : rand(0.1, 1.0),        // how many hue octaves to use
+    hueRotRate     : rand(-0.08, 0.08),     // slow rotation of palette
+    satCurve       : rand(0.5, 2.5),        // saturation power
+    valBase        : rand(0.5, 1.0),        // brightness floor
+    valContrast    : rand(0.0, 0.5),        // brightness modulation depth
+    paletteMix     : Math.random(),         // blend between two color modes
+    colorFreq      : rand(1.0, 6.0),        // spatial frequency of color bands
+    invertLuma     : Math.random() > 0.5 ? 1.0 : 0.0,
+
+    // extra visual
+    glowStrength   : rand(0.0, 0.9),
+    edgeSharp      : rand(0.3, 3.0),
+    fractalDepth   : randInt(1, 5),
+    warpAmt        : rand(0.0, 0.6),
+    warpFreq       : rand(1.0, 5.0),
+    mirrorMode     : randChoice([0,1,2,3]),  // 0=none,1=x,2=y,3=xy
+    noiseAmt       : rand(0.0, 0.3),
+
+    // audio (derived, sync'd to visual)
+    audioBaseFreq  : rand(55, 320),
+    audioBeatFreq  : rand(0.5, 14.0),      // binaural beat width
+    audioHarmonics : randInt(1, 6),
+    audioModDepth  : rand(0.0, 0.8),
+    audioWaveform  : randChoice(['sine','triangle','sawtooth','square']),
+    audioFilterFreq: rand(200, 4000),
+    audioReverb    : rand(0.0, 0.7),
+
+    // derived: audio freq tracks visual entropy
+    audioVisualCoupling: rand(0.1, 1.0),
+  };
+
+  generation = 0;
+
+  // flash
+  const fl = document.getElementById('flash');
+  fl.style.opacity='1';
+  setTimeout(()=>fl.style.opacity='0', 80);
+}
+
+/* ─────────────────────────────────────────────
+   VERTEX SHADER
+───────────────────────────────────────────── */
+const VERT = `#version 300 es
+precision highp float;
+layout(location=0) in vec2 pos;
+out vec2 uv;
+void main(){
+  uv = pos*0.5+0.5;
+  gl_Position = vec4(pos,0,1);
+}`;
+
+/* ─────────────────────────────────────────────
+   FRAGMENT SHADER  — the core generative engine
+───────────────────────────────────────────── */
+const FRAG = `#version 300 es
+precision highp float;
+out vec4 fragColor;
+in vec2 uv;
+
+uniform float time;
+uniform float modulus;
+uniform float kernelSize;
+uniform float gridScale;
+uniform float timeScale;
+uniform float qScale;
+uniform float hopfTwist;
+uniform float lieFreq;
+uniform float liePhase;
+uniform float hueBase;
+uniform float hueSpread;
+uniform float hueRotRate;
+uniform float satCurve;
+uniform float valBase;
+uniform float valContrast;
+uniform float paletteMix;
+uniform float colorFreq;
+uniform float invertLuma;
+uniform float glowStrength;
+uniform float edgeSharp;
+uniform float warpAmt;
+uniform float warpFreq;
+uniform float mirrorMode;
+uniform float noiseAmt;
+uniform float entropy;
+uniform vec2 resolution;
+
+/* ── math helpers ── */
+vec2 cMul(vec2 a,vec2 b){ return vec2(a.x*b.x-a.y*b.y, a.x*b.y+a.y*b.x); }
+vec2 cExp(float t){ return vec2(cos(t),sin(t)); }
+vec2 cDiv(vec2 a,vec2 b){
+  float d=dot(b,b)+1e-8;
+  return vec2(dot(a,b),a.y*b.x-a.x*b.y)/d;
+}
+
+/* quaternion exp */
+vec4 qExp(vec4 q){
+  float vl=length(q.xyz);
+  float ew=exp(q.w);
+  if(vl<1e-6) return vec4(0,0,0,ew);
+  float s=ew*sin(vl)/vl;
+  return vec4(q.xyz*s, ew*cos(vl));
+}
+
+/* SU(2) Lie bracket */
+vec4 lieBracket(vec4 a, vec4 b){
+  return vec4(
+    a.y*b.z - a.z*b.y,
+    a.z*b.x - a.x*b.z,
+    a.x*b.y - a.y*b.x,
+    0.0
+  );
+}
+
+/* Hopf fibration S3 -> S2 */
+vec3 hopf(vec4 q){
+  vec2 z1=q.xy, z2=q.zw;
+  return vec3(
+    2.0*(z1.x*z2.x + z1.y*z2.y),
+    2.0*(z1.y*z2.x - z1.x*z2.y),
+    dot(z1,z1) - dot(z2,z2)
+  );
+}
+
+/* HSV -> RGB */
+vec3 hsv(float h,float s,float v){
+  vec3 p=abs(fract(h+vec3(0,2./3.,1./3.))*6.-3.);
+  return v*mix(vec3(1),clamp(p-1.,0.,1.),s);
+}
+
+/* lab-like perceptual color mix */
+vec3 hsvAlt(float h, float s, float v){
+  float hh = fract(h)*6.0;
+  int i = int(hh);
+  float f = hh - float(i);
+  float p = v*(1.-s), q2 = v*(1.-s*f), t = v*(1.-s*(1.-f));
+  if(i==0) return vec3(v,t,p);
+  if(i==1) return vec3(q2,v,p);
+  if(i==2) return vec3(p,v,t);
+  if(i==3) return vec3(p,q2,v);
+  if(i==4) return vec3(t,p,v);
+  return vec3(v,p,q2);
+}
+
+/* hash noise */
+float hash(vec2 p){
+  p = fract(p*vec2(127.1,311.7));
+  p += dot(p, p+19.19);
+  return fract(p.x*p.y);
+}
+float noise(vec2 p){
+  vec2 i=floor(p), f=fract(p);
+  vec2 u=f*f*(3.-2.*f);
+  return mix(mix(hash(i),hash(i+vec2(1,0)),u.x),
+             mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),u.x),u.y);
+}
+
+void main(){
+  vec2 p = (uv-0.5)*2.0;
+  p.x *= resolution.x/resolution.y;
+
+  /* mirror modes */
+  if(mirrorMode >= 1.0) p.x = abs(p.x);
+  if(mirrorMode >= 2.0) p.y = abs(p.y);
+  if(mirrorMode >= 3.0){
+    p = abs(p);
+    if(p.x < p.y) p.xy = p.yx;
+  }
+
+  /* domain warp */
+  float wt = time*timeScale;
+  if(warpAmt > 0.001){
+    vec2 warp = vec2(
+      noise(p*warpFreq + wt*0.7),
+      noise(p*warpFreq + vec2(3.7,1.3) + wt*0.5)
+    )*2.0-1.0;
+    p += warp*warpAmt;
+  }
+
+  vec2 g = floor(p * gridScale);
+  vec2 f = fract(p * gridScale);
+
+  /* modular cellular automata state */
+  float state = mod(g.x*g.x*1.1 + g.y*g.y*0.9 + g.x*g.y*0.3, modulus);
+
+  /* evolve state over time */
+  float tstate = mod(state + floor(wt * modulus * 0.25), modulus);
+
+  /* de Bruijn convolution */
+  float conv = 0.0;
+  float ks = max(1.0, kernelSize);
+  for(int i=0; i<9; i++){
+    if(float(i) >= ks) break;
+    float ki = float(i)/ks;
+    float angle = dot(g, vec2(ki, 1.0-ki)) * 6.28318 / modulus + wt;
+    conv += sin(angle) * cos(ki * 3.14159 + tstate);
+  }
+  conv = mod(conv * 0.5 + modulus*0.5, modulus);
+
+  /* modular exponentiation cycle */
+  float expCyc = mod(tstate*tstate + 1.0, modulus);
+  float combined = mod(expCyc + conv, modulus);
+
+  /* quaternion Lie group path */
+  float liePh = lieFreq * combined / modulus * 6.28318 + liePhase + wt;
+  vec4 q = vec4(
+    sin(liePh),
+    cos(liePh + hopfTwist),
+    sin(combined * 1.618033 + wt*0.3),
+    cos(state   * 2.399963 + wt*0.2)
+  );
+  q = normalize(qExp(q * qScale));
+
+  /* SU(2) rotation */
+  float angle2 = wt * 0.17 + state * 6.28318/modulus;
+  vec4 r = normalize(vec4(sin(angle2)*vec3(1,0.618,0.414), cos(angle2)));
+  vec4 q2 = vec4(
+    r.w*q.x + r.x*q.w + r.y*q.z - r.z*q.y,
+    r.w*q.y - r.x*q.z + r.y*q.w + r.z*q.x,
+    r.w*q.z + r.x*q.y - r.y*q.x + r.z*q.w,
+    r.w*q.w - r.x*q.x - r.y*q.y - r.z*q.z
+  );
+
+  /* Hopf projection */
+  vec3 hp = hopf(q2);
+  float hangle = atan(hp.y, hp.x);
+  float hmag   = length(hp.xy);
+  float hpole  = hp.z;
+
+  /* Z-transform pole measure */
+  vec2 zp = vec2(combined/modulus, state/modulus) * 6.28318;
+  float zpole = length(cDiv(cExp(zp.x), vec2(1,0) - cExp(zp.y)*0.9));
+  zpole = clamp(zpole*0.1, 0.0, 1.0);
+
+  /* sub-cell edge distance (sharp vs soft) */
+  vec2 cell = abs(f - 0.5)*2.0;
+  float edge = pow(max(cell.x, cell.y), edgeSharp);
+
+  /* ── color synthesis ── */
+  float norm = combined / max(modulus, 1.0);
+
+  /* primary hue: hangle + color frequency bands + palette rotation */
+  float hue1 = fract(hangle/6.28318 * hueSpread + norm*colorFreq + hueBase + time*hueRotRate);
+  /* secondary: pole-based hue */
+  float hue2 = fract(hpole*0.5 + zpole + hueBase + 0.33 + time*hueRotRate*0.7);
+
+  float hue = mix(hue1, hue2, paletteMix);
+  float sat = clamp(pow(hmag, satCurve), 0.0, 1.0);
+  float val = valBase + valContrast * edge - glowStrength*(1.0-edge)*0.5;
+
+  /* noise grain */
+  if(noiseAmt > 0.001){
+    float gr = hash(p * resolution + time)*2.0-1.0;
+    val = clamp(val + gr*noiseAmt, 0.0, 1.0);
+  }
+
+  if(invertLuma > 0.5) val = 1.0 - val;
+  val = clamp(val, 0.0, 1.0);
+  sat = clamp(sat, 0.0, 1.0);
+
+  vec3 col = mix(hsv(hue,sat,val), hsvAlt(hue,sat,val), paletteMix);
+
+  /* entropy-driven glow pulse (synced to audio) */
+  col += col * entropy * glowStrength * (1.0 - edge) * 0.6;
+
+  fragColor = vec4(clamp(col,0.0,1.0), 1.0);
+}
+`;
+
+/* ─────────────────────────────────────────────
+   SHADER COMPILE
+───────────────────────────────────────────── */
+function compileShader(type, src){
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if(!gl.getShaderParameter(s, gl.COMPILE_STATUS))
+    console.error(gl.getShaderInfoLog(s));
+  return s;
+}
+
+const prog = gl.createProgram();
+gl.attachShader(prog, compileShader(gl.VERTEX_SHADER,   VERT));
+gl.attachShader(prog, compileShader(gl.FRAGMENT_SHADER, FRAG));
+gl.linkProgram(prog);
+if(!gl.getProgramParameter(prog, gl.LINK_STATUS))
+  console.error(gl.getProgramInfoLog(prog));
+gl.useProgram(prog);
+
+/* full-screen quad */
+const quadBuf = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+  -1,-1, 1,-1, -1,1,
+   1,-1, 1, 1, -1,1]), gl.STATIC_DRAW);
+gl.enableVertexAttribArray(0);
+gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
+
+/* uniform locations */
+const U = {};
+['time','modulus','kernelSize','gridScale','timeScale','qScale','hopfTwist',
+ 'lieFreq','liePhase','hueBase','hueSpread','hueRotRate','satCurve','valBase',
+ 'valContrast','paletteMix','colorFreq','invertLuma','glowStrength','edgeSharp',
+ 'warpAmt','warpFreq','mirrorMode','noiseAmt','entropy','resolution'
+].forEach(n => U[n] = gl.getUniformLocation(prog, n));
+
+/* ─────────────────────────────────────────────
+   AUDIO ENGINE  — tightly coupled to visual params
+───────────────────────────────────────────── */
+let audioCtx = null;
+let audioEnabled = false;
+let audioNodes = null;
+
+function buildAudio(){
+  if(audioCtx) { try{ audioCtx.close(); }catch(e){} }
+  audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+
+  const masterGain = audioCtx.createGain();
+  masterGain.gain.value = 0.0;
+  masterGain.connect(audioCtx.destination);
+
+  /* stereo panner pair for binaural */
+  const panL = audioCtx.createStereoPanner(); panL.pan.value = -1;
+  const panR = audioCtx.createStereoPanner(); panR.pan.value =  1;
+  panL.connect(masterGain);
+  panR.connect(masterGain);
+
+  /* filter */
+  const filt = audioCtx.createBiquadFilter();
+  filt.type = 'lowpass';
+  filt.Q.value = 2.5;
+  filt.connect(panL);
+  filt.connect(panR);
+
+  /* convolver reverb (impulse noise) */
+  const conv = audioCtx.createConvolver();
+  const irLen = audioCtx.sampleRate * 1.2 | 0;
+  const irBuf = audioCtx.createBuffer(2, irLen, audioCtx.sampleRate);
+  for(let c=0;c<2;c++){
+    const d = irBuf.getChannelData(c);
+    for(let i=0;i<irLen;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/irLen,3.5);
+  }
+  conv.buffer = irBuf;
+
+  const revGain = audioCtx.createGain();
+  revGain.gain.value = P.audioReverb * 0.35;
+  conv.connect(revGain);
+  revGain.connect(masterGain);
+
+  /* oscillators — L and R with binaural offset */
+  const oscs = [];
+  const wt = P.audioWaveform;
+  for(let h=0; h<P.audioHarmonics; h++){
+    const oL = audioCtx.createOscillator();
+    const oR = audioCtx.createOscillator();
+    oL.type = oR.type = wt;
+    const harm = h+1;
+    oL.frequency.value = P.audioBaseFreq * harm;
+    oR.frequency.value = P.audioBaseFreq * harm + P.audioBeatFreq * (h%2===0?1:-1);
+    const hgL = audioCtx.createGain(); hgL.gain.value = 0.22/harm;
+    const hgR = audioCtx.createGain(); hgR.gain.value = 0.22/harm;
+    oL.connect(hgL); hgL.connect(filt); hgL.connect(conv);
+    oR.connect(hgR); hgR.connect(filt); hgR.connect(conv);
+    oL.start(); oR.start();
+    oscs.push({oL,oR,hgL,hgR});
+  }
+
+  audioNodes = { masterGain, filt, oscs, panL, panR, revGain };
+}
+
+function setAudio(on){
+  audioEnabled = on;
+  if(on){
+    if(!audioCtx || audioCtx.state==='closed') buildAudio();
+    if(audioCtx.state==='suspended') audioCtx.resume();
+    audioNodes.masterGain.gain.setTargetAtTime(0.13, audioCtx.currentTime, 0.3);
+  } else if(audioNodes){
+    audioNodes.masterGain.gain.setTargetAtTime(0.0, audioCtx.currentTime, 0.4);
+  }
+}
+
+/* Audio evolves from visual state each frame */
+function updateAudio(t, entropyVal){
+  if(!audioEnabled || !audioNodes || !audioCtx || audioCtx.state!=='running') return;
+
+  const ct = audioCtx.currentTime;
+  const coupling = P.audioVisualCoupling;
+
+  /* frequency modulated by visual entropy + modulus + time */
+  const envFreq = P.audioBaseFreq * (1.0 + entropyVal * coupling * P.audioModDepth);
+  const beatDrift = P.audioBeatFreq * (1.0 + 0.3*Math.sin(t*0.07 * P.lieFreq));
+
+  audioNodes.oscs.forEach(({oL,oR,hgL,hgR}, h)=>{
+    const harm = h+1;
+    /* carrier tracks visual modulus cycles */
+    const modCyc = Math.sin(t * P.timeScale * P.modulus * 0.25 + h * 1.618);
+    const freqL = envFreq * harm * (1.0 + modCyc * 0.015 * coupling);
+    const freqR = freqL + beatDrift * (h%2===0?1:-1);
+    oL.frequency.setTargetAtTime(freqL, ct, 0.08);
+    oR.frequency.setTargetAtTime(freqR, ct, 0.08);
+    /* amplitude modulated by entropy */
+    const ampMod = 0.22/harm * (0.6 + 0.4 * entropyVal);
+    hgL.gain.setTargetAtTime(ampMod, ct, 0.12);
+    hgR.gain.setTargetAtTime(ampMod, ct, 0.12);
+  });
+
+  /* filter cutoff tracks visual warp / glow */
+  const filtFreq = P.audioFilterFreq * (1.0 + entropyVal * coupling);
+  audioNodes.filt.frequency.setTargetAtTime(Math.min(filtFreq, audioCtx.sampleRate*0.45), ct, 0.15);
+}
+
+/* ─────────────────────────────────────────────
+   INPUT
+───────────────────────────────────────────── */
+let showHUD = false;
+let generation = 0;
+const hudEl   = document.getElementById('hud');
+const hudText = document.getElementById('hud-inner');
+const hintEl  = document.getElementById('hint');
+
+let hintTimer;
+function showHint(){
+  hintEl.style.opacity='0.4';
+  clearTimeout(hintTimer);
+  hintTimer = setTimeout(()=>hintEl.style.opacity='0', 3500);
+}
+showHint();
+
+function doRegenerate(){
+  randomize();
+  buildAudio();
+  if(audioEnabled) setAudio(true);
+}
+
+document.addEventListener('keydown', e=>{
+  if(e.code==='Space'){ e.preventDefault(); doRegenerate(); }
+  if(e.key==='h'||e.key==='H'){
+    showHUD=!showHUD;
+    hudEl.style.display=showHUD?'block':'none';
+  }
+  if(e.key==='s'||e.key==='S'){
+    setAudio(!audioEnabled);
+    showHint();
+  }
+});
+canvas.addEventListener('click', doRegenerate);
+canvas.addEventListener('touchstart', e=>{e.preventDefault();doRegenerate();},{passive:false});
+
+/* ─────────────────────────────────────────────
+   RENDER LOOP
+───────────────────────────────────────────── */
+const startTime = performance.now();
+let   entropy   = 0;
+
+/* DFT-based entropy from current params — visual signal → number */
+function computeEntropy(t){
+  const N=32, m=P.modulus, ks=P.kernelSize;
+  let re=0, im=0;
+  for(let k=0;k<N;k++){
+    const s = Math.sin(k*k*1.1/m + t*P.timeScale*m*0.25) * Math.cos(k/ks);
+    const a = 6.28318*k/N;
+    re += s*Math.cos(a);
+    im -= s*Math.sin(a);
+  }
+  return Math.min(Math.sqrt(re*re+im*im)/N*2.0, 1.0);
+}
+
+function loop(){
+  const t = (performance.now()-startTime)*0.001;
+  generation++;
+
+  entropy += (computeEntropy(t) - entropy) * 0.04; // smoothed
+
+  /* upload uniforms */
+  gl.uniform1f(U.time,        t);
+  gl.uniform1f(U.modulus,     P.modulus);
+  gl.uniform1f(U.kernelSize,  P.kernelSize);
+  gl.uniform1f(U.gridScale,   P.gridScale);
+  gl.uniform1f(U.timeScale,   P.timeScale);
+  gl.uniform1f(U.qScale,      P.qScale);
+  gl.uniform1f(U.hopfTwist,   P.hopfTwist);
+  gl.uniform1f(U.lieFreq,     P.lieFreq);
+  gl.uniform1f(U.liePhase,    P.liePhase);
+  gl.uniform1f(U.hueBase,     P.hueBase);
+  gl.uniform1f(U.hueSpread,   P.hueSpread);
+  gl.uniform1f(U.hueRotRate,  P.hueRotRate);
+  gl.uniform1f(U.satCurve,    P.satCurve);
+  gl.uniform1f(U.valBase,     P.valBase);
+  gl.uniform1f(U.valContrast, P.valContrast);
+  gl.uniform1f(U.paletteMix,  P.paletteMix);
+  gl.uniform1f(U.colorFreq,   P.colorFreq);
+  gl.uniform1f(U.invertLuma,  P.invertLuma);
+  gl.uniform1f(U.glowStrength,P.glowStrength);
+  gl.uniform1f(U.edgeSharp,   P.edgeSharp);
+  gl.uniform1f(U.warpAmt,     P.warpAmt);
+  gl.uniform1f(U.warpFreq,    P.warpFreq);
+  gl.uniform1f(U.mirrorMode,  P.mirrorMode);
+  gl.uniform1f(U.noiseAmt,    P.noiseAmt);
+  gl.uniform1f(U.entropy,     entropy);
+  gl.uniform2f(U.resolution,  W, H);
+
+  gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+  /* audio sync */
+  updateAudio(t, entropy);
+
+  /* HUD */
+  if(showHUD){
+    hudText.innerHTML =
+      `GEN <span>${generation}</span><br>`+
+      `MOD <span>${P.modulus}</span> &nbsp; KERNEL <span>${P.kernelSize}</span><br>`+
+      `GRID <span>${P.gridScale.toFixed(1)}</span> &nbsp; WARP <span>${P.warpAmt.toFixed(2)}</span><br>`+
+      `MIRROR <span>${['NONE','X','Y','XY'][P.mirrorMode|0]}</span> &nbsp; INVERT <span>${P.invertLuma>0.5?'Y':'N'}</span><br>`+
+      `HUE <span>${P.hueBase.toFixed(2)}</span> &nbsp; SAT <span>${P.satCurve.toFixed(2)}</span><br>`+
+      `ENTROPY <span>${entropy.toFixed(4)}</span><br>`+
+      `AUDIO <span>${audioEnabled?'ON':'OFF'}</span> &nbsp; ${audioEnabled?P.audioWaveform.toUpperCase():'─'}<br>`+
+      `FREQ <span>${audioEnabled?P.audioBaseFreq.toFixed(0)+'Hz':'─'}</span> &nbsp; BEAT <span>${audioEnabled?P.audioBeatFreq.toFixed(2):'─'}</span>`;
+  }
+
+  requestAnimationFrame(loop);
+}
+
+/* ─────────────────────────────────────────────
+   INIT
+───────────────────────────────────────────── */
+randomize();
+loop();
+</script>
+</body>
+</html>

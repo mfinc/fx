@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Generative Puzzle Civilization Simulator</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Generative Puzzle Civilization Simulator – fullscreen generative art engine of evolving puzzle architectures, tilings, and mechanical puzzle physics.">
+<style>
+html,body{
+margin:0;
+padding:0;
+overflow:hidden;
+background:black;
+font-family:monospace;
+}
+canvas{display:block}
+#hud{
+position:fixed;
+top:10px;
+left:10px;
+color:white;
+font-size:12px;
+opacity:.8;
+display:none;
+}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+
+<script>
+const canvas=document.getElementById("c");
+const ctx=canvas.getContext("2d");
+const hud=document.getElementById("hud");
+
+let W,H,modules=[],edges=[],time=0;
+let showHUD=false;
+let soundEnabled=false;
+let audioCtx,masterGain;
+
+function resize(){
+W=canvas.width=window.innerWidth;
+H=canvas.height=window.innerHeight;
+}
+window.addEventListener("resize",resize);
+resize();
+
+function rand(a,b){return Math.random()*(b-a)+a}
+function randi(a,b){return Math.floor(rand(a,b))}
+function choice(arr){return arr[randi(0,arr.length)]}
+
+let palette=[];
+
+function newPalette(){
+let modes=[
+()=>Array.from({length:6},(_,i)=>`hsl(${rand(0,360)},80%,${rand(40,70)}%)`),
+()=>Array.from({length:6},(_,i)=>`hsl(${200+i*20},90%,${rand(50,70)}%)`),
+()=>Array.from({length:6},(_,i)=>`hsl(${rand(0,360)},40%,${rand(30,60)}%)`)
+];
+palette=choice(modes)();
+}
+
+class Module{
+constructor(){
+this.x=rand(0,W);
+this.y=rand(0,H);
+this.vx=rand(-1,1);
+this.vy=rand(-1,1);
+this.angle=rand(0,Math.PI*2);
+this.va=rand(-0.02,0.02);
+this.size=rand(30,80);
+this.type=randi(0,6);
+this.color=choice(palette);
+this.mass=this.size*0.1;
+}
+step(){
+this.x+=this.vx;
+this.y+=this.vy;
+this.angle+=this.va;
+
+if(this.x<0||this.x>W)this.vx*=-1;
+if(this.y<0||this.y>H)this.vy*=-1;
+}
+draw(){
+ctx.save();
+ctx.translate(this.x,this.y);
+ctx.rotate(this.angle);
+ctx.strokeStyle=this.color;
+ctx.lineWidth=2;
+
+switch(this.type){
+case 0:drawSudoku(this.size);break;
+case 1:drawSlither(this.size);break;
+case 2:drawPoly(this.size);break;
+case 3:drawTangram(this.size);break;
+case 4:drawKakuro(this.size);break;
+case 5:drawMechanical(this.size);break;
+}
+
+ctx.restore();
+}
+}
+
+function drawSudoku(s){
+let n=3;
+let cell=s/3;
+ctx.strokeRect(-s/2,-s/2,s,s);
+for(let i=1;i<3;i++){
+ctx.beginPath();
+ctx.moveTo(-s/2+i*cell,-s/2);
+ctx.lineTo(-s/2+i*cell,s/2);
+ctx.stroke();
+ctx.beginPath();
+ctx.moveTo(-s/2,-s/2+i*cell);
+ctx.lineTo(s/2,-s/2+i*cell);
+ctx.stroke();
+}
+}
+
+function drawSlither(s){
+ctx.beginPath();
+for(let i=0;i<8;i++){
+let a=i*Math.PI/4;
+let r=s/2*(.6+Math.sin(time*0.02+i)*.2);
+let x=Math.cos(a)*r;
+let y=Math.sin(a)*r;
+if(i==0)ctx.moveTo(x,y); else ctx.lineTo(x,y);
+}
+ctx.closePath();
+ctx.stroke();
+}
+
+function drawPoly(s){
+let k=randi(3,6);
+ctx.beginPath();
+for(let i=0;i<k;i++){
+let a=i*Math.PI*2/k;
+let r=s/2*(.7+.3*Math.sin(time*.02+i));
+let x=Math.cos(a)*r;
+let y=Math.sin(a)*r;
+if(i==0)ctx.moveTo(x,y); else ctx.lineTo(x,y);
+}
+ctx.closePath();
+ctx.stroke();
+}
+
+function drawTangram(s){
+let h=s/2;
+ctx.beginPath();
+ctx.moveTo(-h,-h);
+ctx.lineTo(0,0);
+ctx.lineTo(h,-h);
+ctx.closePath();
+ctx.stroke();
+
+ctx.beginPath();
+ctx.moveTo(-h,h);
+ctx.lineTo(0,0);
+ctx.lineTo(h,h);
+ctx.closePath();
+ctx.stroke();
+}
+
+function drawKakuro(s){
+let cell=s/3;
+for(let i=0;i<3;i++){
+for(let j=0;j<3;j++){
+if(Math.random()<.3){
+ctx.beginPath();
+ctx.moveTo(-s/2+i*cell,-s/2+j*cell);
+ctx.lineTo(-s/2+(i+1)*cell,-s/2+(j+1)*cell);
+ctx.stroke();
+}
+}
+}
+}
+
+function drawMechanical(s){
+ctx.beginPath();
+ctx.arc(0,0,s/4,0,Math.PI*2);
+ctx.stroke();
+
+for(let i=0;i<4;i++){
+let a=i*Math.PI/2+time*0.02;
+ctx.beginPath();
+ctx.moveTo(0,0);
+ctx.lineTo(Math.cos(a)*s/2,Math.sin(a)*s/2);
+ctx.stroke();
+}
+}
+
+function physics(){
+for(let i=0;i<modules.length;i++){
+let a=modules[i];
+for(let j=i+1;j<modules.length;j++){
+let b=modules[j];
+let dx=b.x-a.x;
+let dy=b.y-a.y;
+let d=Math.hypot(dx,dy);
+let min=(a.size+b.size)/2;
+if(d<min){
+let nx=dx/d;
+let ny=dy/d;
+let push=(min-d)*0.02;
+a.vx-=nx*push;
+a.vy-=ny*push;
+b.vx+=nx*push;
+b.vy+=ny*push;
+
+if(soundEnabled)playTone(d*2);
+}
+}
+}
+}
+
+function playTone(freq){
+if(!audioCtx)return;
+let o=audioCtx.createOscillator();
+let g=audioCtx.createGain();
+o.frequency.value=100+freq;
+o.type="sine";
+g.gain.value=.05;
+o.connect(g);
+g.connect(masterGain);
+o.start();
+o.stop(audioCtx.currentTime+.1);
+}
+
+function generate(){
+modules=[];
+edges=[];
+newPalette();
+
+let count=Math.floor((W*H)/60000)+20;
+
+for(let i=0;i<count;i++){
+modules.push(new Module());
+}
+}
+
+function loop(){
+requestAnimationFrame(loop);
+time++;
+
+ctx.fillStyle="rgba(0,0,0,0.2)";
+ctx.fillRect(0,0,W,H);
+
+physics();
+
+for(let m of modules){
+m.step();
+m.draw();
+}
+
+if(showHUD){
+hud.style.display="block";
+hud.innerHTML=
+`modules:${modules.length}<br>
+palette:${palette.join(",")}<br>
+sound:${soundEnabled}`;
+}else{
+hud.style.display="none";
+}
+}
+
+function initAudio(){
+audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+masterGain=audioCtx.createGain();
+masterGain.gain.value=.5;
+masterGain.connect(audioCtx.destination);
+}
+
+window.addEventListener("keydown",e=>{
+if(e.code==="Space")generate();
+if(e.key==="h"||e.key==="H")showHUD=!showHUD;
+if(e.key==="s"||e.key==="S"){
+soundEnabled=!soundEnabled;
+if(soundEnabled&&!audioCtx)initAudio();
+}
+});
+
+window.addEventListener("click",generate);
+window.addEventListener("touchstart",generate);
+
+generate();
+loop();
+</script>
+</body>
+</html>

@@ -1,0 +1,1010 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Fractal Engineering Mandala Engine — Generative Mathematical Physics Visual System</title>
+<meta name="description" content="A GPU-accelerated generative audiovisual mandala engine that fuses sacred geometry, fractal mathematics, and engineering physics simulations. Explore endlessly evolving Penrose tilings, Islamic star patterns, Celtic knots, hyperbolic geometry, reaction-diffusion systems, and linkage mechanics rendered as luminous stained-glass mandalas with synchronized generative audio.">
+<meta name="keywords" content="fractal mandala, generative art, Penrose tiling, sacred geometry, WebGL generative, algorithmic mandala, Islamic geometry, hyperbolic tiling, reaction diffusion, Voronoi art, Celtic knot generator, mathematical art, physics simulation art, procedural mandala, quasicrystal tiling, Apollonian circles, Hilbert curve, generative audiovisual, engineering mandala, stained glass geometry, GPU art, real-time generative, symmetry engine, tessellation art, mathematical physics visualizer">
+<meta name="author" content="Fractal Engineering Mandala Engine">
+<meta property="og:title" content="Fractal Engineering Mandala Engine">
+<meta property="og:description" content="GPU-accelerated generative mandala universe fusing Penrose tilings, Islamic geometry, fractal physics, and engineering simulations into living sacred-geometry stained-glass art.">
+<meta name="theme-color" content="#000000">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Courier New',monospace}
+  canvas{display:block;width:100vw;height:100vh;position:fixed;top:0;left:0}
+  #hud{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;display:none;z-index:10}
+  #hud-inner{position:absolute;top:16px;left:16px;right:16px;display:flex;justify-content:space-between;align-items:flex-start}
+  .hud-panel{background:rgba(0,0,0,0.55);border:1px solid rgba(255,255,255,0.12);padding:10px 14px;border-radius:4px;font-size:10px;line-height:1.7;letter-spacing:0.08em;color:rgba(255,255,255,0.7);max-width:220px}
+  .hud-panel b{color:rgba(255,255,255,0.95);font-size:11px}
+  #hud-bottom{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);text-align:center;font-size:9px;letter-spacing:0.15em;color:rgba(255,255,255,0.35);white-space:nowrap}
+  #key-hint{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);font-size:9px;letter-spacing:0.2em;color:rgba(255,255,255,0.2);pointer-events:none;z-index:11;text-transform:uppercase;transition:opacity 1s}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div id="hud-inner">
+    <div class="hud-panel" id="hud-left">
+      <b>MANDALA ENGINE</b><br>
+      <span id="h-mode"></span><br>
+      <span id="h-sym"></span><br>
+      <span id="h-depth"></span><br>
+      <span id="h-phys"></span><br>
+      <span id="h-fps"></span>
+    </div>
+    <div class="hud-panel" id="hud-right">
+      <b>CONTROLS</b><br>
+      SPACE / TAP — Regenerate<br>
+      H — Toggle HUD<br>
+      S — Toggle Sound<br>
+      <span id="h-sound"></span>
+    </div>
+  </div>
+  <div id="hud-bottom" id="hud-bot">FRACTAL ENGINEERING MANDALA ENGINE · GENERATIVE MATHEMATICAL PHYSICS VISUAL SYSTEM</div>
+</div>
+<div id="key-hint">SPACE · REGENERATE &nbsp;|&nbsp; H · HUD &nbsp;|&nbsp; S · SOUND</div>
+<script>
+// ============================================================
+// FRACTAL ENGINEERING MANDALA ENGINE
+// Full-spectrum generative audiovisual system
+// ============================================================
+(function(){
+'use strict';
+
+// --- Canvas setup ---
+const canvas = document.getElementById('c');
+const gl = canvas.getContext('webgl2',{antialias:true,alpha:false,powerPreference:'high-performance'}) 
+        || canvas.getContext('webgl',{antialias:true,alpha:false,powerPreference:'high-performance'});
+if(!gl){document.body.innerHTML='<div style="color:#fff;padding:40px;font-family:monospace">WebGL not supported</div>';return;}
+
+let W=0,H=0,DPR=Math.min(window.devicePixelRatio||1,2);
+function resize(){
+  W=window.innerWidth;H=window.innerHeight;
+  canvas.width=Math.floor(W*DPR);canvas.height=Math.floor(H*DPR);
+  canvas.style.width=W+'px';canvas.style.height=H+'px';
+  gl.viewport(0,0,canvas.width,canvas.height);
+}
+resize();
+window.addEventListener('resize',()=>{resize();});
+
+// --- State ---
+let soundOn=false,hudOn=false;
+let audioCtx=null,masterGain=null,oscillators=[],audioNodes=[];
+let universe=null;
+let frameCount=0,lastFPS=60,fpsAccum=0,fpsFrames=0,fpsLast=performance.now();
+let animId=null;
+
+// ============================================================
+// GLSL SHADER SYSTEM
+// ============================================================
+function compileShader(type,src){
+  const s=gl.createShader(type);
+  gl.shaderSource(s,src);gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){
+    console.error(gl.getShaderInfoLog(s),src.split('\n').map((l,i)=>(i+1)+': '+l).join('\n'));
+    gl.deleteShader(s);return null;
+  }
+  return s;
+}
+function makeProgram(vsrc,fsrc){
+  const v=compileShader(gl.VERTEX_SHADER,vsrc);
+  const f=compileShader(gl.FRAGMENT_SHADER,fsrc);
+  if(!v||!f)return null;
+  const p=gl.createProgram();
+  gl.attachShader(p,v);gl.attachShader(p,f);
+  gl.linkProgram(p);
+  if(!gl.getProgramParameter(p,gl.LINK_STATUS)){console.error(gl.getProgramInfoLog(p));return null;}
+  gl.deleteShader(v);gl.deleteShader(f);
+  return p;
+}
+
+// ============================================================
+// FULL-SCREEN QUAD
+// ============================================================
+const quadVS=`
+attribute vec2 a_pos;
+void main(){gl_Position=vec4(a_pos,0,1);}
+`;
+const quadBuf=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,quadBuf);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+
+// ============================================================
+// RANDOM UNIVERSE PARAMETERS
+// ============================================================
+function rnd(a,b){return a+(b-a)*Math.random();}
+function rndInt(a,b){return Math.floor(rnd(a,b+1));}
+function pick(arr){return arr[Math.floor(Math.random()*arr.length)];}
+function pickN(arr,n){const a=[...arr];const r=[];for(let i=0;i<n&&a.length;i++){const j=Math.floor(Math.random()*a.length);r.push(a.splice(j,1)[0]);}return r;}
+
+const TILING_MODES=[
+  'penrose','ammann','hex_tri','square_oct','voronoi',
+  'apollonian','hyperbolic','islamic_star','mughal','celtic',
+  'hilbert','reaction_diffusion','labyrinth','gear_planetary',
+  'lissajous_lattice','truchet','flowfield','girih','snowflake',
+  'socolar','kolam','ptolemy','poincare','phyllotaxis'
+];
+
+const PHYSICS_MODES=[
+  'linkage','gyro','vortex','lattice_boltzmann','rayleigh_benard',
+  'spring_mass','electromagnetic','reaction_diff','oscillator',
+  'wave_interference','fluid_sim','kaleidoscope_warp','gravity_well',
+  'phase_field','tension_net'
+];
+
+const COLOR_SCHEMES=[
+  {name:'aurora',   a:[0.2,0.5,0.8], b:[0.2,0.4,0.3], c:[1.0,1.0,0.8], d:[0.0,0.2,0.5]},
+  {name:'solar',    a:[0.8,0.5,0.1], b:[0.3,0.3,0.2], c:[1.0,0.8,0.6], d:[0.0,0.15,0.3]},
+  {name:'void',     a:[0.5,0.1,0.8], b:[0.4,0.2,0.5], c:[0.8,1.0,0.9], d:[0.1,0.0,0.2]},
+  {name:'forge',    a:[0.9,0.3,0.0], b:[0.3,0.2,0.1], c:[1.0,0.9,0.7], d:[0.05,0.0,0.0]},
+  {name:'ocean',    a:[0.0,0.4,0.9], b:[0.2,0.3,0.4], c:[0.7,1.0,1.0], d:[0.0,0.1,0.2]},
+  {name:'jade',     a:[0.1,0.8,0.4], b:[0.2,0.4,0.2], c:[0.8,1.0,0.8], d:[0.0,0.1,0.05]},
+  {name:'crimson',  a:[0.9,0.1,0.2], b:[0.4,0.1,0.2], c:[1.0,0.7,0.8], d:[0.1,0.0,0.05]},
+  {name:'electric', a:[0.1,0.5,1.0], b:[0.3,0.1,0.5], c:[0.5,1.0,1.0], d:[0.0,0.0,0.1]},
+  {name:'gold',     a:[0.9,0.8,0.1], b:[0.4,0.3,0.0], c:[1.0,1.0,0.6], d:[0.1,0.05,0.0]},
+  {name:'nebula',   a:[0.6,0.2,0.9], b:[0.3,0.1,0.4], c:[1.0,0.8,1.0], d:[0.05,0.0,0.1]},
+];
+
+function makeUniverse(){
+  const modes=pickN(TILING_MODES,rndInt(2,4));
+  const phys=pickN(PHYSICS_MODES,rndInt(2,3));
+  const cs=pick(COLOR_SCHEMES);
+  const cs2=pick(COLOR_SCHEMES);
+  const sym=pick([3,4,5,6,7,8,9,10,12,16,24]);
+  const depth=rndInt(3,7);
+  const scale=rnd(0.3,1.4);
+  const turbulence=rnd(0.0,1.0);
+  const speed=rnd(0.15,0.8);
+  const curvature=rnd(-0.5,0.5);
+  const colorBlend=rnd(0,1);
+  const colorCycleSpeed=rnd(0.03,0.25);
+  const energyDecay=rnd(0.5,0.99);
+  const mazeWeight=rnd(0,1);
+  const knotWeight=rnd(0,1);
+  const gearRatio=rnd(1,8);
+  const fieldStrength=rnd(0.2,2.0);
+  const phylloPhi=rnd(1.2,1.9);
+  const seed=Math.random()*999999;
+  const warpAmt=rnd(0.0,0.6);
+  const innerRings=rndInt(3,12);
+  const radialWaves=rndInt(2,6);
+  const fractalFold=rndInt(2,5);
+  const mirrorX=Math.random()>0.4;
+  const mirrorY=Math.random()>0.4;
+  const colorPow=rnd(0.5,2.5);
+  const glowAmount=rnd(0.3,1.2);
+  const strokeWeight=rnd(0.003,0.018);
+  const dualTiling=Math.random()>0.5;
+  const projectDim=rndInt(4,8);
+  const islamicN=pick([5,6,7,8,10,12]);
+  
+  return {
+    modes,phys,cs,cs2,sym,depth,scale,turbulence,speed,curvature,
+    colorBlend,colorCycleSpeed,energyDecay,mazeWeight,knotWeight,
+    gearRatio,fieldStrength,phylloPhi,seed,warpAmt,innerRings,
+    radialWaves,fractalFold,mirrorX,mirrorY,colorPow,glowAmount,
+    strokeWeight,dualTiling,projectDim,islamicN,
+    startTime:performance.now()
+  };
+}
+
+// ============================================================
+// MAIN MANDALA FRAGMENT SHADER
+// A massive multi-system fragment shader
+// ============================================================
+function buildFragShader(u){
+  // Pack parameters as defines for performance
+  return `
+#ifdef GL_ES
+precision highp float;
+#endif
+precision highp float;
+
+uniform float u_time;
+uniform vec2  u_res;
+uniform float u_seed;
+uniform float u_sym;
+uniform float u_depth;
+uniform float u_scale;
+uniform float u_turbulence;
+uniform float u_speed;
+uniform float u_curvature;
+uniform float u_warp;
+uniform float u_innerRings;
+uniform float u_radialWaves;
+uniform float u_gearRatio;
+uniform float u_fieldStr;
+uniform float u_phyMode;    // 0..14
+uniform float u_tilingMode; // 0..23
+uniform float u_strokeW;
+uniform float u_glowAmt;
+uniform float u_colorPow;
+uniform float u_colorBlend;
+uniform float u_colorCycle;
+uniform float u_islamicN;
+uniform float u_mazeW;
+uniform float u_knotW;
+uniform float u_projectDim;
+uniform float u_phylloPhi;
+uniform vec3  u_csA;
+uniform vec3  u_csB;
+uniform vec3  u_csC;
+uniform vec3  u_csD;
+uniform vec3  u_cs2A;
+uniform vec3  u_cs2B;
+uniform vec3  u_cs2C;
+uniform vec3  u_cs2D;
+
+#define PI  3.14159265358979323846
+#define TAU 6.28318530717958647692
+#define PHI 1.61803398874989484820
+
+// ---- Utilities ----
+float hash11(float p){p=fract(p*0.1031);p*=p+33.33;p*=p+p;return fract(p);}
+float hash12(vec2 p){vec3 p3=fract(vec3(p.xyx)*0.1031);p3+=dot(p3,p3.yzx+33.33);return fract((p3.x+p3.y)*p3.z);}
+vec2  hash22(vec2 p){vec3 p3=fract(vec3(p.xyx)*vec3(0.1031,0.1030,0.0973));p3+=dot(p3,p3.yzx+33.33);return fract((p3.xx+p3.yz)*p3.zy);}
+float hash13(vec3 p){p=fract(p*0.1031);p+=dot(p,p.zyx+31.32);return fract((p.x+p.y)*p.z);}
+
+float smin(float a,float b,float k){float h=clamp(0.5+0.5*(b-a)/k,0.,1.);return mix(b,a,h)-k*h*(1.-h);}
+mat2 rot2(float a){float c=cos(a),s=sin(a);return mat2(c,-s,s,c);}
+float sdLine(vec2 p,vec2 a,vec2 b){vec2 pa=p-a,ba=b-a;float t=clamp(dot(pa,ba)/dot(ba,ba),0.,1.);return length(pa-ba*t);}
+
+// ---- Noise ----
+float noise(vec2 p){
+  vec2 i=floor(p),f=fract(p);
+  float a=hash12(i),b=hash12(i+vec2(1,0)),c=hash12(i+vec2(0,1)),d=hash12(i+vec2(1,1));
+  vec2 u=f*f*(3.-2.*f);
+  return mix(mix(a,b,u.x),mix(c,d,u.x),u.y);
+}
+float fbm(vec2 p,int oct){
+  float v=0.,a=0.5;
+  for(int i=0;i<8;i++){
+    if(i>=oct)break;
+    v+=a*noise(p);p*=2.01;a*=0.5;
+  }
+  return v;
+}
+
+// ---- Color palette ----
+vec3 palette(float t,vec3 a,vec3 b,vec3 c,vec3 d){
+  return a+b*cos(TAU*(c*t+d));
+}
+
+// ---- Domain warping ----
+vec2 domainWarp(vec2 p,float amt,float t){
+  float n1=fbm(p*1.5+t*0.1,3);
+  float n2=fbm(p*1.5+vec2(5.2,1.3)+t*0.09,3);
+  return p+amt*vec2(n1-0.5,n2-0.5);
+}
+
+// ---- Kaleidoscope / symmetry fold ----
+vec2 kaleido(vec2 p,float n){
+  float angle=atan(p.y,p.x);
+  float r=length(p);
+  float seg=TAU/n;
+  angle=mod(angle,seg);
+  if(angle>seg*0.5)angle=seg-angle;
+  return vec2(cos(angle),sin(angle))*r;
+}
+
+// ---- Polar grid ----
+vec2 toPolar(vec2 p){return vec2(length(p),atan(p.y,p.x));}
+vec2 fromPolar(vec2 rth){return vec2(rth.x*cos(rth.y),rth.x*sin(rth.y));}
+
+// ---- Penrose-like quasicrystal ----
+float penrosePattern(vec2 p,float t){
+  float v=0.;
+  float phi=PHI;
+  for(int k=0;k<5;k++){
+    float a=float(k)*PI*2./5.;
+    vec2 d=vec2(cos(a),sin(a));
+    v+=cos(dot(p*3.,d)*phi+t*0.3+float(k));
+  }
+  return v*0.2+0.5;
+}
+
+// ---- Ammann–Beenker style ----
+float ammannPattern(vec2 p,float t){
+  float v=0.;
+  for(int k=0;k<4;k++){
+    float a=float(k)*PI*0.5;
+    vec2 d=vec2(cos(a),sin(a));
+    float a2=float(k)*PI*0.25+PI*0.125;
+    vec2 d2=vec2(cos(a2),sin(a2));
+    v+=cos(dot(p*2.5,d)+t*0.2);
+    v+=cos(dot(p*2.5*PHI,d2)+t*0.15);
+  }
+  return v/8.+0.5;
+}
+
+// ---- Islamic star tiling ----
+float islamicStar(vec2 p,float n,float t){
+  float v=1e9;
+  float step_=TAU/n;
+  for(int i=0;i<12;i++){
+    if(float(i)>=n)break;
+    float a=float(i)*step_;
+    vec2 d=vec2(cos(a),sin(a));
+    float proj=dot(p,d);
+    v=min(v,abs(mod(proj*n/(PI),2.)-1.));
+  }
+  return v;
+}
+
+// ---- Voronoi ----
+vec3 voronoi(vec2 p,float t){
+  vec2 ip=floor(p),fp=fract(p);
+  float md=8.,md2=8.;
+  vec2 mc=vec2(0);
+  for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){
+    vec2 g=vec2(x,y);
+    vec2 o=hash22(ip+g);
+    o=0.5+0.5*sin(t*0.3+TAU*o);
+    vec2 r=g+o-fp;
+    float d=dot(r,r);
+    if(d<md){md2=md;md=d;mc=ip+g+o;}
+  }
+  return vec3(sqrt(md),sqrt(md2),hash12(mc));
+}
+
+// ---- Apollonian circles ----
+float apollonian(vec2 p,int iter){
+  float s=1.,r=0.;
+  for(int i=0;i<8;i++){
+    if(i>=iter)break;
+    p=abs(p);
+    p-=2.*clamp(p,-1.,1.);
+    float k=1./clamp(dot(p,p),0.01,1.);
+    p*=k;s*=k;r=max(r,1./s);
+  }
+  return 0.5+0.5*sin(r*PI);
+}
+
+// ---- Hyperbolic Poincaré disk ----
+vec2 poincareWrap(vec2 p,float t){
+  float r=length(p);
+  if(r>=1.)return p/r*0.999;
+  vec2 t2=vec2(cos(t*0.1),sin(t*0.08))*0.3;
+  vec2 sum=p+t2;
+  float den=1.+dot(t2,p)+dot(t2,t2)*dot(p,p);
+  return (p*(1.+dot(t2,t2))+t2*(1.+dot(p,p)))/(den+1e-6);
+}
+
+// ---- Celtic knot / braid ----
+float celticKnot(vec2 p,float t,float sym2){
+  vec2 q=kaleido(p,sym2);
+  float r=length(q),a=atan(q.y,q.x);
+  float strand1=abs(sin(r*8.-t*0.5+a*3.));
+  float strand2=abs(sin(r*8.+t*0.5-a*3.));
+  float over=smoothstep(0.08,0.,abs(strand1-strand2));
+  float knot=smoothstep(0.12,0.,min(strand1,strand2));
+  return knot+over*0.5;
+}
+
+// ---- Hilbert-like space-filling ----
+float hilbertPattern(vec2 p,int depth2){
+  float v=0.;
+  vec2 q=p;
+  for(int i=0;i<6;i++){
+    if(i>=depth2)break;
+    q=abs(q);
+    if(q.x<q.y){q=q.yx;}
+    q.y-=1.;
+    v+=exp(-length(q)*3.)*float(i+1);
+    q*=1.7;
+    float a=float(i)*0.7+0.5;
+    q=rot2(a)*q;
+  }
+  return clamp(v*0.15,0.,1.);
+}
+
+// ---- Reaction-diffusion (Gray-Scott approximation) ----
+float reactionDiff(vec2 p,float t){
+  float u_=fbm(p*3.+t*0.05,4);
+  float v_=fbm(p*3.+vec2(3.7,1.3)-t*0.07,4);
+  float react=u_*v_*v_;
+  float diff=u_-react+0.035*(1.-u_)-fbm(p*5.+t*0.12,3)*0.1;
+  return clamp(diff,0.,1.);
+}
+
+// ---- Gear / planetary ----
+float gear(vec2 p,float teeth,float r,float phase){
+  float ang=atan(p.y,p.x)+phase;
+  float rr=length(p);
+  float tooth=sin(ang*teeth)*0.08;
+  return abs(rr-(r+tooth));
+}
+
+float gearSystem(vec2 p,float t,float ratio){
+  float g1=gear(p,8.,0.3,t*0.5);
+  vec2 p2=p-vec2(0.55,0.);
+  float g2=gear(p2,6.,0.2,-t*0.5*ratio);
+  vec2 p3=p-vec2(-0.4,0.45);
+  float g3=gear(p3,10.,0.35,t*0.3);
+  return min(min(g1,g2),g3);
+}
+
+// ---- Gyroscope rings ----
+float gyroRings(vec2 p,float t,float rings){
+  float v=1e9;
+  for(int i=0;i<8;i++){
+    if(float(i)>=rings)break;
+    float fi=float(i);
+    float phase=fi*PI/rings+t*(0.2+fi*0.05);
+    vec2 rotP=rot2(phase)*p;
+    float r=0.15+fi*0.08;
+    float ring=abs(length(rotP*vec2(1.,1.+fi*0.1))-r);
+    v=min(v,ring);
+  }
+  return v;
+}
+
+// ---- Electromagnetic field lines ----
+float emField(vec2 p,float t){
+  vec2 c1=vec2(sin(t*0.3)*0.4,cos(t*0.25)*0.3);
+  vec2 c2=vec2(-sin(t*0.25)*0.35,-cos(t*0.3)*0.4);
+  float f1=atan((p-c1).y,(p-c1).x);
+  float f2=atan((p-c2).y,(p-c2).x);
+  float field=f1-f2;
+  float lines=abs(sin(field*4.+t*0.2))*exp(-length(p)*1.5);
+  return lines;
+}
+
+// ---- Phyllotaxis spiral ----
+float phyllotaxis(vec2 p,float t,float phi2){
+  float r=length(p);
+  float a=atan(p.y,p.x);
+  float n=r*r*20.;
+  float spiralA=a-n*TAU/phi2-t*0.2;
+  return abs(sin(spiralA*phi2))*exp(-abs(r-sqrt(n/20.))*8.);
+}
+
+// ---- Truchet tiling ----
+float truchet(vec2 p,float t){
+  vec2 ip=floor(p);
+  float h=hash12(ip+u_seed);
+  vec2 fp=fract(p)-0.5;
+  float d;
+  if(h>0.5){
+    d=min(abs(length(fp-vec2(-0.5,-0.5))-0.5),
+          abs(length(fp-vec2( 0.5, 0.5))-0.5));
+  } else {
+    d=min(abs(length(fp-vec2( 0.5,-0.5))-0.5),
+          abs(length(fp-vec2(-0.5, 0.5))-0.5));
+  }
+  return smoothstep(0.06,0.,d-0.03);
+}
+
+// ---- Wave interference ----
+float waveInterference(vec2 p,float t,float waves){
+  float v=0.;
+  for(int i=0;i<6;i++){
+    if(float(i)>=waves*2.)break;
+    float a=float(i)*PI/waves+hash11(float(i)+u_seed)*PI;
+    vec2 src=vec2(cos(a),sin(a))*0.6;
+    float dist=length(p-src);
+    v+=sin(dist*10.-t*1.5+float(i))*exp(-dist*1.2);
+  }
+  return v*0.2+0.5;
+}
+
+// ---- Spring-mass lattice ----
+float springLattice(vec2 p,float t){
+  vec2 ip=floor(p*4.);
+  vec2 fp=fract(p*4.);
+  float phase=hash12(ip)*TAU;
+  float osc=sin(t*2.+phase)*0.15;
+  vec2 disp=vec2(sin(t*1.5+ip.x),cos(t*1.7+ip.y))*osc;
+  vec2 local=fp-0.5+disp;
+  float node=exp(-dot(local,local)*20.);
+  float ex=abs(local.x)-0.45+osc;
+  float ey=abs(local.y)-0.45+osc;
+  float edges=exp(-min(ex*ex,ey*ey)*50.)*0.4;
+  return node+edges;
+}
+
+// ---- Labyrinth maze ----
+float maze(vec2 p,float t){
+  float v=0.;
+  for(int i=0;i<4;i++){
+    vec2 q=p*pow(2.,float(i));
+    vec2 iq=floor(q);
+    vec2 fq=fract(q);
+    float h=hash12(iq+float(i)*13.7+u_seed);
+    float wall;
+    if(h<0.5){wall=abs(fq.x-0.5);}
+    else{wall=abs(fq.y-0.5);}
+    v+=exp(-wall*20./pow(1.5,float(i)))*0.5;
+  }
+  return clamp(v,0.,1.);
+}
+
+// ---- Girih / Islamic rosette ----
+float girih(vec2 p,float t,float n){
+  vec2 q=kaleido(p,n);
+  float r=length(q),a=atan(q.y,q.x);
+  float petals=abs(sin(a*n*0.5+t*0.1))*r;
+  float spoke=abs(sin(a*n+t*0.15))*0.5;
+  float ring=abs(mod(r*n,1.)-0.5);
+  return smoothstep(0.1,0.,petals*0.3)+smoothstep(0.08,0.,spoke)+smoothstep(0.12,0.,ring);
+}
+
+// ---- Kolam pattern ----
+float kolam(vec2 p,float t){
+  vec2 q=kaleido(p,4.);
+  float r=length(q),a=atan(q.y,q.x);
+  float v=0.;
+  for(int i=1;i<=5;i++){
+    float fi=float(i);
+    float loop=abs(sin(r*fi*2.-t*0.1*fi))-sin(a*fi)*0.2*exp(-r);
+    v+=exp(-abs(loop)*8.)/fi;
+  }
+  return clamp(v,0.,1.);
+}
+
+// ---- 4D+ polytope projection ----
+float polytope(vec2 p,float t,float dims){
+  float v=0.;
+  float d=clamp(dims,4.,8.);
+  for(int i=0;i<8;i++){
+    if(float(i)>=d)break;
+    float a1=float(i)*PI/d+t*0.05;
+    float a2=float(i)*TAU/d+t*0.07;
+    vec2 axis=vec2(cos(a1+t*0.03),sin(a2+t*0.04));
+    float proj=dot(p,axis);
+    v+=cos(proj*5.+t*0.2+float(i))*0.5/(float(i)+1.);
+  }
+  return v*0.4+0.5;
+}
+
+// ---- Vortex turbulence ----
+vec2 vortexField(vec2 p,float t,float strength){
+  float r=length(p)+0.01;
+  float theta=atan(p.y,p.x);
+  float omega=strength/(r*r+0.1);
+  float n=fbm(p*2.+t*0.05,3);
+  return vec2(-sin(theta),cos(theta))*omega*(0.5+n)*0.1;
+}
+
+// ============================================================
+// COMBINED ENERGY FIELD
+// ============================================================
+float computeField(vec2 p, float t){
+  // Apply domain warp
+  vec2 wp=p;
+  if(u_warp>0.05){
+    wp=domainWarp(p,u_warp,t);
+  }
+  
+  // Symmetry fold
+  vec2 sp=kaleido(wp,u_sym);
+  
+  // Apply curvature (hyperbolic-like)
+  if(abs(u_curvature)>0.05){
+    float r=length(sp);
+    sp*=1.+u_curvature*r*r;
+  }
+  
+  float energy=0.;
+  float w=1./4.; // weight per mode blend
+  
+  // Tiling mode (by mode index stored in u_tilingMode)
+  int tm=int(mod(u_tilingMode,24.));
+  
+  if(tm==0) energy+=penrosePattern(sp*u_scale,t)*w*4.;
+  else if(tm==1) energy+=ammannPattern(sp*u_scale,t)*w*4.;
+  else if(tm==2) {
+    float hex=abs(sin(dot(sp*u_scale*3.,vec2(1.,1.732))+t*0.1))
+             +abs(sin(dot(sp*u_scale*3.,vec2(1.,-1.732))+t*0.12))
+             +abs(sin(sp.x*u_scale*6.+t*0.08));
+    energy+=smoothstep(0.6,0.2,hex*0.33)*w*4.;
+  }
+  else if(tm==3) {
+    vec2 sq=abs(fract(sp*u_scale*2.+t*0.02)-0.5);
+    energy+=(smoothstep(0.48,0.44,sq.x)+smoothstep(0.48,0.44,sq.y))*w*2.;
+  }
+  else if(tm==4) {
+    vec3 vor=voronoi(sp*u_scale*2.,t);
+    energy+=(1.-vor.x*3.+vor.y-vor.x)*w*4.;
+  }
+  else if(tm==5) energy+=apollonian(sp*u_scale,int(u_depth))*w*4.;
+  else if(tm==6) {
+    vec2 pp=poincareWrap(sp*0.8,t);
+    energy+=penrosePattern(pp*u_scale*2.,t)*w*4.;
+  }
+  else if(tm==7) energy+=smoothstep(0.15,0.,islamicStar(sp*u_scale,u_islamicN,t)-0.05)*w*4.;
+  else if(tm==8) energy+=girih(sp*u_scale,t,u_islamicN)*w*4.;
+  else if(tm==9) energy+=celticKnot(sp,t,u_sym)*w*4.;
+  else if(tm==10) energy+=hilbertPattern(sp*u_scale,int(u_depth))*w*4.;
+  else if(tm==11) energy+=reactionDiff(sp*u_scale,t)*w*4.;
+  else if(tm==12) energy+=maze(sp*u_scale,t)*w*4.;
+  else if(tm==13) energy+=smoothstep(0.04,0.,gearSystem(sp*u_scale,t,u_gearRatio))*w*4.;
+  else if(tm==14) energy+=waveInterference(sp*u_scale,t,u_radialWaves)*w*4.;
+  else if(tm==15) energy+=truchet(sp*u_scale*3.,t)*w*4.;
+  else if(tm==16) {
+    vec2 vf=vortexField(sp,t,u_fieldStr);
+    energy+=fbm(sp*u_scale+vf,int(u_depth))*w*4.;
+  }
+  else if(tm==17) energy+=girih(sp*u_scale*1.5,t,8.)*w*4.;
+  else if(tm==18) {
+    vec2 q=kaleido(sp,u_sym);
+    float r=length(q),a=atan(q.y,q.x);
+    energy+=abs(sin(r*12.+a*u_sym*0.5-t*0.3))*exp(-r*0.5)*w*4.;
+  }
+  else if(tm==19) energy+=ammannPattern(sp*u_scale*PHI,t)*w*4.;
+  else if(tm==20) energy+=kolam(sp*u_scale,t)*w*4.;
+  else if(tm==21) {
+    // Ptolemy circles
+    float v=0.;
+    for(int i=0;i<6;i++){
+      float a=float(i)*PI/3.+t*0.05;
+      float r2=0.2+float(i)*0.12;
+      v+=exp(-abs(length(sp-vec2(cos(a),sin(a))*r2)-0.15)*12.);
+    }
+    energy+=clamp(v,0.,1.)*w*4.;
+  }
+  else if(tm==22) {
+    vec2 pp=poincareWrap(normalize(sp)*min(length(sp),0.99),t);
+    energy+=ammannPattern(pp*u_scale*1.5,t)*w*4.;
+  }
+  else energy+=phyllotaxis(sp*u_scale,t,u_phylloPhi)*w*4.;
+  
+  // Add physics layer
+  int pm=int(mod(u_phyMode,15.));
+  float phyE=0.;
+  
+  if(pm==0) phyE=springLattice(sp*u_scale,t)*0.5;
+  else if(pm==1) phyE=smoothstep(0.03,0.,gyroRings(sp,t,u_innerRings))*0.6;
+  else if(pm==2){
+    vec2 vf=vortexField(sp,t,u_turbulence*2.);
+    phyE=fbm(sp*3.+vf+t*0.05,4)*0.4;
+  }
+  else if(pm==3) phyE=waveInterference(sp,t,u_radialWaves)*0.5;
+  else if(pm==4){
+    // Rayleigh-Benard cells
+    float cells=sin(sp.x*8.+t*0.1)*sin(sp.y*6.-t*0.08);
+    phyE=(cells*0.5+0.5)*0.4;
+  }
+  else if(pm==5) phyE=springLattice(sp*2.,t)*0.4;
+  else if(pm==6) phyE=emField(sp,t)*0.6;
+  else if(pm==7) phyE=reactionDiff(sp*2.,t)*0.4;
+  else if(pm==8){
+    // Oscillator resonance
+    float osc=sin(length(sp)*10.-t*2.)*exp(-length(sp)*0.8);
+    phyE=(osc*0.5+0.5)*0.5;
+  }
+  else if(pm==9) phyE=waveInterference(sp*1.5,t*1.2,4.)*0.5;
+  else if(pm==10){
+    vec2 fluid=vec2(fbm(sp*2.+t*0.06,3),fbm(sp*2.+vec2(3.1,4.7)+t*0.05,3));
+    phyE=fbm(sp+fluid*0.3,4)*0.5;
+  }
+  else if(pm==11){
+    // Kaleidoscope warp
+    vec2 kp=kaleido(sp,u_sym*2.);
+    phyE=noise(kp*3.+t*0.1)*0.4;
+  }
+  else if(pm==12){
+    // Gravity wells
+    float gv=0.;
+    for(int i=0;i<4;i++){
+      float a=float(i)*PI*0.5+t*0.1;
+      vec2 well=vec2(cos(a),sin(a))*0.4;
+      gv+=exp(-length(sp-well)*4.)*0.3;
+    }
+    phyE=clamp(gv,0.,0.5);
+  }
+  else if(pm==13) phyE=fbm(sp*3.,int(u_depth))*0.35;
+  else phyE=smoothstep(0.03,0.,gearSystem(sp*u_scale*0.5,t,u_gearRatio))*0.5;
+  
+  energy+=phyE;
+  
+  // Radial rings
+  float r_=length(sp);
+  float rings=sin(r_*u_radialWaves*4.-t*0.5)*sin(r_*u_radialWaves*7.+t*0.3);
+  energy+=rings*0.1;
+  
+  // Inner mandala core
+  float core=exp(-r_*r_*3.)*(sin(r_*20.-t)+sin(atan(sp.y,sp.x)*u_sym))*0.5;
+  energy+=core*0.15;
+  
+  return clamp(energy,0.,1.);
+}
+
+// ============================================================
+// MAIN
+// ============================================================
+void main(){
+  vec2 uv=(gl_FragCoord.xy-u_res*0.5)/min(u_res.x,u_res.y);
+  float t=u_time*u_speed;
+  
+  // Outer vignette
+  float vignette=1.-smoothstep(0.5,1.0,length(uv));
+  
+  // Tiling mode cycling — mix two modes
+  float e1=computeField(uv,t);
+  
+  // Second pass with shifted parameters for blend
+  float e2=computeField(rot2(PI/u_sym)*uv*1.3,t+u_seed*0.01);
+  
+  float energy=mix(e1,e2,0.35);
+  energy=pow(clamp(energy,0.,1.),u_colorPow);
+  
+  // Color mapping
+  float ct=energy+t*u_colorCycle;
+  vec3 col1=palette(ct,u_csA,u_csB,u_csC,u_csD);
+  vec3 col2=palette(ct+0.33,u_cs2A,u_cs2B,u_cs2C,u_cs2D);
+  vec3 col=mix(col1,col2,sin(t*u_colorCycle*TAU+energy*2.)*0.5+0.5);
+  
+  // Energy density glow
+  float glow=exp(-abs(energy-0.5)*4.)*u_glowAmt;
+  col+=glow*mix(col1,vec3(1.),0.5)*0.5;
+  
+  // Luminous outlines at isovalues
+  float outline=0.;
+  for(int i=1;i<=6;i++){
+    float iso=float(i)/7.;
+    outline+=exp(-abs(energy-iso)*30.)*0.4;
+  }
+  col+=outline*mix(vec3(1.),col,0.5);
+  
+  // Spectral banding
+  float band=sin(energy*TAU*4.+t*0.3)*0.07;
+  col+=band;
+  
+  // Apply vignette
+  col*=vignette*(0.7+energy*0.5);
+  
+  // Tone mapping
+  col=col/(col+0.6);
+  col=pow(max(col,0.),vec3(0.42));
+  
+  gl_FragColor=vec4(col,1.);
+}
+`;
+}
+
+// ============================================================
+// BUILD PROGRAM FOR UNIVERSE
+// ============================================================
+let prog=null,aLoc,uLocs={};
+
+function buildProgram(u){
+  if(prog)gl.deleteProgram(prog);
+  prog=makeProgram(quadVS,buildFragShader(u));
+  if(!prog)return false;
+  gl.useProgram(prog);
+  aLoc=gl.getAttribLocation(prog,'a_pos');
+  const names=['u_time','u_res','u_seed','u_sym','u_depth','u_scale',
+    'u_turbulence','u_speed','u_curvature','u_warp','u_innerRings',
+    'u_radialWaves','u_gearRatio','u_fieldStr','u_phyMode','u_tilingMode',
+    'u_strokeW','u_glowAmt','u_colorPow','u_colorBlend','u_colorCycle',
+    'u_islamicN','u_mazeW','u_knotW','u_projectDim','u_phylloPhi',
+    'u_csA','u_csB','u_csC','u_csD','u_cs2A','u_cs2B','u_cs2C','u_cs2D'];
+  uLocs={};
+  names.forEach(n=>{uLocs[n]=gl.getUniformLocation(prog,n);});
+  return true;
+}
+
+function setUniforms(u,t){
+  gl.useProgram(prog);
+  gl.uniform1f(uLocs['u_time'],t);
+  gl.uniform2f(uLocs['u_res'],canvas.width,canvas.height);
+  gl.uniform1f(uLocs['u_seed'],u.seed);
+  gl.uniform1f(uLocs['u_sym'],u.sym);
+  gl.uniform1f(uLocs['u_depth'],u.depth);
+  gl.uniform1f(uLocs['u_scale'],u.scale);
+  gl.uniform1f(uLocs['u_turbulence'],u.turbulence);
+  gl.uniform1f(uLocs['u_speed'],u.speed);
+  gl.uniform1f(uLocs['u_curvature'],u.curvature);
+  gl.uniform1f(uLocs['u_warp'],u.warpAmt);
+  gl.uniform1f(uLocs['u_innerRings'],u.innerRings);
+  gl.uniform1f(uLocs['u_radialWaves'],u.radialWaves);
+  gl.uniform1f(uLocs['u_gearRatio'],u.gearRatio);
+  gl.uniform1f(uLocs['u_fieldStr'],u.fieldStrength);
+  // Pick physics and tiling mode indices from arrays
+  const tilingIdx=TILING_MODES.indexOf(u.modes[0]);
+  const physIdx=PHYSICS_MODES.indexOf(u.phys[0]);
+  gl.uniform1f(uLocs['u_phyMode'],physIdx>=0?physIdx:0);
+  gl.uniform1f(uLocs['u_tilingMode'],tilingIdx>=0?tilingIdx:0);
+  gl.uniform1f(uLocs['u_strokeW'],u.strokeWeight);
+  gl.uniform1f(uLocs['u_glowAmt'],u.glowAmount);
+  gl.uniform1f(uLocs['u_colorPow'],u.colorPow);
+  gl.uniform1f(uLocs['u_colorBlend'],u.colorBlend);
+  gl.uniform1f(uLocs['u_colorCycle'],u.colorCycleSpeed);
+  gl.uniform1f(uLocs['u_islamicN'],u.islamicN);
+  gl.uniform1f(uLocs['u_mazeW'],u.mazeWeight);
+  gl.uniform1f(uLocs['u_knotW'],u.knotWeight);
+  gl.uniform1f(uLocs['u_projectDim'],u.projectDim);
+  gl.uniform1f(uLocs['u_phylloPhi'],u.phylloPhi);
+  gl.uniform3fv(uLocs['u_csA'],u.cs.a);
+  gl.uniform3fv(uLocs['u_csB'],u.cs.b);
+  gl.uniform3fv(uLocs['u_csC'],u.cs.c);
+  gl.uniform3fv(uLocs['u_csD'],u.cs.d);
+  gl.uniform3fv(uLocs['u_cs2A'],u.cs2.a);
+  gl.uniform3fv(uLocs['u_cs2B'],u.cs2.b);
+  gl.uniform3fv(uLocs['u_cs2C'],u.cs2.c);
+  gl.uniform3fv(uLocs['u_cs2D'],u.cs2.d);
+}
+
+function drawQuad(){
+  gl.bindBuffer(gl.ARRAY_BUFFER,quadBuf);
+  gl.enableVertexAttribArray(aLoc);
+  gl.vertexAttribPointer(aLoc,2,gl.FLOAT,false,0,0);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+}
+
+// ============================================================
+// AUDIO ENGINE (lazy init, off by default)
+// ============================================================
+function initAudio(){
+  if(audioCtx)return;
+  audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+  masterGain=audioCtx.createGain();
+  masterGain.gain.value=soundOn?0.12:0;
+  masterGain.connect(audioCtx.destination);
+  buildAudio();
+}
+
+function buildAudio(){
+  if(!audioCtx)return;
+  stopAudio();
+  const u=universe;
+  if(!u)return;
+  
+  // Drone base
+  const drone=audioCtx.createOscillator();
+  drone.type='sine';
+  drone.frequency.value=55+u.sym*4;
+  const droneGain=audioCtx.createGain();
+  droneGain.gain.value=0.18;
+  drone.connect(droneGain);droneGain.connect(masterGain);
+  drone.start();oscillators.push(drone);audioNodes.push(droneGain);
+  
+  // Harmonic series
+  const harmonics=[2,3,4,5,6,8];
+  harmonics.forEach((h,i)=>{
+    const osc=audioCtx.createOscillator();
+    osc.type=i%2===0?'sine':'triangle';
+    osc.frequency.value=55*h+u.seed*0.01*h;
+    const g=audioCtx.createGain();
+    g.gain.value=0.05/h;
+    // LFO
+    const lfo=audioCtx.createOscillator();
+    lfo.frequency.value=0.05+i*0.03+u.speed*0.1;
+    const lfoGain=audioCtx.createGain();
+    lfoGain.gain.value=0.02;
+    lfo.connect(lfoGain);lfoGain.connect(g.gain);
+    lfo.start();oscillators.push(lfo);audioNodes.push(lfoGain);
+    osc.connect(g);g.connect(masterGain);
+    osc.start();oscillators.push(osc);audioNodes.push(g);
+  });
+  
+  // Texture noise
+  const buf=audioCtx.createBuffer(1,audioCtx.sampleRate*2,audioCtx.sampleRate);
+  const data=buf.getChannelData(0);
+  for(let i=0;i<data.length;i++)data[i]=(Math.random()-0.5)*0.3;
+  const src=audioCtx.createBufferSource();
+  src.buffer=buf;src.loop=true;
+  const filter=audioCtx.createBiquadFilter();
+  filter.type='bandpass';
+  filter.frequency.value=300+u.sym*50;
+  filter.Q.value=8;
+  const noiseGain=audioCtx.createGain();
+  noiseGain.gain.value=0.04;
+  src.connect(filter);filter.connect(noiseGain);noiseGain.connect(masterGain);
+  src.start();oscillators.push(src);audioNodes.push(noiseGain);audioNodes.push(filter);
+}
+
+function stopAudio(){
+  oscillators.forEach(o=>{try{o.stop();}catch(e){}});
+  audioNodes.forEach(n=>{try{n.disconnect();}catch(e){}});
+  oscillators=[];audioNodes=[];
+}
+
+function setAudioEnabled(on){
+  soundOn=on;
+  if(on){
+    initAudio();
+    if(audioCtx&&audioCtx.state==='suspended')audioCtx.resume();
+    if(masterGain)masterGain.gain.setTargetAtTime(0.12,audioCtx.currentTime,0.5);
+  } else {
+    if(masterGain)masterGain.gain.setTargetAtTime(0,audioCtx?audioCtx.currentTime:0,0.3);
+  }
+  updateHUD();
+}
+
+// ============================================================
+// UNIVERSE LIFECYCLE
+// ============================================================
+function regenerate(){
+  universe=makeUniverse();
+  if(!buildProgram(universe)){
+    console.error('Shader compile failed');return;
+  }
+  if(soundOn){
+    buildAudio();
+  }
+  updateHUD();
+}
+
+// ============================================================
+// HUD
+// ============================================================
+function updateHUD(){
+  if(!universe)return;
+  const u=universe;
+  document.getElementById('h-mode').textContent='TILING: '+u.modes.join(' + ').toUpperCase();
+  document.getElementById('h-sym').textContent='SYMMETRY: '+u.sym+'  DEPTH: '+u.depth;
+  document.getElementById('h-depth').textContent='PHYSICS: '+u.phys.join('+').toUpperCase();
+  document.getElementById('h-phys').textContent='SCALE:'+u.scale.toFixed(2)+'  WARP:'+u.warpAmt.toFixed(2);
+  document.getElementById('h-fps').textContent='FPS: '+lastFPS.toFixed(0);
+  document.getElementById('h-sound').textContent='SOUND: '+(soundOn?'ON':'OFF');
+}
+
+// ============================================================
+// RENDER LOOP
+// ============================================================
+function render(now){
+  animId=requestAnimationFrame(render);
+  if(!prog||!universe)return;
+  
+  // FPS counter
+  fpsFrames++;
+  if(now-fpsLast>500){
+    lastFPS=fpsFrames/((now-fpsLast)/1000);
+    fpsFrames=0;fpsLast=now;
+    if(hudOn)document.getElementById('h-fps').textContent='FPS: '+lastFPS.toFixed(0);
+  }
+  
+  const t=(now-universe.startTime)*0.001;
+  
+  gl.clearColor(0,0,0,1);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+  
+  setUniforms(universe,t);
+  drawQuad();
+  frameCount++;
+}
+
+// ============================================================
+// INPUT
+// ============================================================
+function onRegenerate(e){
+  if(e&&e.preventDefault)e.preventDefault();
+  regenerate();
+}
+
+document.addEventListener('keydown',e=>{
+  if(e.key===' '||e.code==='Space'){
+    e.preventDefault();
+    regenerate();
+  } else if(e.key==='h'||e.key==='H'){
+    hudOn=!hudOn;
+    document.getElementById('hud').style.display=hudOn?'block':'none';
+    updateHUD();
+  } else if(e.key==='s'||e.key==='S'){
+    setAudioEnabled(!soundOn);
+  }
+});
+
+canvas.addEventListener('click',onRegenerate);
+canvas.addEventListener('touchend',e=>{e.preventDefault();onRegenerate(e);},{passive:false});
+
+// Hide hint after 6s
+setTimeout(()=>{
+  const hint=document.getElementById('key-hint');
+  if(hint)hint.style.opacity='0';
+},6000);
+
+// ============================================================
+// BOOT
+// ============================================================
+regenerate();
+requestAnimationFrame(render);
+
+})();
+</script>
+</body>
+</html>

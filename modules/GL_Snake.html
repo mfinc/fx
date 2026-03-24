@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>GL Snake</title>
+<meta name="description" content="GLSnake WebGL screensaver — a real-time 3D snake simulation inspired by the classic XScreenSaver GLSnake, rendered with Phong lighting, smooth animation, and randomizable colors, speeds, and geometry. Runs in any modern browser, no plugins required.">
+<meta name="keywords" content="GLSnake, WebGL screensaver, XScreenSaver, 3D snake, browser screensaver, WebGL animation, OpenGL snake, interactive screensaver, Phong shading, JavaScript 3D, canvas screensaver, retro screensaver, WebGL demo">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #000; overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  #hint {
+    position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+    color: rgba(255,255,255,0.18); font-family: 'Courier New', monospace;
+    font-size: 11px; letter-spacing: 0.3em; text-transform: uppercase;
+    pointer-events: none; user-select: none; transition: opacity 1.5s;
+    white-space: nowrap;
+  }
+  #hint.fade { opacity: 0; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">SPACE or CLICK &mdash; RANDOMIZE</div>
+<script>
+// ─────────────────────────────────────────────
+//  Matrix helpers (column-major, like WebGL)
+// ─────────────────────────────────────────────
+function m4(){ return new Float32Array(16); }
+function identity(m){
+  m[0]=1;m[1]=0;m[2]=0;m[3]=0;
+  m[4]=0;m[5]=1;m[6]=0;m[7]=0;
+  m[8]=0;m[9]=0;m[10]=1;m[11]=0;
+  m[12]=0;m[13]=0;m[14]=0;m[15]=1;
+  return m;
+}
+function mul(out,a,b){
+  for(let c=0;c<4;c++) for(let r=0;r<4;r++){
+    let v=0; for(let k=0;k<4;k++) v+=a[k*4+r]*b[c*4+k];
+    out[c*4+r]=v;
+  }
+  return out;
+}
+function perspective(fov,asp,near,far){
+  const o=m4(), f=1/Math.tan(fov/2), nf=1/(near-far);
+  o[0]=f/asp; o[5]=f; o[10]=(far+near)*nf; o[11]=-1;
+  o[14]=2*far*near*nf; return o;
+}
+function lookAt(ex,ey,ez,cx,cy,cz){
+  let fx=cx-ex,fy=cy-ey,fz=cz-ez, l=Math.hypot(fx,fy,fz);
+  fx/=l;fy/=l;fz/=l;
+  // right = forward x world_up(0,1,0)
+  let rx=fy*0-fz*1, ry=fz*0-fx*0, rz=fx*1-fy*0;
+  l=Math.hypot(rx,ry,rz); rx/=l;ry/=l;rz/=l;
+  const ux=ry*fz-rz*fy, uy=rz*fx-rx*fz, uz=rx*fy-ry*fx;
+  const o=m4();
+  o[0]=rx;o[1]=ux;o[2]=-fx;o[3]=0;
+  o[4]=ry;o[5]=uy;o[6]=-fy;o[7]=0;
+  o[8]=rz;o[9]=uz;o[10]=-fz;o[11]=0;
+  o[12]=-(rx*ex+ry*ey+rz*ez);
+  o[13]=-(ux*ex+uy*ey+uz*ez);
+  o[14]= (fx*ex+fy*ey+fz*ez);
+  o[15]=1; return o;
+}
+function translationM(tx,ty,tz){ const o=identity(m4()); o[12]=tx;o[13]=ty;o[14]=tz; return o; }
+function scaleM(sx,sy,sz){ const o=identity(m4()); o[0]=sx;o[5]=sy;o[10]=sz; return o; }
+
+// Rotation that maps +Z to normalized direction (dx,dy,dz)
+function rotToDir(dx,dy,dz){
+  // axis = Z x d  where Z=(0,0,1)
+  let ax=-dy, ay=dx, az=0;
+  const al=Math.hypot(ax,ay);
+  if(al<1e-6){
+    if(dz>=0) return identity(m4());
+    const o=identity(m4()); o[5]=-1; o[10]=-1; return o;
+  }
+  ax/=al; ay/=al;
+  const ang=Math.acos(Math.max(-1,Math.min(1,dz)));
+  const c=Math.cos(ang), s=Math.sin(ang), t=1-c;
+  const o=m4();
+  // Column-major:  col c = [R*e_c]
+  o[0]=t*ax*ax+c;      o[1]=t*ax*ay+s*az;  o[2]=t*ax*az-s*ay;  o[3]=0;
+  o[4]=t*ax*ay-s*az;   o[5]=t*ay*ay+c;     o[6]=t*ay*az+s*ax;  o[7]=0;
+  o[8]=t*ax*az+s*ay;   o[9]=t*ay*az-s*ax;  o[10]=t*az*az+c;    o[11]=0;
+  o[12]=0;o[13]=0;o[14]=0;o[15]=1;
+  return o;
+}
+
+// ─────────────────────────────────────────────
+//  Geometry
+// ─────────────────────────────────────────────
+function makeCylinder(segs){
+  const v=[],n=[],idx=[];
+  // ring0 (z=0) then ring1 (z=1)
+  for(let ri=0;ri<2;ri++){
+    const z=ri;
+    for(let i=0;i<=segs;i++){
+      const a=i/segs*Math.PI*2;
+      v.push(Math.cos(a), Math.sin(a), z);
+      n.push(Math.cos(a), Math.sin(a), 0);
+    }
+  }
+  // Side faces. CCW when viewed from outside (outward = +r direction).
+  // For i-th strip: ring0[i], ring0[i+1], ring1[i], ring1[i+1]
+  // Two triangles CCW from outside: (r0i, r1i, r0i+1)  (r0i+1, r1i, r1i+1)
+  for(let i=0;i<segs;i++){
+    const a=i, b=i+1, c=segs+1+i, d=segs+2+i;
+    idx.push(a, c, b,   b, c, d);
+  }
+  // Bottom cap (z=0, normal=-Z). Center index:
+  let ci=v.length/3; v.push(0,0,0); n.push(0,0,-1);
+  // Viewed from below (-Z), ring0 appears CW in standard coords → we need CCW from -Z side
+  // which means we go i+1 → i (reversed)
+  for(let i=0;i<segs;i++) idx.push(ci, i+1, i);
+  // Top cap (z=1, normal=+Z). Center index:
+  ci=v.length/3; v.push(0,0,1); n.push(0,0,1);
+  const r1=segs+1;
+  // Viewed from above (+Z), ring1 goes CCW
+  for(let i=0;i<segs;i++) idx.push(ci, r1+i, r1+i+1);
+  return { v:new Float32Array(v), n:new Float32Array(n), i:new Uint16Array(idx) };
+}
+
+function makeSphere(segs){
+  const v=[],n=[],idx=[];
+  for(let la=0;la<=segs;la++){
+    const th=la/segs*Math.PI;
+    for(let lo=0;lo<=segs;lo++){
+      const ph=lo/segs*Math.PI*2;
+      const x=Math.sin(th)*Math.cos(ph), y=Math.cos(th), z=Math.sin(th)*Math.sin(ph);
+      v.push(x,y,z); n.push(x,y,z);
+    }
+  }
+  for(let la=0;la<segs;la++) for(let lo=0;lo<segs;lo++){
+    const a=la*(segs+1)+lo, b=a+segs+1;
+    idx.push(a, a+1, b,   a+1, b+1, b);
+  }
+  return { v:new Float32Array(v), n:new Float32Array(n), i:new Uint16Array(idx) };
+}
+
+// ─────────────────────────────────────────────
+//  WebGL Setup
+// ─────────────────────────────────────────────
+const canvas=document.getElementById('c');
+const gl=canvas.getContext('webgl',{antialias:true,alpha:false});
+if(!gl){ document.body.innerHTML='<p style="color:#fff;padding:2em">WebGL not available.</p>'; }
+gl.enable(gl.DEPTH_TEST);
+gl.enable(gl.CULL_FACE);
+gl.cullFace(gl.BACK);
+gl.frontFace(gl.CCW);
+
+function resize(){
+  canvas.width=window.innerWidth; canvas.height=window.innerHeight;
+  gl.viewport(0,0,canvas.width,canvas.height);
+}
+window.addEventListener('resize',resize); resize();
+
+const VS=`
+attribute vec3 aPos; attribute vec3 aNorm;
+uniform mat4 uMVP; uniform mat4 uM;
+varying vec3 vN; varying vec3 vW;
+void main(){
+  vW=(uM*vec4(aPos,1.0)).xyz;
+  vN=mat3(uM[0].xyz,uM[1].xyz,uM[2].xyz)*aNorm;
+  gl_Position=uMVP*vec4(aPos,1.0);
+}`;
+const FS=`
+precision mediump float;
+varying vec3 vN; varying vec3 vW;
+uniform vec3 uCol; uniform vec3 uL; uniform vec3 uE;
+void main(){
+  vec3 N=normalize(vN), L=normalize(uL-vW), V=normalize(uE-vW), H=normalize(L+V);
+  float d=max(dot(N,L),0.0);
+  float s=pow(max(dot(N,H),0.0),80.0);
+  float rim=pow(1.0-max(dot(N,V),0.0),3.0)*0.3;
+  gl_FragColor=vec4(uCol*(0.10+d*0.82)+vec3(s*0.7)+uCol*rim,1.0);
+}`;
+const GVS=`attribute vec3 aPos; uniform mat4 uVP; void main(){ gl_Position=uVP*vec4(aPos,1.); }`;
+const GFS=`precision mediump float; uniform vec4 uCol; void main(){ gl_FragColor=uCol; }`;
+
+function mkProg(vs,fs){
+  function sh(t,src){ const s=gl.createShader(t); gl.shaderSource(s,src); gl.compileShader(s); if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)) console.error(gl.getShaderInfoLog(s)); return s; }
+  const p=gl.createProgram();
+  gl.attachShader(p,sh(gl.VERTEX_SHADER,vs)); gl.attachShader(p,sh(gl.FRAGMENT_SHADER,fs));
+  gl.linkProgram(p); if(!gl.getProgramParameter(p,gl.LINK_STATUS)) console.error(gl.getProgramInfoLog(p));
+  return p;
+}
+const SP=mkProg(VS,FS), GP=mkProg(GVS,GFS);
+
+// Cache locations once
+const SL={
+  aPos:gl.getAttribLocation(SP,'aPos'), aNorm:gl.getAttribLocation(SP,'aNorm'),
+  uMVP:gl.getUniformLocation(SP,'uMVP'), uM:gl.getUniformLocation(SP,'uM'),
+  uCol:gl.getUniformLocation(SP,'uCol'), uL:gl.getUniformLocation(SP,'uL'), uE:gl.getUniformLocation(SP,'uE')
+};
+const GL={
+  aPos:gl.getAttribLocation(GP,'aPos'),
+  uVP:gl.getUniformLocation(GP,'uVP'), uCol:gl.getUniformLocation(GP,'uCol')
+};
+
+function mkBuf(data,tgt=gl.ARRAY_BUFFER){ const b=gl.createBuffer(); gl.bindBuffer(tgt,b); gl.bufferData(tgt,data,gl.STATIC_DRAW); return b; }
+
+const CYL=makeCylinder(18), SPH=makeSphere(14);
+const cylVB=mkBuf(CYL.v), cylNB=mkBuf(CYL.n), cylIB=mkBuf(CYL.i,gl.ELEMENT_ARRAY_BUFFER);
+const sphVB=mkBuf(SPH.v), sphNB=mkBuf(SPH.n), sphIB=mkBuf(SPH.i,gl.ELEMENT_ARRAY_BUFFER);
+
+function drawMesh(vb,nb,ib,cnt, model, vp, col, light, eye){
+  const mvp=mul(m4(),vp,model);
+  gl.useProgram(SP);
+  gl.uniformMatrix4fv(SL.uMVP,false,mvp);
+  gl.uniformMatrix4fv(SL.uM,false,model);
+  gl.uniform3fv(SL.uCol,col);
+  gl.uniform3fv(SL.uL,light);
+  gl.uniform3fv(SL.uE,eye);
+  gl.bindBuffer(gl.ARRAY_BUFFER,vb); gl.enableVertexAttribArray(SL.aPos); gl.vertexAttribPointer(SL.aPos,3,gl.FLOAT,false,0,0);
+  gl.bindBuffer(gl.ARRAY_BUFFER,nb); gl.enableVertexAttribArray(SL.aNorm); gl.vertexAttribPointer(SL.aNorm,3,gl.FLOAT,false,0,0);
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,ib);
+  gl.drawElements(gl.TRIANGLES,cnt,gl.UNSIGNED_SHORT,0);
+}
+
+// ─────────────────────────────────────────────
+//  Grid
+// ─────────────────────────────────────────────
+let gridVB, gridCnt;
+function buildGrid(sz){
+  const h=sz/2, pts=[];
+  for(let i=0;i<=sz;i++){
+    const p=-h+i;
+    pts.push(p,0,-h, p,0,h, -h,0,p, h,0,p);
+  }
+  gridCnt=pts.length/3;
+  if(gridVB) gl.deleteBuffer(gridVB);
+  gridVB=mkBuf(new Float32Array(pts));
+}
+function drawGrid(vp,col,alpha){
+  gl.useProgram(GP);
+  gl.uniformMatrix4fv(GL.uVP,false,vp);
+  gl.uniform4f(GL.uCol,col[0],col[1],col[2],alpha);
+  gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
+  gl.bindBuffer(gl.ARRAY_BUFFER,gridVB);
+  gl.enableVertexAttribArray(GL.aPos); gl.vertexAttribPointer(GL.aPos,3,gl.FLOAT,false,0,0);
+  gl.drawArrays(gl.LINES,0,gridCnt);
+  gl.disable(gl.BLEND);
+}
+
+// ─────────────────────────────────────────────
+//  Color
+// ─────────────────────────────────────────────
+function hsl2rgb(h,s,l){
+  h/=360; const q=l<.5?l*(1+s):l+s-l*s, p=2*l-q;
+  function f(t){ t=(t%1+1)%1;
+    if(t<1/6) return p+(q-p)*6*t; if(t<.5) return q;
+    if(t<2/3) return p+(q-p)*(2/3-t)*6; return p; }
+  return [f(h+1/3),f(h),f(h-1/3)];
+}
+function mkPalette(n){
+  const bh=Math.random()*360, s=0.55+Math.random()*0.45;
+  return Array.from({length:n},(_,i)=>hsl2rgb((bh+i*(360/n))%360,s,0.32+Math.random()*0.32));
+}
+
+// ─────────────────────────────────────────────
+//  Snake
+// ─────────────────────────────────────────────
+const DIRS=[{x:1,z:0},{x:-1,z:0},{x:0,z:1},{x:0,z:-1}];
+let P={}, snake=[], curDir={x:1,z:0}, nextDir, moveTimer=0, camAngle=0, camT=0;
+
+function rnd(a,b){ return a+Math.random()*(b-a); }
+function rndI(a,b){ return Math.floor(a+Math.random()*(b-a+1)); }
+
+function randParams(){
+  const nc=rndI(3,8);
+  P={
+    palette: mkPalette(nc),
+    gridSz:  rndI(8,20),
+    maxLen:  rndI(18,60),
+    radius:  rnd(0.07,0.20),
+    speed:   rnd(3,15),
+    camR:    rnd(10,26),
+    camH:    rnd(5,16),
+    camHSw:  rnd(1,6),
+    camSpd:  rnd(0.03,0.16),
+    camSwSpd:rnd(0.01,0.08),
+    ltR:     rnd(8,18),
+    ltH:     rnd(4,16),
+    ltSpd:   rnd(0.06,0.25),
+    ltOff:   rnd(0,Math.PI*2),
+    bg:      [rnd(0,0.04),rnd(0,0.04),rnd(0.01,0.07)],
+    gridCol: hsl2rgb(rnd(160,310),0.3,0.25),
+    gridA:   rnd(0.06,0.3),
+  };
+}
+
+function initSnake(){
+  const half=Math.floor(P.gridSz/2);
+  curDir=DIRS[Math.floor(Math.random()*4)];
+  nextDir={...curDir};
+  snake=[{x:0,z:0}];
+  // Pre-populate several segments so it's visible immediately
+  for(let i=0;i<Math.min(12,P.maxLen-1);i++){
+    const h=snake[snake.length-1];
+    const nx=h.x-curDir.x, nz=h.z-curDir.z;
+    if(Math.abs(nx)<=half&&Math.abs(nz)<=half) snake.push({x:nx,z:nz});
+  }
+  moveTimer=0; camAngle=Math.random()*Math.PI*2; camT=0;
+}
+
+function randAll(){ randParams(); buildGrid(P.gridSz); initSnake(); }
+
+function chooseDir(){
+  const h=snake[0], half=Math.floor(P.gridSz/2);
+  const rev={x:-curDir.x,z:-curDir.z};
+  let opts=DIRS.filter(d=>!(d.x===rev.x&&d.z===rev.z)&&Math.abs(h.x+d.x)<=half&&Math.abs(h.z+d.z)<=half);
+  if(!opts.length) opts=DIRS;
+  const W=opts.map(d=>(d.x===curDir.x&&d.z===curDir.z)?4:1);
+  const tot=W.reduce((a,b)=>a+b,0); let r=Math.random()*tot;
+  for(let i=0;i<opts.length;i++){ r-=W[i]; if(r<=0) return opts[i]; }
+  return opts[opts.length-1];
+}
+
+function stepSnake(){
+  curDir={...nextDir};
+  const h=snake[0], half=Math.floor(P.gridSz/2);
+  const nx=h.x+curDir.x, nz=h.z+curDir.z;
+  if(Math.abs(nx)>half||Math.abs(nz)>half){ nextDir=chooseDir(); return; }
+  snake.unshift({x:nx,z:nz});
+  if(snake.length>P.maxLen) snake.pop();
+  nextDir=chooseDir();
+}
+
+// Smoothly interpolated positions (t = 0..1 within current step)
+function getPos(t){
+  if(snake.length<2) return [{x:snake[0].x,y:0,z:snake[0].z}];
+  const pts=[];
+  // Head glides from prev cell toward current cell
+  pts.push({ x:snake[1].x+(snake[0].x-snake[1].x)*t, y:0, z:snake[1].z+(snake[0].z-snake[1].z)*t });
+  for(let i=1;i<snake.length-1;i++) pts.push({x:snake[i].x,y:0,z:snake[i].z});
+  // Tail shrinks
+  const tl=snake[snake.length-1], tp=snake[snake.length-2];
+  pts.push({ x:tp.x+(tl.x-tp.x)*(1-t), y:0, z:tp.z+(tl.z-tp.z)*(1-t) });
+  return pts;
+}
+
+// ─────────────────────────────────────────────
+//  Draw snake
+// ─────────────────────────────────────────────
+function drawSnake(pts, vp, light, eye){
+  const R=P.radius, pal=P.palette;
+
+  for(let i=0;i<pts.length-1;i++){
+    const a=pts[i], b=pts[i+1];
+    let dx=b.x-a.x, dy=b.y-a.y, dz=b.z-a.z;
+    const len=Math.hypot(dx,dy,dz);
+    if(len<1e-5) continue;
+    dx/=len; dy/=len; dz/=len;
+
+    const col=pal[i%pal.length];
+    // Place cylinder at a, rotate Z→dir, scale to (R,R,len)
+    const rot=rotToDir(dx,dy,dz);
+    const M=mul(m4(), mul(m4(), translationM(a.x,a.y,a.z), rot), scaleM(R,R,len));
+    drawMesh(cylVB,cylNB,cylIB,CYL.i.length, M, vp, col, light, eye);
+  }
+
+  // Joint spheres
+  for(let i=0;i<pts.length;i++){
+    const p=pts[i];
+    const col=pal[i%pal.length];
+    const brightness = i===0 ? 1.5 : 1.0; // head glows brighter
+    const c = col.map(v=>Math.min(1,v*brightness));
+    const M=mul(m4(), translationM(p.x,p.y,p.z), scaleM(R*1.02,R*1.02,R*1.02));
+    drawMesh(sphVB,sphNB,sphIB,SPH.i.length, M, vp, c, light, eye);
+  }
+}
+
+// ─────────────────────────────────────────────
+//  Main loop
+// ─────────────────────────────────────────────
+let lastT=null;
+function frame(ts){
+  requestAnimationFrame(frame);
+  const dt=lastT===null?0.016:Math.min((ts-lastT)/1000,0.1);
+  lastT=ts; camT+=dt;
+
+  moveTimer+=dt;
+  const iv=1/P.speed;
+  while(moveTimer>=iv){ moveTimer-=iv; stepSnake(); }
+
+  camAngle+=P.camSpd*dt;
+  const camH=P.camH+Math.sin(camT*P.camSwSpd)*P.camHSw;
+  const ex=Math.cos(camAngle)*P.camR, ey=camH, ez=Math.sin(camAngle)*P.camR;
+  const eye=[ex,ey,ez];
+  const la=camT*P.ltSpd+P.ltOff;
+  const light=[Math.cos(la)*P.ltR, P.ltH, Math.sin(la)*P.ltR];
+
+  const proj=perspective(Math.PI/4,canvas.width/canvas.height,0.3,150);
+  const view=lookAt(ex,ey,ez,0,0,0);
+  const vp=mul(m4(),proj,view);
+
+  const bg=P.bg;
+  gl.clearColor(bg[0],bg[1],bg[2],1);
+  gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+
+  drawGrid(vp, P.gridCol, P.gridA);
+
+  const pts=getPos(moveTimer/iv);
+  if(pts.length>=2) drawSnake(pts,vp,light,eye);
+}
+
+// ─────────────────────────────────────────────
+//  Bootstrap
+// ─────────────────────────────────────────────
+randAll();
+requestAnimationFrame(frame);
+
+const hint=document.getElementById('hint');
+let ht=setTimeout(()=>hint.classList.add('fade'),5000);
+function flashHint(){ hint.classList.remove('fade'); clearTimeout(ht); ht=setTimeout(()=>hint.classList.add('fade'),3000); }
+function doRand(){ randAll(); flashHint(); }
+document.addEventListener('keydown',e=>{ if(e.code==='Space'){ e.preventDefault(); doRand(); } });
+document.addEventListener('click', doRand);
+</script>
+</body>
+</html>

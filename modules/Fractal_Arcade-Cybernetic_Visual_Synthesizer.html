@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Fractal Arcade · Cybernetic Visual Synthesizer</title>
+
+<!-- SEO Meta -->
+<meta name="description" content="An immersive generative art experience: fractal visualizer, cellular automata, polar kaleidoscope, and FM synthesis fused into a cybernetic audiovisual synthesizer. Interactive math graphics and experimental web art.">
+<meta name="keywords" content="fractal visualizer, generative art, cybernetic synthesizer, interactive math graphics, audiovisual synthesizer, experimental web art, escape-time fractal, Mandelbrot, Julia set, cellular automata, kaleidoscope, WebAudio, canvas art, neon fractal, retro-futuristic">
+<meta name="author" content="Fractal Arcade Engine">
+<meta property="og:title" content="Fractal Arcade · Cybernetic Visual Synthesizer">
+<meta property="og:description" content="Generative fractal art with FM synthesis, cellular automata, and polar kaleidoscope reflections. Space/click to regenerate.">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="">
+
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    width: 100%; height: 100%;
+    background: #000;
+    overflow: hidden;
+    font-family: 'Courier New', Courier, monospace;
+    cursor: crosshair;
+    touch-action: none;
+  }
+
+  canvas {
+    display: block;
+    position: fixed;
+    top: 0; left: 0;
+    image-rendering: pixelated;
+  }
+
+  #hud {
+    position: fixed;
+    top: 16px; left: 16px;
+    z-index: 100;
+    color: #0ff;
+    font-size: 11px;
+    line-height: 1.7;
+    text-shadow: 0 0 8px #0ff, 0 0 20px #0af;
+    background: rgba(0,0,0,0.55);
+    padding: 10px 14px;
+    border: 1px solid rgba(0,255,255,0.2);
+    border-radius: 2px;
+    backdrop-filter: blur(4px);
+    pointer-events: none;
+    transition: opacity 0.3s;
+    max-width: 280px;
+  }
+  #hud.hidden { opacity: 0; }
+  #hud .lbl { color: #f0f; text-shadow: 0 0 8px #f0f; }
+  #hud .val { color: #fff; }
+
+  #hint {
+    position: fixed;
+    bottom: 18px; left: 50%;
+    transform: translateX(-50%);
+    z-index: 100;
+    color: rgba(0,255,255,0.5);
+    font-size: 10px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    pointer-events: none;
+    text-shadow: 0 0 10px #0ff;
+    animation: hint-fade 6s ease forwards;
+  }
+  @keyframes hint-fade {
+    0%   { opacity: 0; }
+    10%  { opacity: 1; }
+    70%  { opacity: 1; }
+    100% { opacity: 0; }
+  }
+
+
+</style>
+</head>
+<body>
+
+<canvas id="c"></canvas>
+<div id="hud" class="hidden">
+  <div><span class="lbl">FRACTAL</span> <span class="val" id="hf">—</span></div>
+  <div><span class="lbl">JULIA C</span> <span class="val" id="hjc">—</span></div>
+  <div><span class="lbl">MAX IT</span> <span class="val" id="hmi">—</span></div>
+  <div><span class="lbl">CA RULE</span> <span class="val" id="hca">—</span></div>
+  <div><span class="lbl">KALEIDO</span> <span class="val" id="hk">—</span></div>
+  <div><span class="lbl">PALETTE</span> <span class="val" id="hp">—</span></div>
+  <div><span class="lbl">FPS</span> <span class="val" id="hfps">—</span></div>
+  <div><span class="lbl">FRAME</span> <span class="val" id="hfr">—</span></div>
+</div>
+<div id="hint">SPACE · CLICK · TAP  →  REGENERATE &nbsp;|&nbsp; H = HUD &nbsp;|&nbsp; S = SOUND</div>
+
+
+<script>
+(function(){
+'use strict';
+
+/* ─────────── CANVAS SETUP ─────────── */
+const canvas = document.getElementById('c');
+const ctx    = canvas.getContext('2d', { alpha: false });
+let W, H, CX, CY, DPR;
+
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W   = window.innerWidth;
+  H   = window.innerHeight;
+  canvas.width  = Math.floor(W * DPR);
+  canvas.height = Math.floor(H * DPR);
+  canvas.style.width  = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.scale(DPR, DPR);
+  CX = W / 2; CY = H / 2;
+}
+resize();
+window.addEventListener('resize', () => { resize(); });
+
+/* ─────────── MATH UTILS ─────────── */
+const TAU   = Math.PI * 2;
+const rand  = (a, b) => Math.random() * (b - a) + a;
+const randI = (a, b) => Math.floor(rand(a, b + 1));
+const lerp  = (a, b, t) => a + (b - a) * t;
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const fract = v => v - Math.floor(v);
+const hash  = n => fract(Math.sin(n * 127.1 + 311.7) * 43758.5453);
+
+/* ─────────── STATE ─────────── */
+let frame = 0, t = 0, fps = 60, lastTime = 0, fpsAccum = 0, fpsCnt = 0;
+let showHUD = false, soundOn = false;
+let seed = Math.random() * 1e6 | 0;
+
+/* Fractal params */
+let fractalType, maxIter, cx_j, cy_j, zoom, panX, panY;
+/* Palette */
+let paletteName, palettePhase, paletteFn;
+/* Cellular automata */
+let caRule, caGrid, caW, caH, caScale;
+/* Kaleidoscope */
+let kaleido, kaliSegments, kaliSpin;
+/* FBM */
+let fbmOctaves, fbmLacunarity, fbmGain;
+/* Vector field */
+let vfParticles, vfActive;
+/* Geometry layer */
+let geoShapes;
+/* Composite weights */
+let wFractal, wCA, wKali, wVF, wGeo;
+
+/* ─────────── AUDIO ENGINE ─────────── */
+let audioCtx = null, masterGain, masterComp;
+let osc1, osc2, osc3, lfoOsc, modOsc, fmMult, addRatio, amOsc;
+let filt, filterLfo, reverbNode, convBuf;
+let audioReady = false;
+
+function buildReverb(ctx, dur, decay) {
+  const sr  = ctx.sampleRate;
+  const len = sr * dur;
+  const buf = ctx.createBuffer(2, len, sr);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = buf.getChannelData(ch);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay);
+  }
+  return buf;
+}
+
+function initAudio() {
+  if (audioReady) return;
+  try {
+    audioCtx    = new (window.AudioContext || window.webkitAudioContext)();
+    masterComp  = audioCtx.createDynamicsCompressor();
+    masterGain  = audioCtx.createGain();
+    masterGain.gain.value = 0.0;
+
+    /* Reverb */
+    reverbNode  = audioCtx.createConvolver();
+    convBuf     = buildReverb(audioCtx, 2.5, 3);
+    reverbNode.buffer = convBuf;
+    const revGain = audioCtx.createGain(); revGain.gain.value = 0.35;
+    reverbNode.connect(revGain); revGain.connect(masterComp);
+
+    /* Low-pass filter */
+    filt = audioCtx.createBiquadFilter();
+    filt.type = 'lowpass';
+    filt.frequency.value = 800;
+    filt.Q.value = 4;
+
+    /* Filter LFO */
+    filterLfo = audioCtx.createOscillator();
+    filterLfo.type = 'sine';
+    filterLfo.frequency.value = 0.13;
+    const flGain = audioCtx.createGain(); flGain.gain.value = 600;
+    filterLfo.connect(flGain); flGain.connect(filt.frequency);
+    filterLfo.start();
+
+    /* FM modulator */
+    modOsc = audioCtx.createOscillator();
+    modOsc.type = 'sine';
+    modOsc.frequency.value = 110 * (1 + Math.random() * 3);
+    const modGain = audioCtx.createGain(); modGain.gain.value = 180;
+    modOsc.connect(modGain);
+    modOsc.start();
+
+    /* Carrier 1 (FM) */
+    osc1 = audioCtx.createOscillator();
+    osc1.type = ['sine','sawtooth','square','triangle'][randI(0,3)];
+    osc1.frequency.value = 55 + Math.random() * 110;
+    modGain.connect(osc1.frequency);
+    const g1 = audioCtx.createGain(); g1.gain.value = 0.4;
+    osc1.connect(g1); g1.connect(filt);
+    osc1.start();
+
+    /* Carrier 2 (harmonic) */
+    osc2 = audioCtx.createOscillator();
+    osc2.type = 'sine';
+    osc2.frequency.value = osc1.frequency.value * (1 + Math.random() * 4 | 0);
+    const g2 = audioCtx.createGain(); g2.gain.value = 0.2;
+    osc2.connect(g2); g2.connect(filt);
+    osc2.start();
+
+    /* Sub bass */
+    osc3 = audioCtx.createOscillator();
+    osc3.type = 'sine';
+    osc3.frequency.value = osc1.frequency.value * 0.5;
+    const g3 = audioCtx.createGain(); g3.gain.value = 0.25;
+    osc3.connect(g3); g3.connect(filt);
+    osc3.start();
+
+    /* AM LFO */
+    lfoOsc = audioCtx.createOscillator();
+    lfoOsc.type = 'sine';
+    lfoOsc.frequency.value = 0.07 + Math.random() * 0.3;
+    const lfoGain = audioCtx.createGain(); lfoGain.gain.value = 0.3;
+    lfoOsc.connect(lfoGain);
+    const amGain = audioCtx.createGain(); amGain.gain.value = 0.7;
+    lfoGain.connect(amGain.gain);
+    filt.connect(amGain);
+    amGain.connect(reverbNode);
+    amGain.connect(masterComp);
+    lfoOsc.start();
+
+    masterComp.connect(masterGain);
+    masterGain.connect(audioCtx.destination);
+
+    audioReady = true;
+  } catch(e) { console.warn('Audio init failed', e); }
+}
+
+function retuneSynth() {
+  if (!audioReady) return;
+  const now  = audioCtx.currentTime;
+  const base = [27.5, 32.7, 36.7, 41.2, 49.0, 55.0, 65.4][randI(0,6)];
+  const harm = [1,2,3,4,5,6,7,8][randI(0,5)];
+  osc1.frequency.setTargetAtTime(base * 2, now, 1.5);
+  osc2.frequency.setTargetAtTime(base * 2 * harm, now, 1.5);
+  osc3.frequency.setTargetAtTime(base, now, 1.5);
+  modOsc.frequency.setTargetAtTime(base * (1 + Math.random() * 5), now, 0.8);
+  lfoOsc.frequency.setTargetAtTime(0.05 + Math.random() * 0.6, now, 0.5);
+  filt.frequency.setTargetAtTime(300 + Math.random() * 1200, now, 1.0);
+  filt.Q.setTargetAtTime(2 + Math.random() * 12, now, 0.8);
+}
+
+function setSound(on) {
+  soundOn = on;
+  if (!audioReady) { if (on) initAudio(); return; }
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  const now = audioCtx.currentTime;
+  masterGain.gain.setTargetAtTime(on ? 0.55 : 0.0, now, 0.4);
+}
+
+/* ─────────── PALETTE SYSTEM ─────────── */
+const PALETTES = {
+  neonCyber: (t, v) => {
+    const h = (t * 360 + v * 180) % 360;
+    return `hsl(${h},100%,${50 + v * 30}%)`;
+  },
+  acidPlasma: (t, v) => {
+    const r = Math.sin(v * 6.28 + t)           * 127 + 128 | 0;
+    const g = Math.sin(v * 6.28 + t + 2.094)   * 127 + 128 | 0;
+    const b = Math.sin(v * 6.28 + t + 4.188)   * 127 + 128 | 0;
+    return `rgb(${r},${g},${b})`;
+  },
+  infrared: (t, v) => {
+    const h = (300 - v * 200 + t * 60) % 360;
+    return `hsl(${h},100%,${40 + v * 40}%)`;
+  },
+  aurora: (t, v) => {
+    const h = (140 + v * 120 + t * 40) % 360;
+    return `hsl(${h},90%,${30 + v * 50}%)`;
+  },
+  molten: (t, v) => {
+    const h = (v * 60 + t * 30) % 90;
+    return `hsl(${h},100%,${20 + v * 60}%)`;
+  },
+  spectral: (t, v) => {
+    const h = (v * 360 + t * 90) % 360;
+    return `hsl(${h},100%,${35 + v * 35}%)`;
+  },
+  voidPulse: (t, v) => {
+    const intensity = Math.pow(v, 0.5);
+    const h = (200 + t * 60) % 360;
+    return `hsl(${h},100%,${intensity * 70}%)`;
+  },
+};
+const PALETTE_NAMES = Object.keys(PALETTES);
+
+function pickPalette() {
+  paletteName  = PALETTE_NAMES[randI(0, PALETTE_NAMES.length - 1)];
+  palettePhase = Math.random() * TAU;
+  paletteFn    = PALETTES[paletteName];
+}
+
+function getColor(iterRatio, timeOffset) {
+  return paletteFn(t * 0.0008 + palettePhase + timeOffset, iterRatio);
+}
+
+/* ─────────── FRACTAL ENGINE ─────────── */
+const FRACTAL_TYPES = ['mandelbrot','julia','burningShip','tricorn','phoenixJulia'];
+
+function pickFractal() {
+  fractalType = FRACTAL_TYPES[randI(0, FRACTAL_TYPES.length - 1)];
+  maxIter     = randI(48, 180);
+  cx_j        = rand(-0.9, 0.9);
+  cy_j        = rand(-0.5, 0.5);
+
+  const baseZoom = Math.min(W, H) * 0.38;
+  zoom = baseZoom * rand(0.5, 1.6);
+  panX = rand(-0.4, 0.4);
+  panY = rand(-0.4, 0.4);
+}
+
+function escapeIter(zr, zi, cr, ci, type) {
+  let r = zr, i = zi, tmp, n = 0;
+  const M = maxIter;
+  switch(type) {
+    case 'mandelbrot':
+      for (; n < M; n++) {
+        tmp = r*r - i*i + cr;
+        i   = 2*r*i + ci;
+        r   = tmp;
+        if (r*r + i*i > 4) break;
+      }
+      break;
+    case 'julia':
+      for (; n < M; n++) {
+        tmp = r*r - i*i + cx_j;
+        i   = 2*r*i + cy_j;
+        r   = tmp;
+        if (r*r + i*i > 4) break;
+      }
+      break;
+    case 'burningShip':
+      for (; n < M; n++) {
+        r = Math.abs(r); i = Math.abs(i);
+        tmp = r*r - i*i + cr;
+        i   = 2*r*i + ci;
+        r   = tmp;
+        if (r*r + i*i > 4) break;
+      }
+      break;
+    case 'tricorn':
+      for (; n < M; n++) {
+        tmp = r*r - i*i + cr;
+        i   = -2*r*i + ci;
+        r   = tmp;
+        if (r*r + i*i > 4) break;
+      }
+      break;
+    case 'phoenixJulia':
+      let pr = 0, pi_ = 0;
+      const c2r = -0.5, c2i = 0;
+      for (; n < M; n++) {
+        tmp = r*r - i*i + cx_j + c2r * pr;
+        i   = 2*r*i + cy_j + c2i * pi_;
+        pr  = r; pi_ = i; r = tmp;
+        if (r*r + i*i > 16) break;
+      }
+      break;
+  }
+  return n;
+}
+
+/* ─────────── CELLULAR AUTOMATA ─────────── */
+function pickCA() {
+  caRule  = randI(0, 255);
+  caScale = randI(3, 6);
+  caW     = Math.ceil(W / caScale);
+  caH     = Math.ceil(H / caScale);
+  caGrid  = new Uint8Array(caW * caH);
+  /* seed */
+  for (let i = 0; i < caW * caH; i++) caGrid[i] = Math.random() < 0.4 ? 1 : 0;
+}
+
+let caNext;
+function stepCA() {
+  if (!caNext) caNext = new Uint8Array(caW * caH);
+  const rule = caRule;
+  for (let y = 0; y < caH; y++) {
+    for (let x = 0; x < caW; x++) {
+      const idx  = y * caW + x;
+      const c    = caGrid[idx];
+      const n    = caGrid[((y - 1 + caH) % caH) * caW + x];
+      const s    = caGrid[((y + 1) % caH) * caW + x];
+      const w    = caGrid[y * caW + ((x - 1 + caW) % caW)];
+      const e    = caGrid[y * caW + ((x + 1) % caW)];
+      const nw   = caGrid[((y-1+caH)%caH)*caW+((x-1+caW)%caW)];
+      const ne   = caGrid[((y-1+caH)%caH)*caW+((x+1)%caW)];
+      const sw   = caGrid[((y+1)%caH)*caW+((x-1+caW)%caW)];
+      const se   = caGrid[((y+1)%caH)*caW+((x+1)%caW)];
+      const sum  = n + s + w + e + nw + ne + sw + se;
+      /* Conway-like with rule mutation */
+      const born    = (rule >> sum) & 1;
+      const survive = (rule >> (sum + 4)) & 1;
+      caNext[idx] = c ? survive : born;
+    }
+  }
+  const tmp = caGrid; caGrid = caNext; caNext = tmp;
+}
+
+/* ─────────── KALEIDOSCOPE ─────────── */
+function pickKaleido() {
+  kaleido     = Math.random() < 0.75;
+  kaliSegments = randI(3, 12);
+  kaliSpin    = rand(-0.002, 0.002);
+}
+
+/* ─────────── FBM (fractal Brownian motion) ─────────── */
+function pickFBM() {
+  fbmOctaves    = randI(3, 6);
+  fbmLacunarity = rand(1.7, 2.4);
+  fbmGain       = rand(0.4, 0.6);
+}
+
+function noise2(x, y) {
+  const ix = Math.floor(x), iy = Math.floor(y);
+  const fx = x - ix,        fy = y - iy;
+  const ux = fx * fx * (3 - 2 * fx);
+  const uy = fy * fy * (3 - 2 * fy);
+  const a = hash(ix     + iy     * 127.1);
+  const b = hash(ix + 1 + iy     * 127.1);
+  const c = hash(ix     + (iy+1) * 127.1);
+  const d = hash(ix + 1 + (iy+1) * 127.1);
+  return lerp(lerp(a, b, ux), lerp(c, d, ux), uy);
+}
+
+function fbm(x, y, octaves) {
+  let v = 0, amp = 0.5, freq = 1, max = 0;
+  for (let o = 0; o < octaves; o++) {
+    v   += noise2(x * freq, y * freq) * amp;
+    max += amp;
+    amp  *= fbmGain;
+    freq *= fbmLacunarity;
+  }
+  return v / max;
+}
+
+/* ─────────── VECTOR FIELD PARTICLES ─────────── */
+function pickVF() {
+  vfActive = Math.random() < 0.7;
+  const count = Math.floor((W * H) / 8000);
+  vfParticles = [];
+  for (let i = 0; i < count; i++) {
+    vfParticles.push({
+      x: Math.random() * W,
+      y: Math.random() * H,
+      vx: 0, vy: 0,
+      life: Math.random(),
+      speed: rand(0.5, 2.5),
+      col: Math.random()
+    });
+  }
+}
+
+function vfAngle(x, y, time) {
+  const nx = x / W * 4 - 2 + Math.sin(time * 0.0003) * 0.5;
+  const ny = y / H * 4 - 2 + Math.cos(time * 0.0004) * 0.5;
+  return fbm(nx, ny, 3) * TAU * 3 + time * 0.0001;
+}
+
+function stepVF(dt) {
+  for (let p of vfParticles) {
+    const a  = vfAngle(p.x, p.y, t);
+    p.vx = lerp(p.vx, Math.cos(a) * p.speed, 0.1);
+    p.vy = lerp(p.vy, Math.sin(a) * p.speed, 0.1);
+    p.x += p.vx;
+    p.y += p.vy;
+    p.life -= 0.003;
+    if (p.life <= 0 || p.x < 0 || p.x > W || p.y < 0 || p.y > H) {
+      p.x = Math.random() * W;
+      p.y = Math.random() * H;
+      p.life = 0.8 + Math.random() * 0.2;
+      p.col  = Math.random();
+    }
+  }
+}
+
+/* ─────────── GEOMETRY LAYER ─────────── */
+function pickGeo() {
+  const count = randI(3, 12);
+  geoShapes = [];
+  for (let i = 0; i < count; i++) {
+    geoShapes.push({
+      x:     rand(0.1, 0.9),
+      y:     rand(0.1, 0.9),
+      r:     rand(0.04, 0.2),
+      sides: randI(3, 8),
+      spin:  rand(-0.015, 0.015),
+      phase: Math.random() * TAU,
+      pulse: rand(0.3, 1.5),
+      alpha: rand(0.15, 0.5),
+      colOff: Math.random()
+    });
+  }
+}
+
+/* ─────────── REGENERATE ALL ─────────── */
+function regenerate() {
+  seed = Math.random() * 1e6 | 0;
+  pickFractal();
+  pickPalette();
+  pickCA();
+  pickKaleido();
+  pickFBM();
+  pickVF();
+  pickGeo();
+
+  wFractal = rand(0.4, 1.0);
+  wCA      = rand(0.0, 0.4);
+  wKali    = rand(0.0, 0.6);
+  wVF      = rand(0.2, 0.7);
+  wGeo     = rand(0.3, 0.8);
+
+  if (audioReady) retuneSynth();
+  updateHUD();
+}
+
+/* ─────────── OFFSCREEN FRACTAL LAYER ─────────── */
+let fractalCanvas, fractalCtx, fractalData;
+let fractalW = 0, fractalH = 0;
+let fractalAnimX = 0, fractalAnimY = 0;
+
+function ensureFractalBuffer() {
+  const fw = Math.ceil(W / 3), fh = Math.ceil(H / 3);
+  if (fw !== fractalW || fh !== fractalH) {
+    fractalW = fw; fractalH = fh;
+    fractalCanvas = document.createElement('canvas');
+    fractalCanvas.width  = fw;
+    fractalCanvas.height = fh;
+    fractalCtx = fractalCanvas.getContext('2d');
+    fractalData = fractalCtx.createImageData(fw, fh);
+  }
+}
+
+/* Render full fractal into offscreen buffer each frame */
+function renderFractalStrip() {
+  if (!fractalCanvas) return;
+  const fw = fractalW, fh = fractalH;
+  const d  = fractalData.data;
+  const tw = t * 0.00012;
+
+  /* Animate julia params gently */
+  const jcx = cx_j + Math.sin(t * 0.00017) * 0.08;
+  const jcy = cy_j + Math.cos(t * 0.00013) * 0.05;
+
+  for (let y = 0; y < fh; y++) {
+    for (let x = 0; x < fw; x++) {
+      let px = x, py = y;
+
+      /* Kaleidoscope UV warp */
+      if (kaleido) {
+        const dx = x - fw * 0.5, dy = y - fh * 0.5;
+        const ang = Math.atan2(dy, dx) + t * kaliSpin;
+        const seg = TAU / kaliSegments;
+        const foldAng = ((ang % seg) + seg) % seg;
+        const mirrorAng = foldAng > seg * 0.5 ? seg - foldAng : foldAng;
+        const rad = Math.sqrt(dx*dx + dy*dy);
+        px = Math.cos(mirrorAng) * rad + fw * 0.5;
+        py = Math.sin(mirrorAng) * rad + fh * 0.5;
+      }
+
+      const cr = (px / fw - 0.5) / zoom * fw + panX + fractalAnimX;
+      const ci = (py / fh - 0.5) / zoom * fh + panY + fractalAnimY;
+
+      let n;
+      if (fractalType === 'julia' || fractalType === 'phoenixJulia') {
+        /* Use animated jcx/jcy */
+        const savedCX = cx_j, savedCY = cy_j;
+        cx_j = jcx; cy_j = jcy;
+        n = escapeIter(cr, ci, cr, ci, fractalType);
+        cx_j = savedCX; cy_j = savedCY;
+      } else {
+        n = escapeIter(0, 0, cr, ci, fractalType);
+      }
+
+      const ratio = n === maxIter ? 0 : (n + 1) / maxIter;
+      const smooth = ratio + (1 - Math.log(Math.log(2)) / Math.log(Math.max(1e-10, ratio)));
+      const v = clamp(smooth, 0, 1);
+
+      /* FBM turbulence overlay */
+      const fbmV  = fbm(cr * 2 + tw, ci * 2 + tw * 0.7, fbmOctaves) * 0.35;
+      const vFinal = clamp(v + fbmV * (1 - v), 0, 1);
+
+      /* Color */
+      const hue = (vFinal * 360 + tw * 120 + palettePhase * 57.3) % 360;
+      const sat = 90 + vFinal * 10;
+      const lit = n === maxIter ? 0 : 20 + vFinal * 60;
+
+      const idx = (y * fw + x) * 4;
+      /* HSL → RGB inline for speed */
+      const hslToRGB = (h, s, l) => {
+        s /= 100; l /= 100;
+        const k = n => (n + h / 30) % 12;
+        const a = s * Math.min(l, 1 - l);
+        const f = n => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+        return [f(0) * 255, f(8) * 255, f(4) * 255];
+      };
+      const [r, g, b] = hslToRGB(hue, sat, lit);
+      d[idx]     = r;
+      d[idx + 1] = g;
+      d[idx + 2] = b;
+      d[idx + 3] = 255;
+    }
+  }
+  fractalCtx.putImageData(fractalData, 0, 0);
+}
+
+/* ─────────── RENDER ─────────── */
+function render(ts) {
+  const dt = Math.min(ts - lastTime, 50);
+  lastTime = ts;
+  t += dt;
+  frame++;
+
+  /* FPS */
+  fpsAccum += dt; fpsCnt++;
+  if (fpsAccum > 500) { fps = (fpsCnt / fpsAccum * 1000) | 0; fpsAccum = 0; fpsCnt = 0; }
+
+  /* Animate fractal pan */
+  /* Step systems every N frames */
+  if (frame % 3 === 0) stepCA();
+  if (vfActive) stepVF(dt);
+
+  /* ── Draw ── */
+  /* Background fade */
+  ctx.globalAlpha = 0.18;
+  ctx.fillStyle = '#000008';
+  ctx.fillRect(0, 0, W, H);
+  ctx.globalAlpha = 1;
+
+  /* ── CELLULAR AUTOMATA LAYER ── */
+  if (wCA > 0.05 && caGrid) {
+    ctx.globalAlpha = wCA * 0.6;
+    const tw = t * 0.0005;
+    for (let y = 0; y < caH; y++) {
+      for (let x = 0; x < caW; x++) {
+        if (caGrid[y * caW + x]) {
+          const v = (x / caW + y / caH + tw) % 1;
+          ctx.fillStyle = getColor(v, x * 0.01);
+          ctx.fillRect(x * caScale, y * caScale, caScale - 1, caScale - 1);
+        }
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /* ── NEON GRID ── */
+  {
+    const gAlpha = 0.06 + Math.sin(t * 0.001) * 0.03;
+    ctx.globalAlpha = gAlpha;
+    const gridSize = 40 + Math.sin(t * 0.0003) * 15;
+    const offX = (t * 0.015) % gridSize;
+    const offY = (t * 0.01)  % gridSize;
+    ctx.strokeStyle = paletteFn(t * 0.0005, 0.6);
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    for (let x = -offX; x < W; x += gridSize) {
+      ctx.moveTo(x, 0); ctx.lineTo(x, H);
+    }
+    for (let y = -offY; y < H; y += gridSize) {
+      ctx.moveTo(0, y); ctx.lineTo(W, y);
+    }
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+
+  /* ── VECTOR FIELD PARTICLES ── */
+  if (vfActive && wVF > 0.05) {
+    ctx.globalAlpha = wVF * 0.7;
+    for (let p of vfParticles) {
+      const alpha = p.life * p.life;
+      ctx.globalAlpha = alpha * wVF * 0.5;
+      ctx.fillStyle = getColor(p.col, p.x / W * 0.3);
+      const sz = p.speed * 0.8;
+      ctx.fillRect(p.x - sz * 0.5, p.y - sz * 0.5, sz, sz);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /* ── POLAR MANDALA / KALEIDOSCOPE ── */
+  if (wKali > 0.05) {
+    ctx.globalAlpha = wKali * 0.55;
+    ctx.save();
+    ctx.translate(CX, CY);
+    const segs = kaliSegments;
+    const rot  = t * kaliSpin * 60 + t * 0.0003;
+    const R    = Math.min(W, H) * 0.42;
+    for (let s = 0; s < segs; s++) {
+      ctx.save();
+      ctx.rotate(rot + s / segs * TAU);
+      /* Draw a fractal-like radial arm */
+      for (let r = 0; r < R; r += 4) {
+        const v   = r / R;
+        const fbv = fbm(r * 0.02 + t * 0.0001, s * 0.3, 3);
+        const rv  = r * (1 + fbv * 0.3);
+        const a   = Math.sin(r * 0.08 + t * 0.002) * 12;
+        ctx.beginPath();
+        ctx.arc(rv * Math.cos(a * 0.017), rv * Math.sin(a * 0.017), 1.2 + fbv * 3, 0, TAU);
+        ctx.fillStyle = getColor(v, s / segs);
+        ctx.fill();
+      }
+      /* Mirror */
+      ctx.scale(1, -1);
+      for (let r = 0; r < R; r += 4) {
+        const v   = r / R;
+        const fbv = fbm(r * 0.02 + t * 0.0001 + 100, s * 0.3, 3);
+        const rv  = r * (1 + fbv * 0.3);
+        const a   = Math.sin(r * 0.08 + t * 0.002) * 12;
+        ctx.beginPath();
+        ctx.arc(rv * Math.cos(a * 0.017), rv * Math.sin(a * 0.017), 1.2 + fbv * 3, 0, TAU);
+        ctx.fillStyle = getColor(v, s / segs + 0.5);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  }
+
+  /* ── GEOMETRIC MANDALAS ── */
+  if (wGeo > 0.05) {
+    ctx.globalAlpha = wGeo * 0.45;
+    for (let g of geoShapes) {
+      const px = g.x * W, py = g.y * H;
+      const pulse = 1 + Math.sin(t * 0.001 * g.pulse + g.phase) * 0.25;
+      const r   = g.r * Math.min(W, H) * pulse;
+      const rot = t * g.spin + g.phase;
+      ctx.save();
+      ctx.translate(px, py);
+      ctx.rotate(rot);
+      ctx.beginPath();
+      for (let i = 0; i <= g.sides; i++) {
+        const a  = i / g.sides * TAU;
+        const rx = Math.cos(a) * r, ry = Math.sin(a) * r;
+        i === 0 ? ctx.moveTo(rx, ry) : ctx.lineTo(rx, ry);
+      }
+      const col  = getColor(g.colOff + t * 0.0002, g.phase);
+      ctx.strokeStyle = col;
+      ctx.lineWidth   = 1.5;
+      ctx.shadowColor = col;
+      ctx.shadowBlur  = 12;
+      ctx.stroke();
+      /* inner rings */
+      for (let ring = 1; ring <= 3; ring++) {
+        ctx.beginPath();
+        ctx.arc(0, 0, r * ring / 4, 0, TAU);
+        ctx.strokeStyle = getColor(g.colOff + ring * 0.15 + t * 0.0002, 0);
+        ctx.lineWidth = 0.7;
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur  = 0;
+  }
+
+  /* ── SCANLINES ── */
+  {
+    ctx.globalAlpha = 0.04;
+    ctx.fillStyle = '#000';
+    for (let y = 0; y < H; y += 3) {
+      ctx.fillRect(0, y, W, 1);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /* ── VIGNETTE ── */
+  {
+    const vg = ctx.createRadialGradient(CX, CY, Math.min(W,H)*0.3, CX, CY, Math.min(W,H)*0.8);
+    vg.addColorStop(0, 'rgba(0,0,0,0)');
+    vg.addColorStop(1, 'rgba(0,0,0,0.65)');
+    ctx.fillStyle = vg;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  /* HUD update */
+  if (showHUD && frame % 20 === 0) updateHUD();
+
+  requestAnimationFrame(render);
+}
+
+/* ─────────── HUD ─────────── */
+function updateHUD() {
+  document.getElementById('hf').textContent    = fractalType.toUpperCase();
+  document.getElementById('hjc').textContent   = `${cx_j.toFixed(3)} + ${cy_j.toFixed(3)}i`;
+  document.getElementById('hmi').textContent   = maxIter;
+  document.getElementById('hca').textContent   = caRule;
+  document.getElementById('hk').textContent    = kaleido ? `${kaliSegments}× mirror` : 'off';
+  document.getElementById('hp').textContent    = paletteName;
+  document.getElementById('hfps').textContent  = fps;
+  document.getElementById('hfr').textContent   = frame;
+}
+
+/* ─────────── INTERACTION ─────────── */
+function onRegen() {
+  if (!audioReady && soundOn) initAudio();
+  regenerate();
+  // Flash
+  ctx.globalAlpha = 0.4;
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, W, H);
+  ctx.globalAlpha = 1;
+}
+
+window.addEventListener('keydown', e => {
+  switch(e.key.toLowerCase()) {
+    case ' ':        e.preventDefault(); onRegen(); break;
+    case 'h':        showHUD = !showHUD; document.getElementById('hud').classList.toggle('hidden', !showHUD); break;
+    case 's':        setSound(!soundOn); break;
+  }
+});
+
+let touchStarted = false;
+canvas.addEventListener('click',      () => onRegen());
+canvas.addEventListener('touchstart', e => { e.preventDefault(); if (!touchStarted) { touchStarted = true; onRegen(); setTimeout(() => touchStarted = false, 300); } }, { passive: false });
+
+/* ─────────── BOOT ─────────── */
+regenerate();
+requestAnimationFrame(render);
+
+})();
+</script>
+</body>
+</html>

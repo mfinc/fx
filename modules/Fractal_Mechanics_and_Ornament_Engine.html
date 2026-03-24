@@ -1,0 +1,885 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Fractal Mechanics and Ornament Engine</title>
+<meta name="description" content="A profoundly complex generative audiovisual artwork fusing Mandelbrot sets, Julia fields, Koch snowflakes, Barnsley ferns, and Sierpinski carpets with physical mechanical systems including spring lattices, pendulum arrays, and Hamiltonian multibody dynamics, adorned with Art Nouveau filigree, Islamic arabesques, Celtic knotwork, and Roman mosaic patterns, with procedurally synthesized sound from fractal iteration resonances. Tap or press SPACE to regenerate.">
+<meta name="keywords" content="fractal art, generative art, Mandelbrot set, Julia set, Koch snowflake, Barnsley fern, Sierpinski carpet, pendulum simulation, Hamiltonian mechanics, spring lattice, Art Nouveau, Islamic geometric art, Celtic knot, mosaic pattern, procedural audio, Web Audio API, canvas animation, interactive art, audiovisual, ornamental engine, fractal mechanics">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Courier New',monospace}
+  canvas{display:block;position:fixed;top:0;left:0;width:100%;height:100%}
+  #hud{position:fixed;top:12px;left:12px;color:rgba(255,255,200,0.7);font-size:11px;line-height:1.7;pointer-events:none;display:none;text-shadow:0 0 8px rgba(255,220,100,0.8);z-index:10}
+  #hud span{display:block;letter-spacing:0.08em}
+  #hint{position:fixed;bottom:14px;right:16px;color:rgba(255,255,255,0.25);font-size:10px;letter-spacing:0.12em;pointer-events:none;z-index:10}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <span id="h1">FRACTAL MECHANICS ENGINE</span>
+  <span id="h2"></span>
+  <span id="h3"></span>
+  <span id="h4"></span>
+  <span id="h5"></span>
+</div>
+<div id="hint">SPACE/TAP · H HUD · S SOUND</div>
+<script>
+'use strict';
+(function(){
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const hud = document.getElementById('hud');
+let W, H, cx, cy, dpr;
+let frame = 0, t = 0;
+let soundOn = false;
+let hudOn = false;
+let audioCtx = null, masterGain = null;
+let oscillators = [], noiseNode = null;
+
+// ─── State ──────────────────────────────────────────────────────────────────
+let S = {};
+
+function rnd(a,b){ return a + Math.random()*(b-a); }
+function pick(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
+function hsl(h,s,l,a=1){ return `hsla(${h|0},${s|0}%,${l|0}%,${a})`; }
+
+// ─── Palettes ────────────────────────────────────────────────────────────────
+const PALETTE_MODES = ['spectral','neon','iridescent','metallic','arabian','celtic'];
+
+function buildPalette(mode, n=512){
+  const p = [];
+  for(let i=0;i<n;i++){
+    const t = i/n;
+    let r,g,b;
+    if(mode==='spectral'){
+      const h = (t*360+S.hueShift)%360;
+      const [rr,gg,bb] = hsvToRgb(h,0.9,0.95);
+      r=rr;g=gg;b=bb;
+    } else if(mode==='neon'){
+      const h = (t*720+S.hueShift)%360;
+      const s = 0.6+0.4*Math.sin(t*Math.PI*4);
+      const [rr,gg,bb] = hsvToRgb(h,s,1.0);
+      r=rr;g=gg;b=bb;
+    } else if(mode==='iridescent'){
+      r = 128+127*Math.sin(t*Math.PI*2+S.hueShift*0.017+0.0);
+      g = 128+127*Math.sin(t*Math.PI*3+S.hueShift*0.017+2.1);
+      b = 128+127*Math.sin(t*Math.PI*5+S.hueShift*0.017+4.2);
+    } else if(mode==='metallic'){
+      const v = 0.5+0.5*Math.sin(t*Math.PI*6);
+      r = 180+60*v; g = 160+50*v; b = 80+40*v;
+    } else if(mode==='arabian'){
+      const h = (t*180+S.hueShift+200)%360;
+      const [rr,gg,bb] = hsvToRgb(h,0.85,0.9);
+      r=rr;g=gg;b=bb;
+    } else { // celtic
+      const h = (t*90+S.hueShift+120)%360;
+      const [rr,gg,bb] = hsvToRgb(h,0.7,0.8);
+      r=rr;g=gg;b=bb;
+    }
+    p.push([r|0,g|0,b|0]);
+  }
+  return p;
+}
+
+function hsvToRgb(h,s,v){
+  h=h/60; const i=Math.floor(h), f=h-i, p=v*(1-s), q=v*(1-s*f), t2=v*(1-s*(1-f));
+  const c=[[v,t2,p],[q,v,p],[p,v,t2],[p,q,v],[t2,p,v],[v,p,q]][i%6]||[v,v,v];
+  return [c[0]*255,c[1]*255,c[2]*255];
+}
+
+// ─── Randomize state ─────────────────────────────────────────────────────────
+function randomize(){
+  S = {
+    // Fractal
+    fractalMode: pick(['mandelbrot','julia','burning_ship','newton']),
+    juliaC: {r: rnd(-1,1), i: rnd(-0.8,0.8)},
+    maxIter: Math.floor(rnd(60,200)),
+    zoom: rnd(0.3,2.5),
+    panX: rnd(-0.5,0.5),
+    panY: rnd(-0.4,0.4),
+    fractalAlpha: rnd(0.35,0.65),
+
+    // Overlay fractals
+    kochDepth: Math.floor(rnd(3,6)),
+    kochColor: [rnd(100,255),rnd(100,255),rnd(100,255)],
+    sierpAlpha: rnd(0.1,0.3),
+    fernAlpha: rnd(0.15,0.4),
+    fernCount: Math.floor(rnd(3000,8000)),
+
+    // Palette
+    paletteMode: pick(PALETTE_MODES),
+    hueShift: rnd(0,360),
+    paletteCycleSpeed: rnd(0.002,0.012),
+
+    // Mechanical
+    pendulumCount: Math.floor(rnd(5,16)),
+    pendulumLength: rnd(80,220),
+    springRows: Math.floor(rnd(4,9)),
+    springCols: Math.floor(rnd(4,9)),
+    springK: rnd(0.01,0.08),
+    springDamp: rnd(0.985,0.999),
+    rigidBodyCount: Math.floor(rnd(3,9)),
+
+    // Ornament
+    ornamentStyle: pick(['nouveau','mosaic','celtic','islamic','rosette']),
+    ornamentDensity: rnd(0.5,1.5),
+    ornamentAlpha: rnd(0.4,0.8),
+
+    // Maze
+    mazeAlpha: rnd(0.08,0.2),
+    mazeSize: Math.floor(rnd(12,28)),
+
+    // Audio
+    baseFreq: rnd(55,220),
+    harmonics: Math.floor(rnd(2,7)),
+    filterFreq: rnd(400,3000),
+
+    // Animation
+    speed: rnd(0.4,1.2),
+    juliaAnimSpeed: rnd(0.001,0.006),
+    rotSpeed: rnd(0.0003,0.002),
+
+    tick: 0
+  };
+  S.palette = buildPalette(S.paletteMode);
+  S.pendulums = initPendulums();
+  S.springs = initSprings();
+  S.bodies = initBodies();
+  S.maze = generateMaze(S.mazeSize, S.mazeSize);
+
+  if(soundOn) rebuildAudio();
+  updateHUD();
+}
+
+// ─── Pendulums ───────────────────────────────────────────────────────────────
+function initPendulums(){
+  return Array.from({length:S.pendulumCount},(_,i)=>{
+    const phase = (i/S.pendulumCount)*Math.PI*2;
+    return {
+      angle: rnd(-0.8,0.8)+phase*0.3,
+      vel: rnd(-0.05,0.05),
+      len: S.pendulumLength*(0.5+0.5*(i/S.pendulumCount)),
+      ox: rnd(W*0.15,W*0.85),
+      oy: rnd(H*0.1,H*0.45),
+      hue: rnd(0,360),
+      alpha: rnd(0.3,0.8),
+      trail: []
+    };
+  });
+}
+
+function stepPendulums(){
+  const g = 0.0015*S.speed;
+  for(const p of S.pendulums){
+    p.vel += -g*Math.sin(p.angle)/p.len*p.len;
+    p.vel *= 0.9995;
+    p.angle += p.vel*S.speed;
+    const tx = p.ox+Math.sin(p.angle)*p.len;
+    const ty = p.oy+Math.cos(p.angle)*p.len;
+    p.trail.push([tx,ty]);
+    if(p.trail.length>120) p.trail.shift();
+  }
+}
+
+// ─── Springs ─────────────────────────────────────────────────────────────────
+function initSprings(){
+  const rows=S.springRows, cols=S.springCols;
+  const spacingX = W/(cols+1), spacingY = H/(rows+1)*0.6+H*0.1;
+  const nodes=[];
+  for(let r=0;r<rows;r++) for(let c=0;c<cols;c++){
+    nodes.push({
+      x: (c+1)*spacingX, y: (r+1)*spacingY*0.5+H*0.3,
+      vx:rnd(-0.5,0.5), vy:rnd(-0.5,0.5),
+      rx:(c+1)*spacingX, ry:(r+1)*spacingY*0.5+H*0.3
+    });
+  }
+  return {nodes, rows, cols};
+}
+
+function stepSprings(){
+  const {nodes,rows,cols}=S.springs;
+  const k=S.springK, d=S.springDamp;
+  for(let i=0;i<nodes.length;i++){
+    const n=nodes[i], r=Math.floor(i/cols), c=i%cols;
+    const nb=[];
+    if(c>0) nb.push(nodes[i-1]);
+    if(c<cols-1) nb.push(nodes[i+1]);
+    if(r>0) nb.push(nodes[i-cols]);
+    if(r<rows-1) nb.push(nodes[i+cols]);
+    for(const m of nb){
+      const dx=m.x-n.x, dy=m.y-n.y;
+      const dist=Math.sqrt(dx*dx+dy*dy)||1;
+      const restX=(m.rx-n.rx), restY=(m.ry-n.ry);
+      const restDist=Math.sqrt(restX*restX+restY*restY)||1;
+      const force=k*(dist-restDist);
+      n.vx+=force*(dx/dist)*S.speed;
+      n.vy+=force*(dy/dist)*S.speed;
+    }
+    // restore
+    n.vx+=k*0.3*(n.rx-n.x)*S.speed;
+    n.vy+=k*0.3*(n.ry-n.y)*S.speed;
+    n.vx*=d; n.vy*=d;
+    n.x+=n.vx; n.y+=n.vy;
+  }
+}
+
+// ─── Rigid bodies ────────────────────────────────────────────────────────────
+function initBodies(){
+  return Array.from({length:S.rigidBodyCount},(_,i)=>{
+    const sides=Math.floor(rnd(3,9));
+    return {
+      x:rnd(W*0.1,W*0.9), y:rnd(H*0.1,H*0.9),
+      vx:rnd(-0.4,0.4)*S.speed, vy:rnd(-0.3,0.3)*S.speed,
+      angle:rnd(0,Math.PI*2), omega:rnd(-0.01,0.01)*S.speed,
+      r:rnd(20,70), sides,
+      hue:rnd(0,360), alpha:rnd(0.25,0.6)
+    };
+  });
+}
+
+function stepBodies(){
+  for(const b of S.bodies){
+    b.x+=b.vx; b.y+=b.vy;
+    b.angle+=b.omega*S.speed;
+    if(b.x<0||b.x>W) b.vx*=-1;
+    if(b.y<0||b.y>H) b.vy*=-1;
+  }
+}
+
+// ─── Maze ─────────────────────────────────────────────────────────────────────
+function generateMaze(cols,rows){
+  const cells = Array.from({length:rows*cols},()=>({visited:false,walls:[true,true,true,true]}));
+  const idx=(r,c)=>r*cols+c;
+  const stack=[];
+  let cr=0,cc=0;
+  cells[idx(cr,cc)].visited=true;
+  stack.push([cr,cc]);
+  const dirs=[[0,1,1,3],[0,-1,3,1],[1,0,2,0],[-1,0,0,2]];
+  while(stack.length){
+    const [r,c]=stack[stack.length-1];
+    const nb=dirs.map(([dr,dc,wa,wb])=>{
+      const nr=r+dr,nc=c+dc;
+      if(nr>=0&&nr<rows&&nc>=0&&nc<cols&&!cells[idx(nr,nc)].visited) return [nr,nc,wa,wb];
+      return null;
+    }).filter(Boolean);
+    if(!nb.length){stack.pop();continue;}
+    const [nr,nc,wa,wb]=nb[Math.floor(Math.random()*nb.length)];
+    cells[idx(r,c)].walls[wa]=false;
+    cells[idx(nr,nc)].walls[wb]=false;
+    cells[idx(nr,nc)].visited=true;
+    stack.push([nr,nc]);
+  }
+  return {cells,cols,rows};
+}
+
+// ─── Fractal render (offscreen) ──────────────────────────────────────────────
+let fractalCanvas, fractalCtx, fractalDirty=true;
+
+function initFractalCanvas(){
+  fractalCanvas = document.createElement('canvas');
+  // Lower res for performance
+  const scale = Math.min(1, 600/Math.max(W,H));
+  fractalCanvas.width = Math.floor(W*scale);
+  fractalCanvas.height = Math.floor(H*scale);
+  fractalCtx = fractalCanvas.getContext('2d');
+}
+
+function renderFractalOffscreen(){
+  const fc = fractalCanvas, fctx = fractalCtx;
+  const fw = fc.width, fh = fc.height;
+  const imgData = fctx.createImageData(fw, fh);
+  const data = imgData.data;
+  const pal = S.palette, palLen = pal.length;
+  const maxIter = S.maxIter;
+  const zoom = S.zoom;
+  const panX = S.panX, panY = S.panY;
+  const aspect = fw/fh;
+
+  for(let py=0;py<fh;py++){
+    for(let px=0;px<fw;px++){
+      const x0 = ((px/fw-0.5)*3.5/zoom*aspect)+panX;
+      const y0 = ((py/fh-0.5)*2.0/zoom)+panY;
+      let iter=0;
+
+      if(S.fractalMode==='mandelbrot'){
+        let x=0,y=0,x2=0,y2=0;
+        while(x2+y2<4&&iter<maxIter){y=2*x*y+y0;x=x2-y2+x0;x2=x*x;y2=y*y;iter++;}
+      } else if(S.fractalMode==='julia'){
+        let x=x0,y=y0;
+        const cr=S.juliaC.r,ci=S.juliaC.i;
+        while(x*x+y*y<4&&iter<maxIter){const nx=x*x-y*y+cr;y=2*x*y+ci;x=nx;iter++;}
+      } else if(S.fractalMode==='burning_ship'){
+        let x=0,y=0;
+        while(x*x+y*y<4&&iter<maxIter){const nx=x*x-y*y+x0;y=Math.abs(2*x*y)+y0;x=Math.abs(nx);iter++;}
+      } else { // newton
+        let zr=x0,zi=y0;
+        for(let n=0;n<maxIter;n++){
+          const z2r=zr*zr-zi*zi, z2i=2*zr*zi;
+          const z3r=zr*z2r-zi*z2i-1, z3i=zr*z2i+zi*z2r;
+          const dz2r=3*(zr*zr-zi*zi), dz2i=6*zr*zi;
+          const den=dz2r*dz2r+dz2i*dz2i||1e-10;
+          zr-=(z3r*dz2r+z3i*dz2i)/den;
+          zi-=(z3i*dz2r-z3r*dz2i)/den;
+          const d=Math.sqrt((zr-1)*(zr-1)+zi*zi);
+          if(d<0.001){iter=n;break;}
+          iter=n;
+        }
+      }
+
+      const idx4=(py*fw+px)*4;
+      if(iter===maxIter){
+        data[idx4]=data[idx4+1]=data[idx4+2]=0;data[idx4+3]=255;
+      } else {
+        const palIdx = Math.floor((iter/maxIter)*palLen)%palLen;
+        const c = pal[palIdx];
+        data[idx4]=c[0]; data[idx4+1]=c[1]; data[idx4+2]=c[2]; data[idx4+3]=255;
+      }
+    }
+  }
+  fctx.putImageData(imgData,0,0);
+}
+
+// ─── Koch snowflake ──────────────────────────────────────────────────────────
+function kochPoints(p1,p2,depth){
+  if(depth===0) return [p1,p2];
+  const dx=(p2[0]-p1[0])/3, dy=(p2[1]-p1[1])/3;
+  const a=[p1[0]+dx,p1[1]+dy];
+  const b=[p1[0]+2*dx,p1[1]+2*dy];
+  const angle=Math.atan2(p2[1]-p1[1],p2[0]-p1[0])-Math.PI/3;
+  const len=Math.sqrt(dx*dx+dy*dy);
+  const peak=[a[0]+Math.cos(angle)*len,a[1]+Math.sin(angle)*len];
+  return [...kochPoints(p1,a,depth-1),...kochPoints(a,peak,depth-1),...kochPoints(peak,b,depth-1),...kochPoints(b,p2,depth-1)];
+}
+
+function drawKoch(ctx, cx, cy, r, depth, col, alpha){
+  ctx.save();
+  ctx.globalAlpha=alpha;
+  ctx.strokeStyle=`rgba(${col[0]|0},${col[1]|0},${col[2]|0},1)`;
+  ctx.lineWidth=1;
+  const pts=[];
+  for(let i=0;i<3;i++){
+    const a0=i*2*Math.PI/3-Math.PI/2;
+    const a1=(i+1)*2*Math.PI/3-Math.PI/2;
+    const p1=[cx+Math.cos(a0)*r,cy+Math.sin(a0)*r];
+    const p2=[cx+Math.cos(a1)*r,cy+Math.sin(a1)*r];
+    const seg=kochPoints(p1,p2,depth);
+    pts.push(...seg);
+  }
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0],pts[0][1]);
+  for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i][0],pts[i][1]);
+  ctx.closePath();
+  ctx.stroke();
+  ctx.restore();
+}
+
+// ─── Barnsley Fern ───────────────────────────────────────────────────────────
+function drawFern(ctx, fx, fy, count, alpha){
+  ctx.save();
+  ctx.globalAlpha=alpha;
+  let x=0,y=0;
+  const scale=H*0.35;
+  for(let i=0;i<count;i++){
+    const r=Math.random();
+    let nx,ny;
+    if(r<0.01){nx=0;ny=0.16*y;}
+    else if(r<0.86){nx=0.85*x+0.04*y;ny=-0.04*x+0.85*y+1.6;}
+    else if(r<0.93){nx=0.2*x-0.26*y;ny=0.23*x+0.22*y+1.6;}
+    else{nx=-0.15*x+0.28*y;ny=0.26*x+0.24*y+0.44;}
+    x=nx;y=ny;
+    const px=fx+x*scale*0.35;
+    const py=fy-y*scale*0.17;
+    const g = Math.floor(150+80*(y/10));
+    ctx.fillStyle=`rgba(30,${g|0},60,0.8)`;
+    ctx.fillRect(px|0,py|0,1,1);
+  }
+  ctx.restore();
+}
+
+// ─── Sierpinski ───────────────────────────────────────────────────────────────
+function drawSierpinski(ctx, x, y, size, depth, alpha){
+  if(depth===0||size<2){
+    ctx.globalAlpha=alpha;
+    ctx.fillRect(x,y,size,size);
+    return;
+  }
+  const s=size/3;
+  for(let r=0;r<3;r++) for(let c=0;c<3;c++){
+    if(r===1&&c===1) continue;
+    drawSierpinski(ctx,x+c*s,y+r*s,s,depth-1,alpha);
+  }
+}
+
+// ─── Islamic / Arabesques ────────────────────────────────────────────────────
+function drawIslamicTile(ctx, tx, ty, size, hue, alpha){
+  ctx.save();
+  ctx.translate(tx+size/2, ty+size/2);
+  ctx.globalAlpha=alpha;
+  const n=8, r=size*0.45;
+  // Octagram
+  ctx.strokeStyle=hsl(hue,80,70);
+  ctx.lineWidth=1.5;
+  ctx.beginPath();
+  for(let i=0;i<n;i++){
+    const a1=i*Math.PI*2/n, a2=a1+Math.PI*2/n;
+    const r1=r, r2=r*0.55;
+    if(i===0) ctx.moveTo(Math.cos(a1)*r1,Math.sin(a1)*r1);
+    ctx.lineTo(Math.cos(a1)*r1,Math.sin(a1)*r1);
+    ctx.lineTo(Math.cos((a1+a2)/2)*r2,Math.sin((a1+a2)/2)*r2);
+  }
+  ctx.closePath();
+  ctx.stroke();
+  // Inner circle details
+  ctx.beginPath();
+  ctx.arc(0,0,r*0.28,0,Math.PI*2);
+  ctx.strokeStyle=hsl((hue+40)%360,70,75);
+  ctx.stroke();
+  ctx.restore();
+}
+
+// ─── Art Nouveau filigree ────────────────────────────────────────────────────
+function drawNouveauSpiral(ctx, px, py, r, hue, alpha, t){
+  ctx.save();
+  ctx.globalAlpha=alpha;
+  ctx.strokeStyle=hsl(hue,70,65);
+  ctx.lineWidth=1;
+  ctx.beginPath();
+  let first=true;
+  for(let a=0;a<Math.PI*6;a+=0.05){
+    const radius=r*(a/(Math.PI*6));
+    const x=px+Math.cos(a+t)*radius;
+    const y=py+Math.sin(a+t)*radius;
+    if(first){ctx.moveTo(x,y);first=false;}
+    else ctx.lineTo(x,y);
+  }
+  ctx.stroke();
+  // Leaf motif
+  ctx.beginPath();
+  ctx.ellipse(px+r*0.6, py, r*0.25, r*0.1, t, 0, Math.PI*2);
+  ctx.fillStyle=hsl((hue+80)%360,60,55,0.4);
+  ctx.fill();
+  ctx.restore();
+}
+
+// ─── Celtic knot ─────────────────────────────────────────────────────────────
+function drawCelticKnot(ctx, px, py, r, hue, alpha){
+  ctx.save();
+  ctx.translate(px,py);
+  ctx.globalAlpha=alpha;
+  ctx.strokeStyle=hsl(hue,60,65);
+  ctx.lineWidth=2;
+  const n=4;
+  for(let i=0;i<n;i++){
+    ctx.save();
+    ctx.rotate(i*Math.PI*2/n);
+    ctx.beginPath();
+    ctx.moveTo(0,0);
+    ctx.bezierCurveTo(r*0.5,-r*0.8,r,-r*0.3,r*0.7,r*0.7);
+    ctx.bezierCurveTo(r*0.3,r*1.2,-r*0.4,r*0.9,0,0);
+    ctx.stroke();
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+// ─── Rosette (stained glass) ─────────────────────────────────────────────────
+function drawRosette(ctx, px, py, r, hue, alpha, t){
+  ctx.save();
+  ctx.translate(px,py);
+  ctx.rotate(t);
+  ctx.globalAlpha=alpha*0.6;
+  const petals=Math.floor(rnd(6,12));
+  for(let i=0;i<petals;i++){
+    ctx.save();
+    ctx.rotate(i*Math.PI*2/petals);
+    ctx.beginPath();
+    ctx.ellipse(0,-r*0.4,r*0.18,r*0.42,0,0,Math.PI*2);
+    ctx.fillStyle=hsl((hue+i*30)%360,70,60,0.35);
+    ctx.fill();
+    ctx.strokeStyle=hsl((hue+i*30)%360,80,75,0.6);
+    ctx.lineWidth=0.8;
+    ctx.stroke();
+    ctx.restore();
+  }
+  ctx.beginPath();
+  ctx.arc(0,0,r*0.22,0,Math.PI*2);
+  ctx.fillStyle=hsl((hue+180)%360,80,70,0.5);
+  ctx.fill();
+  ctx.restore();
+}
+
+// ─── Roman mosaic ─────────────────────────────────────────────────────────────
+function drawMosaicBand(ctx, y, width, tileSize, hue, alpha){
+  ctx.save();
+  ctx.globalAlpha=alpha;
+  const cols=Math.ceil(width/tileSize);
+  for(let c=0;c<cols;c++){
+    const h=(hue+c*15)%360;
+    ctx.fillStyle=hsl(h,65,55);
+    ctx.fillRect(c*tileSize+1, y+1, tileSize-2, tileSize-2);
+    ctx.strokeStyle=hsl(h,20,85,0.4);
+    ctx.lineWidth=0.5;
+    ctx.strokeRect(c*tileSize,y,tileSize,tileSize);
+  }
+  ctx.restore();
+}
+
+// ─── Maze draw ────────────────────────────────────────────────────────────────
+function drawMaze(ctx, mx, my, mw, mh){
+  const {cells,cols,rows}=S.maze;
+  const cw=mw/cols, ch=mh/rows;
+  ctx.save();
+  ctx.globalAlpha=S.mazeAlpha;
+  ctx.strokeStyle=`hsla(${(S.hueShift+180)%360},80%,70%,1)`;
+  ctx.lineWidth=0.8;
+  for(let r=0;r<rows;r++){
+    for(let c=0;c<cols;c++){
+      const cell=cells[r*cols+c];
+      const x=mx+c*cw, y=my+r*ch;
+      ctx.beginPath();
+      if(cell.walls[0]){ctx.moveTo(x,y);ctx.lineTo(x+cw,y);}
+      if(cell.walls[1]){ctx.moveTo(x+cw,y);ctx.lineTo(x+cw,y+ch);}
+      if(cell.walls[2]){ctx.moveTo(x,y+ch);ctx.lineTo(x+cw,y+ch);}
+      if(cell.walls[3]){ctx.moveTo(x,y);ctx.lineTo(x,y+ch);}
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+// ─── Audio ─────────────────────────────────────────────────────────────────────
+function initAudio(){
+  if(audioCtx) return;
+  audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+  masterGain = audioCtx.createGain();
+  masterGain.gain.value = 0.15;
+  masterGain.connect(audioCtx.destination);
+}
+
+function rebuildAudio(){
+  if(!audioCtx) return;
+  stopAudio();
+  const now=audioCtx.currentTime;
+  const baseF=S.baseFreq;
+
+  // Harmonic oscillators based on fractal params
+  const ratios=[1,1.5,2,2.5,3,4,5,6];
+  for(let i=0;i<S.harmonics;i++){
+    const osc=audioCtx.createOscillator();
+    const g=audioCtx.createGain();
+    const filter=audioCtx.createBiquadFilter();
+    osc.type=pick(['sine','triangle','sawtooth']);
+    osc.frequency.value=baseF*ratios[i%ratios.length];
+    g.gain.value=0.04/(i+1);
+    filter.type='bandpass';
+    filter.frequency.value=S.filterFreq*(1+i*0.3);
+    filter.Q.value=5+i*2;
+    osc.connect(filter);
+    filter.connect(g);
+    g.connect(masterGain);
+    osc.start(now);
+    oscillators.push({osc,g,filter});
+  }
+
+  // Pendulum resonance: low drone
+  const drone=audioCtx.createOscillator();
+  const dg=audioCtx.createGain();
+  drone.type='sine';
+  drone.frequency.value=baseF*0.25;
+  dg.gain.value=0.07;
+  drone.connect(dg); dg.connect(masterGain);
+  drone.start(now);
+  oscillators.push({osc:drone,g:dg,filter:null});
+
+  // Noise for mechanical texture
+  const bufSize=2*audioCtx.sampleRate;
+  const buf=audioCtx.createBuffer(1,bufSize,audioCtx.sampleRate);
+  const d=buf.getChannelData(0);
+  for(let i=0;i<bufSize;i++) d[i]=(Math.random()*2-1)*0.3;
+  const noiseSource=audioCtx.createBufferSource();
+  noiseSource.buffer=buf; noiseSource.loop=true;
+  const nf=audioCtx.createBiquadFilter();
+  nf.type='highpass'; nf.frequency.value=2000;
+  const ng=audioCtx.createGain(); ng.gain.value=0.008;
+  noiseSource.connect(nf); nf.connect(ng); ng.connect(masterGain);
+  noiseSource.start(now);
+  noiseNode={src:noiseSource,g:ng};
+}
+
+function stopAudio(){
+  for(const {osc} of oscillators){ try{osc.stop();}catch(e){} }
+  oscillators=[];
+  if(noiseNode){ try{noiseNode.src.stop();}catch(e){} noiseNode=null; }
+}
+
+function modulateAudio(){
+  if(!audioCtx||!soundOn) return;
+  const now=audioCtx.currentTime;
+  // Modulate based on pendulum angles
+  const pendAvg=S.pendulums.reduce((s,p)=>s+Math.abs(p.angle),0)/S.pendulumCount;
+  for(let i=0;i<oscillators.length;i++){
+    const {osc,g}=oscillators[i];
+    if(g) g.gain.setTargetAtTime(0.04*(1+pendAvg)*1/(i+1),now,0.1);
+    if(osc.frequency) osc.frequency.setTargetAtTime(S.baseFreq*(1+pendAvg*0.2)*(i+1)*0.8,now,0.3);
+  }
+}
+
+// ─── HUD ──────────────────────────────────────────────────────────────────────
+function updateHUD(){
+  document.getElementById('h2').textContent=`FRACTAL: ${S.fractalMode.toUpperCase()}  ITER:${S.maxIter}`;
+  document.getElementById('h3').textContent=`ORNAMENT: ${S.ornamentStyle.toUpperCase()}  PALETTE: ${S.paletteMode.toUpperCase()}`;
+  document.getElementById('h4').textContent=`PENDULUMS:${S.pendulumCount}  SPRINGS:${S.springRows}×${S.springCols}  BODIES:${S.rigidBodyCount}`;
+  document.getElementById('h5').textContent=`SOUND:${soundOn?'ON':'OFF'}  FPS:${Math.round(fps)}`;
+}
+
+// ─── Resize ───────────────────────────────────────────────────────────────────
+function resize(){
+  dpr=window.devicePixelRatio||1;
+  W=window.innerWidth; H=window.innerHeight;
+  canvas.width=W*dpr; canvas.height=H*dpr;
+  canvas.style.width=W+'px'; canvas.style.height=H+'px';
+  ctx.scale(dpr,dpr);
+  cx=W/2; cy=H/2;
+}
+
+// ─── Main render ──────────────────────────────────────────────────────────────
+let lastTime=0, fps=60;
+function render(ts){
+  requestAnimationFrame(render);
+  const dt=ts-lastTime; lastTime=ts;
+  fps=0.9*fps+0.1*(1000/(dt||16));
+  t+=0.016*S.speed;
+  S.tick++;
+
+  // Animate Julia C
+  S.juliaC.r=0.7*Math.cos(t*S.juliaAnimSpeed*60);
+  S.juliaC.i=0.7*Math.sin(t*S.juliaAnimSpeed*57);
+
+  // Step physics
+  stepPendulums();
+  stepSprings();
+  stepBodies();
+  modulateAudio();
+
+  // ── Draw ──
+  // Dark bg
+  ctx.fillStyle='rgba(4,3,8,0.88)';
+  ctx.fillRect(0,0,W,H);
+
+  // Maze overlay
+  drawMaze(ctx, W*0.05, H*0.05, W*0.9, H*0.9);
+
+  // Sierpinski overlay
+  ctx.save();
+  ctx.fillStyle=hsl(S.hueShift,60,60);
+  const sz=Math.min(W,H)*0.25;
+  drawSierpinski(ctx, cx-sz/2, cy-sz/2, sz, 4, S.sierpAlpha*0.4);
+  ctx.restore();
+
+  // Fern
+  drawFern(ctx, W*0.15, H*0.92, S.fernCount, S.fernAlpha);
+
+  // Koch snowflakes (2)
+  const kR=Math.min(W,H)*0.18;
+  const kAnim=0.3*Math.sin(t*0.12);
+  drawKoch(ctx, W*0.22, H*0.28, kR+kAnim*20, Math.min(S.kochDepth,5), S.kochColor, 0.45);
+  drawKoch(ctx, W*0.78, H*0.68, kR*0.7, Math.min(S.kochDepth,4), 
+    [S.kochColor[2],S.kochColor[0],S.kochColor[1]], 0.35);
+
+  // Ornament layer
+  const ornHue=(S.hueShift+t*30)%360;
+  if(S.ornamentStyle==='islamic'||S.ornamentStyle==='mosaic'){
+    const ts=60;
+    for(let tx=0;tx<W;tx+=ts) for(let ty=0;ty<H;ty+=ts){
+      if(Math.random()<0.015) drawIslamicTile(ctx,tx,ty,ts,ornHue,S.ornamentAlpha*0.6);
+    }
+  }
+  if(S.ornamentStyle==='nouveau'||S.ornamentStyle==='rosette'){
+    for(let i=0;i<5;i++){
+      const px=W*(0.1+i*0.2+0.05*Math.sin(t*0.3+i));
+      const py=H*(0.5+0.2*Math.cos(t*0.2+i*1.3));
+      if(S.ornamentStyle==='rosette'){
+        drawRosette(ctx,px,py,60*(S.ornamentDensity),ornHue+i*40,S.ornamentAlpha,t*0.2+i);
+      } else {
+        drawNouveauSpiral(ctx,px,py,50*(S.ornamentDensity),(ornHue+i*50)%360,S.ornamentAlpha*0.7,t+i);
+      }
+    }
+  }
+  if(S.ornamentStyle==='celtic'){
+    for(let i=0;i<7;i++){
+      const px=W*(0.12+i*0.13+0.04*Math.sin(t*0.25+i));
+      const py=H*(0.3+0.35*Math.sin(i*1.7));
+      drawCelticKnot(ctx,px,py,35*(S.ornamentDensity),(ornHue+i*35)%360,S.ornamentAlpha*0.7);
+    }
+  }
+
+  // Mosaic bands
+  drawMosaicBand(ctx, H*0.05, W, 10, ornHue, 0.18);
+  drawMosaicBand(ctx, H*0.93, W, 10, (ornHue+120)%360, 0.18);
+
+  // Spring lattice
+  {
+    const {nodes,rows,cols}=S.springs;
+    ctx.save();
+    ctx.globalAlpha=0.35;
+    for(let r=0;r<rows;r++) for(let c=0;c<cols;c++){
+      const i=r*cols+c;
+      const n=nodes[i];
+      if(c<cols-1){
+        const m=nodes[i+1];
+        const hue2=(S.hueShift+r*20)%360;
+        ctx.strokeStyle=hsl(hue2,70,70);
+        ctx.lineWidth=1;
+        ctx.beginPath(); ctx.moveTo(n.x,n.y); ctx.lineTo(m.x,m.y); ctx.stroke();
+      }
+      if(r<rows-1){
+        const m=nodes[i+cols];
+        const hue2=(S.hueShift+c*20)%360;
+        ctx.strokeStyle=hsl(hue2,70,70);
+        ctx.lineWidth=1;
+        ctx.beginPath(); ctx.moveTo(n.x,n.y); ctx.lineTo(m.x,m.y); ctx.stroke();
+      }
+    }
+    ctx.globalAlpha=0.6;
+    for(const n of nodes){
+      ctx.beginPath();
+      ctx.arc(n.x,n.y,2.5,0,Math.PI*2);
+      ctx.fillStyle=hsl(S.hueShift,80,80);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // Pendulum trails
+  for(const p of S.pendulums){
+    if(p.trail.length<2) continue;
+    ctx.save();
+    ctx.globalAlpha=p.alpha*0.5;
+    ctx.strokeStyle=hsl(p.hue,80,70);
+    ctx.lineWidth=1.2;
+    ctx.beginPath();
+    ctx.moveTo(p.trail[0][0],p.trail[0][1]);
+    for(let i=1;i<p.trail.length;i++){
+      ctx.globalAlpha=p.alpha*(i/p.trail.length)*0.6;
+      ctx.lineTo(p.trail[i][0],p.trail[i][1]);
+    }
+    ctx.stroke();
+    // Bob
+    const [bx,by]=p.trail[p.trail.length-1];
+    ctx.globalAlpha=p.alpha;
+    ctx.beginPath();
+    ctx.arc(p.ox,p.oy,2,0,Math.PI*2);
+    ctx.fillStyle=hsl(p.hue,80,80);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(p.ox,p.oy);
+    ctx.lineTo(bx,by);
+    ctx.strokeStyle=hsl(p.hue,60,60,0.5);
+    ctx.lineWidth=0.7;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(bx,by,4+2*Math.abs(p.vel*50),0,Math.PI*2);
+    const rg=ctx.createRadialGradient(bx,by,0,bx,by,8);
+    rg.addColorStop(0,hsl(p.hue,90,90,0.9));
+    rg.addColorStop(1,hsl(p.hue,80,60,0));
+    ctx.fillStyle=rg;
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Rigid bodies
+  for(const b of S.bodies){
+    ctx.save();
+    ctx.translate(b.x,b.y);
+    ctx.rotate(b.angle);
+    ctx.globalAlpha=b.alpha;
+    ctx.strokeStyle=hsl(b.hue,80,70);
+    ctx.fillStyle=hsl(b.hue,60,30,0.25);
+    ctx.lineWidth=1.5;
+    ctx.beginPath();
+    for(let i=0;i<=b.sides;i++){
+      const a=i*Math.PI*2/b.sides;
+      if(i===0) ctx.moveTo(Math.cos(a)*b.r,Math.sin(a)*b.r);
+      else ctx.lineTo(Math.cos(a)*b.r,Math.sin(a)*b.r);
+    }
+    ctx.fill(); ctx.stroke();
+    // Inner gear detail
+    ctx.globalAlpha=b.alpha*0.4;
+    ctx.strokeStyle=hsl((b.hue+60)%360,70,75);
+    ctx.lineWidth=0.8;
+    ctx.beginPath();
+    ctx.arc(0,0,b.r*0.45,0,Math.PI*2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Radial gradient vignette
+  {
+    const rg=ctx.createRadialGradient(cx,cy,Math.min(W,H)*0.25,cx,cy,Math.max(W,H)*0.75);
+    rg.addColorStop(0,'rgba(0,0,0,0)');
+    rg.addColorStop(1,'rgba(0,0,0,0.55)');
+    ctx.fillStyle=rg;
+    ctx.fillRect(0,0,W,H);
+  }
+
+  // Interference bands (neon/spectral)
+  if(S.paletteMode==='neon'||S.paletteMode==='spectral'){
+    for(let i=0;i<4;i++){
+      const y=H*0.5+Math.sin(t*0.4+i*1.3)*H*0.35;
+      ctx.save();
+      ctx.globalAlpha=0.04;
+      ctx.fillStyle=hsl((S.hueShift+i*60+t*15)%360,90,70);
+      ctx.fillRect(0,y-2,W,4);
+      ctx.restore();
+    }
+  }
+
+  if(hudOn) updateHUD();
+  frame++;
+}
+
+// ─── Input ────────────────────────────────────────────────────────────────────
+function triggerRegen(){
+  if(!audioCtx && soundOn){ initAudio(); }
+  fractalDirty=true;
+  randomize();
+  initFractalCanvas();
+  renderFractalOffscreen();
+}
+
+window.addEventListener('keydown',e=>{
+  const k=e.key.toLowerCase();
+  if(k===' '){e.preventDefault(); triggerRegen();}
+  else if(k==='h'){ hudOn=!hudOn; hud.style.display=hudOn?'block':'none'; }
+  else if(k==='s'){
+    soundOn=!soundOn;
+    if(soundOn){ initAudio(); rebuildAudio(); }
+    else stopAudio();
+    if(hudOn) updateHUD();
+  }
+});
+
+canvas.addEventListener('click',()=>triggerRegen());
+canvas.addEventListener('touchend',e=>{e.preventDefault(); triggerRegen();},{passive:false});
+
+window.addEventListener('resize',()=>{
+  resize();
+  randomize();
+  initFractalCanvas();
+  renderFractalOffscreen();
+});
+
+// ─── Boot ─────────────────────────────────────────────────────────────────────
+resize();
+randomize();
+initFractalCanvas();
+renderFractalOffscreen();
+requestAnimationFrame(render);
+
+})();
+</script>
+</body>
+</html>

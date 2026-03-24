@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fractal Kaleidoscope Reactor</title>
+<meta name="description" content="Real-time fractal kaleidoscope reactor fusing Newton fractals, Julia sets, Mandelbrot multibrot, Burning Ship, and Lyapunov fractals with kaleidoscopic symmetry groups, spectral color harmonization, and procedural Web Audio synthesis. Zero dependencies.">
+<meta name="keywords" content="fractal, kaleidoscope, Julia set, Mandelbrot, Newton fractal, Burning Ship, Lyapunov fractal, WebGL, Web Audio, generative art, escape time, dihedral symmetry, procedural audio, chromatic, prismatic, multibrot">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000}
+  canvas{display:block;position:fixed;top:0;left:0;width:100vw;height:100vh}
+  #hud{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;display:none;font-family:'Courier New',monospace;font-size:11px;color:rgba(255,255,200,0.85)}
+  #hud.visible{display:block}
+  #hud-top{position:absolute;top:12px;left:16px;line-height:1.7;text-shadow:0 0 8px rgba(0,200,255,0.8)}
+  #hud-bottom{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);text-align:center;letter-spacing:2px;text-shadow:0 0 6px rgba(255,120,0,0.9)}
+  #hud-right{position:absolute;top:12px;right:16px;text-align:right;line-height:1.7;text-shadow:0 0 8px rgba(200,0,255,0.8)}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div id="hud-top"></div>
+  <div id="hud-right"></div>
+  <div id="hud-bottom">SPACE/CLICK/TAP: RANDOMIZE &nbsp;|&nbsp; H: HUD &nbsp;|&nbsp; S: SOUND</div>
+</div>
+<script>
+(()=>{
+"use strict";
+
+// ── Canvas Setup ──────────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const gl = canvas.getContext('webgl2') || canvas.getContext('webgl',{antialias:false});
+if(!gl){document.body.innerHTML='<p style="color:#fff;padding:20px">WebGL not supported</p>';return;}
+
+let W,H;
+function resize(){
+  W=canvas.width=window.innerWidth;
+  H=canvas.height=window.innerHeight;
+  gl.viewport(0,0,W,H);
+}
+resize();
+window.addEventListener('resize',resize);
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let hudVisible=false, soundOn=false;
+let t=0, frame=0;
+let audioCtx=null, masterGain=null, oscillators=[], filters=[];
+let seed={};
+
+const FRACTAL_NAMES=['Julia','Mandelbrot','Newton','Burning Ship','Multibrot','Lyapunov','Nova Julia'];
+const SYM_NAMES=['Dihedral-3','Dihedral-4','Dihedral-6','Dihedral-8','Dihedral-12','SO(2)×3','Coxeter-H3'];
+
+function rand(a,b){return a+(b-a)*Math.random();}
+function randi(a,b){return Math.floor(rand(a,b+1));}
+function randChoice(arr){return arr[Math.floor(Math.random()*arr.length)];}
+
+function randomize(){
+  seed={
+    fractalType: randi(0,6),
+    juliaCx: rand(-1.2,1.2),
+    juliaCy: rand(-1.2,1.2),
+    juliaC2x: rand(-0.8,0.8),
+    juliaC2y: rand(-0.8,0.8),
+    power: rand(2,7),
+    maxIter: randi(64,256),
+    escapeR: rand(4,32),
+    zoom: rand(0.4,2.5),
+    panX: rand(-0.8,0.8),
+    panY: rand(-0.5,0.5),
+    symOrder: randi(3,12),
+    symType: randi(0,6),
+    colorOffset: Math.random(),
+    colorSpeed: rand(0.1,2.0),
+    colorBands: rand(3,15),
+    hueShift: Math.random(),
+    satBoost: rand(0.6,1.4),
+    labMix: rand(0.2,0.9),
+    lyapuvSeq: [randi(0,1),randi(0,1),randi(0,1),randi(0,1)],
+    audioBase: rand(55,220),
+    audioRatios: [1, rand(1.1,2.0), rand(2.1,4.0), rand(3.0,6.0)],
+    audioDetune: rand(0,50),
+    feigenbaum: rand(3.5,4.0),
+    juliaAnim: randi(0,1),
+    rotSpeed: rand(0.0003,0.003),
+    morphSpeed: rand(0.0002,0.002),
+    paletteSeed: Math.random(),
+  };
+  updateAudio();
+}
+
+// ── WebGL Shader ──────────────────────────────────────────────────────────────
+const VS=`#version 300 es
+in vec2 a_pos;
+void main(){gl_Position=vec4(a_pos,0,1);}`;
+
+const FS=`#version 300 es
+precision highp float;
+out vec4 fragColor;
+
+uniform vec2 u_res;
+uniform float u_time;
+uniform int u_fractalType;
+uniform vec2 u_juliaC;
+uniform vec2 u_juliaC2;
+uniform float u_power;
+uniform int u_maxIter;
+uniform float u_escapeR;
+uniform float u_zoom;
+uniform vec2 u_pan;
+uniform int u_symOrder;
+uniform int u_symType;
+uniform float u_colorOffset;
+uniform float u_colorSpeed;
+uniform float u_colorBands;
+uniform float u_hueShift;
+uniform float u_satBoost;
+uniform float u_labMix;
+uniform vec4 u_lyapuvSeq;
+uniform float u_paletteSeed;
+
+#define PI 3.14159265358979
+#define TAU 6.28318530717959
+#define E  2.71828182845905
+
+// ── Complex math ────────────────────────────────
+vec2 cmul(vec2 a,vec2 b){return vec2(a.x*b.x-a.y*b.y,a.x*b.y+a.y*b.x);}
+vec2 cdiv(vec2 a,vec2 b){float d=dot(b,b);return vec2(dot(a,b),a.y*b.x-a.x*b.y)/d;}
+vec2 cpow(vec2 z,float n){
+  float r=length(z);if(r<1e-10)return vec2(0);
+  float th=atan(z.y,z.x);
+  return pow(r,n)*vec2(cos(th*n),sin(th*n));
+}
+vec2 cexp(vec2 z){return exp(z.x)*vec2(cos(z.y),sin(z.y));}
+vec2 clog(vec2 z){return vec2(log(length(z)),atan(z.y,z.x));}
+vec2 csin(vec2 z){return vec2(sin(z.x)*cosh(z.y),cos(z.x)*sinh(z.y));}
+vec2 ccos(vec2 z){return vec2(cos(z.x)*cosh(z.y),-sin(z.x)*sinh(z.y));}
+
+// ── Symmetry ─────────────────────────────────────
+vec2 applySymmetry(vec2 p, int order, int stype){
+  float ang = atan(p.y,p.x);
+  float r = length(p);
+  float sector = TAU/float(order);
+  ang = mod(ang, sector);
+  if(ang > sector*0.5) ang = sector - ang;
+  if(stype == 1){
+    ang = abs(ang - sector*0.25);
+  } else if(stype == 2){
+    // Coxeter reflection
+    ang = mod(ang*2.0, sector) * 0.5;
+    if(ang > sector*0.5) ang = sector - ang;
+  } else if(stype == 3){
+    // radial fold
+    r = mod(r, 2.0);
+    if(r > 1.0) r = 2.0 - r;
+  } else if(stype == 4){
+    // SO(n) swirl
+    ang += r * 0.3;
+    ang = mod(ang, sector);
+    if(ang > sector*0.5) ang = sector - ang;
+  } else if(stype == 5){
+    // double dihedral
+    ang = mod(ang*2.0, sector)*0.5;
+    ang = abs(ang - sector*0.25);
+    ang = min(ang, sector*0.5 - ang);
+  }
+  return r*vec2(cos(ang),sin(ang));
+}
+
+// ── Color ─────────────────────────────────────────
+vec3 hsv2rgb(vec3 c){
+  vec4 K=vec4(1.0,2.0/3.0,1.0/3.0,3.0);
+  vec3 p=abs(fract(c.xxx+K.xyz)*6.0-K.www);
+  return c.z*mix(K.xxx,clamp(p-K.xxx,0.0,1.0),c.y);
+}
+vec3 rgb2hsv(vec3 c){
+  vec4 K=vec4(0.0,-1.0/3.0,2.0/3.0,-1.0);
+  vec4 p=mix(vec4(c.bg,K.wz),vec4(c.gb,K.xy),step(c.b,c.g));
+  vec4 q=mix(vec4(p.xyw,c.r),vec4(c.r,p.yzx),step(p.x,c.r));
+  float d=q.x-min(q.w,q.y);float e=1e-10;
+  return vec3(abs(q.z+(q.w-q.y)/(6.0*d+e)),d/(q.x+e),q.x);
+}
+
+// CIELab approximation
+vec3 rgb2lab(vec3 c){
+  c=pow(max(c,0.001),vec3(1.0/2.2));
+  float L=0.2126*c.r+0.7152*c.g+0.0722*c.b;
+  float a=c.r-c.g;
+  float b2=c.b-0.5*(c.r+c.g);
+  return vec3(L,a,b2);
+}
+vec3 lab2rgb(vec3 lab){
+  float L=lab.x;float a=lab.y;float b=lab.z;
+  float r=L+a*1.0;float g=L-a*0.3+b*(-0.3);float bl=L+b*2.0;
+  return pow(clamp(vec3(r,g,bl),0.0,1.0),vec3(2.2));
+}
+
+// Spectral palette with opponent-process
+vec3 fractalColor(float t2, float phase){
+  float h = fract(t2 * u_colorBands * 0.1 + phase + u_hueShift + u_time*u_colorSpeed*0.05);
+  float s = clamp(0.7 + 0.3*sin(t2*12.0+u_paletteSeed*TAU)*u_satBoost,0.3,1.0);
+  float v = clamp(0.5 + 0.5*sin(t2*7.3+u_paletteSeed*5.1),0.2,1.0);
+  // opponent-process: split complementary with warm/cool shift
+  float h2 = fract(h + 0.5 + 0.15*sin(t2*3.7));
+  vec3 col1 = hsv2rgb(vec3(h,s,v));
+  vec3 col2 = hsv2rgb(vec3(h2,s*0.8,v*0.9));
+  vec3 mixed = mix(col1,col2, 0.3+0.3*sin(t2*5.0+u_paletteSeed*3.0));
+  // Lab harmonization
+  vec3 lab = rgb2lab(mixed);
+  lab.y *= (1.0 + 0.4*sin(u_time*0.3+u_paletteSeed));
+  lab.z *= (1.0 + 0.4*cos(u_time*0.23+u_paletteSeed*2.0));
+  lab.x = mix(lab.x, 0.5+0.4*sin(t2*6.0), u_labMix*0.3);
+  return mix(mixed, lab2rgb(lab), u_labMix);
+}
+
+// ── Fractals ─────────────────────────────────────
+
+// Julia / Mandelbrot
+float escapeJulia(vec2 z, vec2 c, float power){
+  float escape = float(u_maxIter);
+  for(int i=0;i<512;i++){
+    if(i>=u_maxIter)break;
+    z = cpow(z,power)+c;
+    float r2 = dot(z,z);
+    if(r2>u_escapeR*u_escapeR){
+      escape = float(i) + 1.0 - log2(log2(r2)*0.5);
+      break;
+    }
+  }
+  return escape;
+}
+
+// Burning Ship variant
+float escapeBurningShip(vec2 z0, vec2 c, float power){
+  vec2 z=z0;
+  float escape = float(u_maxIter);
+  for(int i=0;i<512;i++){
+    if(i>=u_maxIter)break;
+    z=vec2(abs(z.x),abs(z.y));
+    z=cpow(z,power)+c;
+    float r2=dot(z,z);
+    if(r2>u_escapeR*u_escapeR){
+      escape=float(i)+1.0-log2(log2(r2)*0.5);
+      break;
+    }
+  }
+  return escape;
+}
+
+// Newton fractal (z^3-1)
+vec3 escapeNewton(vec2 z){
+  float escape=0.0;
+  int root=-1;
+  vec2 roots[3];
+  roots[0]=vec2(1.0,0.0);
+  roots[1]=vec2(-0.5, 0.8660254);
+  roots[2]=vec2(-0.5,-0.8660254);
+  for(int i=0;i<128;i++){
+    if(i>=u_maxIter)break;
+    vec2 z2=cmul(z,z);
+    vec2 z3=cmul(z2,z);
+    vec2 fz=z3-vec2(1,0);
+    vec2 dfz=3.0*z2;
+    z=z-cdiv(fz,dfz);
+    for(int r=0;r<3;r++){
+      if(length(z-roots[r])<1e-5){
+        root=r;escape=float(i);break;
+      }
+    }
+    if(root>=0)break;
+  }
+  return vec3(float(root)/3.0, escape, float(root));
+}
+
+// Lyapunov
+float lyapunov(vec2 p){
+  float r=p.x+p.y*0.5+1.5;
+  float a=p.x*2.5+1.5;
+  float b=p.y*2.5+1.5;
+  float x=0.5;
+  float lyap=0.0;
+  int N=80;
+  for(int i=0;i<80;i++){
+    float rr=(mod(float(i),4.0)<u_lyapuvSeq.x+u_lyapuvSeq.y)?a:b;
+    x=rr*x*(1.0-x);
+    lyap+=log(abs(rr*(1.0-2.0*x))+1e-10);
+  }
+  return lyap/80.0;
+}
+
+// Nova Julia
+float escapeNova(vec2 z, vec2 c){
+  float escape=float(u_maxIter);
+  for(int i=0;i<512;i++){
+    if(i>=u_maxIter)break;
+    vec2 z2=cmul(z,z);
+    vec2 z3=cmul(z2,z);
+    vec2 fz=z3-vec2(1,0);
+    vec2 dfz=3.0*z2;
+    z=z-cdiv(fz,dfz)+c;
+    if(dot(z,z)<1e-8){escape=float(i);break;}
+    if(dot(z,z)>u_escapeR*u_escapeR){
+      escape=float(i)+1.0-log2(log2(dot(z,z))*0.5);break;
+    }
+  }
+  return escape;
+}
+
+void main(){
+  vec2 uv = (gl_FragCoord.xy - u_res*0.5) / min(u_res.x,u_res.y);
+  uv /= u_zoom;
+  uv += u_pan;
+
+  // apply time-based global rotation
+  float rAngle = u_time * 0.02;
+  vec2 ruv = vec2(cos(rAngle)*uv.x - sin(rAngle)*uv.y,
+                  sin(rAngle)*uv.x + cos(rAngle)*uv.y);
+
+  // kaleidoscopic symmetry
+  vec2 sym = applySymmetry(ruv, u_symOrder, u_symType);
+
+  // animated julia parameter
+  vec2 jc = u_juliaC;
+  jc += 0.15*vec2(sin(u_time*0.31+u_juliaC2.x*5.0),cos(u_time*0.27+u_juliaC2.y*5.0));
+
+  vec3 col = vec3(0);
+  float esc = 0.0;
+  float phase = 0.0;
+
+  if(u_fractalType==0){
+    // Julia
+    esc = escapeJulia(sym, jc, u_power);
+    float t2 = esc/float(u_maxIter);
+    col = fractalColor(t2, u_colorOffset);
+    if(esc>=float(u_maxIter))col=vec3(0);
+  }
+  else if(u_fractalType==1){
+    // Mandelbrot
+    esc = escapeJulia(vec2(0), sym+u_pan*0.1, u_power);
+    float t2=esc/float(u_maxIter);
+    col=fractalColor(t2,u_colorOffset);
+    if(esc>=float(u_maxIter))col=vec3(0);
+  }
+  else if(u_fractalType==2){
+    // Newton
+    vec3 nr = escapeNewton(sym*2.0);
+    float t2=nr.y/float(u_maxIter);
+    col=fractalColor(nr.x+t2*0.3, u_colorOffset+nr.z*0.33);
+  }
+  else if(u_fractalType==3){
+    // Burning Ship
+    esc = escapeBurningShip(sym, jc, u_power);
+    float t2=esc/float(u_maxIter);
+    col=fractalColor(t2,u_colorOffset);
+    if(esc>=float(u_maxIter))col=vec3(0);
+  }
+  else if(u_fractalType==4){
+    // Multibrot
+    float pw = floor(u_power)+2.0;
+    esc = escapeJulia(sym, jc, pw);
+    float t2=esc/float(u_maxIter);
+    // extra color banding
+    col=fractalColor(t2+sin(t2*TAU)*0.1, u_colorOffset);
+    if(esc>=float(u_maxIter))col=vec3(0);
+  }
+  else if(u_fractalType==5){
+    // Lyapunov
+    float lv = lyapunov(sym*1.5+0.5);
+    float t2 = clamp(lv*0.3+0.5,0.0,1.0);
+    col=fractalColor(t2, u_colorOffset+0.5);
+    if(lv>0.0) col*=0.4;
+  }
+  else{
+    // Nova Julia
+    esc = escapeNova(sym, jc*0.5);
+    float t2=esc/float(u_maxIter);
+    col=fractalColor(t2, u_colorOffset);
+    if(esc>=float(u_maxIter))col=vec3(0);
+  }
+
+  // global chromatic glow pulse
+  float pulse = 0.85 + 0.15*sin(u_time*1.3);
+  col *= pulse;
+
+  // vignette
+  float vig = 1.0 - smoothstep(0.6,1.5,length(uv));
+  col *= vig;
+
+  // gamma
+  col = pow(clamp(col,0.0,1.0), vec3(0.85));
+
+  fragColor = vec4(col,1.0);
+}`;
+
+function compileShader(type,src){
+  const s=gl.createShader(type);
+  gl.shaderSource(s,src);
+  gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){
+    console.error(gl.getShaderInfoLog(s));
+    return null;
+  }
+  return s;
+}
+function createProgram(vs,fs){
+  const p=gl.createProgram();
+  gl.attachShader(p,compileShader(gl.VERTEX_SHADER,vs));
+  gl.attachShader(p,compileShader(gl.FRAGMENT_SHADER,fs));
+  gl.linkProgram(p);
+  if(!gl.getProgramParameter(p,gl.LINK_STATUS)){
+    console.error(gl.getProgramInfoLog(p));return null;
+  }
+  return p;
+}
+
+const prog=createProgram(VS,FS);
+gl.useProgram(prog);
+
+const quad=new Float32Array([-1,-1,1,-1,-1,1,1,1]);
+const buf=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+gl.bufferData(gl.ARRAY_BUFFER,quad,gl.STATIC_DRAW);
+const loc=gl.getAttribLocation(prog,'a_pos');
+gl.enableVertexAttribArray(loc);
+gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+
+function u(name){return gl.getUniformLocation(prog,name);}
+const U={
+  res:u('u_res'),time:u('u_time'),
+  fractalType:u('u_fractalType'),juliaC:u('u_juliaC'),juliaC2:u('u_juliaC2'),
+  power:u('u_power'),maxIter:u('u_maxIter'),escapeR:u('u_escapeR'),
+  zoom:u('u_zoom'),pan:u('u_pan'),
+  symOrder:u('u_symOrder'),symType:u('u_symType'),
+  colorOffset:u('u_colorOffset'),colorSpeed:u('u_colorSpeed'),colorBands:u('u_colorBands'),
+  hueShift:u('u_hueShift'),satBoost:u('u_satBoost'),labMix:u('u_labMix'),
+  lyapuvSeq:u('u_lyapuvSeq'),paletteSeed:u('u_paletteSeed'),
+};
+
+// ── Audio ─────────────────────────────────────────────────────────────────────
+function initAudio(){
+  if(audioCtx) return;
+  audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+  masterGain=audioCtx.createGain();
+  masterGain.gain.setValueAtTime(0,audioCtx.currentTime);
+  masterGain.connect(audioCtx.destination);
+}
+
+function stopAudio(){
+  oscillators.forEach(o=>{try{o.stop();}catch(e){}});
+  filters.forEach(f=>{});
+  oscillators=[];filters=[];
+  if(masterGain) masterGain.gain.setTargetAtTime(0,audioCtx.currentTime,0.1);
+}
+
+function updateAudio(){
+  if(!soundOn||!audioCtx) return;
+  stopAudio();
+  const now=audioCtx.currentTime;
+  masterGain.gain.setTargetAtTime(0.18,now,0.3);
+  const base=seed.audioBase;
+  const ratios=seed.audioRatios;
+  const waveforms=['sine','triangle','sawtooth','sine'];
+  ratios.forEach((ratio,i)=>{
+    const osc=audioCtx.createOscillator();
+    const filter=audioCtx.createBiquadFilter();
+    const gain=audioCtx.createGain();
+    const panner=audioCtx.createStereoPanner();
+    osc.type=waveforms[i%4];
+    osc.frequency.setValueAtTime(base*ratio,now);
+    osc.detune.setValueAtTime(seed.audioDetune*(i%2?1:-1),now);
+    filter.type=i%2===0?'bandpass':'lowpass';
+    filter.frequency.setValueAtTime(base*ratio*2,now);
+    filter.Q.setValueAtTime(5+i*3,now);
+    // Feigenbaum modulation
+    const fbFreq=seed.feigenbaum*(i+1)*0.5;
+    const mod=audioCtx.createOscillator();
+    const modGain=audioCtx.createGain();
+    mod.frequency.setValueAtTime(fbFreq,now);
+    modGain.gain.setValueAtTime(base*ratio*0.15,now);
+    mod.connect(modGain);
+    modGain.connect(osc.frequency);
+    mod.start(now);
+    gain.gain.setValueAtTime(0.25/(i+1),now);
+    panner.pan.setValueAtTime((i%2===0?1:-1)*0.4,now);
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(panner);
+    panner.connect(masterGain);
+    osc.start(now);
+    oscillators.push(osc,mod);
+    filters.push(filter);
+  });
+}
+
+// Audio parameter modulation per frame
+let audioFrame=0;
+function modulateAudio(){
+  if(!soundOn||!audioCtx||oscillators.length===0) return;
+  audioFrame++;
+  if(audioFrame%6!==0) return;
+  const now=audioCtx.currentTime;
+  const tv=t*0.001;
+  oscillators.forEach((osc,i)=>{
+    if(i%2===0){
+      const base=seed.audioBase*(seed.audioRatios[Math.floor(i/2)%4]||1);
+      osc.frequency.setTargetAtTime(base*(1+0.04*Math.sin(tv*(i+1)*0.7)),now,0.3);
+    }
+  });
+  filters.forEach((f,i)=>{
+    if(f.frequency){
+      const base=seed.audioBase*3*(i+1);
+      f.frequency.setTargetAtTime(base*(1+0.3*Math.sin(tv*(i+1)*seed.feigenbaum*0.1)),now,0.5);
+    }
+  });
+}
+
+// ── HUD ───────────────────────────────────────────────────────────────────────
+const hudTop=document.getElementById('hud-top');
+const hudRight=document.getElementById('hud-right');
+const hudEl=document.getElementById('hud');
+function updateHUD(){
+  if(!hudVisible) return;
+  hudTop.innerHTML=
+    `FRACTAL KALEIDOSCOPE REACTOR<br>`+
+    `TYPE: ${FRACTAL_NAMES[seed.fractalType]}<br>`+
+    `SYMMETRY: ${SYM_NAMES[Math.min(seed.symType,SYM_NAMES.length-1)]} × ${seed.symOrder}<br>`+
+    `POWER: ${seed.power.toFixed(3)}<br>`+
+    `MAX ITER: ${seed.maxIter}<br>`+
+    `ZOOM: ${seed.zoom.toFixed(3)}<br>`+
+    `SOUND: ${soundOn?'ON':'OFF'}`;
+  hudRight.innerHTML=
+    `JULIA C: ${seed.juliaCx.toFixed(3)}+${seed.juliaCy.toFixed(3)}i<br>`+
+    `COLOR BANDS: ${seed.colorBands.toFixed(2)}<br>`+
+    `COLOR SPEED: ${seed.colorSpeed.toFixed(3)}<br>`+
+    `HUE SHIFT: ${seed.hueShift.toFixed(3)}<br>`+
+    `FEIGENBAUM: ${seed.feigenbaum.toFixed(4)}<br>`+
+    `BASE FREQ: ${seed.audioBase.toFixed(1)} Hz<br>`+
+    `FPS: ${fps}`;
+}
+
+// ── Main Loop ─────────────────────────────────────────────────────────────────
+let fps=0,lastFPSTime=0,frameCount=0;
+
+function render(ts){
+  t=ts;
+  frameCount++;
+  if(ts-lastFPSTime>1000){fps=frameCount;frameCount=0;lastFPSTime=ts;}
+  const tv=ts*0.001;
+
+  gl.useProgram(prog);
+  gl.uniform2f(U.res,W,H);
+  gl.uniform1f(U.time,tv);
+  gl.uniform1i(U.fractalType,seed.fractalType);
+  // animate julia c
+  const jcx=seed.juliaCx+0.05*Math.sin(tv*seed.morphSpeed*60);
+  const jcy=seed.juliaCy+0.05*Math.cos(tv*seed.morphSpeed*60*1.3);
+  gl.uniform2f(U.juliaC,jcx,jcy);
+  gl.uniform2f(U.juliaC2,seed.juliaC2x,seed.juliaC2y);
+  gl.uniform1f(U.power,seed.power);
+  gl.uniform1i(U.maxIter,seed.maxIter);
+  gl.uniform1f(U.escapeR,seed.escapeR);
+  gl.uniform1f(U.zoom,seed.zoom);
+  gl.uniform2f(U.pan,seed.panX,seed.panY);
+  gl.uniform1i(U.symOrder,seed.symOrder);
+  gl.uniform1i(U.symType,seed.symType);
+  gl.uniform1f(U.colorOffset,seed.colorOffset+tv*seed.colorSpeed*0.02);
+  gl.uniform1f(U.colorSpeed,seed.colorSpeed);
+  gl.uniform1f(U.colorBands,seed.colorBands);
+  gl.uniform1f(U.hueShift,seed.hueShift+tv*0.01);
+  gl.uniform1f(U.satBoost,seed.satBoost);
+  gl.uniform1f(U.labMix,seed.labMix);
+  gl.uniform4f(U.lyapuvSeq,...seed.lyapuvSeq);
+  gl.uniform1f(U.paletteSeed,seed.paletteSeed);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+
+  modulateAudio();
+  updateHUD();
+  requestAnimationFrame(render);
+}
+
+// ── Controls ──────────────────────────────────────────────────────────────────
+function toggleSound(){
+  if(!audioCtx) initAudio();
+  soundOn=!soundOn;
+  if(soundOn){
+    if(audioCtx.state==='suspended') audioCtx.resume();
+    updateAudio();
+  } else {
+    stopAudio();
+  }
+}
+
+function doRandomize(){
+  if(!audioCtx && soundOn) initAudio();
+  randomize();
+  if(soundOn) updateAudio();
+}
+
+document.addEventListener('keydown',e=>{
+  if(e.code==='Space'){e.preventDefault();doRandomize();}
+  if(e.key==='h'||e.key==='H'){hudVisible=!hudVisible;hudEl.classList.toggle('visible',hudVisible);}
+  if(e.key==='s'||e.key==='S'){toggleSound();}
+});
+
+canvas.addEventListener('click',doRandomize);
+canvas.addEventListener('touchend',e=>{e.preventDefault();doRandomize();},{passive:false});
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+randomize();
+requestAnimationFrame(render);
+
+})();
+</script>
+</body>
+</html>

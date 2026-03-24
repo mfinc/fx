@@ -1,0 +1,1091 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fluid-Ornament Mechanical Universe | Generative Audiovisual System</title>
+<meta name="description" content="A self-contained generative audiovisual system merging Persian arabesque ornamentation, Mughal mandala geometry, fluid dynamics simulations, mechanical linkages, and kaleidoscopic symmetry engines into an endlessly evolving universe.">
+<meta name="keywords" content="generative art, fluid simulation, ornamental geometry, arabesque, mandala, lattice-boltzmann, procedural audio, interactive art, canvas animation">
+<meta property="og:title" content="Fluid-Ornament Mechanical Universe">
+<meta property="og:description" content="Endless generative audiovisual universe merging ornamental traditions with fluid mechanics and procedural sound.">
+<meta property="og:type" content="website">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000}
+  canvas{display:block;width:100vw!important;height:100vh!important;position:fixed;top:0;left:0}
+  #hud{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);font-family:'Courier New',monospace;font-size:11px;color:rgba(255,255,255,0.55);text-align:center;pointer-events:none;letter-spacing:1.5px;text-shadow:0 0 8px rgba(0,0,0,0.9);display:none;z-index:10}
+  #hint{position:fixed;bottom:12px;right:16px;font-family:'Courier New',monospace;font-size:10px;color:rgba(255,255,255,0.2);pointer-events:none;letter-spacing:1px;z-index:10}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<div id="hint">SPACE·H·S</div>
+<script>
+'use strict';
+// ─────────────────────────────────────────────
+//  FLUID-ORNAMENT MECHANICAL UNIVERSE
+//  Single-file generative audiovisual engine
+// ─────────────────────────────────────────────
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const hud = document.getElementById('hud');
+
+let W, H, CX, CY;
+let frame = 0;
+let soundOn = false;
+let hudOn = false;
+let audioCtx = null;
+let masterGain = null;
+let resonators = [];
+let regen = true;
+
+// ── State ──────────────────────────────────
+let state = {};
+
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  CX = W / 2; CY = H / 2;
+}
+window.addEventListener('resize', () => { resize(); if (!regen) initSim(); });
+resize();
+
+// ── Random Utilities ───────────────────────
+const R = Math.random;
+const rng = (a, b) => a + R() * (b - a);
+const rni = (a, b) => Math.floor(rng(a, b + 1));
+const pick = arr => arr[rni(0, arr.length - 1)];
+const tau = Math.PI * 2;
+const cos = Math.cos, sin = Math.sin, abs = Math.abs, sqrt = Math.sqrt, floor = Math.floor;
+
+function hsl(h, s, l, a = 1) {
+  return `hsla(${h|0},${s|0}%,${l|0}%,${a})`;
+}
+
+// ── Color Palettes ─────────────────────────
+const PALETTE_MODES = ['spectral','harmonic','jewel','fire','arctic','neon','earth','void'];
+let palMode, palBase, palShift, palSpeed;
+
+function initPalette() {
+  palMode = pick(PALETTE_MODES);
+  palBase = rng(0, 360);
+  palShift = rng(0.1, 0.5) * (R() < 0.5 ? 1 : -1);
+  palSpeed = rng(0.2, 1.2);
+}
+
+function getColor(t, phase = 0, alpha = 1) {
+  const h = (palBase + t * 360 + phase + frame * palSpeed * 0.3) % 360;
+  switch(palMode) {
+    case 'spectral': return hsl(h, 85, 55, alpha);
+    case 'harmonic': return hsl(h, 70, 60, alpha);
+    case 'jewel':    return hsl(h, 90, 45, alpha);
+    case 'fire':     return hsl(((h % 80) + 280) % 360, 95, 55, alpha);
+    case 'arctic':   return hsl((h % 120) + 180, 80, 65, alpha);
+    case 'neon':     return hsl(h, 100, 60, alpha);
+    case 'earth':    return hsl((h % 100) + 10, 65, 50, alpha);
+    case 'void':     return hsl(h, 40, 35, alpha);
+    default:         return hsl(h, 75, 55, alpha);
+  }
+}
+
+// ── Fluid Simulation (simplified LBM / particle curl) ──
+const FLUID_W = 80, FLUID_H = 60;
+let vel_x, vel_y, density, curl;
+
+function initFluid() {
+  vel_x   = new Float32Array(FLUID_W * FLUID_H);
+  vel_y   = new Float32Array(FLUID_W * FLUID_H);
+  density = new Float32Array(FLUID_W * FLUID_H);
+  curl    = new Float32Array(FLUID_W * FLUID_H);
+  // Seed with noise
+  for (let i = 0; i < FLUID_W * FLUID_H; i++) {
+    density[i] = 0.5 + rng(-0.3, 0.3);
+    vel_x[i] = rng(-0.5, 0.5);
+    vel_y[i] = rng(-0.5, 0.5);
+  }
+}
+
+function stepFluid() {
+  const viscosity = state.viscosity;
+  const buoyancy = state.buoyancy;
+  const nx = FLUID_W, ny = FLUID_H;
+  const vx2 = new Float32Array(nx * ny);
+  const vy2 = new Float32Array(nx * ny);
+  const d2  = new Float32Array(nx * ny);
+
+  for (let y = 1; y < ny - 1; y++) {
+    for (let x = 1; x < nx - 1; x++) {
+      const i = y * nx + x;
+      const il = i - 1, ir = i + 1, iu = i - nx, id = i + nx;
+      // Advection (semi-Lagrangian)
+      const px = x - vel_x[i];
+      const py = y - vel_y[i];
+      const xi = Math.max(1, Math.min(nx - 2, px | 0));
+      const yi = Math.max(1, Math.min(ny - 2, py | 0));
+      const fx = px - xi, fy = py - yi;
+      const i00 = yi * nx + xi, i10 = i00 + 1, i01 = i00 + nx, i11 = i01 + 1;
+      const bilerp = (arr) => arr[i00]*(1-fx)*(1-fy)+arr[i10]*fx*(1-fy)+arr[i01]*(1-fx)*fy+arr[i11]*fx*fy;
+      vx2[i] = bilerp(vel_x) * (1 - viscosity) + (vel_x[il] + vel_x[ir] + vel_x[iu] + vel_x[id]) * viscosity * 0.25;
+      vy2[i] = bilerp(vel_y) * (1 - viscosity) + (vel_y[il] + vel_y[ir] + vel_y[iu] + vel_y[id]) * viscosity * 0.25 + density[i] * buoyancy;
+      d2[i]  = bilerp(density) * 0.998;
+    }
+  }
+  // Pressure projection (one pass)
+  for (let y = 1; y < ny - 1; y++) {
+    for (let x = 1; x < nx - 1; x++) {
+      const i = y * nx + x;
+      const div = (vx2[i+1] - vx2[i-1] + vy2[i+nx] - vy2[i-nx]) * 0.5;
+      vx2[i] -= div * 0.5;
+      vy2[i] -= div * 0.5;
+    }
+  }
+  // Curl
+  for (let y = 1; y < ny - 1; y++) {
+    for (let x = 1; x < nx - 1; x++) {
+      const i = y * nx + x;
+      curl[i] = (vy2[i+1] - vy2[i-1] - vx2[i+nx] + vx2[i-nx]) * 0.5;
+    }
+  }
+  // Add energy at hot spot (Rayleigh-Bénard)
+  const hx = (nx/2 + sin(frame*0.02)*nx*0.3) | 0;
+  for (let x = hx - 4; x < hx + 4; x++) {
+    if (x < 0 || x >= nx) continue;
+    const i = (ny - 2) * nx + x;
+    d2[i] += 0.05;
+    vy2[i] -= 0.08;
+  }
+  vel_x.set(vx2); vel_y.set(vy2); density.set(d2);
+}
+
+function fluidAt(nx, ny) {
+  // sample fluid at normalized coords
+  const x = Math.max(1, Math.min(FLUID_W - 2, (nx * FLUID_W) | 0));
+  const y = Math.max(1, Math.min(FLUID_H - 2, (ny * FLUID_H) | 0));
+  const i = y * FLUID_W + x;
+  return { vx: vel_x[i], vy: vel_y[i], d: density[i], c: curl[i] };
+}
+
+// ── Vortex Particles ───────────────────────
+let vparticles = [];
+function initVParticles() {
+  vparticles = [];
+  const n = rni(120, 250);
+  for (let i = 0; i < n; i++) {
+    vparticles.push({
+      x: rng(0, W), y: rng(0, H),
+      vx: rng(-1, 1), vy: rng(-1, 1),
+      life: rng(0, 1), maxLife: rng(0.5, 2),
+      size: rng(1, 4), hue: rng(0, 1),
+      trail: []
+    });
+  }
+}
+
+function stepVParticles() {
+  const strength = state.vortexStrength;
+  for (let p of vparticles) {
+    const nx = p.x / W, ny = p.y / H;
+    const f = fluidAt(nx, ny);
+    p.vx += f.vx * strength + f.c * 0.3;
+    p.vy += f.vy * strength;
+    p.vx *= 0.97; p.vy *= 0.97;
+    p.trail.push({ x: p.x, y: p.y });
+    if (p.trail.length > 12) p.trail.shift();
+    p.x += p.vx; p.y += p.vy;
+    p.life += 0.01;
+    if (p.x < 0) p.x = W; if (p.x > W) p.x = 0;
+    if (p.y < 0) p.y = H; if (p.y > H) p.y = 0;
+    if (p.life > p.maxLife) {
+      p.x = rng(0, W); p.y = rng(0, H);
+      p.life = 0; p.trail = [];
+      p.hue = rng(0, 1);
+    }
+  }
+}
+
+// ── Mass-Spring Cloth ──────────────────────
+let cloth = { nodes: [], springs: [] };
+function initCloth() {
+  const rows = 12, cols = 16;
+  const sx = W / (cols + 1), sy = H / (rows + 1) * 0.6;
+  const ox = W * 0.1, oy = H * 0.15;
+  cloth.nodes = [];
+  cloth.springs = [];
+  for (let r = 0; r <= rows; r++) {
+    for (let c = 0; c <= cols; c++) {
+      cloth.nodes.push({
+        x: ox + c * sx, y: oy + r * sy,
+        px: ox + c * sx, py: oy + r * sy,
+        pinned: r === 0 && (c === 0 || c === cols || c === cols/2 | 0),
+        vx: 0, vy: 0
+      });
+    }
+  }
+  const stride = cols + 1;
+  for (let r = 0; r <= rows; r++) {
+    for (let c = 0; c <= cols; c++) {
+      const i = r * stride + c;
+      if (c < cols) cloth.springs.push({ a: i, b: i + 1, rest: sx });
+      if (r < rows) cloth.springs.push({ a: i, b: i + stride, rest: sy });
+      if (c < cols && r < rows) cloth.springs.push({ a: i, b: i + stride + 1, rest: Math.hypot(sx, sy) });
+    }
+  }
+}
+
+function stepCloth() {
+  const ks = 0.4, kd = 0.02;
+  // Spring forces
+  for (let s of cloth.springs) {
+    const a = cloth.nodes[s.a], b = cloth.nodes[s.b];
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const dist = Math.hypot(dx, dy) || 0.0001;
+    const force = (dist - s.rest) * ks;
+    const fx = force * dx / dist, fy = force * dy / dist;
+    if (!a.pinned) { a.vx += fx; a.vy += fy; }
+    if (!b.pinned) { b.vx -= fx; b.vy -= fy; }
+  }
+  // Update positions with fluid influence
+  for (let n of cloth.nodes) {
+    if (n.pinned) continue;
+    const f = fluidAt(n.x / W, n.y / H);
+    n.vx += f.vx * 0.15;
+    n.vy += f.vy * 0.15 + 0.05; // gravity
+    n.vx *= (1 - kd); n.vy *= (1 - kd);
+    n.x += n.vx; n.y += n.vy;
+    if (n.x < 0) n.x = 0; if (n.x > W) n.x = W;
+    if (n.y < 0) n.y = 0; if (n.y > H) n.y = H;
+  }
+}
+
+// ── Mechanical Linkages ────────────────────
+let linkages = [];
+function initLinkages() {
+  linkages = [];
+  const n = rni(3, 7);
+  for (let i = 0; i < n; i++) {
+    const cx = rng(W * 0.1, W * 0.9);
+    const cy = rng(H * 0.2, H * 0.8);
+    const phase = rng(0, tau);
+    const r1 = rng(40, 120), r2 = rng(60, 180);
+    const speed = rng(0.005, 0.025) * (R() < 0.5 ? 1 : -1);
+    linkages.push({ cx, cy, r1, r2, phase, speed, offset: rng(0, tau) });
+  }
+}
+
+function getLinkagePos(lk, t) {
+  const a1 = lk.phase + t * lk.speed;
+  const a2 = a1 * 2 + lk.offset;
+  const x1 = lk.cx + cos(a1) * lk.r1;
+  const y1 = lk.cy + sin(a1) * lk.r1;
+  const x2 = x1 + cos(a2) * lk.r2;
+  const y2 = y1 + sin(a2) * lk.r2;
+  return { x1: lk.cx, y1: lk.cy, x2: x1, y2: y1, x3: x2, y3: y2 };
+}
+
+// ── Coupled Oscillators ────────────────────
+let oscillators = [];
+function initOscillators() {
+  oscillators = [];
+  const n = rni(6, 14);
+  for (let i = 0; i < n; i++) {
+    const freq = rng(0.01, 0.06);
+    const coupling = rng(0.0005, 0.003);
+    oscillators.push({
+      x: rng(W * 0.05, W * 0.95), y: rng(H * 0.05, H * 0.95),
+      phase: rng(0, tau), freq, coupling,
+      amp: rng(20, 80), vel: 0,
+      theta: rng(0, tau)
+    });
+  }
+}
+
+function stepOscillators() {
+  for (let i = 0; i < oscillators.length; i++) {
+    const o = oscillators[i];
+    let force = -o.freq * o.freq * o.theta;
+    for (let j = 0; j < oscillators.length; j++) {
+      if (i === j) continue;
+      const o2 = oscillators[j];
+      const d = Math.hypot(o.x - o2.x, o.y - o2.y);
+      if (d < 300) force += o.coupling * (o2.theta - o.theta) / (d * 0.01);
+    }
+    o.vel += force;
+    o.vel *= 0.995;
+    o.theta += o.vel;
+  }
+}
+
+// ── 4D Hypercube Projection ────────────────
+let hypercube = { angle4: 0, angle5: 0, speed4: 0, speed5: 0 };
+const HC_VERTS = [];
+const HC_EDGES = [];
+(function buildHypercube() {
+  for (let i = 0; i < 16; i++) {
+    HC_VERTS.push([
+      (i & 1) ? 1 : -1,
+      (i & 2) ? 1 : -1,
+      (i & 4) ? 1 : -1,
+      (i & 8) ? 1 : -1
+    ]);
+  }
+  for (let i = 0; i < 16; i++) {
+    for (let j = i + 1; j < 16; j++) {
+      let diff = 0;
+      for (let k = 0; k < 4; k++) if (HC_VERTS[i][k] !== HC_VERTS[j][k]) diff++;
+      if (diff === 1) HC_EDGES.push([i, j]);
+    }
+  }
+})();
+
+function project4D(v, a4, a5) {
+  // Rotate in 4D planes
+  const x = v[0], y = v[1], z = v[2], w = v[3];
+  const c4 = cos(a4), s4 = sin(a4);
+  const x2 = x * c4 - w * s4, w2 = x * s4 + w * c4;
+  const c5 = cos(a5), s5 = sin(a5);
+  const y2 = y * c5 - z * s5, z2 = y * s5 + z * c5;
+  // Project 4D -> 3D -> 2D
+  const d = 3;
+  const px3 = x2 / (d - z2), py3 = y2 / (d - z2);
+  const scale = Math.min(W, H) * 0.12;
+  return [CX + px3 * scale, CY + py3 * scale, d - z2];
+}
+
+function initHypercube() {
+  hypercube.angle4 = rng(0, tau);
+  hypercube.angle5 = rng(0, tau);
+  hypercube.speed4 = rng(0.003, 0.012) * (R() < 0.5 ? 1 : -1);
+  hypercube.speed5 = rng(0.002, 0.009) * (R() < 0.5 ? 1 : -1);
+}
+
+// ── Quasicrystal / Penrose ─────────────────
+let quasi = { scale: 1, offset: [0, 0], speed: 0 };
+function initQuasi() {
+  quasi.scale = rng(30, 80);
+  quasi.offset = [rng(0, 1000), rng(0, 1000)];
+  quasi.speed = rng(0.2, 0.8);
+}
+
+function penroseVal(x, y, t) {
+  let v = 0;
+  for (let k = 0; k < 5; k++) {
+    const angle = k * Math.PI * 0.4;
+    v += cos(cos(angle) * x + sin(angle) * y + t);
+  }
+  return v / 5;
+}
+
+// ── Ornamental Geometry ────────────────────
+let ornaments = [];
+function initOrnaments() {
+  ornaments = [];
+  const n = rni(4, 10);
+  for (let i = 0; i < n; i++) {
+    ornaments.push({
+      x: rng(W * 0.1, W * 0.9), y: rng(H * 0.1, H * 0.9),
+      r: rng(40, 150), type: pick(['arabesque','mandala','knotwork','tracery','thai']),
+      sym: pick([6, 8, 12, 16, 24]),
+      phase: rng(0, tau), speed: rng(0.001, 0.008) * (R() < 0.5 ? 1 : -1),
+      hue: rng(0, 1), depth: rni(3, 7)
+    });
+  }
+}
+
+function drawArabesque(cx, cy, r, sym, t, col) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  for (let k = 0; k < sym; k++) {
+    ctx.save();
+    ctx.rotate(k * tau / sym + t);
+    ctx.beginPath();
+    const petals = 3;
+    for (let p = 0; p < petals; p++) {
+      const pa = p * tau / petals;
+      const pr = r * 0.6;
+      for (let i = 0; i <= 30; i++) {
+        const a = pa + i * tau / petals / 30;
+        const rr = pr * (0.5 + 0.5 * cos(i * 3 * tau / 30));
+        const x = cos(a) * rr, y = sin(a) * rr;
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+    }
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+function drawMandala(cx, cy, r, sym, t, col) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  for (let layer = 1; layer <= 5; layer++) {
+    const lr = r * layer / 5;
+    for (let k = 0; k < sym * layer; k++) {
+      const a = k * tau / (sym * layer) + t * (layer % 2 === 0 ? 1 : -1);
+      ctx.beginPath();
+      const petal = lr * 0.15;
+      ctx.ellipse(cos(a) * lr, sin(a) * lr, petal, petal * 0.4, a + Math.PI/2, 0, tau);
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 0.6;
+      ctx.stroke();
+    }
+  }
+  // Central star
+  ctx.beginPath();
+  for (let k = 0; k < sym * 2; k++) {
+    const a = k * tau / (sym * 2) + t;
+    const rr = k % 2 === 0 ? r * 0.25 : r * 0.12;
+    k === 0 ? ctx.moveTo(cos(a)*rr, sin(a)*rr) : ctx.lineTo(cos(a)*rr, sin(a)*rr);
+  }
+  ctx.closePath();
+  ctx.strokeStyle = col;
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawKnotwork(cx, cy, r, sym, t, col) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  for (let k = 0; k < sym; k++) {
+    ctx.save();
+    ctx.rotate(k * tau / sym);
+    ctx.beginPath();
+    for (let i = 0; i <= 80; i++) {
+      const tt = i / 80 * tau;
+      const rr = r * (0.4 + 0.3 * sin(tt * 3) + 0.15 * cos(tt * 7 + t));
+      ctx.lineTo(cos(tt) * rr, sin(tt) * rr);
+    }
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 0.9;
+    ctx.stroke();
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+function drawTracery(cx, cy, r, sym, t, col) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  for (let k = 0; k < sym; k++) {
+    ctx.save();
+    ctx.rotate(k * tau / sym + t);
+    ctx.beginPath();
+    ctx.arc(r * 0.5, 0, r * 0.35, 0, tau);
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 0.7;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(r, 0);
+    ctx.stroke();
+    ctx.restore();
+  }
+  // Gothic arcs
+  for (let k = 0; k < sym; k++) {
+    const a1 = k * tau / sym + t;
+    const a2 = (k + 1) * tau / sym + t;
+    ctx.beginPath();
+    ctx.moveTo(cos(a1) * r, sin(a1) * r);
+    ctx.quadraticCurveTo(cos((a1 + a2) / 2) * r * 1.3, sin((a1 + a2) / 2) * r * 1.3,
+      cos(a2) * r, sin(a2) * r);
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawThai(cx, cy, r, sym, t, col) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  for (let k = 0; k < sym; k++) {
+    ctx.save();
+    ctx.rotate(k * tau / sym + t);
+    ctx.beginPath();
+    const steps = 20;
+    for (let i = 0; i <= steps; i++) {
+      const tt = i / steps;
+      const curl = sin(tt * Math.PI) * r * 0.3;
+      const x = tt * r;
+      const y = curl * sin(tt * tau * 2);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 0.9;
+    ctx.stroke();
+    // Floral tip
+    ctx.beginPath();
+    ctx.arc(r, 0, r * 0.12, 0, tau);
+    ctx.stroke();
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+// ── Kaleidoscope Engine ────────────────────
+let kaleidoSym = 8, kaleidoT = 0;
+function initKaleido() {
+  kaleidoSym = pick([6, 8, 10, 12, 16]);
+}
+
+function drawKaleidoLayer() {
+  const sliceAngle = tau / kaleidoSym;
+  ctx.save();
+  ctx.translate(CX, CY);
+  for (let k = 0; k < kaleidoSym; k++) {
+    ctx.save();
+    ctx.rotate(k * sliceAngle + kaleidoT * 0.001);
+    if (k % 2 === 1) ctx.scale(1, -1);
+    // Draw interference fringes
+    for (let i = 0; i < 8; i++) {
+      const r = (i + 1) * Math.min(W, H) * 0.06;
+      const hh = (palBase + i * 40 + frame * palSpeed * 0.3) % 360;
+      ctx.beginPath();
+      ctx.arc(0, 0, r, -sliceAngle / 2, sliceAngle / 2);
+      ctx.strokeStyle = hsl(hh, 70, 60, 0.12);
+      ctx.lineWidth = Math.min(W, H) * 0.06;
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+// ── Stained Glass Tessellation ─────────────
+let glassPolys = [];
+function initGlass() {
+  glassPolys = [];
+  const n = rni(20, 50);
+  const pts = [];
+  for (let i = 0; i < n; i++) pts.push([rng(0, W), rng(0, H)]);
+  // Approximate voronoi with fortune-ish
+  for (let i = 0; i < n; i++) {
+    const [px, py] = pts[i];
+    const verts = [];
+    // Build convex hull per region (simplified bounding)
+    const r = rng(W * 0.04, W * 0.12);
+    const sides = rni(4, 8);
+    for (let s = 0; s < sides; s++) {
+      const a = s * tau / sides + rng(-0.3, 0.3);
+      verts.push([px + cos(a) * r * rng(0.6, 1.4), py + sin(a) * r * rng(0.6, 1.4)]);
+    }
+    glassPolys.push({ verts, hue: rng(0, 1), phase: rng(0, tau), speed: rng(0.001, 0.01) });
+  }
+}
+
+function drawGlass(alpha) {
+  for (let g of glassPolys) {
+    if (g.verts.length < 3) continue;
+    const hh = (palBase + g.hue * 360 + frame * palSpeed * 0.3 + g.phase * 30) % 360;
+    ctx.beginPath();
+    ctx.moveTo(g.verts[0][0], g.verts[0][1]);
+    for (let i = 1; i < g.verts.length; i++) ctx.lineTo(g.verts[i][0], g.verts[i][1]);
+    ctx.closePath();
+    ctx.fillStyle = hsl(hh, 75, 45, alpha * 0.08);
+    ctx.fill();
+    ctx.strokeStyle = hsl(hh, 85, 65, alpha * 0.4);
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+  }
+}
+
+// ── Maze / Labyrinth ───────────────────────
+let maze = { cells: [], w: 0, h: 0, paths: [] };
+function initMaze() {
+  const mw = rni(12, 20), mh = rni(8, 14);
+  maze.w = mw; maze.h = mh;
+  const cells = new Uint8Array(mw * mh).fill(15); // all walls: bit 0=N 1=E 2=S 3=W
+  const visited = new Uint8Array(mw * mh);
+  // DFS maze generation
+  const stack = [0];
+  visited[0] = 1;
+  let count = 1;
+  while (count < mw * mh) {
+    const cur = stack[stack.length - 1];
+    const cx = cur % mw, cy = (cur / mw) | 0;
+    const neighbors = [];
+    if (cy > 0 && !visited[cur - mw]) neighbors.push([cur - mw, 0, 2]);
+    if (cx < mw-1 && !visited[cur + 1]) neighbors.push([cur + 1, 1, 3]);
+    if (cy < mh-1 && !visited[cur + mw]) neighbors.push([cur + mw, 2, 0]);
+    if (cx > 0 && !visited[cur - 1]) neighbors.push([cur - 1, 3, 1]);
+    if (neighbors.length) {
+      const [next, dir, opp] = pick(neighbors);
+      cells[cur] &= ~(1 << dir);
+      cells[next] &= ~(1 << opp);
+      visited[next] = 1;
+      stack.push(next);
+      count++;
+    } else stack.pop();
+  }
+  maze.cells = cells;
+  // Build path segments
+  maze.paths = [];
+  const cw = W / mw, ch = H / mh;
+  for (let y = 0; y < mh; y++) {
+    for (let x = 0; x < mw; x++) {
+      const c = cells[y * mw + x];
+      const px = x * cw, py = y * ch;
+      if (c & 1) maze.paths.push([px, py, px + cw, py]);
+      if (c & 2) maze.paths.push([px + cw, py, px + cw, py + ch]);
+    }
+  }
+}
+
+function drawMaze(alpha) {
+  ctx.save();
+  ctx.strokeStyle = getColor(0.5, 120, alpha * 0.25);
+  ctx.lineWidth = 0.8;
+  for (const [x1, y1, x2, y2] of maze.paths) {
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// ── Caustics / Interference ────────────────
+function drawCaustics(alpha) {
+  const sources = oscillators.slice(0, 4);
+  if (!sources.length) return;
+  ctx.save();
+  for (let i = 0; i < W; i += 8) {
+    for (let j = 0; j < H; j += 8) {
+      let val = 0;
+      for (const o of sources) {
+        const d = Math.hypot(i - o.x, j - o.y);
+        val += cos(d * 0.05 - frame * 0.03 + o.theta) * 0.5;
+      }
+      const t = (val + sources.length * 0.5) / sources.length;
+      if (t > 0.6) {
+        ctx.fillStyle = getColor(t, 80, alpha * (t - 0.6) * 2.5 * 0.15);
+        ctx.fillRect(i - 3, j - 3, 6, 6);
+      }
+    }
+  }
+  ctx.restore();
+}
+
+// ── Audio System ───────────────────────────
+function initAudio() {
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  masterGain = audioCtx.createGain();
+  masterGain.gain.value = 0.0;
+  masterGain.connect(audioCtx.destination);
+  resonators = [];
+  const freqs = [55, 82.5, 110, 137.5, 165, 220, 275, 330];
+  for (const f of freqs) {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.value = f;
+    filter.Q.value = 12;
+    osc.type = pick(['sine', 'triangle', 'sawtooth']);
+    osc.frequency.value = f;
+    gain.gain.value = 0;
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(masterGain);
+    osc.start();
+    resonators.push({ osc, gain, filter, baseFreq: f });
+  }
+  // Noise waveguide
+  const bufferSize = audioCtx.sampleRate * 2;
+  const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) data[i] = R() * 2 - 1;
+  const noiseSource = audioCtx.createBufferSource();
+  noiseSource.buffer = buffer;
+  noiseSource.loop = true;
+  const noiseFilter = audioCtx.createBiquadFilter();
+  noiseFilter.type = 'lowpass';
+  noiseFilter.frequency.value = 200;
+  const noiseGain = audioCtx.createGain();
+  noiseGain.gain.value = 0;
+  noiseSource.connect(noiseFilter);
+  noiseFilter.connect(noiseGain);
+  noiseGain.connect(masterGain);
+  noiseSource.start();
+  resonators.push({ gain: noiseGain, isNoise: true, filter: noiseFilter });
+}
+
+function updateAudio() {
+  if (!soundOn || !audioCtx || !resonators.length) return;
+  const t = audioCtx.currentTime;
+  // Derive energy from fluid
+  let fluidEnergy = 0;
+  for (let i = 0; i < vel_x.length; i += 10) {
+    fluidEnergy += abs(vel_x[i]) + abs(vel_y[i]);
+  }
+  fluidEnergy /= (vel_x.length / 10);
+  // Drive resonators from oscillators
+  for (let i = 0; i < resonators.length - 1; i++) {
+    const r = resonators[i];
+    const o = oscillators[i % oscillators.length];
+    if (!o) continue;
+    const amp = (abs(o.theta) * 0.05 + fluidEnergy * 0.3) * 0.08;
+    r.gain.gain.setTargetAtTime(Math.min(0.12, amp), t, 0.1);
+    r.osc.frequency.setTargetAtTime(r.baseFreq * (1 + o.theta * 0.03), t, 0.3);
+  }
+  // Noise from fluid turbulence
+  const nr = resonators[resonators.length - 1];
+  if (nr && nr.isNoise) {
+    nr.gain.gain.setTargetAtTime(fluidEnergy * 0.04, t, 0.2);
+    nr.filter.frequency.setTargetAtTime(100 + fluidEnergy * 500, t, 0.2);
+  }
+  masterGain.gain.setTargetAtTime(0.5, t, 0.05);
+}
+
+// ── Initialize Simulation ──────────────────
+function initSim() {
+  state = {
+    viscosity: rng(0.01, 0.15),
+    buoyancy: rng(-0.003, 0.003),
+    vortexStrength: rng(0.3, 1.2),
+    seed: Date.now()
+  };
+  initPalette();
+  initFluid();
+  initVParticles();
+  initCloth();
+  initLinkages();
+  initOscillators();
+  initHypercube();
+  initQuasi();
+  initOrnaments();
+  initKaleido();
+  initGlass();
+  initMaze();
+  frame = 0;
+  regen = false;
+}
+
+// ── Draw Background ────────────────────────
+function drawBackground() {
+  // Deep background gradient
+  const bg = ctx.createRadialGradient(CX, CY, 0, CX, CY, Math.max(W, H) * 0.8);
+  const h1 = (palBase + frame * palSpeed * 0.1) % 360;
+  const h2 = (h1 + 40) % 360;
+  bg.addColorStop(0, hsl(h1, 40, 8));
+  bg.addColorStop(1, hsl(h2, 30, 4));
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+}
+
+// ── Draw Fluid Field ───────────────────────
+function drawFluid(alpha) {
+  const cw = W / FLUID_W, ch = H / FLUID_H;
+  ctx.save();
+  for (let y = 1; y < FLUID_H - 1; y += 2) {
+    for (let x = 1; x < FLUID_W - 1; x += 2) {
+      const i = y * FLUID_W + x;
+      const d = density[i];
+      const c = curl[i];
+      const hh = (palBase + c * 200 + frame * palSpeed * 0.3) % 360;
+      const a = Math.min(1, abs(d - 0.5) * 1.5) * alpha * 0.4;
+      if (a > 0.02) {
+        ctx.fillStyle = hsl(hh, 80, 50, a);
+        ctx.fillRect(x * cw - 1, y * ch - 1, cw * 2 + 2, ch * 2 + 2);
+      }
+    }
+  }
+  ctx.restore();
+}
+
+// ── Draw Particles ─────────────────────────
+function drawParticles() {
+  ctx.save();
+  for (const p of vparticles) {
+    if (p.trail.length < 2) continue;
+    const alpha = (1 - p.life / p.maxLife) * 0.7;
+    ctx.beginPath();
+    ctx.moveTo(p.trail[0].x, p.trail[0].y);
+    for (let i = 1; i < p.trail.length; i++) ctx.lineTo(p.trail[i].x, p.trail[i].y);
+    ctx.strokeStyle = getColor(p.hue, 0, alpha * 0.6);
+    ctx.lineWidth = p.size * 0.5;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size, 0, tau);
+    ctx.fillStyle = getColor(p.hue, 60, alpha);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+// ── Draw Cloth ─────────────────────────────
+function drawCloth() {
+  ctx.save();
+  const stride = 17; // cols+1
+  ctx.lineWidth = 0.8;
+  for (const s of cloth.springs) {
+    const a = cloth.nodes[s.a], b = cloth.nodes[s.b];
+    if (!a || !b) continue;
+    const t = (frame * palSpeed * 0.003 + s.a * 0.01) % 1;
+    ctx.strokeStyle = getColor(t, 30, 0.35);
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// ── Draw Linkages ──────────────────────────
+function drawLinkages() {
+  ctx.save();
+  for (let idx = 0; idx < linkages.length; idx++) {
+    const lk = linkages[idx];
+    const pos = getLinkagePos(lk, frame);
+    const col = getColor(idx / linkages.length, 120, 0.7);
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(pos.x1, pos.y1); ctx.lineTo(pos.x2, pos.y2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(pos.x2, pos.y2); ctx.lineTo(pos.x3, pos.y3);
+    ctx.stroke();
+    // Joints
+    for (const [jx, jy] of [[pos.x1,pos.y1],[pos.x2,pos.y2],[pos.x3,pos.y3]]) {
+      ctx.beginPath();
+      ctx.arc(jx, jy, 5, 0, tau);
+      ctx.fillStyle = col;
+      ctx.fill();
+    }
+    // Rack gear teeth on longest rod
+    const dx = pos.x2 - pos.x1, dy = pos.y2 - pos.y1;
+    const len = Math.hypot(dx, dy);
+    const toothN = floor(len / 12);
+    const perp = [-dy / len * 4, dx / len * 4];
+    for (let t = 0; t < toothN; t++) {
+      const tt = (t + 0.5) / toothN;
+      const tx = pos.x1 + dx * tt, ty = pos.y1 + dy * tt;
+      ctx.beginPath();
+      ctx.moveTo(tx, ty);
+      ctx.lineTo(tx + perp[0], ty + perp[1]);
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+// ── Draw Oscillator Network ────────────────
+function drawOscillators() {
+  ctx.save();
+  for (let i = 0; i < oscillators.length; i++) {
+    const o = oscillators[i];
+    const disp = o.theta * o.amp;
+    const ox = o.x + cos(o.phase) * disp;
+    const oy = o.y + sin(o.phase) * disp;
+    const col = getColor(i / oscillators.length, 200, 0.5);
+    // Connection lines
+    for (let j = i + 1; j < oscillators.length; j++) {
+      const o2 = oscillators[j];
+      const d = Math.hypot(ox - o2.x, oy - o2.y);
+      if (d < 280) {
+        ctx.beginPath();
+        ctx.moveTo(ox, oy);
+        ctx.lineTo(o2.x + cos(o2.phase) * o2.theta * o2.amp,
+                   o2.y + sin(o2.phase) * o2.theta * o2.amp);
+        ctx.strokeStyle = getColor(i / oscillators.length, 0, 0.15 * (1 - d / 280));
+        ctx.lineWidth = 0.6;
+        ctx.stroke();
+      }
+    }
+    // Node
+    ctx.beginPath();
+    ctx.arc(ox, oy, 3 + abs(o.theta) * 5, 0, tau);
+    ctx.fillStyle = col;
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+// ── Draw Hypercube ─────────────────────────
+function drawHypercube() {
+  hypercube.angle4 += hypercube.speed4;
+  hypercube.angle5 += hypercube.speed5;
+  const proj = HC_VERTS.map(v => project4D(v, hypercube.angle4, hypercube.angle5));
+  ctx.save();
+  for (const [a, b] of HC_EDGES) {
+    const [ax, ay, az] = proj[a], [bx, by, bz] = proj[b];
+    const t = (a + b) / 32;
+    const alpha = 0.2 + (az + bz) * 0.05;
+    ctx.beginPath();
+    ctx.moveTo(ax, ay);
+    ctx.lineTo(bx, by);
+    ctx.strokeStyle = getColor(t, 180, Math.min(0.8, abs(alpha)));
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+  for (const [x, y] of proj) {
+    ctx.beginPath();
+    ctx.arc(x, y, 3, 0, tau);
+    ctx.fillStyle = getColor(0.8, 240, 0.9);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+// ── Draw Quasicrystal ──────────────────────
+function drawQuasi(alpha) {
+  const s = quasi.scale;
+  const t = frame * quasi.speed * 0.01;
+  ctx.save();
+  for (let y = 0; y < H; y += s) {
+    for (let x = 0; x < W; x += s) {
+      const v = penroseVal((x + quasi.offset[0]) / s, (y + quasi.offset[1]) / s, t);
+      if (v > 0.3) {
+        ctx.fillStyle = getColor((v + 1) / 2, 160, alpha * v * 0.18);
+        ctx.fillRect(x, y, s - 1, s - 1);
+      }
+    }
+  }
+  ctx.restore();
+}
+
+// ── Draw Ornaments ─────────────────────────
+function drawOrnaments() {
+  for (const o of ornaments) {
+    const t = frame * o.speed + o.phase;
+    const col = getColor(o.hue, 0, 0.7);
+    switch (o.type) {
+      case 'arabesque': drawArabesque(o.x, o.y, o.r, o.sym, t, col); break;
+      case 'mandala':   drawMandala(o.x, o.y, o.r, o.sym, t, col); break;
+      case 'knotwork':  drawKnotwork(o.x, o.y, o.r, o.sym, t, col); break;
+      case 'tracery':   drawTracery(o.x, o.y, o.r, o.sym, t, col); break;
+      case 'thai':      drawThai(o.x, o.y, o.r, o.sym, t, col); break;
+    }
+  }
+}
+
+// ── HUD Update ─────────────────────────────
+function updateHUD() {
+  if (!hudOn) { hud.style.display = 'none'; return; }
+  hud.style.display = 'block';
+  let fluidKE = 0;
+  for (let i = 0; i < vel_x.length; i++) fluidKE += vel_x[i]*vel_x[i] + vel_y[i]*vel_y[i];
+  fluidKE = (fluidKE / vel_x.length).toFixed(4);
+  let oscEnergy = oscillators.reduce((s, o) => s + o.vel * o.vel, 0).toFixed(4);
+  hud.textContent = `FPS:${(1000 / 16.7).toFixed(0)} | FluidKE:${fluidKE} | OscE:${oscEnergy} | Palette:${palMode.toUpperCase()} | Sym:${kaleidoSym} | Sound:${soundOn ? 'ON' : 'OFF'}`;
+}
+
+// ── Main Render Loop ───────────────────────
+let lastTime = 0;
+function render(ts) {
+  requestAnimationFrame(render);
+  if (regen) { initSim(); return; }
+  const dt = ts - lastTime;
+  lastTime = ts;
+
+  frame++;
+  kaleidoT = frame;
+
+  // Physics steps (throttled for perf)
+  if (frame % 2 === 0) stepFluid();
+  stepVParticles();
+  if (frame % 3 === 0) stepCloth();
+  stepOscillators();
+  if (soundOn) updateAudio();
+
+  // ── Render ──
+  // Trail / persistence
+  ctx.fillStyle = 'rgba(0,0,0,0.18)';
+  ctx.fillRect(0, 0, W, H);
+
+  drawBackground();
+
+  // Quasicrystal base layer
+  drawQuasi(0.4);
+
+  // Kaleidoscope layer
+  drawKaleidoLayer();
+
+  // Stained glass
+  drawGlass(0.9);
+
+  // Caustics
+  if (frame % 3 < 2) drawCaustics(0.5);
+
+  // Fluid density field
+  drawFluid(0.6);
+
+  // Maze overlay
+  drawMaze(0.7);
+
+  // Ornamental geometry
+  drawOrnaments();
+
+  // Cloth membrane
+  drawCloth();
+
+  // Linkage mechanisms
+  drawLinkages();
+
+  // Oscillator network
+  drawOscillators();
+
+  // Hypercube
+  drawHypercube();
+
+  // Particle trails (top layer)
+  drawParticles();
+
+  // Vignette
+  const vig = ctx.createRadialGradient(CX, CY, Math.min(W,H)*0.3, CX, CY, Math.max(W,H)*0.75);
+  vig.addColorStop(0, 'rgba(0,0,0,0)');
+  vig.addColorStop(1, 'rgba(0,0,0,0.55)');
+  ctx.fillStyle = vig;
+  ctx.fillRect(0, 0, W, H);
+
+  updateHUD();
+
+  // Palette transform trigger
+  if (frame % rni(300, 800) === 0) initPalette();
+}
+
+// ── Input Handling ─────────────────────────
+function triggerRegen() {
+  regen = true;
+}
+
+function toggleSound() {
+  soundOn = !soundOn;
+  if (soundOn) {
+    initAudio();
+    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+  } else if (masterGain) {
+    masterGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.3);
+  }
+}
+
+function toggleHUD() {
+  hudOn = !hudOn;
+}
+
+document.addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+  if (k === ' ' || e.code === 'Space') { e.preventDefault(); triggerRegen(); }
+  else if (k === 'h') toggleHUD();
+  else if (k === 's') toggleSound();
+});
+
+canvas.addEventListener('click', triggerRegen);
+canvas.addEventListener('touchend', e => { e.preventDefault(); triggerRegen(); }, { passive: false });
+
+// ── Boot ───────────────────────────────────
+initSim();
+requestAnimationFrame(render);
+</script>
+</body>
+</html>

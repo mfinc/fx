@@ -1,0 +1,990 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="description" content="GPU-accelerated generative computational visual art engine featuring quasicrystals, Penrose tilings, Ammann-Beenker patterns, Voronoi diagrams, hyperbolic geometry, Islamic star tilings, Celtic knots, cellular automata, and physics simulations with WebGL shaders.">
+    <meta name="keywords" content="generative art, quasicrystals, computational geometry, WebGL, Penrose tiling, Ammann-Beenker, Voronoi diagrams, hyperbolic tilings, Islamic geometry, Celtic knots, cellular automata, reaction-diffusion, fluid dynamics, procedural art, shader art, GPU accelerated">
+    <meta name="author" content="Computational Art Engine">
+    <meta name="theme-color" content="#000000">
+    <title>Generative Computational Art Engine | GPU-Accelerated Visual Systems</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { 
+            width: 100%; height: 100%; 
+            overflow: hidden; 
+            background: #000; 
+            touch-action: none;
+        }
+        canvas { 
+            display: block; 
+            width: 100vw; 
+            height: 100vh;
+        }
+        #hud {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            color: rgba(255,255,255,0.8);
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            pointer-events: none;
+            z-index: 100;
+            display: none;
+            text-shadow: 0 0 5px rgba(0,0,0,0.8);
+            line-height: 1.6;
+        }
+        #hud.visible { display: block; }
+        #controls {
+            position: fixed;
+            bottom: 10px;
+            left: 10px;
+            color: rgba(255,255,255,0.5);
+            font-family: sans-serif;
+            font-size: 11px;
+            pointer-events: none;
+            z-index: 100;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <div id="hud">
+        <div>System: <span id="sys-name">-</span></div>
+        <div>FPS: <span id="fps">-</span></div>
+        <div>Entities: <span id="entities">-</span></div>
+        <div>Palette: <span id="palette">-</span></div>
+        <div>Audio: <span id="audio-status">OFF</span></div>
+    </div>
+    <div id="controls">SPACE/Click: New | H: HUD | S: Sound</div>
+
+<script>
+// ============================================
+// GENERATIVE COMPUTATIONAL ART ENGINE
+// GPU-Accelerated WebGL Visual Systems
+// ============================================
+
+const canvas = document.getElementById('canvas');
+const gl = canvas.getContext('webgl2', { 
+    alpha: false, 
+    antialias: false,
+    powerPreference: 'high-performance'
+});
+
+if (!gl) {
+    alert('WebGL2 not supported. Please use a modern browser.');
+}
+
+// ============================================
+// SHADER SOURCES
+// ============================================
+
+const vertexShaderSource = `#version 300 es
+precision highp float;
+in vec2 a_position;
+in vec2 a_uv;
+out vec2 v_uv;
+void main() {
+    gl_Position = vec4(a_position, 0.0, 1.0);
+    v_uv = a_uv;
+}
+`;
+
+const fragmentShaderSource = `#version 300 es
+precision highp float;
+
+in vec2 v_uv;
+out vec4 fragColor;
+
+uniform float u_time;
+uniform vec2 u_resolution;
+uniform vec2 u_mouse;
+uniform int u_system;
+uniform int u_palette;
+uniform float u_seed;
+uniform float u_energy;
+
+// ============================================
+// UTILITIES
+// ============================================
+
+vec3 hsv2rgb(vec3 c) {
+    vec4 K = vec4(1.0, 2.0/3.0, 1.0/3.0, 3.0);
+    vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+    return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+}
+
+float hash(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+}
+
+float hash3(vec3 p) {
+    return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453);
+}
+
+float noise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    float a = hash(i);
+    float b = hash(i + vec2(1.0, 0.0));
+    float c = hash(i + vec2(0.0, 1.0));
+    float d = hash(i + vec2(1.0, 1.0));
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
+float fbm(vec2 p) {
+    float v = 0.0;
+    float a = 0.5;
+    for (int i = 0; i < 5; i++) {
+        v += a * noise(p);
+        p *= 2.0;
+        a *= 0.5;
+    }
+    return v;
+}
+
+mat2 rot(float a) {
+    float s = sin(a), c = cos(a);
+    return mat2(c, -s, s, c);
+}
+
+// ============================================
+// COLOR PALETTES
+// ============================================
+
+vec3 palette(float t, int idx) {
+    if (idx == 0) { // Spectral
+        return hsv2rgb(vec3(t + u_time * 0.05, 0.8, 1.0));
+    } else if (idx == 1) { // Sunset
+        vec3 a = vec3(0.5, 0.5, 0.5);
+        vec3 b = vec3(0.5, 0.5, 0.5);
+        vec3 c = vec3(1.0, 1.0, 1.0);
+        vec3 d = vec3(0.80, 0.40, 0.20);
+        return a + b * cos(6.28318 * (c * t + d + u_time * 0.03));
+    } else if (idx == 2) { // Ocean
+        vec3 a = vec3(0.1, 0.3, 0.5);
+        vec3 b = vec3(0.2, 0.4, 0.4);
+        vec3 c = vec3(0.5, 0.5, 0.5);
+        vec3 d = vec3(0.0, 0.33, 0.67);
+        return a + b * cos(6.28318 * (c * t + d + u_time * 0.02));
+    } else if (idx == 3) { // Neon
+        vec3 a = vec3(0.5);
+        vec3 b = vec3(0.5);
+        vec3 c = vec3(1.0);
+        vec3 d = vec3(0.0, 0.67, 0.83);
+        return a + b * cos(6.28318 * (c * t + d + u_time * 0.04));
+    } else if (idx == 4) { // Fire
+        vec3 a = vec3(0.5, 0.2, 0.0);
+        vec3 b = vec3(0.5, 0.3, 0.1);
+        vec3 c = vec3(1.0, 0.8, 0.3);
+        vec3 d = vec3(0.0, 0.15, 0.20);
+        return a + b * cos(6.28318 * (c * t + d + u_time * 0.05));
+    } else if (idx == 5) { // Aurora
+        vec3 a = vec3(0.1, 0.4, 0.2);
+        vec3 b = vec3(0.2, 0.3, 0.3);
+        vec3 c = vec3(0.5, 0.5, 0.5);
+        vec3 d = vec3(0.25, 0.67, 0.42);
+        return a + b * cos(6.28318 * (c * t + d + u_time * 0.03));
+    } else if (idx == 6) { // Deep Space
+        vec3 a = vec3(0.1, 0.05, 0.2);
+        vec3 b = vec3(0.3, 0.2, 0.4);
+        vec3 c = vec3(0.5, 0.5, 0.5);
+        vec3 d = vec3(0.75, 0.33, 0.67);
+        return a + b * cos(6.28318 * (c * t + d + u_time * 0.02));
+    } else { // Stained Glass
+        vec3 a = vec3(0.2, 0.1, 0.3);
+        vec3 b = vec3(0.4, 0.3, 0.2);
+        vec3 c = vec3(0.8, 0.7, 0.6);
+        vec3 d = vec3(0.15, 0.67, 0.33);
+        return a + b * cos(6.28318 * (c * t + d + u_time * 0.04));
+    }
+}
+
+// ============================================
+// GEOMETRIC SYSTEMS
+// ============================================
+
+// 1. Penrose Quasicrystal
+vec3 penroseTiling(vec2 uv) {
+    float phi = 1.618033988749895;
+    vec2 p = uv * 8.0;
+    float t = u_time * 0.1;
+
+    float sum = 0.0;
+    for (int i = 0; i < 5; i++) {
+        float angle = float(i) * 3.14159 * 2.0 / 5.0 + t;
+        sum += cos(dot(p, vec2(cos(angle), sin(angle))));
+    }
+
+    float pattern = abs(sin(sum * 2.0));
+    float v = fbm(p * 0.5 + t);
+
+    vec3 col = palette(pattern + v * 0.3, u_palette);
+    col *= 0.8 + 0.2 * sin(pattern * 20.0);
+    return col;
+}
+
+// 2. Ammann-Beenker Octagonal
+vec3 ammannBeenker(vec2 uv) {
+    float t = u_time * 0.08;
+    vec2 p = uv * 6.0;
+
+    float pattern = 0.0;
+    for (int i = 0; i < 8; i++) {
+        float angle = float(i) * 3.14159 / 4.0 + t * 0.5;
+        pattern += sin(dot(p, vec2(cos(angle), sin(angle))) * 1.414);
+    }
+
+    pattern = abs(fract(pattern * 0.5) - 0.5) * 2.0;
+    float v = noise(p + t);
+
+    vec3 col = palette(pattern + v * 0.2, u_palette);
+    col *= smoothstep(0.0, 0.5, pattern);
+    return col;
+}
+
+// 3. Triangular/Hexagonal/Square Lattices
+vec3 latticeSystem(vec2 uv) {
+    float t = u_time * 0.1;
+    vec2 p = uv * 5.0;
+
+    // Hexagonal
+    vec2 hex = vec2(p.x * 1.1547, p.y + p.x * 0.57735);
+    vec2 hex_i = floor(hex);
+    vec2 hex_f = fract(hex);
+    float hex_d = min(min(dot(hex_f, hex_f), dot(hex_f-vec2(1,0), hex_f-vec2(1,0))), dot(hex_f-vec2(0,1), hex_f-vec2(0,1)));
+
+    // Triangular
+    float tri = sin(p.x * 3.0) * sin((p.x * 1.732 + p.y) * 1.5) * sin((p.x * 1.732 - p.y) * 1.5);
+
+    // Square
+    vec2 sq = fract(p);
+    float square_d = min(min(sq.x, 1.0-sq.x), min(sq.y, 1.0-sq.y));
+
+    float pattern = mix(hex_d, square_d, sin(t) * 0.5 + 0.5);
+    pattern = mix(pattern, abs(tri), cos(t * 0.7) * 0.5 + 0.5);
+
+    vec3 col = palette(pattern + t * 0.1, u_palette);
+    return col * (0.7 + 0.3 * sin(pattern * 30.0));
+}
+
+// 4. Voronoi Diagrams
+vec3 voronoi(vec2 uv) {
+    float t = u_time * 0.15;
+    vec2 p = uv * 4.0;
+
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+
+    float md = 8.0, md2 = 8.0;
+    vec2 cid;
+
+    for (int y = -1; y <= 1; y++) {
+        for (int x = -1; x <= 1; x++) {
+            vec2 b = vec2(float(x), float(y));
+            vec2 r = b - f + 0.5 + 0.5 * sin(t + hash(i + b) * 6.28);
+            float d = dot(r, r);
+            if (d < md) { md2 = md; md = d; cid = i + b; }
+            else if (d < md2) { md2 = d; }
+        }
+    }
+
+    float edge = md2 - md;
+    float pattern = sqrt(md);
+
+    vec3 col = palette(hash(cid) + edge * 2.0, u_palette);
+    col *= 1.0 - smoothstep(0.0, 0.1, edge);
+    return col;
+}
+
+// 5. Apollonian Circle Packings
+vec3 apollonian(vec2 uv) {
+    float t = u_time * 0.1;
+    vec2 p = uv * 3.0;
+
+    float d = length(p);
+    float circles = 0.0;
+
+    for (int i = 0; i < 6; i++) {
+        float fi = float(i);
+        float r = 1.0 / (fi + 2.0);
+        float a = fi * 2.4 + t;
+        vec2 c = vec2(cos(a), sin(a)) * (1.0 - r) * 0.8;
+        float cd = abs(length(p - c) - r);
+        circles = max(circles, smoothstep(0.05, 0.0, cd));
+    }
+
+    float pattern = circles + fbm(p * 2.0 + t) * 0.3;
+    vec3 col = palette(pattern, u_palette);
+    return col * (0.5 + 0.5 * circles);
+}
+
+// 6. Hyperbolic Tilings
+vec3 hyperbolic(vec2 uv) {
+    float t = u_time * 0.08;
+    vec2 p = uv * 2.0;
+    float r = length(p);
+    float a = atan(p.y, p.x);
+
+    // Poincare disk model
+    float d = 2.0 * r / (1.0 + r * r);
+    float pattern = sin(d * 10.0 + t) * sin(a * 7.0 + t);
+
+    for (int i = 0; i < 5; i++) {
+        float fi = float(i);
+        float angle = fi * 6.28 / 5.0 + t * 0.3;
+        vec2 c = vec2(cos(angle), sin(angle)) * 0.5;
+        float cd = length(p - c);
+        pattern += 0.2 * sin(cd * 15.0 - t * 2.0);
+    }
+
+    vec3 col = palette(abs(pattern), u_palette);
+    col *= smoothstep(1.0, 0.8, r);
+    return col;
+}
+
+// 7. Islamic Star Tilings
+vec3 islamicStars(vec2 uv) {
+    float t = u_time * 0.06;
+    vec2 p = uv * 5.0;
+
+    float pattern = 0.0;
+    for (int i = 0; i < 8; i++) {
+        float fi = float(i);
+        float angle = fi * 3.14159 / 4.0;
+        vec2 dir = vec2(cos(angle), sin(angle));
+        float d = abs(dot(p, dir));
+        pattern += sin(d * 3.0 - t) * 0.5 + 0.5;
+    }
+
+    float rosette = sin(length(p) * 5.0 - t) * cos(atan(p.y, p.x) * 8.0);
+    pattern = mix(pattern * 0.125, rosette, 0.5);
+
+    vec3 col = palette(abs(pattern), u_palette);
+    col *= 0.7 + 0.3 * smoothstep(-0.2, 0.2, rosette);
+    return col;
+}
+
+// 8. Celtic Knot Lattices
+vec3 celticKnots(vec2 uv) {
+    float t = u_time * 0.1;
+    vec2 p = uv * 6.0;
+
+    vec2 grid = fract(p);
+    vec2 id = floor(p);
+
+    float h = hash(id);
+    float pattern = 0.0;
+
+    if (h > 0.5) {
+        pattern = smoothstep(0.1, 0.0, abs(grid.x - grid.y));
+    } else {
+        pattern = smoothstep(0.1, 0.0, abs(grid.x + grid.y - 1.0));
+    }
+
+    float weave = sin(grid.x * 3.14159 + t) * sin(grid.y * 3.14159 + t);
+    pattern += weave * 0.3;
+
+    vec3 col = palette(pattern + h * 0.2, u_palette);
+    col *= 0.6 + 0.4 * pattern;
+    return col;
+}
+
+// 9. Mughal Rosette Symmetries
+vec3 mughalRosettes(vec2 uv) {
+    float t = u_time * 0.08;
+    vec2 p = uv * 4.0;
+    float r = length(p);
+    float a = atan(p.y, p.x);
+
+    float petals = 12.0;
+    float rosette = sin(r * 8.0 - t) * cos(a * petals);
+
+    float rings = sin(r * 10.0 + t * 0.5);
+    float spokes = sin(a * 16.0 + t);
+
+    float pattern = mix(rosette, rings * spokes, 0.5);
+
+    vec3 col = palette(abs(pattern) + r * 0.2, u_palette);
+    col *= smoothstep(2.0, 0.0, r);
+    return col;
+}
+
+// 10. Arabesque Ornamentation
+vec3 arabesque(vec2 uv) {
+    float t = u_time * 0.07;
+    vec2 p = uv * 5.0;
+
+    float pattern = fbm(p * 0.5 + t * 0.3);
+
+    for (int i = 0; i < 6; i++) {
+        float fi = float(i);
+        vec2 center = vec2(cos(fi + t), sin(fi + t * 0.7)) * 1.5;
+        float d = length(p - center);
+        pattern += 0.1 * sin(d * 5.0 - t * 2.0) / (d + 0.5);
+    }
+
+    float scroll = sin(p.x * 2.0 + t) * cos(p.y * 2.0 - t * 0.5);
+    pattern = mix(pattern, scroll, 0.4);
+
+    vec3 col = palette(abs(pattern), u_palette);
+    return col;
+}
+
+// 11. Recursive Labyrinth Mazes
+vec3 labyrinth(vec2 uv) {
+    float t = u_time * 0.05;
+    vec2 p = uv * 8.0;
+
+    vec2 id = floor(p);
+    vec2 f = fract(p);
+
+    float h = hash(id + floor(t));
+    float pattern = 0.0;
+
+    if (h < 0.25) {
+        pattern = smoothstep(0.15, 0.1, abs(f.x - 0.5));
+    } else if (h < 0.5) {
+        pattern = smoothstep(0.15, 0.1, abs(f.y - 0.5));
+    } else if (h < 0.75) {
+        pattern = smoothstep(0.15, 0.1, length(f - vec2(0.5)) - 0.25);
+    } else {
+        pattern = smoothstep(0.15, 0.1, min(abs(f.x - 0.5), abs(f.y - 0.5)));
+    }
+
+    float depth = fbm(p * 0.3 + t);
+    vec3 col = palette(pattern + depth * 0.3, u_palette);
+    return col * (0.5 + 0.5 * pattern);
+}
+
+// 12. Hilbert/Space-Filling Curves
+vec3 hilbertCurve(vec2 uv) {
+    float t = u_time * 0.1;
+    vec2 p = uv * 4.0 + 2.0;
+
+    float d = 0.0;
+    vec2 pos = vec2(0.0);
+
+    for (int i = 0; i < 5; i++) {
+        float fi = float(i);
+        float scale = pow(2.0, -fi);
+        vec2 cell = fract(p * scale) * 2.0;
+
+        if (cell.x > 1.0) pos.x += scale;
+        if (cell.y > 1.0) pos.y += scale;
+
+        d += length(cell - 1.0) * scale;
+    }
+
+    float pattern = sin(d * 10.0 - t) * 0.5 + 0.5;
+    pattern += fbm(p * 2.0 + t) * 0.3;
+
+    vec3 col = palette(pattern, u_palette);
+    return col;
+}
+
+// 13. Hamiltonian Path Networks
+vec3 hamiltonian(vec2 uv) {
+    float t = u_time * 0.12;
+    vec2 p = uv * 6.0;
+
+    vec2 id = floor(p);
+    vec2 f = fract(p);
+
+    float h = hash(id);
+    float angle = h * 6.28 + t;
+    vec2 dir = vec2(cos(angle), sin(angle));
+
+    float path = smoothstep(0.1, 0.0, abs(dot(f - 0.5, dir)));
+    path += smoothstep(0.1, 0.0, length(f - vec2(0.5) - dir * 0.3));
+
+    float network = 0.0;
+    for (int i = 0; i < 4; i++) {
+        vec2 nb = id + vec2(float(i % 2), float(i / 2)) - 0.5;
+        float nh = hash(nb);
+        network += smoothstep(0.3, 0.0, length(f - vec2(nh, fract(nh * 10.0))));
+    }
+
+    vec3 col = palette(path + network * 0.2, u_palette);
+    return col * (0.4 + 0.6 * path);
+}
+
+// 14. Sliding Block Puzzle Grids
+vec3 slidingBlocks(vec2 uv) {
+    float t = u_time * 0.15;
+    vec2 p = uv * 5.0;
+
+    vec2 id = floor(p);
+    vec2 f = fract(p);
+
+    float h = hash(id + floor(t * 0.5));
+    vec2 offset = vec2(cos(h * 6.28 + t), sin(h * 6.28 + t * 0.7)) * 0.3;
+
+    float block = smoothstep(0.45, 0.4, length(f - 0.5 - offset));
+    float grid = smoothstep(0.05, 0.0, min(abs(f.x - 0.5), abs(f.y - 0.5)));
+
+    float pattern = mix(block, grid, 0.3);
+    vec3 col = palette(pattern + h * 0.3, u_palette);
+    return col * (0.6 + 0.4 * block);
+}
+
+// 15. Rotational Puzzle Lattices
+vec3 rotationalPuzzle(vec2 uv) {
+    float t = u_time * 0.2;
+    vec2 p = uv * 4.0;
+
+    vec2 id = floor(p);
+    vec2 f = fract(p) - 0.5;
+
+    float h = hash(id);
+    float angle = floor(h * 4.0) * 1.57 + t * (h > 0.5 ? 1.0 : -1.0);
+    f = rot(angle) * f;
+
+    float piece = 0.0;
+    for (int i = 0; i < 3; i++) {
+        float fi = float(i);
+        vec2 arm = vec2(cos(fi * 2.09), sin(fi * 2.09)) * 0.3;
+        piece += smoothstep(0.15, 0.0, length(f - arm));
+    }
+
+    vec3 col = palette(piece + h * 0.2, u_palette);
+    return col * (0.5 + 0.5 * piece);
+}
+
+// 16. Knot Path Networks
+vec3 knotNetworks(vec2 uv) {
+    float t = u_time * 0.1;
+    vec2 p = uv * 4.0;
+
+    float pattern = 0.0;
+    for (int i = 0; i < 5; i++) {
+        float fi = float(i);
+        float freq = 1.0 + fi * 0.5;
+        float phase = fi * 1.25 + t;
+
+        vec2 knot = vec2(
+            sin(p.x * freq + phase) * cos(p.y * 0.5),
+            cos(p.y * freq + phase) * sin(p.x * 0.5)
+        );
+
+        pattern += length(knot) * 0.2;
+    }
+
+    float over = sin(p.x * 3.0 + t) * sin(p.y * 3.0 - t);
+    pattern = mix(pattern, abs(over), 0.3);
+
+    vec3 col = palette(fract(pattern), u_palette);
+    return col;
+}
+
+// 17. Cellular Automata Puzzle Fields
+vec3 cellularAutomata(vec2 uv) {
+    float t = u_time * 0.2;
+    vec2 p = uv * 8.0;
+
+    vec2 id = floor(p);
+    vec2 f = fract(p);
+
+    float state = hash(id + floor(t));
+    float next = hash(id + floor(t) + 1.0);
+
+    float neighbors = 0.0;
+    for (int y = -1; y <= 1; y++) {
+        for (int x = -1; x <= 1; x++) {
+            if (x == 0 && y == 0) continue;
+            neighbors += hash(id + vec2(float(x), float(y)) + floor(t));
+        }
+    }
+
+    float alive = state > 0.5 ? 1.0 : 0.0;
+    float survive = alive * (neighbors > 1.5 && neighbors < 3.5 ? 1.0 : 0.0);
+    float born = (1.0 - alive) * (neighbors > 2.5 && neighbors < 3.5 ? 1.0 : 0.0);
+    float newState = max(survive, born);
+
+    float pattern = mix(state, newState, fract(t));
+    pattern += smoothstep(0.1, 0.0, length(f - 0.5)) * 0.3;
+
+    vec3 col = palette(pattern, u_palette);
+    return col * (0.3 + 0.7 * pattern);
+}
+
+// ============================================
+// PHYSICS SIMULATIONS
+// ============================================
+
+// Vortex particle turbulence
+vec3 vortexPhysics(vec2 uv) {
+    float t = u_time * 0.15;
+    vec2 p = uv * 3.0;
+
+    float vorticity = 0.0;
+    for (int i = 0; i < 8; i++) {
+        float fi = float(i);
+        vec2 center = vec2(cos(fi * 0.8 + t * 0.3), sin(fi * 0.7 + t * 0.4)) * 1.5;
+        vec2 r = p - center;
+        float d = length(r);
+        float strength = sin(fi + t) * 0.5 + 0.5;
+        vorticity += strength * exp(-d * d) * cross(vec3(r, 0.0), vec3(0.0, 0.0, 1.0)).z;
+    }
+
+    float pattern = sin(vorticity * 5.0 + t);
+    vec3 col = palette(abs(pattern), u_palette);
+    return col;
+}
+
+// Wave interference fields
+vec3 waveInterference(vec2 uv) {
+    float t = u_time * 0.2;
+    vec2 p = uv * 4.0;
+
+    float waves = 0.0;
+    for (int i = 0; i < 5; i++) {
+        float fi = float(i);
+        vec2 src = vec2(cos(fi * 1.25 + t * 0.3), sin(fi * 1.3)) * 2.0;
+        float d = length(p - src);
+        waves += sin(d * 8.0 - t * 3.0) * exp(-d * 0.3);
+    }
+
+    vec3 col = palette(abs(waves) * 0.5, u_palette);
+    return col;
+}
+
+// Reaction-diffusion
+vec3 reactionDiffusion(vec2 uv) {
+    float t = u_time * 0.1;
+    vec2 p = uv * 5.0;
+
+    float a = fbm(p + t * 0.2);
+    float b = fbm(p * 1.5 - t * 0.3);
+
+    float reaction = a * b * b;
+    float diffusion = fbm(p * 3.0) * 0.5;
+
+    float pattern = reaction + diffusion;
+    vec3 col = palette(pattern, u_palette);
+    return col;
+}
+
+// ============================================
+// MAIN RENDER
+// ============================================
+
+void main() {
+    vec2 uv = (v_uv - 0.5) * vec2(u_resolution.x / u_resolution.y, 1.0);
+    uv = uv * 2.0;
+
+    // Apply mouse influence
+    vec2 mouse = (u_mouse - 0.5) * 2.0;
+    uv += (mouse - uv) * 0.1 * u_energy;
+
+    vec3 col = vec3(0.0);
+
+    switch(u_system) {
+        case 0: col = penroseTiling(uv); break;
+        case 1: col = ammannBeenker(uv); break;
+        case 2: col = latticeSystem(uv); break;
+        case 3: col = voronoi(uv); break;
+        case 4: col = apollonian(uv); break;
+        case 5: col = hyperbolic(uv); break;
+        case 6: col = islamicStars(uv); break;
+        case 7: col = celticKnots(uv); break;
+        case 8: col = mughalRosettes(uv); break;
+        case 9: col = arabesque(uv); break;
+        case 10: col = labyrinth(uv); break;
+        case 11: col = hilbertCurve(uv); break;
+        case 12: col = hamiltonian(uv); break;
+        case 13: col = slidingBlocks(uv); break;
+        case 14: col = rotationalPuzzle(uv); break;
+        case 15: col = knotNetworks(uv); break;
+        case 16: col = cellularAutomata(uv); break;
+        case 17: col = vortexPhysics(uv); break;
+        case 18: col = waveInterference(uv); break;
+        case 19: col = reactionDiffusion(uv); break;
+        default: col = penroseTiling(uv);
+    }
+
+    // Energy glow effect
+    col *= 1.0 + u_energy * 0.5;
+
+    // Vignette
+    float vignette = 1.0 - length(v_uv - 0.5) * 0.8;
+    col *= vignette;
+
+    fragColor = vec4(col, 1.0);
+}
+`;
+
+// ============================================
+// WEBGL SETUP
+// ============================================
+
+function createShader(gl, type, source) {
+    const shader = gl.createShader(type);
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+        console.error('Shader compile error:', gl.getShaderInfoLog(shader));
+        gl.deleteShader(shader);
+        return null;
+    }
+    return shader;
+}
+
+function createProgram(gl, vertexShader, fragmentShader) {
+    const program = gl.createProgram();
+    gl.attachShader(program, vertexShader);
+    gl.attachShader(program, fragmentShader);
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+        console.error('Program link error:', gl.getProgramInfoLog(program));
+        return null;
+    }
+    return program;
+}
+
+const vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
+const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
+const program = createProgram(gl, vertexShader, fragmentShader);
+
+const positionLoc = gl.getAttribLocation(program, 'a_position');
+const uvLoc = gl.getAttribLocation(program, 'a_uv');
+const timeLoc = gl.getUniformLocation(program, 'u_time');
+const resolutionLoc = gl.getUniformLocation(program, 'u_resolution');
+const mouseLoc = gl.getUniformLocation(program, 'u_mouse');
+const systemLoc = gl.getUniformLocation(program, 'u_system');
+const paletteLoc = gl.getUniformLocation(program, 'u_palette');
+const seedLoc = gl.getUniformLocation(program, 'u_seed');
+const energyLoc = gl.getUniformLocation(program, 'u_energy');
+
+// Fullscreen quad
+const positions = new Float32Array([
+    -1, -1,  1, -1,  -1, 1,
+    -1, 1,   1, -1,   1, 1
+]);
+const uvs = new Float32Array([
+    0, 0,  1, 0,  0, 1,
+    0, 1,  1, 0,  1, 1
+]);
+
+const positionBuffer = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
+
+const uvBuffer = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, uvBuffer);
+gl.bufferData(gl.ARRAY_BUFFER, uvs, gl.STATIC_DRAW);
+
+const vao = gl.createVertexArray();
+gl.bindVertexArray(vao);
+
+gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+gl.enableVertexAttribArray(positionLoc);
+gl.vertexAttribPointer(positionLoc, 2, gl.FLOAT, false, 0, 0);
+
+gl.bindBuffer(gl.ARRAY_BUFFER, uvBuffer);
+gl.enableVertexAttribArray(uvLoc);
+gl.vertexAttribPointer(uvLoc, 2, gl.FLOAT, false, 0, 0);
+
+// ============================================
+// STATE
+// ============================================
+
+const state = {
+    system: 0,
+    palette: 0,
+    seed: Math.random() * 1000,
+    mouse: { x: 0.5, y: 0.5 },
+    energy: 0,
+    audioEnabled: false,
+    hudVisible: false,
+    startTime: Date.now(),
+    frameCount: 0,
+    lastFpsTime: 0,
+    fps: 0
+};
+
+const systemNames = [
+    'Penrose Quasicrystal', 'Ammann-Beenker', 'Lattice System', 'Voronoi',
+    'Apollonian Circles', 'Hyperbolic Tiling', 'Islamic Stars', 'Celtic Knots',
+    'Mughal Rosettes', 'Arabesque', 'Labyrinth', 'Hilbert Curve',
+    'Hamiltonian Path', 'Sliding Blocks', 'Rotational Puzzle', 'Knot Networks',
+    'Cellular Automata', 'Vortex Physics', 'Wave Interference', 'Reaction-Diffusion'
+];
+
+const paletteNames = ['Spectral', 'Sunset', 'Ocean', 'Neon', 'Fire', 'Aurora', 'Deep Space', 'Stained Glass'];
+
+// ============================================
+// AUDIO SYSTEM
+// ============================================
+
+let audioCtx = null;
+let oscillators = [];
+let gainNodes = [];
+
+function initAudio() {
+    if (audioCtx) return;
+    try {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+        // Create harmonic oscillators
+        for (let i = 0; i < 4; i++) {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+
+            osc.type = ['sine', 'triangle', 'sine', 'triangle'][i];
+            osc.frequency.value = 110 * (i + 1);
+            gain.gain.value = 0;
+
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+
+            oscillators.push(osc);
+            gainNodes.push(gain);
+        }
+    } catch (e) {
+        console.log('Audio not supported');
+    }
+}
+
+function updateAudio() {
+    if (!state.audioEnabled || !audioCtx) {
+        gainNodes.forEach(g => g.gain.value = 0);
+        return;
+    }
+
+    const t = (Date.now() - state.startTime) * 0.001;
+    const baseFreq = 110 + state.system * 10;
+
+    oscillators.forEach((osc, i) => {
+        const freq = baseFreq * (i + 1) * 0.5;
+        const mod = Math.sin(t * (0.5 + i * 0.2)) * 10;
+        osc.frequency.value = freq + mod;
+
+        const vol = 0.05 / (i + 1) * (0.5 + 0.5 * Math.sin(t + i));
+        gainNodes[i].gain.value = vol;
+    });
+}
+
+function toggleAudio() {
+    state.audioEnabled = !state.audioEnabled;
+    if (state.audioEnabled) {
+        initAudio();
+        if (audioCtx && audioCtx.state === 'suspended') {
+            audioCtx.resume();
+        }
+    }
+    document.getElementById('audio-status').textContent = state.audioEnabled ? 'ON' : 'OFF';
+}
+
+// ============================================
+// INPUT HANDLING
+// ============================================
+
+function randomize() {
+    state.system = Math.floor(Math.random() * 20);
+    state.palette = Math.floor(Math.random() * 8);
+    state.seed = Math.random() * 1000;
+    state.energy = Math.random();
+
+    document.getElementById('sys-name').textContent = systemNames[state.system];
+    document.getElementById('palette').textContent = paletteNames[state.palette];
+    document.getElementById('entities').textContent = Math.floor(100 + state.energy * 900);
+}
+
+function toggleHud() {
+    state.hudVisible = !state.hudVisible;
+    document.getElementById('hud').classList.toggle('visible', state.hudVisible);
+}
+
+window.addEventListener('keydown', (e) => {
+    if (e.code === 'Space') {
+        e.preventDefault();
+        randomize();
+    } else if (e.code === 'KeyH') {
+        toggleHud();
+    } else if (e.code === 'KeyS') {
+        toggleAudio();
+    }
+});
+
+window.addEventListener('click', randomize);
+window.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    randomize();
+}, { passive: false });
+
+window.addEventListener('mousemove', (e) => {
+    state.mouse.x = e.clientX / window.innerWidth;
+    state.mouse.y = 1.0 - e.clientY / window.innerHeight;
+});
+
+window.addEventListener('touchmove', (e) => {
+    if (e.touches.length > 0) {
+        state.mouse.x = e.touches[0].clientX / window.innerWidth;
+        state.mouse.y = 1.0 - e.touches[0].clientY / window.innerHeight;
+    }
+}, { passive: false });
+
+// ============================================
+// RESIZE HANDLING
+// ============================================
+
+function resize() {
+    const dpr = Math.min(window.devicePixelRatio, 2);
+    canvas.width = window.innerWidth * dpr;
+    canvas.height = window.innerHeight * dpr;
+    gl.viewport(0, 0, canvas.width, canvas.height);
+}
+
+window.addEventListener('resize', resize);
+resize();
+
+// ============================================
+// RENDER LOOP
+// ============================================
+
+function render() {
+    const time = (Date.now() - state.startTime) * 0.001;
+
+    // FPS calculation
+    state.frameCount++;
+    if (time - state.lastFpsTime >= 1.0) {
+        state.fps = state.frameCount;
+        state.frameCount = 0;
+        state.lastFpsTime = time;
+        document.getElementById('fps').textContent = state.fps;
+    }
+
+    // Update audio
+    updateAudio();
+
+    // Render
+    gl.useProgram(program);
+    gl.bindVertexArray(vao);
+
+    gl.uniform1f(timeLoc, time);
+    gl.uniform2f(resolutionLoc, canvas.width, canvas.height);
+    gl.uniform2f(mouseLoc, state.mouse.x, state.mouse.y);
+    gl.uniform1i(systemLoc, state.system);
+    gl.uniform1i(paletteLoc, state.palette);
+    gl.uniform1f(seedLoc, state.seed);
+    gl.uniform1f(energyLoc, state.energy);
+
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+    requestAnimationFrame(render);
+}
+
+// Initialize
+randomize();
+render();
+
+// Prevent zoom on mobile
+document.addEventListener('gesturestart', (e) => e.preventDefault());
+document.addEventListener('gesturechange', (e) => e.preventDefault());
+document.addEventListener('gestureend', (e) => e.preventDefault());
+</script>
+</body>
+</html>

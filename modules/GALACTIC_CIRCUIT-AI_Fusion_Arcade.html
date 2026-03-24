@@ -1,0 +1,997 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>GALACTIC CIRCUIT — AI Fusion Arcade</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #000;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    font-family: 'Orbitron', monospace;
+    overflow: hidden;
+    user-select: none;
+  }
+
+  #ui-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+
+  #title-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 700px;
+    padding: 4px 10px;
+  }
+
+  .game-title {
+    font-size: 22px;
+    font-weight: 900;
+    letter-spacing: 4px;
+    background: linear-gradient(90deg, #ff3c6e, #ff9a00, #ffe600, #00ffd5, #a259ff);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    text-shadow: none;
+    filter: drop-shadow(0 0 12px #ff9a00aa);
+  }
+
+  .ai-badge {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px;
+    color: #00ffd5;
+    border: 1px solid #00ffd5;
+    padding: 3px 10px;
+    border-radius: 20px;
+    letter-spacing: 2px;
+    animation: pulse-badge 2s infinite;
+    text-shadow: 0 0 8px #00ffd5;
+    box-shadow: 0 0 10px #00ffd544;
+  }
+
+  @keyframes pulse-badge {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+
+  #scorebar {
+    display: flex;
+    gap: 40px;
+    justify-content: center;
+    align-items: center;
+    width: 700px;
+    padding: 4px 10px;
+    border-top: 1px solid #222;
+    border-bottom: 1px solid #222;
+  }
+
+  .score-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .score-label {
+    font-size: 8px;
+    letter-spacing: 3px;
+    color: #666;
+    font-family: 'Share Tech Mono', monospace;
+  }
+
+  .score-value {
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 2px;
+  }
+
+  #score-display { color: #ffe600; text-shadow: 0 0 12px #ffe600; }
+  #level-display { color: #ff9a00; text-shadow: 0 0 12px #ff9a00; }
+  #lives-display { color: #ff3c6e; text-shadow: 0 0 12px #ff3c6e; }
+  #combo-display { color: #a259ff; text-shadow: 0 0 12px #a259ff; }
+
+  #gamecanvas {
+    border: 1px solid #1a1a1a;
+    display: block;
+    box-shadow: 0 0 40px #00ffd522, 0 0 80px #ff3c6e11;
+    background: #000;
+  }
+
+  #info-strip {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px;
+    color: #333;
+    letter-spacing: 2px;
+    width: 700px;
+    text-align: center;
+    padding-top: 4px;
+  }
+</style>
+</head>
+<body>
+
+<div id="ui-wrapper">
+  <div id="title-bar">
+    <span class="game-title">GALACTIC CIRCUIT</span>
+    <span class="ai-badge">⬡ AI AUTOPILOT</span>
+  </div>
+
+  <div id="scorebar">
+    <div class="score-item">
+      <span class="score-label">SCORE</span>
+      <span class="score-value" id="score-display">000000</span>
+    </div>
+    <div class="score-item">
+      <span class="score-label">LEVEL</span>
+      <span class="score-value" id="level-display">01</span>
+    </div>
+    <div class="score-item">
+      <span class="score-label">COMBO</span>
+      <span class="score-value" id="combo-display">x1</span>
+    </div>
+    <div class="score-item">
+      <span class="score-label">LIVES</span>
+      <span class="score-value" id="lives-display">♥ ♥ ♥</span>
+    </div>
+  </div>
+
+  <canvas id="gamecanvas" width="700" height="520"></canvas>
+
+  <div id="info-strip">GRAND PRIX · TETRIS · BREAKOUT · SPACE INVADERS — FUSION ENGINE v1.0</div>
+</div>
+
+<script>
+// =====================================================================
+// GALACTIC CIRCUIT — Hybrid Fusion Engine
+// Mechanics: 
+//   - GRAND PRIX: player car races along track lanes
+//   - TETRIS: falling block shapes that form the track barriers
+//   - BREAKOUT: car fires energy ball that bounces and destroys blocks
+//   - SPACE INVADERS: invader formations descend; car must dodge & shoot
+// All four are interwoven at the physics/gameplay level.
+// =====================================================================
+
+const canvas = document.getElementById('gamecanvas');
+const ctx = canvas.getContext('2d');
+const W = 700, H = 520;
+
+// ─── Audio ────────────────────────────────────────────────────────────
+const AC = new (window.AudioContext || window.webkitAudioContext)();
+
+function playTone(freq, type, dur, vol=0.18, detune=0) {
+  const o = AC.createOscillator();
+  const g = AC.createGain();
+  o.connect(g); g.connect(AC.destination);
+  o.type = type; o.frequency.value = freq; o.detune.value = detune;
+  g.gain.setValueAtTime(vol, AC.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, AC.currentTime + dur);
+  o.start(); o.stop(AC.currentTime + dur);
+}
+
+function sfxShoot()  { playTone(880,'sawtooth',0.12,0.12); playTone(440,'square',0.08,0.08); }
+function sfxHit()    { playTone(220,'sawtooth',0.18,0.22); playTone(110,'square',0.14,0.12); }
+function sfxTetris() { [523,659,784,1047].forEach((f,i)=>setTimeout(()=>playTone(f,'sine',0.2,0.3),i*80)); }
+function sfxInvader(){ playTone(330,'square',0.1,0.15); playTone(165,'square',0.12,0.1); }
+function sfxEngine(pitch){ playTone(pitch,'sawtooth',0.05,0.04); }
+function sfxCombo(n) { playTone(440+n*80,'triangle',0.25,0.25); }
+function sfxExplode() {
+  const b = AC.createOscillator(); const g = AC.createGain();
+  b.connect(g); g.connect(AC.destination);
+  b.type='sawtooth'; b.frequency.setValueAtTime(200,AC.currentTime);
+  b.frequency.exponentialRampToValueAtTime(30,AC.currentTime+0.4);
+  g.gain.setValueAtTime(0.4,AC.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001,AC.currentTime+0.4);
+  b.start(); b.stop(AC.currentTime+0.4);
+}
+function sfxLevelUp() {
+  [262,330,392,523,659,784].forEach((f,i)=>setTimeout(()=>playTone(f,'triangle',0.3,0.35),i*60));
+}
+
+// ─── Colour Palette ───────────────────────────────────────────────────
+const PAL = {
+  bg: '#000010',
+  track: ['#1a0a30','#120820'],
+  lane: '#1e0e3a',
+  laneLine: '#2a1a50',
+  car: '#00ffd5',
+  carGlow: '#00ffd588',
+  ball: '#ffe600',
+  ballGlow: '#ffe60088',
+  invader: ['#ff3c6e','#ff9a00','#a259ff','#00ffd5','#ffb700'],
+  block: [
+    '#ff3c6e','#ff9a00','#ffe600','#00ffd5',
+    '#a259ff','#ff6b35','#4ecdc4','#c0392b'
+  ],
+  exhaust: '#ff9a00',
+  star: '#ffffff',
+  hud: '#00ffd5',
+};
+
+// ─── Stars (parallax background) ──────────────────────────────────────
+const STARS = Array.from({length:120},()=>({
+  x: Math.random()*W,
+  y: Math.random()*H,
+  r: Math.random()*1.5+0.3,
+  speed: Math.random()*1.2+0.3,
+  brightness: Math.random()
+}));
+
+function drawStars(scroll) {
+  for(const s of STARS) {
+    s.y = (s.y + s.speed) % H;
+    const b = 0.4 + 0.6*Math.abs(Math.sin(Date.now()*0.001 + s.brightness*10));
+    ctx.fillStyle = `rgba(255,255,255,${b*0.8})`;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.r, 0, Math.PI*2);
+    ctx.fill();
+  }
+}
+
+// ─── Particle System ──────────────────────────────────────────────────
+let particles = [];
+
+function spawnParticles(x, y, color, count=12, speed=3) {
+  for(let i=0;i<count;i++) {
+    const angle = Math.random()*Math.PI*2;
+    const spd = speed*(0.3+Math.random());
+    particles.push({
+      x, y,
+      vx: Math.cos(angle)*spd,
+      vy: Math.sin(angle)*spd,
+      life: 1,
+      decay: 0.03+Math.random()*0.04,
+      r: 2+Math.random()*4,
+      color
+    });
+  }
+}
+
+function updateParticles() {
+  particles = particles.filter(p=>p.life>0);
+  for(const p of particles) {
+    p.x+=p.vx; p.y+=p.vy;
+    p.vx*=0.94; p.vy*=0.94;
+    p.life-=p.decay;
+    ctx.globalAlpha = p.life;
+    ctx.fillStyle = p.color;
+    ctx.shadowBlur = 8; ctx.shadowColor = p.color;
+    const pr = p.r * p.life;
+    if(pr <= 0) continue;
+    ctx.beginPath();
+    ctx.arc(p.x,p.y,pr,0,Math.PI*2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ─── Game State ───────────────────────────────────────────────────────
+let score = 0, level = 1, lives = 3, combo = 1, comboTimer = 0;
+let gameOver = false, levelTransition = false, ltTimer = 0;
+let frameCount = 0;
+let scrollY = 0;
+
+// ─── Track / Road ─────────────────────────────────────────────────────
+const TRACK_X = 100, TRACK_W = 500;
+const LANE_COUNT = 5;
+const LANE_W = TRACK_W / LANE_COUNT;
+
+function drawTrack() {
+  // Road surface
+  const grad = ctx.createLinearGradient(TRACK_X,0,TRACK_X+TRACK_W,0);
+  grad.addColorStop(0,'#0a0520');
+  grad.addColorStop(0.5,'#120830');
+  grad.addColorStop(1,'#0a0520');
+  ctx.fillStyle = grad;
+  ctx.fillRect(TRACK_X,0,TRACK_W,H);
+
+  // Lane dividers — scrolling dashes (Grand Prix style)
+  for(let l=1;l<LANE_COUNT;l++) {
+    const lx = TRACK_X + l*LANE_W;
+    ctx.strokeStyle = '#2a1450';
+    ctx.setLineDash([20,20]);
+    ctx.lineDashOffset = -scrollY;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(lx,0); ctx.lineTo(lx,H);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // Side barriers
+  ctx.fillStyle = '#1a0840';
+  ctx.fillRect(0,0,TRACK_X,H);
+  ctx.fillRect(TRACK_X+TRACK_W,0,W-TRACK_X-TRACK_W,H);
+
+  // Barrier glow
+  const lg = ctx.createLinearGradient(0,0,TRACK_X,0);
+  lg.addColorStop(0,'transparent');
+  lg.addColorStop(1,'#a259ff33');
+  ctx.fillStyle = lg;
+  ctx.fillRect(0,0,TRACK_X,H);
+  const rg = ctx.createLinearGradient(TRACK_X+TRACK_W,0,W,0);
+  rg.addColorStop(0,'#a259ff33');
+  rg.addColorStop(1,'transparent');
+  ctx.fillStyle = rg;
+  ctx.fillRect(TRACK_X+TRACK_W,0,W-TRACK_X-TRACK_W,H);
+}
+
+// ─── Tetris Blocks (form barriers + targets) ──────────────────────────
+// Blocks are rect segments that descend and stack at bottom like Tetris walls
+// but also serve as Breakout breakable bricks the ball destroys.
+
+const BLOCK_H = 22, BLOCK_W = LANE_W - 4;
+let blocks = [];
+let tetrisPieces = []; // Falling tetris shapes
+let nextTetrisDrop = 0;
+
+const TETRIS_SHAPES = [
+  [[1,1,1,1]],           // I
+  [[1,1],[1,1]],         // O
+  [[0,1,0],[1,1,1]],     // T
+  [[1,0],[1,0],[1,1]],   // L
+  [[0,1],[0,1],[1,1]],   // J
+  [[0,1,1],[1,1,0]],     // S
+  [[1,1,0],[0,1,1]],     // Z
+];
+
+function spawnTetrisPiece() {
+  const shape = TETRIS_SHAPES[Math.floor(Math.random()*TETRIS_SHAPES.length)];
+  const color = PAL.block[Math.floor(Math.random()*PAL.block.length)];
+  const lane = Math.floor(Math.random()*(LANE_COUNT - shape[0].length + 1));
+  tetrisPieces.push({ shape, color, lane, y: -shape.length*BLOCK_H, speed: 0.4+level*0.07, alive: true });
+}
+
+function landTetrisPiece(piece) {
+  // Convert falling piece into static blocks
+  for(let row=0;row<piece.shape.length;row++) {
+    for(let col=0;col<piece.shape[row].length;col++) {
+      if(piece.shape[row][col]) {
+        const laneIdx = piece.lane + col;
+        const bx = TRACK_X + laneIdx*LANE_W + 2;
+        const by = piece.y + row*BLOCK_H;
+        if(by > -BLOCK_H && laneIdx < LANE_COUNT) {
+          blocks.push({ x:bx, y:by, w:BLOCK_W, h:BLOCK_H-2, color:piece.color, hp:2, alive:true });
+        }
+      }
+    }
+  }
+  sfxTetris();
+}
+
+function updateTetris() {
+  frameCount++;
+  nextTetrisDrop--;
+  if(nextTetrisDrop <= 0) {
+    spawnTetrisPiece();
+    nextTetrisDrop = Math.max(40, 120 - level*10);
+  }
+
+  for(const p of tetrisPieces) {
+    if(!p.alive) continue;
+    p.y += p.speed;
+    // Check if landed on existing blocks or floor
+    let landed = false;
+    if(p.y + p.shape.length*BLOCK_H >= H - 60) {
+      landed = true;
+    } else {
+      // Check collision with existing blocks
+      for(const b of blocks) {
+        if(!b.alive) continue;
+        for(let row=0;row<p.shape.length;row++) {
+          for(let col=0;col<p.shape[row].length;col++) {
+            if(!p.shape[row][col]) continue;
+            const px = TRACK_X + (p.lane+col)*LANE_W + 2;
+            const py = p.y + row*BLOCK_H;
+            if(px < b.x+b.w && px+BLOCK_W > b.x && py+BLOCK_H > b.y && py < b.y+b.h) {
+              landed = true;
+            }
+          }
+        }
+      }
+    }
+    if(landed) {
+      landTetrisPiece(p);
+      p.alive = false;
+    }
+  }
+  tetrisPieces = tetrisPieces.filter(p=>p.alive);
+}
+
+function drawBlocks() {
+  for(const b of blocks) {
+    if(!b.alive) continue;
+    const alpha = b.hp === 1 ? 0.55 : 1;
+    ctx.globalAlpha = alpha;
+
+    // Block glow
+    ctx.shadowBlur = 15; ctx.shadowColor = b.color;
+
+    const grad = ctx.createLinearGradient(b.x,b.y,b.x,b.y+b.h);
+    grad.addColorStop(0, lighten(b.color,40));
+    grad.addColorStop(1, b.color);
+    ctx.fillStyle = grad;
+    ctx.fillRect(b.x,b.y,b.w,b.h);
+
+    // Inner highlight
+    ctx.fillStyle = 'rgba(255,255,255,0.15)';
+    ctx.fillRect(b.x+2,b.y+2,b.w-4,4);
+
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
+
+    // HP crack
+    if(b.hp===1) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(b.x+b.w*0.3, b.y+2);
+      ctx.lineTo(b.x+b.w*0.5, b.y+b.h-2);
+      ctx.stroke();
+    }
+  }
+}
+
+function drawFallingPieces() {
+  for(const p of tetrisPieces) {
+    if(!p.alive) continue;
+    for(let row=0;row<p.shape.length;row++) {
+      for(let col=0;col<p.shape[row].length;col++) {
+        if(!p.shape[row][col]) continue;
+        const bx = TRACK_X + (p.lane+col)*LANE_W + 2;
+        const by = p.y + row*BLOCK_H;
+        ctx.shadowBlur = 20; ctx.shadowColor = p.color;
+        const grad = ctx.createLinearGradient(bx,by,bx,by+BLOCK_H-2);
+        grad.addColorStop(0, lighten(p.color,50));
+        grad.addColorStop(1, p.color);
+        ctx.fillStyle = grad;
+        ctx.fillRect(bx,by,BLOCK_W,BLOCK_H-2);
+        ctx.fillStyle = 'rgba(255,255,255,0.2)';
+        ctx.fillRect(bx+2,by+2,BLOCK_W-4,3);
+        ctx.shadowBlur = 0;
+      }
+    }
+  }
+}
+
+// ─── Space Invaders ───────────────────────────────────────────────────
+let invaders = [];
+let invaderDir = 1;
+let invaderMoveTimer = 0;
+let invaderDropTimer = 0;
+let invaderBullets = [];
+let invaderFormationY = 30;
+
+function spawnInvaders() {
+  invaders = [];
+  const rows = 2 + Math.floor(level/2);
+  const cols = 5;
+  for(let r=0;r<rows;r++) {
+    for(let c=0;c<cols;c++) {
+      const lane = c; // maps to track lane
+      invaders.push({
+        x: TRACK_X + lane*LANE_W + LANE_W/2,
+        y: invaderFormationY + r*36,
+        lane, row:r,
+        type: r%3,
+        alive: true,
+        animFrame: 0
+      });
+    }
+  }
+}
+
+function drawInvader(inv) {
+  if(!inv.alive) return;
+  const x=inv.x, y=inv.y;
+  const color = PAL.invader[inv.type % PAL.invader.length];
+  const f = inv.animFrame;
+  ctx.shadowBlur = 12; ctx.shadowColor = color;
+  ctx.fillStyle = color;
+
+  // Invader shape depends on type
+  if(inv.type===0) {
+    // Classic crab
+    ctx.fillRect(x-10,y-7,20,14);
+    ctx.fillRect(x-14,y-4,4,8);
+    ctx.fillRect(x+10,y-4,4,8);
+    ctx.fillRect(x-6,y-11,4,5);
+    ctx.fillRect(x+2,y-11,4,5);
+    if(f) { ctx.fillRect(x-16,y+2,6,6); ctx.fillRect(x+10,y+2,6,6); }
+    else  { ctx.fillRect(x-12,y+4,6,4); ctx.fillRect(x+6,y+4,6,4); }
+    // Eyes
+    ctx.fillStyle='#000'; ctx.fillRect(x-7,y-4,4,4); ctx.fillRect(x+3,y-4,4,4);
+  } else if(inv.type===1) {
+    // Squid
+    ctx.fillRect(x-8,y-9,16,14);
+    ctx.fillRect(x-12,y-5,4,6);
+    ctx.fillRect(x+8,y-5,4,6);
+    ctx.fillRect(x-4,y+5,4,5);
+    ctx.fillRect(x,y+5,4,5);
+    if(f) { ctx.fillRect(x-4,y+10,3,4); ctx.fillRect(x+1,y+10,3,4); }
+    ctx.fillStyle='#000'; ctx.fillRect(x-5,y-5,3,4); ctx.fillRect(x+2,y-5,3,4);
+  } else {
+    // UFO shape
+    ctx.beginPath();
+    ctx.ellipse(x,y,13,8,0,0,Math.PI*2);
+    ctx.fill();
+    ctx.fillRect(x-8,y-13,16,10);
+    ctx.fillStyle='#000'; ctx.fillRect(x-4,y-10,3,4); ctx.fillRect(x+1,y-10,3,4);
+    ctx.fillStyle=color;
+    if(f) { ctx.fillRect(x-13,y,4,4); ctx.fillRect(x+9,y,4,4); }
+    else  { ctx.fillRect(x-11,y+2,4,4); ctx.fillRect(x+7,y+2,4,4); }
+  }
+  ctx.shadowBlur=0;
+}
+
+function drawInvaders() {
+  for(const inv of invaders) {
+    if(inv.alive) drawInvader(inv);
+  }
+}
+
+function updateInvaders() {
+  invaderMoveTimer++;
+  const moveInterval = Math.max(12, 35 - level*3);
+  if(invaderMoveTimer >= moveInterval) {
+    invaderMoveTimer = 0;
+    // Move formation
+    let hitEdge = false;
+    for(const inv of invaders) {
+      if(!inv.alive) continue;
+      inv.animFrame = 1-inv.animFrame;
+      inv.x += invaderDir * 18;
+      if(inv.x < TRACK_X+10 || inv.x > TRACK_X+TRACK_W-10) hitEdge=true;
+    }
+    if(hitEdge) {
+      invaderDir *= -1;
+      for(const inv of invaders) {
+        if(inv.alive) inv.y += 20;
+      }
+      sfxInvader();
+    }
+  }
+
+  // Invader shooting
+  invaderDropTimer++;
+  if(invaderDropTimer > Math.max(30,90-level*8)) {
+    invaderDropTimer = 0;
+    const alive = invaders.filter(i=>i.alive);
+    if(alive.length>0) {
+      const shooter = alive[Math.floor(Math.random()*alive.length)];
+      invaderBullets.push({ x:shooter.x, y:shooter.y+10, vy:3+level*0.3, alive:true });
+    }
+  }
+
+  for(const b of invaderBullets) {
+    b.y += b.vy;
+    if(b.y > H+10) b.alive=false;
+  }
+  invaderBullets = invaderBullets.filter(b=>b.alive);
+}
+
+function drawInvaderBullets() {
+  for(const b of invaderBullets) {
+    if(!b.alive) continue;
+    ctx.shadowBlur=10; ctx.shadowColor='#ff3c6e';
+    ctx.fillStyle='#ff3c6e';
+    ctx.fillRect(b.x-2,b.y-6,4,12);
+    ctx.shadowBlur=0;
+  }
+}
+
+// ─── Player Car ───────────────────────────────────────────────────────
+const CAR_Y = H - 80;
+const CAR_W = 30, CAR_H = 48;
+let car = {
+  x: TRACK_X + TRACK_W/2,
+  y: CAR_Y,
+  targetX: TRACK_X + TRACK_W/2,
+  lane: 2,
+  speed: 4,
+  shootCooldown: 0,
+  exhaustTimer: 0,
+  alive: true
+};
+
+let exhaustParticles = [];
+
+function drawCar(c) {
+  const x=c.x, y=c.y;
+  ctx.shadowBlur=20; ctx.shadowColor=PAL.carGlow;
+
+  // Car body
+  const bodyGrad = ctx.createLinearGradient(x-CAR_W/2,y,x+CAR_W/2,y);
+  bodyGrad.addColorStop(0,'#005a60');
+  bodyGrad.addColorStop(0.3,PAL.car);
+  bodyGrad.addColorStop(0.7,PAL.car);
+  bodyGrad.addColorStop(1,'#005a60');
+  ctx.fillStyle=bodyGrad;
+
+  // Main body
+  ctx.beginPath();
+  ctx.roundRect(x-CAR_W/2, y-CAR_H/2+4, CAR_W, CAR_H-4, 6);
+  ctx.fill();
+
+  // Cockpit
+  const cockGrad = ctx.createLinearGradient(x-8,y-CAR_H/2,x+8,y-2);
+  cockGrad.addColorStop(0,'#00ffd5');
+  cockGrad.addColorStop(1,'#003a40');
+  ctx.fillStyle=cockGrad;
+  ctx.beginPath();
+  ctx.roundRect(x-8, y-CAR_H/2+8, 16, 20, 4);
+  ctx.fill();
+
+  // Wheels
+  ctx.fillStyle='#1a1a1a';
+  ctx.shadowBlur=0;
+  ctx.fillRect(x-CAR_W/2-4, y-CAR_H/2+6, 8, 12);
+  ctx.fillRect(x+CAR_W/2-4, y-CAR_H/2+6, 8, 12);
+  ctx.fillRect(x-CAR_W/2-4, y+CAR_H/2-14, 8, 12);
+  ctx.fillRect(x+CAR_W/2-4, y+CAR_H/2-14, 8, 12);
+
+  // Wheel rims
+  ctx.strokeStyle=PAL.car; ctx.lineWidth=1;
+  ctx.strokeRect(x-CAR_W/2-4,y-CAR_H/2+6,8,12);
+  ctx.strokeRect(x+CAR_W/2-4,y-CAR_H/2+6,8,12);
+  ctx.strokeRect(x-CAR_W/2-4,y+CAR_H/2-14,8,12);
+  ctx.strokeRect(x+CAR_W/2-4,y+CAR_H/2-14,8,12);
+
+  // Headlights
+  ctx.fillStyle='#ffe600';
+  ctx.shadowBlur=15; ctx.shadowColor='#ffe600';
+  ctx.fillRect(x-10,y-CAR_H/2+2,7,5);
+  ctx.fillRect(x+3,y-CAR_H/2+2,7,5);
+
+  // Stripe
+  ctx.fillStyle='rgba(255,255,255,0.15)';
+  ctx.fillRect(x-3,y-CAR_H/2+8,6,CAR_H-16);
+
+  ctx.shadowBlur=0;
+}
+
+// ─── Energy Ball (Breakout mechanic) ──────────────────────────────────
+let balls = [];
+
+function fireBall() {
+  balls.push({
+    x: car.x,
+    y: car.y - CAR_H/2 - 4,
+    vx: (Math.random()-0.5)*1.5,
+    vy: -(5 + level*0.2),
+    r: 7,
+    alive: true,
+    bounces: 0
+  });
+  sfxShoot();
+}
+
+function drawBalls() {
+  for(const b of balls) {
+    if(!b.alive) continue;
+    // Glow
+    const grd = ctx.createRadialGradient(b.x,b.y,0,b.x,b.y,b.r*2.5);
+    grd.addColorStop(0,'#ffe600');
+    grd.addColorStop(0.4,'#ff9a00');
+    grd.addColorStop(1,'transparent');
+    ctx.fillStyle=grd;
+    ctx.beginPath();
+    ctx.arc(b.x,b.y,b.r*2.5,0,Math.PI*2);
+    ctx.fill();
+    // Core
+    ctx.shadowBlur=20; ctx.shadowColor=PAL.ballGlow;
+    ctx.fillStyle=PAL.ball;
+    ctx.beginPath();
+    ctx.arc(b.x,b.y,b.r,0,Math.PI*2);
+    ctx.fill();
+    ctx.shadowBlur=0;
+  }
+}
+
+function updateBalls() {
+  for(const b of balls) {
+    if(!b.alive) continue;
+    b.x += b.vx; b.y += b.vy;
+
+    // Wall bounces (Breakout style)
+    if(b.x-b.r < TRACK_X) { b.x=TRACK_X+b.r; b.vx=Math.abs(b.vx); spawnParticles(b.x,b.y,'#a259ff',4,2); }
+    if(b.x+b.r > TRACK_X+TRACK_W) { b.x=TRACK_X+TRACK_W-b.r; b.vx=-Math.abs(b.vx); spawnParticles(b.x,b.y,'#a259ff',4,2); }
+    if(b.y-b.r < 0) { b.vy=Math.abs(b.vy); b.bounces++; spawnParticles(b.x,b.y,'#ffe600',4,2); }
+    if(b.y > H+20) { b.alive=false; }
+
+    // Block collisions (Breakout mechanic)
+    for(const blk of blocks) {
+      if(!blk.alive) continue;
+      if(b.x+b.r > blk.x && b.x-b.r < blk.x+blk.w &&
+         b.y+b.r > blk.y && b.y-b.r < blk.y+blk.h) {
+        blk.hp--;
+        if(blk.hp <= 0) {
+          blk.alive=false;
+          score += 10*combo;
+          comboTimer = 120;
+          combo++;
+          sfxHit();
+          sfxCombo(combo);
+          spawnParticles(blk.x+blk.w/2, blk.y+blk.h/2, blk.color, 16, 4);
+        } else {
+          spawnParticles(b.x,b.y,blk.color,6,2);
+          sfxHit();
+        }
+        // Bounce off block
+        const overlapX = Math.min(b.x+b.r - blk.x, blk.x+blk.w - (b.x-b.r));
+        const overlapY = Math.min(b.y+b.r - blk.y, blk.y+blk.h - (b.y-b.r));
+        if(overlapX < overlapY) b.vx *= -1; else b.vy *= -1;
+        b.bounces++;
+      }
+    }
+
+    // Invader collisions
+    for(const inv of invaders) {
+      if(!inv.alive) continue;
+      const dx = b.x-inv.x, dy = b.y-inv.y;
+      if(Math.sqrt(dx*dx+dy*dy) < 18) {
+        inv.alive=false;
+        b.vy*=-1; b.vx+=(Math.random()-0.5)*2;
+        b.bounces++;
+        score += 25*combo;
+        comboTimer=120; combo++;
+        sfxExplode();
+        spawnParticles(inv.x,inv.y, PAL.invader[inv.type%PAL.invader.length],20,5);
+        sfxCombo(combo);
+      }
+    }
+
+    // Falling tetris piece collisions
+    for(const p of tetrisPieces) {
+      if(!p.alive) continue;
+      for(let row=0;row<p.shape.length;row++) {
+        for(let col=0;col<p.shape[row].length;col++) {
+          if(!p.shape[row][col]) continue;
+          const px = TRACK_X+(p.lane+col)*LANE_W+2;
+          const py = p.y+row*BLOCK_H;
+          if(b.x+b.r > px && b.x-b.r < px+BLOCK_W &&
+             b.y+b.r > py && b.y-b.r < py+BLOCK_H-2) {
+            p.shape[row][col]=0;
+            score+=5*combo;
+            b.vy*=-1;
+            spawnParticles(px+BLOCK_W/2,py+BLOCK_H/2,p.color,8,3);
+          }
+        }
+      }
+    }
+  }
+  balls = balls.filter(b=>b.alive || b.y <= H+30);
+}
+
+// ─── AI Controller ────────────────────────────────────────────────────
+let aiShootTimer = 0;
+let aiTargetLane = 2;
+let aiDecideTimer = 0;
+
+function aiUpdate() {
+  aiDecideTimer--;
+  if(aiDecideTimer <= 0) {
+    aiDecideTimer = 20 + Math.floor(Math.random()*15);
+
+    // Find best lane: avoid invader bullets, aim at invaders & blocks
+    let lanePriority = [0,0,0,0,0];
+
+    // Threat from invader bullets
+    for(const ib of invaderBullets) {
+      const laneIdx = Math.floor((ib.x - TRACK_X)/LANE_W);
+      if(laneIdx>=0 && laneIdx<LANE_COUNT) {
+        lanePriority[laneIdx] -= 5 * (1 - ib.y/H); // more dangerous if close
+      }
+    }
+
+    // Reward lane with nearest block/invader column above car
+    for(const inv of invaders) {
+      if(!inv.alive) continue;
+      const laneIdx = Math.floor((inv.x - TRACK_X)/LANE_W);
+      if(laneIdx>=0 && laneIdx<LANE_COUNT) lanePriority[laneIdx]+=2;
+    }
+    for(const blk of blocks) {
+      if(!blk.alive) continue;
+      const laneIdx = Math.floor((blk.x - TRACK_X)/LANE_W);
+      if(laneIdx>=0 && laneIdx<LANE_COUNT) {
+        lanePriority[laneIdx] += blk.y < H/2 ? 1 : 0.3;
+      }
+    }
+
+    // Stay near center (track preference)
+    lanePriority[2] += 0.5;
+
+    // Pick best lane
+    let best = -999, bestLane=2;
+    for(let i=0;i<LANE_COUNT;i++) {
+      if(lanePriority[i]>best){ best=lanePriority[i]; bestLane=i; }
+    }
+    aiTargetLane = bestLane;
+  }
+
+  // Move car smoothly toward target lane
+  const targetX = TRACK_X + aiTargetLane*LANE_W + LANE_W/2;
+  car.targetX = targetX;
+  const dx = car.targetX - car.x;
+  car.x += dx * 0.08;
+
+  // AI shooting
+  aiShootTimer--;
+  if(aiShootTimer<=0) {
+    // Shoot if there's a valid target above
+    const hasTarget = invaders.some(i=>i.alive && i.y > 0) || 
+                      blocks.some(b=>b.alive && b.y < CAR_Y - 40) ||
+                      tetrisPieces.some(p=>p.alive && p.y < CAR_Y);
+    if(hasTarget && balls.length < 3+level) {
+      fireBall();
+      aiShootTimer = Math.max(20, 50-level*4);
+    } else {
+      aiShootTimer = 15;
+    }
+  }
+}
+
+// ─── Collision: car vs invader bullets ───────────────────────────────
+function checkCarHits() {
+  if(!car.alive) return;
+  for(const ib of invaderBullets) {
+    if(!ib.alive) continue;
+    if(Math.abs(ib.x - car.x) < CAR_W/2+4 && Math.abs(ib.y - car.y) < CAR_H/2+4) {
+      ib.alive=false;
+      lives--;
+      combo=1; comboTimer=0;
+      sfxExplode();
+      spawnParticles(car.x,car.y,PAL.car,30,6);
+      if(lives<=0) gameOver=true;
+    }
+  }
+
+  // Car vs falling blocks
+  for(const blk of blocks) {
+    if(!blk.alive) continue;
+    if(blk.y+blk.h > car.y-CAR_H/2 && blk.y < car.y+CAR_H/2 &&
+       blk.x+blk.w > car.x-CAR_W/2 && blk.x < car.x+CAR_W/2) {
+      blk.alive=false;
+      lives--;
+      combo=1; comboTimer=0;
+      sfxExplode();
+      spawnParticles(car.x,car.y,PAL.car,20,5);
+      if(lives<=0) gameOver=true;
+    }
+  }
+}
+
+// ─── Level Progression ────────────────────────────────────────────────
+function checkLevelUp() {
+  const aliveInvaders = invaders.filter(i=>i.alive).length;
+  const aliveBlocks = blocks.filter(b=>b.alive).length;
+  if(aliveInvaders===0 && aliveBlocks < 3) {
+    level++;
+    sfxLevelUp();
+    spawnInvaders();
+    // Partially clear blocks for new level breathing room
+    blocks = blocks.filter(b=>b.y < H-120);
+    combo=Math.min(combo+1,8);
+    score += level*500;
+    levelTransition=true;
+    ltTimer=90;
+  }
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────
+function lighten(hex, amt) {
+  let r=parseInt(hex.slice(1,3),16), g=parseInt(hex.slice(3,5),16), b=parseInt(hex.slice(5,7),16);
+  r=Math.min(255,r+amt); g=Math.min(255,g+amt); b=Math.min(255,b+amt);
+  return '#'+[r,g,b].map(v=>v.toString(16).padStart(2,'0')).join('');
+}
+
+function padNum(n,len) { return String(Math.floor(n)).padStart(len,'0'); }
+
+// ─── HUD ──────────────────────────────────────────────────────────────
+function updateHUD() {
+  document.getElementById('score-display').textContent = padNum(score,6);
+  document.getElementById('level-display').textContent = padNum(level,2);
+  document.getElementById('combo-display').textContent = 'x'+combo;
+  const hearts = '♥ '.repeat(lives).trim() || '—';
+  document.getElementById('lives-display').textContent = hearts;
+}
+
+// ─── Draw Game Over / Level screens ───────────────────────────────────
+function drawOverlay(text, sub, color) {
+  ctx.fillStyle='rgba(0,0,16,0.7)';
+  ctx.fillRect(0,0,W,H);
+  ctx.shadowBlur=30; ctx.shadowColor=color;
+  ctx.fillStyle=color;
+  ctx.font='bold 52px Orbitron, monospace';
+  ctx.textAlign='center';
+  ctx.fillText(text, W/2, H/2-20);
+  ctx.shadowBlur=0;
+  ctx.fillStyle='rgba(255,255,255,0.6)';
+  ctx.font='14px Share Tech Mono, monospace';
+  ctx.fillText(sub, W/2, H/2+22);
+  ctx.textAlign='left';
+}
+
+// ─── Main Loop ────────────────────────────────────────────────────────
+let lastTime = 0;
+function loop(ts) {
+  const dt = Math.min(ts - lastTime, 50);
+  lastTime = ts;
+
+  ctx.fillStyle='#000';
+  ctx.fillRect(0,0,W,H);
+
+  scrollY = (scrollY + 3) % 40;
+
+  drawStars(scrollY);
+  drawTrack();
+  drawBlocks();
+  drawFallingPieces();
+  drawInvaders();
+  drawInvaderBullets();
+  drawBalls();
+  drawCar(car);
+  updateParticles();
+
+  if(!gameOver) {
+    updateTetris();
+    updateInvaders();
+    updateBalls();
+    aiUpdate();
+    checkCarHits();
+    checkLevelUp();
+
+    // Combo decay
+    if(comboTimer>0) { comboTimer--; if(comboTimer<=0) combo=1; }
+
+    // Engine sound occasionally
+    if(Math.random()<0.03) sfxEngine(80+Math.abs(car.x - car.targetX)*2);
+  }
+
+  // Level transition overlay
+  if(levelTransition) {
+    ltTimer--;
+    drawOverlay('LEVEL '+level, 'SYSTEMS UPGRADED — LAUNCHING WAVE '+level, '#00ffd5');
+    if(ltTimer<=0) levelTransition=false;
+  }
+
+  if(gameOver) {
+    drawOverlay('GAME OVER', 'FINAL SCORE: '+padNum(score,6)+' · RESTARTING...', '#ff3c6e');
+    setTimeout(()=>{ resetGame(); },3000);
+    gameOver=false;
+  }
+
+  updateHUD();
+  requestAnimationFrame(loop);
+}
+
+// ─── Reset / Init ─────────────────────────────────────────────────────
+function resetGame() {
+  score=0; level=1; lives=3; combo=1; comboTimer=0;
+  blocks=[]; tetrisPieces=[]; balls=[]; invaderBullets=[];
+  invaderDir=1; invaderMoveTimer=0; invaderDropTimer=0;
+  invaderFormationY=40; nextTetrisDrop=60;
+  car.x = TRACK_X + TRACK_W/2;
+  car.targetX = car.x;
+  car.alive=true;
+  aiDecideTimer=0; aiShootTimer=0; aiTargetLane=2;
+  gameOver=false; levelTransition=false;
+  spawnInvaders();
+}
+
+// Kick off
+resetGame();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Fractal Textile Physics Kaleidosphere</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Fractal Textile Physics Kaleidosphere – generative audiovisual simulation blending fractals, textile patterns, kaleidoscopic geometry, physics cloth systems and algorithmic sound.">
+<meta name="keywords" content="generative art, fractal, kaleidoscope, textile patterns, reaction diffusion, cloth physics, audiovisual synthesis">
+<style>
+html,body{
+margin:0;
+padding:0;
+overflow:hidden;
+background:black;
+}
+canvas{
+display:block;
+}
+#hud{
+position:fixed;
+top:10px;
+left:10px;
+font-family:monospace;
+color:white;
+font-size:12px;
+opacity:.8;
+pointer-events:none;
+}
+</style>
+</head>
+
+<body>
+
+<canvas id="c"></canvas>
+<div id="hud" style="display:none"></div>
+
+<script>
+
+const canvas = document.getElementById("c")
+const ctx = canvas.getContext("2d")
+const hud = document.getElementById("hud")
+
+let W,H
+
+function resize(){
+W=canvas.width=window.innerWidth
+H=canvas.height=window.innerHeight
+}
+resize()
+window.addEventListener("resize",resize)
+
+let seed
+let rand
+
+function reseed(){
+seed = Math.random()*1e9
+rand = mulberry32(seed)
+}
+
+function mulberry32(a){
+return function(){
+var t=a+=0x6D2B79F5
+t=Math.imul(t^t>>>15,t|1)
+t^=t+Math.imul(t^t>>>7,t|61)
+return((t^t>>>14)>>>0)/4294967296
+}
+}
+
+reseed()
+
+/* =============================
+   PHYSICS FABRIC (MASS SPRING)
+============================= */
+
+let nodes=[]
+let springs=[]
+let gridX,gridY
+
+function buildFabric(){
+
+nodes=[]
+springs=[]
+
+gridX = 40+Math.floor(rand()*20)
+gridY = 40+Math.floor(rand()*20)
+
+let spacing = Math.min(W/gridX,H/gridY)
+
+for(let y=0;y<gridY;y++){
+for(let x=0;x<gridX;x++){
+
+nodes.push({
+x:x*spacing,
+y:y*spacing,
+vx:0,
+vy:0
+})
+
+}
+}
+
+function id(x,y){return y*gridX+x}
+
+for(let y=0;y<gridY;y++){
+for(let x=0;x<gridX;x++){
+
+if(x<gridX-1) springs.push([id(x,y),id(x+1,y),spacing])
+if(y<gridY-1) springs.push([id(x,y),id(x,y+1),spacing])
+
+}
+}
+
+}
+
+/* =============================
+   FRACTAL PARAMETERS
+============================= */
+
+let fractalType
+
+function fractalValue(x,y){
+
+let zx = x/W*3-1.5
+let zy = y/H*3-1.5
+
+let iter=0
+let maxIter=20
+
+let cx,cy
+
+if(fractalType===0){
+cx=zx
+cy=zy
+}else{
+cx=Math.sin(seed)
+cy=Math.cos(seed)
+}
+
+while(zx*zx+zy*zy<4 && iter<maxIter){
+
+let xt = zx*zx-zy*zy + cx
+zy = 2*zx*zy + cy
+zx = xt
+iter++
+}
+
+return iter/maxIter
+}
+
+/* =============================
+   REACTION DIFFUSION FIELD
+============================= */
+
+let pigment=[]
+
+function buildPigment(){
+
+pigment = new Float32Array(W*H)
+
+for(let i=0;i<pigment.length;i++){
+pigment[i]=rand()
+}
+
+}
+
+/* =============================
+   COLOR SYSTEM
+============================= */
+
+let hueA,hueB
+
+function colorize(v){
+
+let h = (hueA + v*360 + time*20)%360
+let s = 80
+let l = 40+v*40
+
+return `hsl(${h},${s}%,${l}%)`
+}
+
+/* =============================
+   AUDIO
+============================= */
+
+let audioCtx=null
+let osc=[]
+let soundOn=false
+
+function toggleSound(){
+
+soundOn=!soundOn
+
+if(soundOn){
+
+audioCtx=new (window.AudioContext||window.webkitAudioContext)()
+
+for(let i=0;i<4;i++){
+
+let o=audioCtx.createOscillator()
+let g=audioCtx.createGain()
+
+o.type="sine"
+o.frequency.value=100+rand()*400
+g.gain.value=.02
+
+o.connect(g)
+g.connect(audioCtx.destination)
+o.start()
+
+osc.push({o,g})
+
+}
+
+}else{
+
+if(audioCtx){
+audioCtx.close()
+audioCtx=null
+osc=[]
+}
+
+}
+
+}
+
+/* =============================
+   MAZE FIELD
+============================= */
+
+let maze=[]
+
+function buildMaze(){
+
+let cols=60
+let rows=60
+
+maze=[]
+
+for(let i=0;i<cols*rows;i++) maze[i]=rand()>0.7?1:0
+
+}
+
+/* =============================
+   RESET WORLD
+============================= */
+
+function reset(){
+
+reseed()
+
+buildFabric()
+
+buildPigment()
+
+buildMaze()
+
+fractalType = Math.floor(rand()*2)
+
+hueA = rand()*360
+hueB = rand()*360
+
+}
+
+reset()
+
+/* =============================
+   SIMULATION STEP
+============================= */
+
+let time=0
+
+function step(){
+
+time+=0.016
+
+/* spring forces */
+
+for(let s of springs){
+
+let a = nodes[s[0]]
+let b = nodes[s[1]]
+
+let dx=b.x-a.x
+let dy=b.y-a.y
+
+let dist=Math.sqrt(dx*dx+dy*dy)
+let diff=(dist-s[2])*0.02
+
+let fx=dx/dist*diff
+let fy=dy/dist*diff
+
+a.vx+=fx
+a.vy+=fy
+b.vx-=fx
+b.vy-=fy
+
+}
+
+/* motion */
+
+for(let n of nodes){
+
+n.vy+=0.01*Math.sin(time+n.x*0.01)
+
+n.vx*=0.99
+n.vy*=0.99
+
+n.x+=n.vx
+n.y+=n.vy
+
+}
+
+/* draw */
+
+ctx.fillStyle="black"
+ctx.fillRect(0,0,W,H)
+
+let symmetry = 6
+
+for(let i=0;i<nodes.length;i++){
+
+let n = nodes[i]
+
+let f = fractalValue(n.x,n.y)
+
+ctx.fillStyle=colorize(f)
+
+for(let s=0;s<symmetry;s++){
+
+let ang = s*Math.PI*2/symmetry
+
+let cx = W/2 + (n.x-W/2)*Math.cos(ang)-(n.y-H/2)*Math.sin(ang)
+let cy = H/2 + (n.x-W/2)*Math.sin(ang)+(n.y-H/2)*Math.cos(ang)
+
+ctx.fillRect(cx,cy,2,2)
+
+}
+
+}
+
+/* update audio */
+
+if(soundOn && osc.length){
+
+let energy=0
+
+for(let n of nodes) energy+=Math.abs(n.vx)+Math.abs(n.vy)
+
+energy/=nodes.length
+
+osc.forEach((o,i)=>{
+o.o.frequency.value = 100 + energy*400 + i*50
+})
+
+}
+
+/* hud */
+
+hud.innerHTML=
+`nodes ${nodes.length}<br>
+springs ${springs.length}<br>
+seed ${seed.toFixed(0)}<br>
+sound ${soundOn}`
+
+requestAnimationFrame(step)
+
+}
+
+step()
+
+/* =============================
+   CONTROLS
+============================= */
+
+window.addEventListener("keydown",e=>{
+
+if(e.code==="Space") reset()
+
+if(e.key==="h"||e.key==="H"){
+hud.style.display = hud.style.display==="none"?"block":"none"
+}
+
+if(e.key==="s"||e.key==="S"){
+toggleSound()
+}
+
+})
+
+canvas.addEventListener("click",reset)
+canvas.addEventListener("touchstart",reset)
+
+</script>
+</body>
+</html>

@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Generative Mechanical Mathematics Cosmos</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="A GPU accelerated generative audiovisual cosmos simulator where mathematical geometry behaves as mechanical machinery and ornamental tilings act as physical systems. Procedurally evolving Penrose, Voronoi, hyperbolic tilings, fractal labyrinths, mechanical linkages, chaotic fields and hyperspace projections.">
+<meta name="keywords" content="generative art, mathematical universe, penrose tiling, hyperbolic geometry, generative physics, cellular automata, voronoi, delaunay, labyrinth maze, mechanical linkages, fractal tilings, audiovisual simulation">
+
+<style>
+html,body{
+margin:0;
+padding:0;
+overflow:hidden;
+background:black;
+}
+canvas{
+position:fixed;
+top:0;
+left:0;
+width:100vw;
+height:100vh;
+display:block;
+}
+#hud{
+position:fixed;
+left:10px;
+bottom:10px;
+color:#9ef;
+font-family:monospace;
+font-size:12px;
+pointer-events:none;
+opacity:.75;
+display:none;
+}
+</style>
+</head>
+
+<body>
+
+<canvas id="c"></canvas>
+<div id="hud"></div>
+
+<script>
+
+const canvas=document.getElementById("c")
+const gl=canvas.getContext("webgl",{antialias:true})
+const hud=document.getElementById("hud")
+
+let W,H
+function resize(){
+W=canvas.width=innerWidth
+H=canvas.height=innerHeight
+gl.viewport(0,0,W,H)
+}
+addEventListener("resize",resize)
+resize()
+
+function compile(type,src){
+let s=gl.createShader(type)
+gl.shaderSource(s,src)
+gl.compileShader(s)
+return s
+}
+
+const vert=compile(gl.VERTEX_SHADER,`
+attribute vec2 p;
+void main(){
+gl_Position=vec4(p,0.0,1.0);
+}
+`)
+
+const frag=compile(gl.FRAGMENT_SHADER,`
+
+precision highp float;
+
+uniform float t;
+uniform vec2 res;
+uniform vec4 seed;
+
+float hash(vec2 p){
+return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);
+}
+
+float noise(vec2 p){
+vec2 i=floor(p);
+vec2 f=fract(p);
+vec2 u=f*f*(3.0-2.0*f);
+return mix(
+mix(hash(i),hash(i+vec2(1.,0.)),u.x),
+mix(hash(i+vec2(0.,1.)),hash(i+vec2(1.,1.)),u.x),
+u.y);
+}
+
+mat2 rot(float a){
+float s=sin(a),c=cos(a);
+return mat2(c,-s,s,c);
+}
+
+vec2 kaleido(vec2 p,float n){
+float a=atan(p.y,p.x);
+float r=length(p);
+float tau=6.2831853/n;
+a=mod(a,tau);
+a=abs(a-tau/2.);
+return vec2(cos(a),sin(a))*r;
+}
+
+float voronoi(vec2 p){
+vec2 i=floor(p);
+vec2 f=fract(p);
+float d=1.;
+for(int y=-1;y<=1;y++)
+for(int x=-1;x<=1;x++){
+vec2 g=vec2(x,y);
+vec2 o=vec2(hash(i+g),hash(i+g+1.));
+vec2 r=g+o-f;
+d=min(d,dot(r,r));
+}
+return sqrt(d);
+}
+
+float maze(vec2 p){
+p=floor(p);
+return step(.5,hash(p));
+}
+
+float spiral(vec2 p){
+float a=atan(p.y,p.x);
+float r=length(p);
+return sin(10.*r-a*4.);
+}
+
+void main(){
+
+vec2 uv=(gl_FragCoord.xy-.5*res)/min(res.x,res.y);
+
+vec2 p=uv;
+
+p*=rot(t*.05+seed.x*6.);
+
+p=kaleido(p,6.+floor(seed.y*10.));
+
+float v=voronoi(p*6.+t*.2);
+
+float n=noise(p*8.+t*.1);
+
+float s=spiral(p*2.);
+
+float m=maze(p*10.);
+
+float energy=sin(v*8.+t)+cos(n*6.)+s;
+
+vec3 col;
+
+col.r=.5+.5*sin(energy+seed.z*10.);
+col.g=.5+.5*sin(energy*1.3+seed.w*8.);
+col.b=.5+.5*sin(energy*1.7);
+
+col+=m*.2;
+
+col*=smoothstep(1.2,.2,length(uv));
+
+gl_FragColor=vec4(col,1.0);
+
+}
+`)
+
+const prog=gl.createProgram()
+gl.attachShader(prog,vert)
+gl.attachShader(prog,frag)
+gl.linkProgram(prog)
+gl.useProgram(prog)
+
+const buf=gl.createBuffer()
+gl.bindBuffer(gl.ARRAY_BUFFER,buf)
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([
+-1,-1,1,-1,-1,1,1,1
+]),gl.STATIC_DRAW)
+
+const loc=gl.getAttribLocation(prog,"p")
+gl.enableVertexAttribArray(loc)
+gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0)
+
+const tLoc=gl.getUniformLocation(prog,"t")
+const rLoc=gl.getUniformLocation(prog,"res")
+const sLoc=gl.getUniformLocation(prog,"seed")
+
+let seed=[Math.random(),Math.random(),Math.random(),Math.random()]
+
+function regenerate(){
+seed=[Math.random(),Math.random(),Math.random(),Math.random()]
+}
+
+let start=performance.now()
+
+let audioCtx=null
+let osc=null
+let gain=null
+let sound=false
+
+function toggleSound(){
+
+sound=!sound
+
+if(sound){
+
+audioCtx=new (window.AudioContext||window.webkitAudioContext)()
+osc=audioCtx.createOscillator()
+gain=audioCtx.createGain()
+
+osc.type="sine"
+osc.frequency.value=110
+
+gain.gain.value=.05
+
+osc.connect(gain)
+gain.connect(audioCtx.destination)
+
+osc.start()
+
+}else{
+
+if(audioCtx){
+audioCtx.close()
+audioCtx=null
+osc=null
+gain=null
+}
+
+}
+
+}
+
+let hudOn=false
+
+addEventListener("keydown",e=>{
+if(e.code==="Space"){regenerate()}
+if(e.key==="h"||e.key==="H"){
+hudOn=!hudOn
+hud.style.display=hudOn?"block":"none"
+}
+if(e.key==="s"||e.key==="S"){
+toggleSound()
+}
+})
+
+addEventListener("click",regenerate)
+addEventListener("touchstart",regenerate)
+
+function frame(){
+
+let time=(performance.now()-start)/1000
+
+gl.uniform1f(tLoc,time)
+gl.uniform2f(rLoc,W,H)
+gl.uniform4f(sLoc,seed[0],seed[1],seed[2],seed[3])
+
+gl.drawArrays(gl.TRIANGLE_STRIP,0,4)
+
+if(sound && osc){
+osc.frequency.value=80+60*Math.sin(time*.5+seed[0]*10)
+}
+
+if(hudOn){
+hud.innerHTML=
+"Mechanical Mathematics Cosmos<br>"+
+"seed:"+seed.map(v=>v.toFixed(2)).join(", ")+"<br>"+
+"SPACE/click regenerate<br>"+
+"H HUD<br>"+
+"S sound ("+(sound?"on":"off")+")"
+}
+
+requestAnimationFrame(frame)
+
+}
+
+frame()
+
+</script>
+
+</body>
+</html>

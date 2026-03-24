@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Giga Pac-Man Ultra Arcade</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+html,body{margin:0;padding:0;background:#000;overflow:hidden;font-family:Arial}
+canvas{display:block}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<script>
+const canvas=document.getElementById("game");
+const ctx=canvas.getContext("2d");
+function resize(){canvas.width=window.innerWidth;canvas.height=window.innerHeight}
+window.addEventListener("resize",resize);resize();
+
+/* ---------------- AUDIO SYSTEM ---------------- */
+
+const audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+audioCtx.resume();
+
+function playTone(freq,dur,type="square",vol=0.1){
+ const o=audioCtx.createOscillator();
+ const g=audioCtx.createGain();
+ o.type=type;o.frequency.value=freq;
+ o.connect(g);g.connect(audioCtx.destination);
+ g.gain.value=vol;
+ o.start();
+ g.gain.exponentialRampToValueAtTime(0.0001,audioCtx.currentTime+dur);
+ o.stop(audioCtx.currentTime+dur);
+}
+
+function chompSound(){
+ playTone(700,0.05,"square",0.08);
+ setTimeout(()=>playTone(900,0.04,"square",0.06),40);
+}
+
+function ghostEatSound(){
+ playTone(200,0.2,"sawtooth",0.12);
+ setTimeout(()=>playTone(140,0.25,"sawtooth",0.1),100);
+}
+
+function wallBreakSound(){
+ playTone(90,0.15,"sawtooth",0.12);
+}
+
+function deathSound(){
+ playTone(400,0.3,"triangle",0.15);
+ setTimeout(()=>playTone(200,0.5,"sawtooth",0.15),250);
+}
+
+function ambientPulse(){
+ playTone(120,0.05,"triangle",0.03);
+}
+setInterval(ambientPulse,2000);
+
+/* ---------------- WORLD ---------------- */
+
+const TILE=28;
+const ROWS=60;
+const COLS=60;
+
+let maze=[];
+function generateMaze(){
+ maze=[];
+ for(let y=0;y<ROWS;y++){
+  maze[y]=[];
+  for(let x=0;x<COLS;x++){
+   if(x===0||y===0||x===COLS-1||y===ROWS-1){
+    maze[y][x]=1; // permanent outer walls
+   }else if(Math.random()<0.12){
+    maze[y][x]=1;
+   }else{
+    maze[y][x]=2;
+   }
+  }
+ }
+}
+generateMaze();
+
+/* ---------------- ENTITIES ---------------- */
+
+const pacman={
+ x:TILE*2,y:TILE*2,
+ radius:12,
+ dirX:1,dirY:0,
+ speed:2.5,
+ mouth:0
+};
+
+let lives=5;
+let hugeMode=false;
+
+const ghosts=[];
+function spawnGhost(){
+ ghosts.push({
+  x:TILE*(Math.random()*(COLS-4)+2),
+  y:TILE*(Math.random()*(ROWS-4)+2),
+  radius:12,
+  color:`hsl(${Math.random()*360},100%,60%)`,
+  dirX:Math.random()<0.5?1:-1,
+  dirY:Math.random()<0.5?1:-1
+ });
+}
+for(let i=0;i<8;i++)spawnGhost();
+
+/* ---------------- COLLISION ---------------- */
+
+function collideWall(nx,ny){
+ const gx=Math.floor(nx/TILE);
+ const gy=Math.floor(ny/TILE);
+
+ if(!maze[gy]) return true;
+ if(maze[gy][gx]===1){
+  // prevent breaking outer border walls
+  if(gx===0||gy===0||gx===COLS-1||gy===ROWS-1){
+   return true;
+  }
+  if(hugeMode){
+   maze[gy][gx]=0;
+   wallBreakSound();
+   return false;
+  }
+  return true;
+ }
+ return false;
+}
+
+/* ---------------- AI ---------------- */
+
+function aiControl(){
+ if(hugeMode && ghosts.length){
+  let target=ghosts.reduce((a,b)=>{
+   let da=(pacman.x-a.x)**2+(pacman.y-a.y)**2;
+   let db=(pacman.x-b.x)**2+(pacman.y-b.y)**2;
+   return db<da?b:a;
+  });
+  let dx=target.x-pacman.x;
+  let dy=target.y-pacman.y;
+  if(Math.abs(dx)>Math.abs(dy)){
+   pacman.dirX=Math.sign(dx);pacman.dirY=0;
+  }else{
+   pacman.dirY=Math.sign(dy);pacman.dirX=0;
+  }
+ }else{
+  if(Math.random()<0.03){
+   const dirs=[[1,0],[-1,0],[0,1],[0,-1]];
+   let d=dirs[Math.floor(Math.random()*dirs.length)];
+   pacman.dirX=d[0];pacman.dirY=d[1];
+  }
+ }
+}
+
+/* ---------------- GAME LOGIC ---------------- */
+
+function loseLife(){
+ lives--;
+ deathSound();
+ pacman.x=TILE*2;
+ pacman.y=TILE*2;
+ pacman.radius=12;
+ hugeMode=false;
+ if(lives<=0){
+  alert("GAME OVER");
+  location.reload();
+ }
+}
+
+function update(){
+ aiControl();
+
+ let nx=pacman.x+pacman.dirX*pacman.speed;
+ let ny=pacman.y+pacman.dirY*pacman.speed;
+
+ if(!collideWall(nx,ny)){
+  pacman.x=nx;pacman.y=ny;
+ }
+
+ let gx=Math.floor(pacman.x/TILE);
+ let gy=Math.floor(pacman.y/TILE);
+
+ if(maze[gy]&&maze[gy][gx]===2){
+  maze[gy][gx]=0;
+  pacman.radius+=1.3;
+  chompSound();
+ }
+
+ if(pacman.radius>TILE*1.3) hugeMode=true;
+
+ ghosts.forEach((g,i)=>{
+  g.x+=g.dirX*1.6;
+  g.y+=g.dirY*1.6;
+
+  if(collideWall(g.x,g.y)){
+   g.dirX*=-1;g.dirY*=-1;
+  }
+
+  let dx=pacman.x-g.x;
+  let dy=pacman.y-g.y;
+  let dist=Math.sqrt(dx*dx+dy*dy);
+
+  if(dist<pacman.radius+g.radius){
+   if(hugeMode){
+    ghosts.splice(i,1);
+    ghostEatSound();
+   }else{
+    loseLife();
+   }
+  }
+ });
+
+ pacman.mouth+=0.2;
+}
+
+/* ---------------- RENDER ---------------- */
+
+function drawMaze(){
+ for(let y=0;y<ROWS;y++){
+  for(let x=0;x<COLS;x++){
+   if(maze[y][x]===1){
+    ctx.fillStyle="#003cff";
+    ctx.fillRect(x*TILE,y*TILE,TILE,TILE);
+   }
+   if(maze[y][x]===2){
+    ctx.fillStyle="#fff";
+    ctx.beginPath();
+    ctx.arc(x*TILE+TILE/2,y*TILE+TILE/2,4,0,Math.PI*2);
+    ctx.fill();
+   }
+  }
+ }
+}
+
+function drawPacman(){
+ ctx.save();
+ ctx.translate(pacman.x,pacman.y);
+ ctx.fillStyle="yellow";
+ ctx.beginPath();
+ let m=Math.abs(Math.sin(pacman.mouth))*0.4;
+ ctx.arc(0,0,pacman.radius,m,Math.PI*2-m);
+ ctx.lineTo(0,0);
+ ctx.fill();
+ ctx.restore();
+}
+
+function drawGhost(g){
+ ctx.save();
+ ctx.translate(g.x,g.y);
+ ctx.fillStyle=g.color;
+ ctx.beginPath();
+ ctx.arc(0,0,g.radius,Math.PI,0);
+ ctx.lineTo(g.radius,g.radius);
+ ctx.lineTo(-g.radius,g.radius);
+ ctx.closePath();
+ ctx.fill();
+ ctx.restore();
+}
+
+function drawUI(){
+ ctx.setTransform(1,0,0,1,0,0);
+ ctx.fillStyle="white";
+ ctx.font="20px Arial";
+ ctx.fillText("Lives: "+lives,20,30);
+ ctx.fillText("Size: "+Math.floor(pacman.radius),20,55);
+ if(hugeMode){
+  ctx.fillStyle="red";
+  ctx.fillText("GIGA MODE",20,80);
+ }
+}
+
+/* ---------------- CAMERA LOOP ---------------- */
+
+function loop(){
+ ctx.setTransform(1,0,0,1,0,0);
+ ctx.fillStyle="black";
+ ctx.fillRect(0,0,canvas.width,canvas.height);
+
+ const camX=pacman.x-canvas.width/2;
+ const camY=pacman.y-canvas.height/2;
+ ctx.setTransform(1,0,0,1,-camX,-camY);
+
+ drawMaze();
+ drawPacman();
+ ghosts.forEach(drawGhost);
+
+ drawUI();
+ update();
+ requestAnimationFrame(loop);
+}
+
+loop();
+</script>
+</body>
+</html>

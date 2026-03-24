@@ -1,0 +1,1070 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Fractal Pyrotechnic Geometry Engine — Generative Fireworks Art</title>
+<meta name="description" content="An interactive fractal fireworks visualization engine combining Mandelbrot sets, multibrot fractals, iterated function systems, Penrose tilings, and Voronoi tessellations into an explosive audiovisual generative art experience.">
+<meta name="keywords" content="fractal visualization, generative fireworks art, procedural graphics, interactive audiovisual engine, Mandelbrot fractal, multibrot, iterated function systems, Barnsley fern, Penrose tiling, Voronoi tessellation, generative art, fractal fireworks, mathematical beauty, chaotic oscillators, spectral synthesis">
+<meta name="author" content="Fractal Pyrotechnic Geometry Engine">
+<meta property="og:title" content="Fractal Pyrotechnic Geometry Engine — Generative Fireworks Art">
+<meta property="og:description" content="Explosive generative art: Mandelbrot fractals, IFS, Penrose tilings, and Voronoi tessellations erupt as fractal fireworks with synchronized spectral sound design.">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Fractal Pyrotechnic Geometry Engine">
+<meta name="twitter:description" content="Impossibly vibrant fractal fireworks universe exploding with mathematical beauty.">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Courier New',monospace}
+canvas{display:block;position:fixed;top:0;left:0;width:100%;height:100%;cursor:crosshair}
+#hud{position:fixed;top:16px;left:16px;color:rgba(255,255,255,0.85);font-size:11px;line-height:1.7;pointer-events:none;display:none;text-shadow:0 0 8px rgba(0,200,255,0.8)}
+#hud.visible{display:block}
+#hint{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,0.35);font-size:10px;letter-spacing:2px;pointer-events:none;transition:opacity 1s}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<div id="hint">SPACE / TAP · H HUD · S SOUND</div>
+<script>
+'use strict';
+// ─── Canvas Setup ───────────────────────────────────────────────────────────
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const hud = document.getElementById('hud');
+const hint = document.getElementById('hint');
+let W, H, DPR;
+
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth;
+  H = window.innerHeight;
+  cv.width = W * DPR;
+  cv.height = H * DPR;
+  cv.style.width = W + 'px';
+  cv.style.height = H + 'px';
+  ctx.scale(DPR, DPR);
+}
+resize();
+window.addEventListener('resize', () => { resize(); regenerate(); });
+
+// ─── Global State ────────────────────────────────────────────────────────────
+let hudVisible = false;
+let soundOn = false;
+let t = 0;
+let frame = 0;
+let lastTime = 0;
+let fps = 60;
+let audioCtx = null;
+
+// ─── Math Utilities ──────────────────────────────────────────────────────────
+const PI = Math.PI, TAU = PI * 2;
+const rand = (a=0,b=1) => a + Math.random()*(b-a);
+const randInt = (a,b) => Math.floor(rand(a,b));
+const lerp = (a,b,t) => a+(b-a)*t;
+const clamp = (v,mn,mx) => Math.max(mn,Math.min(mx,v));
+const sin = Math.sin, cos = Math.cos, sqrt = Math.sqrt, abs = Math.abs, pow = Math.pow;
+const fract = v => v - Math.floor(v);
+const hash = n => fract(sin(n)*43758.5453);
+
+// Complex multiply
+const cMul = (ar,ai,br,bi) => [ar*br - ai*bi, ar*bi + ai*br];
+// Complex magnitude squared
+const cMag2 = (r,i) => r*r + i*i;
+
+// ─── Color System ────────────────────────────────────────────────────────────
+let palette = [];
+let paletteShift = 0;
+let paletteSpeed = 0;
+let hueBase = 0;
+let satBoost = 1;
+
+function hsv2rgb(h,s,v) {
+  h = fract(h);
+  const i = Math.floor(h*6);
+  const f = h*6-i;
+  const p = v*(1-s), q = v*(1-f*s), u = v*(1-(1-f)*s);
+  switch(i%6){
+    case 0: return [v,u,p];
+    case 1: return [q,v,p];
+    case 2: return [p,v,u];
+    case 3: return [p,q,v];
+    case 4: return [u,p,v];
+    case 5: return [v,p,q];
+  }
+}
+
+function generatePalette() {
+  palette = [];
+  hueBase = Math.random();
+  satBoost = rand(0.7, 1.0);
+  paletteSpeed = rand(0.0003, 0.002);
+  const N = 512;
+  const type = randInt(0, 5);
+  for (let i = 0; i < N; i++) {
+    const x = i / N;
+    let h, s, v;
+    if (type === 0) { // fire
+      h = hueBase + x * 0.18 - 0.05;
+      s = 1; v = pow(x, 0.4);
+    } else if (type === 1) { // ice plasma
+      h = hueBase + 0.55 + x * 0.25;
+      s = 0.9; v = pow(x, 0.3);
+    } else if (type === 2) { // spectral
+      h = hueBase + x * 0.85;
+      s = satBoost; v = 0.2 + x * 0.8;
+    } else if (type === 3) { // neon
+      h = hueBase + sin(x*TAU*2)*0.3 + x*0.4;
+      s = 1; v = 0.3 + 0.7*pow(sin(x*PI),0.5);
+    } else { // psychedelic
+      h = hueBase + x * 1.4 + sin(x*TAU*3)*0.15;
+      s = 0.85 + sin(x*TAU)*0.15;
+      v = 0.1 + 0.9*pow(x,0.25);
+    }
+    const [r,g,b] = hsv2rgb(h, clamp(s,0,1), clamp(v,0,1));
+    palette.push([
+      Math.round(r*255)|0,
+      Math.round(g*255)|0,
+      Math.round(b*255)|0
+    ]);
+  }
+}
+
+function getPaletteColor(v, alpha=1) {
+  const idx = (Math.floor((fract(v + paletteShift) * palette.length) + palette.length)) % palette.length;
+  const [r,g,b] = palette[idx];
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function getPaletteRGB(v) {
+  const idx = (Math.floor((fract(v + paletteShift) * palette.length) + palette.length)) % palette.length;
+  return palette[idx];
+}
+
+// ─── Fractal Parameters ──────────────────────────────────────────────────────
+let fractalType = 0; // 0=mandelbrot, 1=multibrot, 2=burning ship, 3=julia, 4=nova
+let multibrootPow = 2;
+let juliaC = [0, 0];
+let fractalZoom = 1;
+let fractalX = 0, fractalY = 0;
+let maxIter = 80;
+let escapeR = 4;
+let symmetry = 1;
+let symAngle = 0;
+let kaleidoMirrors = 4;
+let fractalRotSpeed = 0;
+let bgImageData = null;
+let bgDirty = true;
+
+function chooseFractalParams() {
+  fractalType = randInt(0, 5);
+  multibrootPow = [2,3,4,5,6,7][randInt(0,6)];
+  juliaC = [rand(-0.8,0.8), rand(-0.8,0.8)];
+  // Interesting zoom areas
+  const spots = [
+    [0,0,1.2],[-0.75,0.1,2],[-1.4,0,4],[-0.5,0.56,8],
+    [0.3,0.5,6],[0,0.65,5],[-1.78,0,12],[0.27,0.0,10]
+  ];
+  const s = spots[randInt(0,spots.length)];
+  fractalX = s[0] + rand(-0.02,0.02);
+  fractalY = s[1] + rand(-0.02,0.02);
+  fractalZoom = s[2] * rand(0.6,1.6);
+  maxIter = randInt(60,140);
+  escapeR = rand(3,8);
+  symmetry = [1,2,3,4,5,6,8][randInt(0,7)];
+  symAngle = Math.random() * TAU;
+  kaleidoMirrors = [2,3,4,5,6,8][randInt(0,6)];
+  fractalRotSpeed = rand(-0.0002, 0.0002) * (Math.random()<0.3?0:1);
+}
+
+// Offscreen canvas for fractal BG
+let offCv, offCtx, offImgData;
+function initOffscreen() {
+  const scale = Math.min(1, 600/Math.max(W,H));
+  const ow = Math.floor(W * scale) || 1;
+  const oh = Math.floor(H * scale) || 1;
+  offCv = document.createElement('canvas');
+  offCv.width = ow; offCv.height = oh;
+  offCtx = offCv.getContext('2d');
+  offImgData = offCtx.createImageData(ow, oh);
+  bgDirty = true;
+}
+
+function mandelbrot(cr, ci, max) {
+  let zr=0, zi=0, i=0;
+  while (i < max && zr*zr+zi*zi < escapeR*escapeR) {
+    const tmp = zr*zr - zi*zi + cr;
+    zi = 2*zr*zi + ci;
+    zr = tmp; i++;
+  }
+  if (i === max) return -1;
+  const m2 = zr*zr+zi*zi;
+  return i - Math.log2(Math.log(m2)/2);
+}
+
+function multibrot(cr, ci, pow, max) {
+  let zr=0, zi=0, i=0;
+  while (i < max && zr*zr+zi*zi < escapeR*escapeR) {
+    // z^n using de Moivre
+    const r = Math.sqrt(zr*zr+zi*zi);
+    if (r === 0) { zr=cr; zi=ci; i++; continue; }
+    const theta = Math.atan2(zi,zr);
+    const rn = Math.pow(r, pow);
+    const tn = theta * pow;
+    zr = rn*cos(tn) + cr;
+    zi = rn*sin(tn) + ci;
+    i++;
+  }
+  if (i === max) return -1;
+  return i;
+}
+
+function burningShip(cr, ci, max) {
+  let zr=0, zi=0, i=0;
+  while (i < max && zr*zr+zi*zi < escapeR*escapeR) {
+    const tmp = zr*zr - zi*zi + cr;
+    zi = abs(2*zr*zi) + ci;
+    zr = tmp; i++;
+  }
+  if (i === max) return -1;
+  return i;
+}
+
+function julia(zr0, zi0, max) {
+  let zr=zr0, zi=zi0, i=0;
+  const [cr,ci] = juliaC;
+  while (i < max && zr*zr+zi*zi < escapeR*escapeR) {
+    const tmp = zr*zr - zi*zi + cr;
+    zi = 2*zr*zi + ci;
+    zr = tmp; i++;
+  }
+  if (i === max) return -1;
+  const m2 = zr*zr+zi*zi;
+  return i - Math.log2(Math.log(m2)/2);
+}
+
+function novaFractal(cr, ci, max) {
+  let zr=1, zi=0;
+  for (let i=0; i<max; i++) {
+    const z2r=zr*zr-zi*zi, z2i=2*zr*zi;
+    const z3r=z2r*zr-z2i*zi, z3i=z2r*zi+z2i*zr;
+    const nr=z3r-1, ni=z3i;
+    const d=3*(z2r), di=3*z2i;
+    const den=d*d+di*di;
+    if (den<1e-10) return i/max;
+    const fr=nr*d+ni*di, fi=ni*d-nr*di;
+    zr = zr - fr/den + cr;
+    zi = zi - fi/den + ci;
+    if ((zr-1)*(zr-1)+zi*zi < 1e-6 ||
+        (zr+0.5)*(zr+0.5)+(zi-0.866)*(zi-0.866)<1e-6 ||
+        (zr+0.5)*(zr+0.5)+(zi+0.866)*(zi+0.866)<1e-6) return i/max;
+  }
+  return -1;
+}
+
+function computeFractalPixel(px, py, ow, oh) {
+  const aspect = ow / oh;
+  let x = (px/ow - 0.5) * 3.5 / fractalZoom * aspect + fractalX;
+  let y = (py/oh - 0.5) * 3.5 / fractalZoom + fractalY;
+  let v;
+  switch(fractalType) {
+    case 0: v = mandelbrot(x, y, maxIter); break;
+    case 1: v = multibrot(x, y, multibrootPow, maxIter); break;
+    case 2: v = burningShip(x, y, maxIter); break;
+    case 3: v = julia(x, y, maxIter); break;
+    case 4: v = novaFractal(x*0.5, y*0.5, maxIter); break;
+    default: v = mandelbrot(x, y, maxIter);
+  }
+  return v;
+}
+
+function renderFractalBG() {
+  if (!offImgData) return;
+  const ow = offCv.width, oh = offCv.height;
+  const d = offImgData.data;
+  for (let py = 0; py < oh; py++) {
+    for (let px = 0; px < ow; px++) {
+      const v = computeFractalPixel(px, py, ow, oh);
+      const idx = (py * ow + px) * 4;
+      if (v < 0) {
+        d[idx]=0; d[idx+1]=0; d[idx+2]=0; d[idx+3]=255;
+      } else {
+        const t = v / maxIter;
+        const [r,g,b] = getPaletteRGB(t * 0.7 + 0.05);
+        d[idx]=r; d[idx+1]=g; d[idx+2]=b; d[idx+3]=255;
+      }
+    }
+  }
+  offCtx.putImageData(offImgData, 0, 0);
+  bgDirty = false;
+}
+
+// ─── IFS / Barnsley Fern ─────────────────────────────────────────────────────
+let ifsPoints = [];
+let ifsConfig = [];
+let ifsCount = 0;
+
+const barnsleyFernIFS = [
+  {a:0,b:0,c:0,d:0.16,e:0,f:0,p:0.01},
+  {a:0.85,b:0.04,c:-0.04,d:0.85,e:0,f:1.6,p:0.85},
+  {a:0.2,b:-0.26,c:0.23,d:0.22,e:0,f:1.6,p:0.07},
+  {a:-0.15,b:0.28,c:0.26,d:0.24,e:0,f:0.44,p:0.07}
+];
+
+const dragonIFS = [
+  {a:0.5,b:-0.5,c:0.5,d:0.5,e:0,f:0,p:0.5},
+  {a:-0.5,b:-0.5,c:0.5,d:-0.5,e:1,f:0,p:0.5}
+];
+
+const sierpinskiIFS = [
+  {a:0.5,b:0,c:0,d:0.5,e:0,f:0,p:0.33},
+  {a:0.5,b:0,c:0,d:0.5,e:0.5,f:0,p:0.33},
+  {a:0.5,b:0,c:0,d:0.5,e:0.25,f:0.43,p:0.34}
+];
+
+function generateRandomIFS() {
+  const n = randInt(3, 6);
+  const cfg = [];
+  let totalP = 0;
+  for (let i = 0; i < n; i++) {
+    const sc = rand(0.3, 0.7);
+    const rot = rand(0, TAU);
+    const p = rand(0.1, 1);
+    cfg.push({
+      a: sc*cos(rot), b: -sc*sin(rot),
+      c: sc*sin(rot), d: sc*cos(rot),
+      e: rand(-1, 1), f: rand(-1, 1), p
+    });
+    totalP += p;
+  }
+  // normalize probabilities
+  cfg.forEach(t => t.p /= totalP);
+  // make cumulative
+  for (let i = 1; i < cfg.length; i++) cfg[i].p += cfg[i-1].p;
+  return cfg;
+}
+
+function initIFS() {
+  const r = randInt(0, 4);
+  if (r===0) ifsConfig = barnsleyFernIFS.map((t,i,arr)=>{let c={...t}; if(i>0)c.p=arr.slice(0,i+1).reduce((s,x)=>s+x.p,0); return c;});
+  else if (r===1) ifsConfig = dragonIFS.map((t,i,arr)=>{let c={...t}; if(i>0)c.p=arr.slice(0,i+1).reduce((s,x)=>s+x.p,0); return c;});
+  else if (r===2) ifsConfig = sierpinskiIFS.map((t,i,arr)=>{let c={...t}; if(i>0)c.p=arr.slice(0,i+1).reduce((s,x)=>s+x.p,0); return c;});
+  else ifsConfig = generateRandomIFS();
+  
+  // normalize to cumulative
+  let sum=0;
+  ifsConfig = ifsConfig.map(t=>({...t}));
+  // recalc cumulative from raw p
+  const raw = ifsConfig.map(t=>t.p);
+  const rawSum = raw.reduce((s,v)=>s+v,0);
+  let cum=0;
+  ifsConfig.forEach((t,i)=>{cum+=raw[i]/rawSum; t.p=cum;});
+
+  ifsPoints = [];
+  let x=0, y=0;
+  for (let i=0; i<2000; i++) {
+    const r = Math.random();
+    const t = ifsConfig.find(t=>r<=t.p) || ifsConfig[ifsConfig.length-1];
+    const nx = t.a*x + t.b*y + t.e;
+    const ny = t.c*x + t.d*y + t.f;
+    x=nx; y=ny;
+    if (i>20) ifsPoints.push([x,y,i]);
+  }
+  ifsCount = 0;
+}
+
+// ─── Voronoi / Delaunay ───────────────────────────────────────────────────────
+let voronoiSeeds = [];
+let voronoiColors = [];
+
+function initVoronoi() {
+  const N = randInt(12, 30);
+  voronoiSeeds = [];
+  voronoiColors = [];
+  for (let i=0; i<N; i++) {
+    voronoiSeeds.push([rand(0,W), rand(0,H)]);
+    voronoiColors.push(rand(0,1));
+  }
+}
+
+function drawVoronoi(alpha) {
+  // Simplified Voronoi overlay using colored regions
+  ctx.save();
+  ctx.globalAlpha = alpha * 0.08;
+  ctx.globalCompositeOperation = 'screen';
+  const sw = 80, sh = 60;
+  for (let py=0; py<sh; py++) {
+    for (let px=0; px<sw; px++) {
+      const wx = px/sw*W, wy = py/sh*H;
+      let minD = Infinity, minI = 0;
+      for (let i=0; i<voronoiSeeds.length; i++) {
+        const dx=wx-voronoiSeeds[i][0], dy=wy-voronoiSeeds[i][1];
+        const d=dx*dx+dy*dy;
+        if (d<minD){minD=d;minI=i;}
+      }
+      ctx.fillStyle = getPaletteColor(voronoiColors[minI], 1);
+      ctx.fillRect(wx, wy, W/sw+1, H/sh+1);
+    }
+  }
+  ctx.restore();
+}
+
+// ─── Penrose Tiling ───────────────────────────────────────────────────────────
+let penroseTiles = [];
+let penroseScale = 1;
+let penroseX = 0, penroseY = 0;
+
+function generatePenrose() {
+  penroseX = W/2 + rand(-W*0.1,W*0.1);
+  penroseY = H/2 + rand(-H*0.1,H*0.1);
+  penroseScale = rand(H*0.06, H*0.12);
+  penroseTiles = [];
+  const phi = (1+sqrt(5))/2;
+  // Generate P3 (rhombus) Penrose-like tiling via subdivision
+  function subdivide(tiles, depth) {
+    if (depth===0) return tiles;
+    const next = [];
+    for (const [type,A,B,C] of tiles) {
+      if (type===0) { // thin
+        const P = [A[0]+(B[0]-A[0])/phi, A[1]+(B[1]-A[1])/phi];
+        const Q = [B[0]+(C[0]-B[0])/phi, B[1]+(C[1]-B[1])/phi];
+        next.push([0,C,P,A],[0,Q,P,C],[1,P,Q,B]);
+      } else { // thick
+        const P = [C[0]+(A[0]-C[0])/phi, C[1]+(A[1]-C[1])/phi];
+        next.push([1,B,P,A],[0,P,C,B]);
+      }
+    }
+    return subdivide(next, depth-1);
+  }
+  const r = penroseScale;
+  const init = [];
+  for (let i=0; i<10; i++) {
+    const a1 = (2*i-1)*PI/10, a2 = (2*i+1)*PI/10;
+    const A=[0,0], B=[r*cos(a1),r*sin(a1)], C=[r*cos(a2),r*sin(a2)];
+    init.push([i%2, A, B, C]);
+  }
+  penroseTiles = subdivide(init, 5);
+}
+
+function drawPenrose(alpha) {
+  ctx.save();
+  ctx.globalAlpha = alpha * 0.12;
+  ctx.globalCompositeOperation = 'screen';
+  ctx.translate(penroseX, penroseY);
+  const rotOff = t * 0.0001;
+  ctx.rotate(rotOff);
+  for (const [type,A,B,C] of penroseTiles) {
+    const cx2 = (A[0]+B[0]+C[0])/3, cy2=(A[1]+B[1]+C[1])/3;
+    const ang = Math.atan2(cy2,cx2);
+    const col = getPaletteColor((ang/TAU + 0.5) + (type*0.3), 1);
+    ctx.beginPath();
+    ctx.moveTo(A[0],A[1]);
+    ctx.lineTo(B[0],B[1]);
+    ctx.lineTo(C[0],C[1]);
+    ctx.closePath();
+    ctx.fillStyle = col;
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+// ─── Particle System ─────────────────────────────────────────────────────────
+const MAX_PARTICLES = 1200;
+let particles = [];
+let emitters = [];
+let particlePool = [];
+
+function createParticle(x,y,vx,vy,life,energy,type,col) {
+  const p = particlePool.length > 0 ? particlePool.pop() : {};
+  p.x=x; p.y=y; p.vx=vx; p.vy=vy;
+  p.life=life; p.maxLife=life;
+  p.energy=energy; p.type=type||0;
+  p.col=col||0;
+  p.size=rand(1,4+energy*3);
+  p.spin=rand(-0.2,0.2);
+  p.angle=Math.random()*TAU;
+  p.active=true;
+  return p;
+}
+
+function initEmitters() {
+  emitters = [];
+  const N = randInt(4, 10);
+  for (let i=0; i<N; i++) {
+    emitters.push({
+      x: rand(W*0.1, W*0.9),
+      y: rand(H*0.1, H*0.9),
+      vx: rand(-1.5,1.5),
+      vy: rand(-1.5,1.5),
+      rate: rand(3,12),
+      timer: 0,
+      life: rand(200,600),
+      type: randInt(0,5),
+      energy: rand(0.3,1.0),
+      colBase: Math.random(),
+      // parametric curve params
+      freqX: rand(0.5,4),
+      freqY: rand(0.5,4),
+      phaseX: Math.random()*TAU,
+      phaseY: Math.random()*TAU,
+      amp: rand(0.5, 2.5),
+      chaosA: rand(0.1,1),
+      chaosB: rand(0.1,1),
+      chaosC: rand(2,5)
+    });
+  }
+}
+
+function spawnFirework(ex, ey, energy, colBase) {
+  const N = randInt(30, 80);
+  for (let i=0; i<N; i++) {
+    if (particles.length >= MAX_PARTICLES) break;
+    const angle = rand(0, TAU);
+    const speed = rand(1, 6) * energy;
+    // Polynomial velocity scaling
+    const poly = 1 + 0.5*sin(angle*3) + 0.3*cos(angle*5);
+    const vx = cos(angle)*speed*poly;
+    const vy = sin(angle)*speed*poly;
+    const life = rand(40, 120);
+    const p = createParticle(ex, ey, vx, vy, life, energy, randInt(0,4), colBase+rand(-0.1,0.1));
+    particles.push(p);
+  }
+}
+
+function spawnPlasma(ex, ey, energy, colBase) {
+  const N = randInt(15, 40);
+  for (let i=0; i<N; i++) {
+    if (particles.length >= MAX_PARTICLES) break;
+    // Chaotic oscillator-driven emission
+    const chaos = sin(t*1.3)*cos(t*0.7);
+    const angle = rand(0,TAU) + chaos;
+    const speed = rand(0.5,3)*energy;
+    const vx = cos(angle)*speed;
+    const vy = sin(angle)*speed - rand(0,1);
+    const p = createParticle(ex,ey,vx,vy,rand(30,80),energy,4,colBase);
+    particles.push(p);
+  }
+}
+
+function spawnIFSParticle(energy, colBase) {
+  if (particles.length >= MAX_PARTICLES || ifsPoints.length === 0) return;
+  const pt = ifsPoints[randInt(0,ifsPoints.length)];
+  const scale = H * 0.08;
+  const cx = W/2 + pt[0]*scale;
+  const cy = H/2 - pt[1]*scale;
+  const vx = rand(-0.5,0.5);
+  const vy = rand(-2,-0.2);
+  const p = createParticle(cx,cy,vx,vy,rand(20,60),energy,3,colBase);
+  particles.push(p);
+}
+
+function updateParticles() {
+  const gravity = 0.04;
+  for (let i = particles.length-1; i>=0; i--) {
+    const p = particles[i];
+    p.life--;
+    if (p.life <= 0) {
+      particlePool.push(p);
+      particles.splice(i, 1);
+      continue;
+    }
+    const lf = p.life / p.maxLife;
+    // Chaotic oscillator perturbation
+    const cx = sin(p.x*0.01 + t*0.002) * 0.1;
+    const cy = cos(p.y*0.01 + t*0.002) * 0.1;
+    p.vx += cx;
+    p.vy += cy + gravity;
+    p.vx *= 0.985;
+    p.vy *= 0.985;
+    p.x += p.vx;
+    p.y += p.vy;
+    p.angle += p.spin;
+  }
+}
+
+function drawParticles() {
+  ctx.save();
+  for (const p of particles) {
+    const lf = p.life / p.maxLife;
+    const alpha = pow(lf, 0.4) * 0.9;
+    const size = p.size * (1 + (1-lf)*2);
+    const col = getPaletteColor(p.col + lf*0.2, alpha);
+    ctx.globalCompositeOperation = 'screen';
+    if (p.type === 0) { // spark
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, size*0.7, 0, TAU);
+      ctx.fillStyle = col;
+      ctx.fill();
+    } else if (p.type === 1) { // star
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.angle);
+      ctx.beginPath();
+      for (let k=0;k<5;k++){
+        const a=k*TAU/5-PI/2;
+        ctx.lineTo(cos(a)*size, sin(a)*size);
+        const ai=a+PI/5;
+        ctx.lineTo(cos(ai)*size*0.4, sin(ai)*size*0.4);
+      }
+      ctx.closePath();
+      ctx.fillStyle = col;
+      ctx.fill();
+      ctx.restore();
+    } else if (p.type === 2) { // trail
+      ctx.strokeStyle = col;
+      ctx.lineWidth = size*0.5;
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(p.x - p.vx*4, p.y - p.vy*4);
+      ctx.stroke();
+    } else if (p.type === 3) { // IFS bloom
+      const grad = ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,size*2);
+      grad.addColorStop(0, col);
+      grad.addColorStop(1, 'transparent');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(p.x,p.y,size*2,0,TAU);
+      ctx.fill();
+    } else { // plasma blob
+      ctx.shadowBlur = size*3;
+      ctx.shadowColor = col;
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.arc(p.x,p.y,size,0,TAU);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+  }
+  ctx.restore();
+}
+
+// ─── Parametric Emitter Curves ────────────────────────────────────────────────
+function updateEmitters() {
+  for (let i = emitters.length-1; i>=0; i--) {
+    const e = emitters[i];
+    e.life--;
+    if (e.life <= 0) {
+      emitters.splice(i,1);
+      continue;
+    }
+    // Lissajous / parametric motion
+    e.x += e.vx + sin(t*e.freqX*0.01+e.phaseX)*e.amp;
+    e.y += e.vy + cos(t*e.freqY*0.01+e.phaseY)*e.amp;
+    // Bounce off walls
+    if (e.x<0||e.x>W) e.vx*=-1;
+    if (e.y<0||e.y>H) e.vy*=-1;
+    e.x = clamp(e.x,0,W); e.y = clamp(e.y,0,H);
+    
+    e.timer++;
+    if (e.timer >= e.rate) {
+      e.timer = 0;
+      // Chaotic burst decisions (Duffing-like)
+      const chaos = e.chaosA * sin(t*0.01*e.chaosC) + e.chaosB*cos(t*0.013);
+      if (Math.random() < 0.3 + chaos*0.2) {
+        if (e.type < 3) spawnFirework(e.x, e.y, e.energy, e.colBase);
+        else if (e.type === 3) spawnPlasma(e.x, e.y, e.energy, e.colBase);
+        else spawnIFSParticle(e.energy, e.colBase);
+      } else {
+        // Continuous stream
+        const N = randInt(1,4);
+        for (let k=0;k<N;k++){
+          if (particles.length >= MAX_PARTICLES) break;
+          const angle = t*0.05 + k*TAU/N + chaos;
+          const speed = rand(1,4)*e.energy;
+          const p = createParticle(e.x,e.y,cos(angle)*speed,sin(angle)*speed-1,rand(20,50),e.energy,randInt(0,5),e.colBase+chaos*0.1);
+          particles.push(p);
+        }
+      }
+    }
+  }
+  // Replenish emitters
+  if (emitters.length < 3) {
+    emitters.push({
+      x:rand(W*0.1,W*0.9), y:rand(H*0.1,H*0.9),
+      vx:rand(-1.5,1.5), vy:rand(-1.5,1.5),
+      rate:randInt(3,10), timer:0,
+      life:rand(200,500), type:randInt(0,5),
+      energy:rand(0.4,1), colBase:Math.random(),
+      freqX:rand(0.5,4), freqY:rand(0.5,4),
+      phaseX:Math.random()*TAU, phaseY:Math.random()*TAU,
+      amp:rand(0.5,2), chaosA:rand(0.1,1), chaosB:rand(0.1,1), chaosC:rand(2,5)
+    });
+  }
+}
+
+// ─── Kaleidoscope / Symmetry ──────────────────────────────────────────────────
+let useKaleido = false;
+let kaleidoRot = 0;
+
+function drawKaleido(drawFn) {
+  if (!useKaleido || symmetry <= 1) {
+    drawFn(); return;
+  }
+  const cx = W/2, cy = H/2;
+  ctx.save();
+  ctx.translate(cx, cy);
+  for (let s=0; s<symmetry; s++) {
+    ctx.save();
+    ctx.rotate(s*TAU/symmetry + symAngle);
+    if (s%2===1) ctx.scale(-1,1);
+    ctx.translate(-cx,-cy);
+    drawFn();
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+// ─── Spectral Burst Overlays ──────────────────────────────────────────────────
+let burstList = [];
+
+function triggerBurst(x, y) {
+  burstList.push({x, y, r:0, maxR:rand(H*0.1,H*0.35), life:40, col:Math.random()});
+  spawnFirework(x, y, rand(0.6,1.2), Math.random());
+}
+
+function updateDrawBursts() {
+  for (let i=burstList.length-1;i>=0;i--) {
+    const b = burstList[i];
+    b.r += (b.maxR - b.r)*0.12 + 2;
+    b.life--;
+    if (b.life<=0){burstList.splice(i,1);continue;}
+    const alpha = b.life/40 * 0.5;
+    const n = kaleidoMirrors;
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    ctx.globalAlpha = alpha;
+    ctx.translate(b.x, b.y);
+    for (let s=0;s<n;s++) {
+      ctx.save();
+      ctx.rotate(s*TAU/n + t*0.001);
+      const grad = ctx.createLinearGradient(0,0,b.r,0);
+      grad.addColorStop(0, getPaletteColor(b.col, 1));
+      grad.addColorStop(1, 'transparent');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.moveTo(0,0);
+      ctx.arc(0,0,b.r,0,TAU/n);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+}
+
+// ─── Periodic random bursts ───────────────────────────────────────────────────
+let burstTimer = 0;
+let burstInterval = 80;
+
+function periodicBursts() {
+  burstTimer++;
+  if (burstTimer >= burstInterval) {
+    burstTimer = 0;
+    burstInterval = randInt(40,150);
+    triggerBurst(rand(W*0.15,W*0.85), rand(H*0.15,H*0.85));
+    if (Math.random()<0.3) triggerBurst(rand(W*0.15,W*0.85), rand(H*0.15,H*0.85));
+  }
+}
+
+// ─── Audio Engine ─────────────────────────────────────────────────────────────
+let audioNodes = [];
+let audioMaster = null;
+let audioStarted = false;
+let audioOscillators = [];
+
+function initAudio() {
+  if (!soundOn) return;
+  try {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    audioMaster = audioCtx.createGain();
+    audioMaster.gain.value = 0.15;
+    // Reverb via convolver approximation (delay feedback)
+    const delay = audioCtx.createDelay(2);
+    delay.delayTime.value = 0.4;
+    const fb = audioCtx.createGain();
+    fb.gain.value = 0.3;
+    delay.connect(fb);
+    fb.connect(delay);
+    audioMaster.connect(delay);
+    delay.connect(audioCtx.destination);
+    audioMaster.connect(audioCtx.destination);
+    audioStarted = true;
+    startAudioSynth();
+  } catch(e) { soundOn = false; }
+}
+
+function startAudioSynth() {
+  if (!audioCtx || !soundOn) return;
+  stopAudio();
+  // Drone + spectral synthesis
+  const freqs = [55, 110, 220, 165, 275];
+  for (const freq of freqs) {
+    const osc = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    osc.type = ['sine','triangle','sawtooth'][randInt(0,3)];
+    osc.frequency.value = freq * rand(0.98,1.02);
+    g.gain.value = 0.02 + Math.random()*0.03;
+    osc.connect(g);
+    g.connect(audioMaster);
+    osc.start();
+    audioOscillators.push({osc, g});
+  }
+  // Rhythmic pulse
+  schedulePulses();
+}
+
+let pulseTimeout = null;
+function schedulePulses() {
+  if (!audioCtx || !soundOn) return;
+  const interval = rand(0.15, 0.5);
+  const buf = audioCtx.createBuffer(1, audioCtx.sampleRate*0.1, audioCtx.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i=0;i<data.length;i++) {
+    data[i] = (Math.random()*2-1) * exp(-i/(audioCtx.sampleRate*0.02));
+  }
+  const src = audioCtx.createBufferSource();
+  const g = audioCtx.createGain();
+  src.buffer = buf;
+  g.gain.value = 0.08;
+  // Freq filter
+  const filt = audioCtx.createBiquadFilter();
+  filt.type = 'bandpass';
+  filt.frequency.value = rand(200,2000);
+  filt.Q.value = rand(5,20);
+  src.connect(filt);
+  filt.connect(g);
+  g.connect(audioMaster);
+  src.start();
+  pulseTimeout = setTimeout(schedulePulses, interval*1000);
+}
+
+function stopAudio() {
+  for (const {osc} of audioOscillators) { try { osc.stop(); } catch(e){} }
+  audioOscillators = [];
+  if (pulseTimeout) clearTimeout(pulseTimeout);
+}
+
+function updateAudio() {
+  if (!audioCtx || !soundOn || !audioStarted) return;
+  // Map fractal iteration counts to audio frequency modulation
+  const energyLevel = particles.length / MAX_PARTICLES;
+  if (audioOscillators.length > 0) {
+    const base = 55 * pow(2, energyLevel*2);
+    audioOscillators.forEach((n,i)=>{
+      const freq = base * [1,2,3,2.5,4.5][i%5];
+      n.osc.frequency.setTargetAtTime(freq*rand(0.995,1.005), audioCtx.currentTime, 0.1);
+      n.g.gain.setTargetAtTime(0.01+energyLevel*0.05, audioCtx.currentTime, 0.2);
+    });
+  }
+}
+
+function toggleSound() {
+  soundOn = !soundOn;
+  if (soundOn) {
+    if (!audioCtx) initAudio();
+    else { startAudioSynth(); }
+    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+  } else {
+    stopAudio();
+  }
+}
+
+// ─── Fractal Overlay Streaks ──────────────────────────────────────────────────
+let streaks = [];
+
+function spawnStreak() {
+  const angle = Math.random()*TAU;
+  const r = rand(H*0.05, H*0.3);
+  const cx = rand(W*0.2,W*0.8), cy = rand(H*0.2,H*0.8);
+  const pts = [];
+  const n = randInt(6,16);
+  // Polynomial spiral
+  for (let i=0;i<n;i++) {
+    const a = angle + i*TAU/n;
+    const dr = r * pow(i/n, rand(0.5,2.0));
+    const chaos = sin(i*2.3)*cos(i*1.7)*0.2;
+    pts.push([cx+cos(a+chaos)*dr, cy+sin(a+chaos)*dr]);
+  }
+  streaks.push({pts, col:Math.random(), life:rand(40,100), lw:rand(0.5,2.5)});
+}
+
+function updateDrawStreaks() {
+  if (frame%8===0) spawnStreak();
+  for (let i=streaks.length-1;i>=0;i--) {
+    const s = streaks[i];
+    s.life--;
+    if (s.life<=0){streaks.splice(i,1);continue;}
+    const alpha = s.life/(s.life+10) * 0.6;
+    ctx.save();
+    ctx.globalCompositeOperation='screen';
+    ctx.globalAlpha=alpha;
+    ctx.strokeStyle = getPaletteColor(s.col, 1);
+    ctx.lineWidth = s.lw;
+    ctx.shadowBlur = 6;
+    ctx.shadowColor = getPaletteColor(s.col, 0.5);
+    ctx.beginPath();
+    ctx.moveTo(s.pts[0][0],s.pts[0][1]);
+    for (let k=1;k<s.pts.length;k++) ctx.lineTo(s.pts[k][0],s.pts[k][1]);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+// ─── HUD ─────────────────────────────────────────────────────────────────────
+const fractalNames = ['Mandelbrot','Multibrot','Burning Ship','Julia','Nova'];
+function updateHUD() {
+  if (!hudVisible) return;
+  hud.innerHTML =
+    `FPS: ${fps.toFixed(0)}<br>` +
+    `Fractal: ${fractalNames[fractalType]}<br>` +
+    `Particles: ${particles.length}/${MAX_PARTICLES}<br>` +
+    `Emitters: ${emitters.length}<br>` +
+    `Symmetry: ${symmetry}x<br>` +
+    `Sound: ${soundOn?'ON':'OFF'}<br>` +
+    `Palette shift: ${paletteShift.toFixed(3)}`;
+}
+
+// ─── Regenerate Everything ────────────────────────────────────────────────────
+function regenerate() {
+  generatePalette();
+  chooseFractalParams();
+  initIFS();
+  initVoronoi();
+  generatePenrose();
+  initEmitters();
+  particles = [];
+  streaks = [];
+  burstList = [];
+  burstTimer = 0;
+  useKaleido = Math.random() < 0.6;
+  kaleidoRot = Math.random()*TAU;
+  bgDirty = true;
+  initOffscreen();
+  // Big bang burst
+  for (let i=0;i<5;i++) {
+    setTimeout(()=>triggerBurst(rand(W*0.2,W*0.8),rand(H*0.2,H*0.8)),i*120);
+  }
+}
+
+// ─── Main Render Loop ─────────────────────────────────────────────────────────
+let fractalRenderDone = false;
+let fractalRenderFrame = 0;
+
+function render(timestamp) {
+  requestAnimationFrame(render);
+  const dt = timestamp - lastTime;
+  lastTime = timestamp;
+  fps = fps*0.95 + (1000/Math.max(dt,1))*0.05;
+  t = timestamp;
+  frame++;
+
+  // Update palette
+  paletteShift += paletteSpeed;
+  symAngle += fractalRotSpeed;
+
+  // Background
+  if (frame === 1 || bgDirty) {
+    renderFractalBG();
+  }
+
+  // Fade trail
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 0.18;
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, W, H);
+  ctx.globalAlpha = 1;
+
+  // Draw fractal background (stretched from offscreen)
+  if (offCv) {
+    ctx.globalAlpha = 0.55;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.drawImage(offCv, 0, 0, W, H);
+    ctx.globalAlpha = 1;
+  }
+
+  // Voronoi overlay
+  drawVoronoi(1);
+
+  // Penrose overlay
+  drawPenrose(1);
+
+  // Bursts
+  updateDrawBursts();
+
+  // Streaks
+  updateDrawStreaks();
+
+  // Emitters + particles
+  updateEmitters();
+  updateParticles();
+
+  // Kaleidoscope particle draw
+  if (useKaleido && symmetry > 1) {
+    ctx.save();
+    ctx.translate(W/2, H/2);
+    for (let s=0;s<symmetry;s++) {
+      ctx.save();
+      ctx.rotate(s*TAU/symmetry + symAngle);
+      if (s%2===1) ctx.scale(-1,1);
+      ctx.translate(-W/2,-H/2);
+      drawParticles();
+      ctx.restore();
+    }
+    ctx.restore();
+  } else {
+    drawParticles();
+  }
+
+  // Periodic bursts
+  periodicBursts();
+
+  // Hue cycle overlay for chromatic banding
+  if (frame%3===0) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'overlay';
+    ctx.globalAlpha = 0.03;
+    const hueGrad = ctx.createLinearGradient(0,0,W,H);
+    hueGrad.addColorStop(0, getPaletteColor(frame*0.0003, 1));
+    hueGrad.addColorStop(0.5, getPaletteColor(frame*0.0003+0.33, 1));
+    hueGrad.addColorStop(1, getPaletteColor(frame*0.0003+0.66, 1));
+    ctx.fillStyle = hueGrad;
+    ctx.fillRect(0,0,W,H);
+    ctx.restore();
+  }
+
+  // Audio
+  if (soundOn && frame%10===0) updateAudio();
+
+  // HUD
+  if (hudVisible && frame%10===0) updateHUD();
+}
+
+// ─── Input Handlers ───────────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  const k = e.key;
+  if (k === ' ' || k === 'Enter') { e.preventDefault(); regenerate(); }
+  else if (k === 'h' || k === 'H') {
+    hudVisible = !hudVisible;
+    hud.className = hudVisible ? 'visible' : '';
+  }
+  else if (k === 's' || k === 'S') { toggleSound(); }
+});
+
+cv.addEventListener('pointerdown', e => {
+  e.preventDefault();
+  triggerBurst(e.clientX, e.clientY);
+  if (Math.random()<0.3) regenerate();
+  else {
+    spawnFirework(e.clientX, e.clientY, 1, Math.random());
+  }
+});
+
+// Hide hint after 4s
+setTimeout(()=>hint.style.opacity='0', 4000);
+
+// ─── Boot ─────────────────────────────────────────────────────────────────────
+regenerate();
+requestAnimationFrame(render);
+</script>
+</body>
+</html>

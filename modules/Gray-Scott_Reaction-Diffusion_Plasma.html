@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Gray-Scott Reaction-Diffusion Plasma · Organic Pattern Engine</title>
+<meta name="description" content="GPU-accelerated Gray-Scott reaction-diffusion simulation with kaleidoscopic mirroring, Voronoi tessellation SDF blending, spectral domain-coloring, and granular synthesis audio. Press SPACE to randomize, H for HUD, S for sound.">
+<meta name="keywords" content="reaction diffusion, Gray-Scott, cellular automata, generative art, organic patterns, kaleidoscope, WebGL canvas, Turing patterns">
+<meta name="author" content="Reaction-Diffusion Plasma Engine">
+<meta name="robots" content="index, follow">
+<meta property="og:title" content="Gray-Scott Reaction-Diffusion Plasma">
+<meta property="og:description" content="Endlessly evolving organic plasma — spots, worms, spirals, and labyrinthine tendrils rendered through spectral domain-coloring with kaleidoscopic symmetry.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="https://via.placeholder.com/1200x630/000020/00ffcc?text=Reaction-Diffusion+Plasma">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Gray-Scott Reaction-Diffusion Plasma">
+<meta name="twitter:description" content="Endlessly evolving organic plasma with spectral coloring and kaleidoscopic symmetry.">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "Gray-Scott Reaction-Diffusion Plasma",
+  "description": "Interactive GPU-accelerated reaction-diffusion simulation based on the Gray-Scott model with dynamically mutating parameters, kaleidoscopic rendering, Voronoi tessellation with SDF blending, spectral domain-coloring pipeline, and granular synthesis audio engine.",
+  "applicationCategory": "GenerativeArt",
+  "operatingSystem": "Any",
+  "offers": { "@type": "Offer", "price": "0" },
+  "featureList": [
+    "Gray-Scott reaction-diffusion simulation",
+    "Spectral domain-coloring with IFT-shaped hue curves",
+    "Chebyshev polynomial brightness correction",
+    "Sigmoid contrast enhancement",
+    "Kaleidoscopic 8–16 fold mirror symmetry",
+    "Voronoi tessellation with harmonic oscillator centroids",
+    "SDF softening with glowing cell-wall halos",
+    "Granular synthesis audio engine",
+    "Adaptive resolution for low-end devices",
+    "Float32Array double-buffered simulation",
+    "Perlin noise field initialization"
+  ]
+}
+</script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; background: #000; overflow: hidden; cursor: crosshair; font-family: 'Courier New', monospace; }
+  canvas { position: absolute; top: 0; left: 0; display: block; }
+  #simCanvas { display: none; }
+
+  #hud {
+    display: none;
+    position: fixed;
+    top: 14px; left: 14px;
+    background: rgba(0, 5, 20, 0.78);
+    color: #00ffcc;
+    font-size: 12px;
+    line-height: 1.75;
+    padding: 12px 18px;
+    border-radius: 4px;
+    border: 1px solid rgba(0, 255, 180, 0.25);
+    text-shadow: 0 0 10px rgba(0,255,180,0.6);
+    pointer-events: none;
+    z-index: 20;
+    backdrop-filter: blur(4px);
+    letter-spacing: 0.5px;
+  }
+  #hud b { color: #002a18; font-size: 11px; letter-spacing: 2px; display: block; margin-bottom: 4px; border-bottom: 1px solid rgba(0,255,180,0.2); padding-bottom: 4px; }
+  #hud .row { display: flex; justify-content: space-between; gap: 24px; }
+  #hud .val { color: #ffee44; text-shadow: 0 0 8px rgba(255,220,0,0.5); }
+
+  #keys {
+    position: fixed;
+    bottom: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(255,255,255,0.28);
+    font-size: 11px;
+    letter-spacing: 2px;
+    pointer-events: none;
+    z-index: 20;
+    white-space: nowrap;
+  }
+  #keys span { color: rgba(0,255,180,0.5); }
+</style>
+</head>
+<body>
+<canvas id="simCanvas"></canvas>
+<canvas id="mainCanvas"></canvas>
+<div id="hud">
+  <b>◈ REACTION-DIFFUSION PLASMA</b>
+  <div class="row"><span>Feed rate  f</span><span class="val" id="hf">—</span></div>
+  <div class="row"><span>Kill rate  k</span><span class="val" id="hk">—</span></div>
+  <div class="row"><span>Symmetry</span><span class="val" id="hs">—</span></div>
+  <div class="row"><span>Sim grid</span><span class="val" id="hg">—</span></div>
+  <div class="row"><span>Ticks</span><span class="val" id="ht">—</span></div>
+  <div class="row"><span>FPS</span><span class="val" id="hfps">—</span></div>
+  <div class="row"><span>Sound</span><span class="val" id="haud">OFF</span></div>
+</div>
+<div id="keys"><span>SPACE</span> / CLICK · Randomize &nbsp; <span>H</span> · HUD &nbsp; <span>S</span> · Sound</div>
+
+<script>
+"use strict";
+
+// ══════════════════════════════════════════════════════════════════
+// CONSTANTS
+// ══════════════════════════════════════════════════════════════════
+const DU       = 0.16;
+const DV       = 0.08;
+const STEPS    = 8;         // GS steps per frame
+const N_VORO   = 16;        // Voronoi seeds
+const N_IFT    = 8;         // IFT hue terms
+const EDGE_W   = 0.05;      // Voronoi glow edge width
+
+// Pearson parameter-space catalogue (f, k)
+const PEARSON = [
+  [0.014, 0.054], [0.018, 0.055], [0.020, 0.057],
+  [0.022, 0.059], [0.025, 0.060], [0.029, 0.057],
+  [0.035, 0.063], [0.037, 0.060], [0.039, 0.058],
+  [0.040, 0.058], [0.046, 0.063], [0.055, 0.062],
+  [0.057, 0.064], [0.060, 0.062], [0.062, 0.061],
+  [0.026, 0.055], [0.030, 0.057], [0.044, 0.065],
+];
+
+// ══════════════════════════════════════════════════════════════════
+// DOM & CANVAS
+// ══════════════════════════════════════════════════════════════════
+const simCanvas  = document.getElementById('simCanvas');
+const mainCanvas = document.getElementById('mainCanvas');
+const sc  = simCanvas.getContext('2d', { willReadFrequently: true });
+const mc  = mainCanvas.getContext('2d', { alpha: false });
+const hudEl = document.getElementById('hud');
+
+// ══════════════════════════════════════════════════════════════════
+// GLOBAL STATE
+// ══════════════════════════════════════════════════════════════════
+let W, H, SW, SH;
+let U, V, U2, V2;            // Float32Arrays
+let simImg, simPix;           // ImageData for sim canvas
+
+let f  = 0.055, k  = 0.062;
+let tf = 0.055, tk = 0.062;  // target f,k for drift
+
+let symmetry = 8;
+let iftCoeffs = [], iftPhases = [];
+let satCoeff = 0.8, sigK = 10, sigX0 = 0.5;
+let chebyDeg = 3;
+let chebyCoeffs = [1, 0.5, 0.25]; // blend weights for Chebyshev terms
+
+let voroSeeds = [];
+let simT = 0;   // time for harmonic oscillators
+let ticks = 0;
+
+let hudOn = false;
+let audioOn = false;
+
+// FPS tracking
+let fps = 60, _lastT = 0, _fc = 0, _ft = 0;
+
+// ══════════════════════════════════════════════════════════════════
+// PERLIN NOISE
+// ══════════════════════════════════════════════════════════════════
+const perm = new Uint8Array(512);
+function initPerlin() {
+  const p = new Uint8Array(256);
+  for (let i = 0; i < 256; i++) p[i] = i;
+  for (let i = 255; i > 0; i--) {
+    const j = (Math.random() * (i + 1)) | 0;
+    const tmp = p[i]; p[i] = p[j]; p[j] = tmp;
+  }
+  for (let i = 0; i < 512; i++) perm[i] = p[i & 255];
+}
+function fade(t) { return t*t*t*(t*(t*6-15)+10); }
+function plerp(a, b, t) { return a + t*(b-a); }
+function gradN(h, x, y) {
+  switch(h & 3) {
+    case 0: return  x+y;
+    case 1: return -x+y;
+    case 2: return  x-y;
+    default:return -x-y;
+  }
+}
+function perlin2(x, y) {
+  const xi = Math.floor(x)&255, yi = Math.floor(y)&255;
+  const xf = x-Math.floor(x),  yf = y-Math.floor(y);
+  const u = fade(xf), v = fade(yf);
+  const aa = perm[perm[xi  ]+yi  ], ba = perm[perm[xi+1]+yi  ];
+  const ab = perm[perm[xi  ]+yi+1], bb = perm[perm[xi+1]+yi+1];
+  return plerp(
+    plerp(gradN(aa,xf,yf),   gradN(ba,xf-1,yf),   u),
+    plerp(gradN(ab,xf,yf-1), gradN(bb,xf-1,yf-1), u),
+    v
+  );
+}
+function fbm(x, y, oct) {
+  let v=0, amp=1, freq=1, tot=0;
+  for(let o=0; o<oct; o++) {
+    v += perlin2(x*freq, y*freq)*amp;
+    tot += amp; amp *= 0.5; freq *= 2.1;
+  }
+  return v/tot;
+}
+
+// ══════════════════════════════════════════════════════════════════
+// FIELD INITIALIZATION
+// ══════════════════════════════════════════════════════════════════
+function initField() {
+  const n = SW * SH;
+  U  = new Float32Array(n);
+  V  = new Float32Array(n);
+  U2 = new Float32Array(n);
+  V2 = new Float32Array(n);
+
+  initPerlin();
+  const scaleX = 5 / SW, scaleY = 5 / SH;
+  for (let j = 0; j < SH; j++) {
+    for (let i = 0; i < SW; i++) {
+      const idx = j * SW + i;
+      const noise = fbm(i * scaleX, j * scaleY, 4);
+      U[idx] = 1.0;
+      V[idx] = noise > 0.05 ? Math.max(0, noise * 0.8 + Math.random()*0.15) : 0;
+    }
+  }
+  // Seed structured blobs
+  for (let s = 0; s < 24; s++) {
+    const cx = (Math.random() * SW) | 0;
+    const cy = (Math.random() * SH) | 0;
+    const r  = (2 + Math.random() * 10) | 0;
+    const r2 = r * r;
+    for (let dj = -r; dj <= r; dj++) {
+      for (let di = -r; di <= r; di++) {
+        if (di*di + dj*dj <= r2) {
+          const ii = (cx+di+SW) % SW;
+          const jj = (cy+dj+SH) % SH;
+          const idx = jj*SW+ii;
+          U[idx] = 0.5 + Math.random()*0.1;
+          V[idx] = 0.25 + Math.random()*0.15;
+        }
+      }
+    }
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// GRAY-SCOTT STEP (Float32Array double-buffer)
+// ══════════════════════════════════════════════════════════════════
+function gsStep() {
+  for (let j = 0; j < SH; j++) {
+    const jN = ((j - 1 + SH) % SH) * SW;
+    const jS = ((j + 1)       % SH) * SW;
+    const jM = j * SW;
+    for (let i = 0; i < SW; i++) {
+      const iW = (i - 1 + SW) % SW;
+      const iE = (i + 1)       % SW;
+      const idx = jM + i;
+      const u = U[idx], v = V[idx];
+      const lu = U[jN+i] + U[jS+i] + U[jM+iW] + U[jM+iE] - 4*u;
+      const lv = V[jN+i] + V[jS+i] + V[jM+iW] + V[jM+iE] - 4*v;
+      const uvv = u * v * v;
+      U2[idx] = u + DU*lu - uvv + f*(1-u);
+      V2[idx] = v + DV*lv + uvv - (f+k)*v;
+    }
+  }
+  // Swap buffers
+  const tu=U; U=U2; U2=tu;
+  const tv=V; V=V2; V2=tv;
+}
+
+// ══════════════════════════════════════════════════════════════════
+// COLOR PIPELINE
+// ══════════════════════════════════════════════════════════════════
+
+// IFT-shaped hue: Σ c_n·cos(2π(n+1)v + φ_n)
+function iftHue(v) {
+  let h = 0;
+  for (let n = 0; n < N_IFT; n++) {
+    h += iftCoeffs[n] * Math.cos(2 * Math.PI * (n+1) * v + iftPhases[n]);
+  }
+  return ((h * 0.5 + 0.5) % 1.0 + 1.0) % 1.0;
+}
+
+// Chebyshev polynomial T_n via recurrence, mapped to [0,1]
+function chebyshevBrightness(x) {
+  const t = 2*x - 1; // map [0,1] → [-1,1]
+  let T = [1, t];
+  for (let i = 2; i <= chebyDeg; i++) {
+    T.push(2*t*T[i-1] - T[i-2]);
+  }
+  // Weighted combination
+  let b = 0, wSum = 0;
+  for (let i = 0; i < chebyCoeffs.length && i < T.length; i++) {
+    b    += chebyCoeffs[i] * T[i];
+    wSum += Math.abs(chebyCoeffs[i]);
+  }
+  return (b / (wSum + 1e-8) * 0.5 + 0.5);
+}
+
+// Sigmoid contrast enhancement
+function sigmoidC(x) {
+  return 1.0 / (1.0 + Math.exp(-sigK * (x - sigX0)));
+}
+
+// HSL → sRGB (returns [0,255] integers)
+function hsl2rgb(h, s, l) {
+  const c  = (1 - Math.abs(2*l - 1)) * s;
+  const x  = c * (1 - Math.abs((h*6) % 2 - 1));
+  const m  = l - c*0.5;
+  const hi = (h*6) | 0;
+  let r=0, g=0, b=0;
+  switch(hi % 6) {
+    case 0: r=c; g=x; b=0; break;
+    case 1: r=x; g=c; b=0; break;
+    case 2: r=0; g=c; b=x; break;
+    case 3: r=0; g=x; b=c; break;
+    case 4: r=x; g=0; b=c; break;
+    default:r=c; g=0; b=x; break;
+  }
+  return [(r+m)*255, (g+m)*255, (b+m)*255];
+}
+
+// ══════════════════════════════════════════════════════════════════
+// VORONOI (harmonic oscillator centroids)
+// ══════════════════════════════════════════════════════════════════
+function initVoronoi() {
+  voroSeeds = [];
+  for (let i = 0; i < N_VORO; i++) {
+    voroSeeds.push({
+      cx:  Math.random(),
+      cy:  Math.random(),
+      ax:  0.08 + Math.random()*0.18,
+      ay:  0.08 + Math.random()*0.18,
+      fx:  0.15 + Math.random()*0.5,
+      fy:  0.15 + Math.random()*0.5,
+      phx: Math.random() * Math.PI*2,
+      phy: Math.random() * Math.PI*2,
+      // coupling terms
+      ax2: Math.random()*0.07,
+      fx2: 0.4 + Math.random()*0.8,
+      ph2: Math.random() * Math.PI*2,
+      ay2: Math.random()*0.07,
+      fy2: 0.4 + Math.random()*0.8,
+      ph3: Math.random() * Math.PI*2,
+    });
+  }
+}
+
+function voroPos(t, s) {
+  return {
+    x: ((s.cx + s.ax*Math.cos(s.fx*t + s.phx) + s.ax2*Math.cos(s.fx2*t + s.ph2)) % 1.0 + 1.0) % 1.0,
+    y: ((s.cy + s.ay*Math.sin(s.fy*t + s.phy) + s.ay2*Math.sin(s.fy2*t + s.ph3)) % 1.0 + 1.0) % 1.0,
+  };
+}
+
+// ══════════════════════════════════════════════════════════════════
+// RANDOMIZE ALL PARAMETERS
+// ══════════════════════════════════════════════════════════════════
+function randomize() {
+  // Pick random Pearson point (blend two)
+  const p1 = PEARSON[(Math.random()*PEARSON.length)|0];
+  const p2 = PEARSON[(Math.random()*PEARSON.length)|0];
+  const blend = Math.random();
+  tf = p1[0]*(1-blend) + p2[0]*blend + (Math.random()-0.5)*0.004;
+  tk = p1[1]*(1-blend) + p2[1]*blend + (Math.random()-0.5)*0.003;
+  tf = Math.max(0.010, Math.min(0.075, tf));
+  tk = Math.max(0.043, Math.min(0.068, tk));
+  f = tf; k = tk;
+
+  // Symmetry: 8–16
+  symmetry = 8 + ((Math.random() * 9) | 0);
+
+  // IFT hue coefficients
+  let mag = 0;
+  iftCoeffs = Array.from({length: N_IFT}, () => {
+    const c = (Math.random()-0.5) * 2;
+    mag += Math.abs(c);
+    return c;
+  });
+  iftCoeffs = iftCoeffs.map(c => c / (mag + 1e-8));
+  iftPhases = Array.from({length: N_IFT}, () => Math.random() * Math.PI * 2);
+
+  // Chebyshev brightness polynomial
+  chebyDeg = 3 + ((Math.random()*3)|0);
+  chebyCoeffs = Array.from({length: chebyDeg+1}, (_,i) =>
+    i === 0 ? 0.5 : (Math.random()*0.6 - 0.3)
+  );
+
+  // Sigmoid parameters
+  sigK  = 8 + Math.random() * 10;
+  sigX0 = 0.55 + Math.random() * 0.25;
+
+  // Saturation
+  satCoeff = 0.55 + Math.random() * 0.45;
+
+  initVoronoi();
+  initField();
+  ticks = 0;
+  simT  = 0;
+}
+
+// ══════════════════════════════════════════════════════════════════
+// PARAMETER DRIFT (traverse Pearson space)
+// ══════════════════════════════════════════════════════════════════
+let driftTimer = 0;
+function driftParams() {
+  // Smooth interpolation toward target
+  f += (tf - f) * 0.0008;
+  k += (tk - k) * 0.0008;
+
+  // Pick new target occasionally
+  driftTimer++;
+  if (driftTimer > 600 + (Math.random()*400)|0) {
+    driftTimer = 0;
+    const p1 = PEARSON[(Math.random()*PEARSON.length)|0];
+    const p2 = PEARSON[(Math.random()*PEARSON.length)|0];
+    const blend = Math.random();
+    tf = p1[0]*(1-blend) + p2[0]*blend + (Math.random()-0.5)*0.005;
+    tk = p1[1]*(1-blend) + p2[1]*blend + (Math.random()-0.5)*0.003;
+    tf = Math.max(0.010, Math.min(0.075, tf));
+    tk = Math.max(0.043, Math.min(0.068, tk));
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// RENDER SIM FRAME → simCanvas
+// ══════════════════════════════════════════════════════════════════
+function renderSim() {
+  // Precompute Voronoi positions
+  const vpos = voroSeeds.map(s => voroPos(simT, s));
+
+  for (let j = 0; j < SH; j++) {
+    const jW = ((j-1+SH)%SH) * SW;
+    const jE = ((j+1)   %SH) * SW;
+    const jM = j * SW;
+    const py = j / SH;
+    for (let i = 0; i < SW; i++) {
+      const idx = jM + i;
+      const iW = (i-1+SW) % SW;
+      const iE = (i+1)    % SW;
+
+      // Clamp concentrations
+      const u = Math.max(0, Math.min(1, U[idx]));
+      const v = Math.max(0, Math.min(1, V[idx]));
+
+      // Gradient magnitude (for saturation boost)
+      const guX = U[jM+iE] - U[jM+iW];
+      const guY = U[jE+i]  - U[jW+i];
+      const gvX = V[jM+iE] - V[jM+iW];
+      const gvY = V[jE+i]  - V[jW+i];
+      const gradMag = Math.min(1, Math.sqrt(guX*guX+guY*guY+gvX*gvX+gvY*gvY) * 1.5);
+
+      // ── Spectral hue from v via IFT curve ──
+      const hue = iftHue(v);
+
+      // ── Chebyshev brightness from u ──
+      let bright = chebyshevBrightness(u);
+      bright = Math.max(0, Math.min(1, bright));
+      // Sigmoid contrast
+      bright = sigmoidC(bright);
+      bright = Math.max(0.0, Math.min(0.55, bright * 0.6));
+
+      // Saturation
+      const sat = Math.min(1, satCoeff + gradMag * 0.35);
+
+      // ── Voronoi SDF ──
+      const px = i / SW;
+      let d1 = Infinity, d2 = Infinity;
+      for (let vi = 0; vi < vpos.length; vi++) {
+        const dx = px - vpos[vi].x, dy = py - vpos[vi].y;
+        const d = dx*dx + dy*dy;
+        if (d < d1)      { d2=d1; d1=d; }
+        else if (d < d2) { d2=d; }
+      }
+      d1 = Math.sqrt(d1); d2 = Math.sqrt(d2);
+      const sdf = (d2 - d1) / (d2 + d1 + 1e-6);
+      // Glow at Voronoi boundary (SDF → 0)
+      const glowRaw = Math.max(0, 1.0 - sdf / EDGE_W);
+      const glow    = glowRaw * glowRaw * glowRaw;
+
+      // Blend glow halo: shift hue slightly, brighten
+      const finalHue    = (hue + glow * 0.08) % 1.0;
+      const finalSat    = Math.min(1, sat + glow * 0.3);
+      const finalBright = Math.min(0.52, bright * 0.72 + glow * 0.28);
+
+      const [r, g, b] = hsl2rgb(finalHue, finalSat, finalBright);
+
+      const p = idx << 2;
+      simPix[p  ] = r;
+      simPix[p+1] = g;
+      simPix[p+2] = b;
+      simPix[p+3] = 255;
+    }
+  }
+  sc.putImageData(simImg, 0, 0);
+}
+
+// ══════════════════════════════════════════════════════════════════
+// KALEIDOSCOPE → mainCanvas
+// ══════════════════════════════════════════════════════════════════
+function drawKaleidoscope() {
+  mc.save();
+  mc.fillStyle = '#000';
+  mc.fillRect(0, 0, W, H);
+  mc.translate(W * 0.5, H * 0.5);
+
+  const slices = symmetry * 2;           // full rotation slices
+  const wedge  = Math.PI / symmetry;     // half-wedge angle
+  const radius = Math.sqrt(W*W + H*H);
+  const scale  = radius / Math.min(SW, SH) * 0.72;
+
+  for (let i = 0; i < slices; i++) {
+    mc.save();
+    mc.rotate(i * wedge);
+
+    // Clip to wedge
+    mc.beginPath();
+    mc.moveTo(0, 0);
+    mc.arc(0, 0, radius + 2, -wedge, wedge);
+    mc.closePath();
+    mc.clip();
+
+    // Mirror every other wedge for true kaleidoscope reflection
+    if (i & 1) mc.scale(1, -1);
+
+    // Draw sim canvas scaled to fill wedge
+    mc.drawImage(simCanvas,
+      -SW * scale * 0.5,
+      -SH * scale * 0.5,
+       SW * scale,
+       SH * scale
+    );
+
+    mc.restore();
+  }
+  mc.restore();
+}
+
+// ══════════════════════════════════════════════════════════════════
+// HUD UPDATE
+// ══════════════════════════════════════════════════════════════════
+function updateHud() {
+  if (!hudOn) return;
+  document.getElementById('hf').textContent  = f.toFixed(6);
+  document.getElementById('hk').textContent  = k.toFixed(6);
+  document.getElementById('hs').textContent  = `${symmetry*2}-fold`;
+  document.getElementById('hg').textContent  = `${SW}×${SH}`;
+  document.getElementById('ht').textContent  = ticks.toLocaleString();
+  document.getElementById('hfps').textContent = fps.toFixed(1);
+  document.getElementById('haud').textContent = audioOn ? '▶ ON' : 'OFF';
+}
+
+// ══════════════════════════════════════════════════════════════════
+// GRANULAR SYNTHESIS AUDIO
+// ══════════════════════════════════════════════════════════════════
+const GRAIN_N = 12;
+let _audioCtx = null, _scriptNode = null, _gainNode = null;
+const gFreq  = new Float32Array(GRAIN_N);
+const gAmp   = new Float32Array(GRAIN_N);
+const gPhase = new Float32Array(GRAIN_N);
+const gLife  = new Float32Array(GRAIN_N);
+const gDur   = new Float32Array(GRAIN_N);
+const gPan   = new Float32Array(GRAIN_N);
+const gAlive = new Uint8Array(GRAIN_N);
+let   concentrationVar = 0.0;
+
+function computeConcentrationVariance() {
+  const GRID = 16, step = GRID;
+  let sum=0, sum2=0, cnt=0;
+  const gx = (SW / GRID)|0 || 1;
+  const gy = (SH / GRID)|0 || 1;
+  for (let j=0; j<GRID; j++) {
+    for (let i=0; i<GRID; i++) {
+      const v = V[(j*gy)*SW + (i*gx)];
+      sum  += v;
+      sum2 += v*v;
+      cnt++;
+    }
+  }
+  const mean = sum/cnt;
+  concentrationVar = Math.sqrt(Math.max(0, sum2/cnt - mean*mean));
+}
+
+function spawnGrain(idx) {
+  const va = Math.max(0.01, concentrationVar);
+  gFreq [idx] = 80 + va * 3000 * (0.5 + Math.random()*0.5);
+  gAmp  [idx] = 0.15 + va * 0.6;
+  gDur  [idx] = (0.04 + Math.random() * 0.25) * (_audioCtx.sampleRate || 44100);
+  gLife [idx] = 0;
+  gPhase[idx] = 0;
+  gPan  [idx] = Math.random() * 2 - 1;
+  gAlive[idx] = 1;
+}
+
+function initAudio() {
+  if (_audioCtx) return;
+  try {
+    _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    _gainNode = _audioCtx.createGain();
+    _gainNode.gain.value = 0.22;
+    _gainNode.connect(_audioCtx.destination);
+
+    // Stereo panner
+    const merger = _audioCtx.createChannelMerger(2);
+    merger.connect(_gainNode);
+
+    _scriptNode = _audioCtx.createScriptProcessor(2048, 0, 2);
+    _scriptNode.onaudioprocess = function(e) {
+      const outL = e.outputBuffer.getChannelData(0);
+      const outR = e.outputBuffer.getChannelData(1);
+      const sr   = _audioCtx.sampleRate;
+
+      if (!audioOn) {
+        outL.fill(0); outR.fill(0); return;
+      }
+
+      const spawnProb = Math.min(0.08, concentrationVar * 0.5) / 2048;
+
+      for (let i = 0; i < 2048; i++) {
+        // Spawn new grains stochastically
+        if (Math.random() < spawnProb) {
+          for (let g = 0; g < GRAIN_N; g++) {
+            if (!gAlive[g]) { spawnGrain(g); break; }
+          }
+        }
+
+        let sL = 0, sR = 0;
+        for (let g = 0; g < GRAIN_N; g++) {
+          if (!gAlive[g]) continue;
+          const env    = Math.sin(Math.PI * gLife[g] / gDur[g]);
+          const sample = Math.sin(gPhase[g]) * env * gAmp[g] * 0.08;
+          const pan    = (gPan[g] + 1) * 0.5;
+          sL += sample * (1 - pan);
+          sR += sample * pan;
+          gPhase[g] += 2 * Math.PI * gFreq[g] / sr;
+          gLife [g]++;
+          if (gLife[g] >= gDur[g]) gAlive[g] = 0;
+        }
+        outL[i] = Math.max(-1, Math.min(1, sL));
+        outR[i] = Math.max(-1, Math.min(1, sR));
+      }
+    };
+    _scriptNode.connect(_gainNode);
+  } catch(err) {
+    console.warn('Audio init failed:', err);
+  }
+}
+
+function toggleAudio() {
+  if (!_audioCtx) initAudio();
+  audioOn = !audioOn;
+  if (audioOn && _audioCtx && _audioCtx.state === 'suspended') {
+    _audioCtx.resume();
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// RESIZE & ADAPTIVE DOWNSCALING
+// ══════════════════════════════════════════════════════════════════
+function resize(reInit) {
+  W = mainCanvas.width  = window.innerWidth;
+  H = mainCanvas.height = window.innerHeight;
+
+  const area = W * H;
+  let base;
+  if (area > 2000000)   base = 320;
+  else if (area > 900000) base = 256;
+  else if (area > 400000) base = 224;
+  else                    base = 192;
+
+  // Adaptive: degrade on low FPS (after warmup)
+  if (fps < 24 && ticks > 200) base = Math.max(128, base - 32);
+
+  // Maintain aspect ratio for sim (or just use square-ish)
+  const ratio = H / W;
+  SW = base;
+  SH = Math.round(base * ratio);
+
+  simCanvas.width  = SW;
+  simCanvas.height = SH;
+
+  simImg  = sc.createImageData(SW, SH);
+  simPix  = new Uint8ClampedArray(simImg.data.buffer);
+
+  if (reInit) initField();
+}
+
+// ══════════════════════════════════════════════════════════════════
+// MAIN LOOP
+// ══════════════════════════════════════════════════════════════════
+function loop(now) {
+  requestAnimationFrame(loop);
+
+  // FPS tracking
+  const dt = now - _lastT; _lastT = now;
+  _fc++; _ft += dt;
+  if (_ft >= 1000) {
+    fps = _fc * 1000 / _ft; _fc = 0; _ft = 0;
+  }
+
+  // Run GS steps
+  for (let s = 0; s < STEPS; s++) gsStep();
+  ticks += STEPS;
+
+  // Drift parameters
+  driftParams();
+  simT += 0.008;
+
+  // Audio: sample variance
+  if (audioOn) computeConcentrationVariance();
+
+  // Render
+  renderSim();
+  drawKaleidoscope();
+  updateHud();
+}
+
+// ══════════════════════════════════════════════════════════════════
+// EVENT HANDLERS
+// ══════════════════════════════════════════════════════════════════
+window.addEventListener('keydown', e => {
+  if (e.code === 'Space') { e.preventDefault(); randomize(); }
+  if (e.code === 'KeyH') {
+    hudOn = !hudOn;
+    hudEl.style.display = hudOn ? 'block' : 'none';
+  }
+  if (e.code === 'KeyS') toggleAudio();
+});
+
+mainCanvas.addEventListener('click', () => randomize());
+
+window.addEventListener('resize', () => {
+  resize(false);
+  // Re-init only if sim size changed significantly
+  initField();
+});
+
+// ══════════════════════════════════════════════════════════════════
+// BOOT
+// ══════════════════════════════════════════════════════════════════
+resize(false);
+randomize();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

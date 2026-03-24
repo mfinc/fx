@@ -1,0 +1,811 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Fractal Textile–Physics Kaleidosphere</title>
+<meta name="description" content="A generative kaleidosphere engine merging Mandelbrot and Julia fractals, Barnsley ferns, dragon curves, Hilbert and Peano space-filling curves with batik, ikat, jacquard, sashiko, and brocade textile patterns driven by physics simulations including coupled oscillators, cloth dynamics, and vortex turbulence, rendered with spectral palettes and procedural audio.">
+<meta name="keywords" content="fractal art, generative art, kaleidoscope, Mandelbrot, Julia set, Barnsley fern, dragon curve, Hilbert curve, Peano curve, batik pattern, ikat motif, jacquard weave, sashiko stitch, textile art, physics simulation, cloth simulation, oscillator, pendulum, Runge-Kutta, Verlet integration, vortex, particle system, procedural audio, granular synthesis, WebGL, canvas animation, mathematical art, symmetry groups, chromatic aberration, spectral gradient">
+<meta property="og:title" content="Fractal Textile–Physics Kaleidosphere">
+<meta property="og:description" content="Where fractal geometry, textile symmetry, mechanical dynamics, and luminous color fields converge into an animated living mosaic.">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000;touch-action:none}
+  canvas{display:block;position:fixed;top:0;left:0}
+  #hud{position:fixed;top:16px;left:16px;font-family:'Courier New',monospace;font-size:11px;color:rgba(255,255,200,0.75);pointer-events:none;display:none;line-height:1.7;text-shadow:0 0 8px rgba(255,220,100,0.9)}
+  #hint{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);font-family:'Courier New',monospace;font-size:11px;color:rgba(200,200,255,0.45);pointer-events:none;letter-spacing:2px;text-align:center}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<div id="hint">SPACE / TAP · randomize &nbsp;&nbsp; H · hud &nbsp;&nbsp; S · sound</div>
+<script>
+(()=>{
+'use strict';
+// ─── Canvas setup ────────────────────────────────────────────────────────────
+const cv=document.getElementById('c');
+const cx=cv.getContext('2d');
+let W,H,cx2,cy2;
+function resize(){W=cv.width=window.innerWidth;H=cv.height=window.innerHeight;cx2=W/2;cy2=H/2;}
+resize();
+window.addEventListener('resize',resize);
+
+// ─── State ───────────────────────────────────────────────────────────────────
+let t=0,frame=0,paused=false;
+let hudVisible=false;
+let soundOn=false;
+let audioCtx=null,masterGain=null,osc1=null,osc2=null,lfo1=null,lfo2=null,noiseNode=null,noiseGain=null;
+const hud=document.getElementById('hud');
+
+// ─── Randomised parameters ────────────────────────────────────────────────────
+let P={};
+function randomize(){
+  P={
+    seed:Math.random()*9999|0,
+    symmetry:2*((3+Math.random()*5|0)),   // 6,8,10,12,14,16
+    palette:randomPalette(),
+    fractalType:Math.random()*4|0,         // 0=mandelbrot,1=julia,2=barnsley,3=dragon
+    textileType:Math.random()*5|0,         // 0=batik,1=ikat,2=jacquard,3=sashiko,4=brocade
+    juliaC:[(-1+Math.random()*2)*0.8,(-1+Math.random()*2)*0.8],
+    physicsType:Math.random()*4|0,         // 0=oscillator,1=pendulum,2=cloth,3=vortex
+    zoom:0.3+Math.random()*1.2,
+    rotation:Math.random()*Math.PI*2,
+    speed:0.3+Math.random()*0.7,
+    hueShift:Math.random()*360,
+    interferenceFreq:2+Math.random()*8,
+    hilbertOrder:3+Math.random()*3|0,
+    spaceFillingType:Math.random()*2|0,    // 0=hilbert,1=peano
+    gridScale:20+Math.random()*60|0,
+    oscillatorCount:5+Math.random()*15|0,
+    vortexCount:3+Math.random()*8|0,
+    bloomIntensity:0.3+Math.random()*0.7,
+    chromaticAberration:Math.random()*3,
+    layerCount:3+Math.random()*4|0,
+  };
+  initPhysics();
+  if(soundOn) updateAudio();
+}
+
+// ─── Palette ──────────────────────────────────────────────────────────────────
+function randomPalette(){
+  const styles=['neon','fire','ocean','jewel','aurora','spectral','void','silk'];
+  const s=styles[Math.random()*styles.length|0];
+  const n=4+Math.random()*8|0;
+  const cols=[];
+  for(let i=0;i<n;i++){
+    const h=(Math.random()*360)|0;
+    const s2=(50+Math.random()*50)|0;
+    const l=(30+Math.random()*50)|0;
+    cols.push([h,s2,l]);
+  }
+  return {style:s,cols};
+}
+
+function samplePalette(f,alpha=1){
+  const c=P.palette.cols;
+  const n=c.length;
+  f=((f%1)+1)%1;
+  const idx=f*(n-1);
+  const i=Math.floor(idx);
+  const blend=idx-i;
+  const a=c[i%n], b=c[(i+1)%n];
+  const h=a[0]+(b[0]-a[0])*blend;
+  const s=a[1]+(b[1]-a[1])*blend;
+  const l=a[2]+(b[2]-a[2])*blend;
+  return `hsla(${(h+P.hueShift)%360},${s}%,${l}%,${alpha})`;
+}
+
+function hsl2rgb(h,s,l){
+  h/=360;s/=100;l/=100;
+  let r,g,b;
+  if(s===0){r=g=b=l;}else{
+    const q=l<0.5?l*(1+s):l+s-l*s,p=2*l-q;
+    const hue2rgb=(p,q,t)=>{if(t<0)t+=1;if(t>1)t-=1;if(t<1/6)return p+(q-p)*6*t;if(t<1/2)return q;if(t<2/3)return p+(q-p)*(2/3-t)*6;return p;};
+    r=hue2rgb(p,q,h+1/3);g=hue2rgb(p,q,h);b=hue2rgb(p,q,h-1/3);
+  }
+  return [r*255|0,g*255|0,b*255|0];
+}
+
+// ─── Physics engine ───────────────────────────────────────────────────────────
+let physObjs=[];
+
+function initPhysics(){
+  physObjs=[];
+  const n=P.oscillatorCount;
+  // Coupled oscillators
+  for(let i=0;i<n;i++){
+    physObjs.push({
+      type:'osc',
+      x:cx2+(Math.random()-0.5)*W*0.6,
+      y:cy2+(Math.random()-0.5)*H*0.6,
+      vx:(-1+Math.random()*2)*50,
+      vy:(-1+Math.random()*2)*50,
+      ax:0,ay:0,
+      freq:0.3+Math.random()*2,
+      phase:Math.random()*Math.PI*2,
+      amp:20+Math.random()*80,
+      mass:0.5+Math.random()*2,
+      k:1+Math.random()*5,
+    });
+  }
+  // Pendulum chain
+  const chainLen=6+Math.random()*8|0;
+  let px=cx2,py=cy2-H*0.3;
+  for(let i=0;i<chainLen;i++){
+    physObjs.push({
+      type:'pendulum',
+      x:px,y:py,
+      vx:0,vy:0,
+      ax:0,ay:0,
+      theta:(-0.3+Math.random()*0.6),
+      omega:0,
+      length:20+Math.random()*40,
+      mass:1,
+      parent:i>0?physObjs.length-1:null,
+      idx:i,
+    });
+    px+=Math.sin(physObjs[physObjs.length-1].theta)*physObjs[physObjs.length-1].length;
+    py+=Math.cos(physObjs[physObjs.length-1].theta)*physObjs[physObjs.length-1].length;
+  }
+  // Vortex particles
+  for(let i=0;i<P.vortexCount*4;i++){
+    const ang=Math.random()*Math.PI*2;
+    const r=30+Math.random()*200;
+    physObjs.push({
+      type:'vortex',
+      x:cx2+Math.cos(ang)*r,
+      y:cy2+Math.sin(ang)*r,
+      vx:(-1+Math.random()*2)*30,
+      vy:(-1+Math.random()*2)*30,
+      life:0.5+Math.random()*0.5,
+      lifeRate:0.0005+Math.random()*0.001,
+      size:2+Math.random()*8,
+    });
+  }
+}
+
+// RK4 for oscillator
+function rk4Osc(o,dt){
+  const g=-9.8;
+  const k1x=o.vx, k1y=o.vy;
+  const k1vx=-o.k*(o.x-cx2)/o.mass, k1vy=-o.k*(o.y-cy2)/o.mass+g*0.1;
+  const x2=o.x+k1x*dt/2, y2=o.y+k1y*dt/2;
+  const k2vx=-o.k*(x2-cx2)/o.mass, k2vy=-o.k*(y2-cy2)/o.mass+g*0.1;
+  const k2x=o.vx+k1vx*dt/2, k2y=o.vy+k1vy*dt/2;
+  const x3=o.x+k2x*dt/2, y3=o.y+k2y*dt/2;
+  const k3vx=-o.k*(x3-cx2)/o.mass, k3vy=-o.k*(y3-cy2)/o.mass+g*0.1;
+  const k3x=o.vx+k2vx*dt/2, k3y=o.vy+k2vy*dt/2;
+  const x4=o.x+k3x*dt, y4=o.y+k3y*dt;
+  const k4vx=-o.k*(x4-cx2)/o.mass, k4vy=-o.k*(y4-cy2)/o.mass+g*0.1;
+  const k4x=o.vx+k3vx*dt, k4y=o.vy+k3vy*dt;
+  o.x+=(k1x+2*k2x+2*k3x+k4x)*dt/6;
+  o.y+=(k1y+2*k2y+2*k3y+k4y)*dt/6;
+  o.vx+=(k1vx+2*k2vx+2*k3vx+k4vx)*dt/6;
+  o.vy+=(k1vy+2*k2vy+2*k3vy+k4vy)*dt/6;
+  o.vx*=0.999; o.vy*=0.999;
+}
+
+// Velocity-Verlet for pendulum
+function verletPendulum(o,dt){
+  const g=9.8;
+  const alpha=-g/Math.max(o.length,1)*Math.sin(o.theta) - 0.01*o.omega;
+  o.theta+=o.omega*dt+0.5*alpha*dt*dt;
+  const alphaNew=-g/Math.max(o.length,1)*Math.sin(o.theta) - 0.01*o.omega;
+  o.omega+=0.5*(alpha+alphaNew)*dt;
+}
+
+function stepPhysics(dt){
+  dt=Math.min(dt,0.05)*P.speed;
+  for(const o of physObjs){
+    if(o.type==='osc') rk4Osc(o,dt);
+    else if(o.type==='pendulum') verletPendulum(o,dt);
+    else if(o.type==='vortex'){
+      // Vortex: simple Euler with curl noise
+      const nx=o.x/W*4+t*0.1, ny=o.y/H*4+t*0.1;
+      const curl=curlNoise(nx,ny)*200;
+      o.vx+=curl*dt*0.5;
+      o.vy+=Math.sin(nx+t)*30*dt;
+      o.x+=o.vx*dt; o.y+=o.vy*dt;
+      o.vx*=0.98; o.vy*=0.98;
+      o.life-=o.lifeRate;
+      if(o.life<=0||o.x<0||o.x>W||o.y<0||o.y>H){
+        const ang=Math.random()*Math.PI*2;
+        const r=30+Math.random()*200;
+        o.x=cx2+Math.cos(ang)*r; o.y=cy2+Math.sin(ang)*r;
+        o.vx=(-1+Math.random()*2)*30; o.vy=(-1+Math.random()*2)*30;
+        o.life=0.5+Math.random()*0.5;
+      }
+    }
+  }
+}
+
+// ─── Curl noise ───────────────────────────────────────────────────────────────
+function noise2(x,y){
+  const ix=Math.floor(x),iy=Math.floor(y);
+  const fx=x-ix,fy=y-iy;
+  const ux=fx*fx*(3-2*fx),uy=fy*fy*(3-2*fy);
+  const h=(x,y)=>{let n=x*127+y*311+P.seed;n=((n>>4)^n)*0x45d9f3b;n=((n>>16)^n);return(n&0xffff)/0xffff*2-1;};
+  return h(ix,iy)*(1-ux)*(1-uy)+h(ix+1,iy)*ux*(1-uy)+h(ix,iy+1)*(1-ux)*uy+h(ix+1,iy+1)*ux*uy;
+}
+function curlNoise(x,y){
+  const e=0.01;
+  return (noise2(x,y+e)-noise2(x,y-e))/(2*e);
+}
+
+// ─── Fractal functions ────────────────────────────────────────────────────────
+function mandelbrotIter(cx,cy,max=48){
+  let zx=0,zy=0,i=0;
+  while(i<max&&zx*zx+zy*zy<4){
+    const tmp=zx*zx-zy*zy+cx;
+    zy=2*zx*zy+cy;
+    zx=tmp;i++;
+  }
+  return i/max;
+}
+
+function juliaIter(zx,zy,max=48){
+  const [cr,ci]=P.juliaC;
+  let i=0;
+  while(i<max&&zx*zx+zy*zy<4){
+    const tmp=zx*zx-zy*zy+cr;
+    zy=2*zx*zy+ci;
+    zx=tmp;i++;
+  }
+  return i/max;
+}
+
+function barnsleyFern(n=3000){
+  let x=0,y=0;
+  const pts=[];
+  for(let i=0;i<n;i++){
+    const r=Math.random();
+    let nx,ny;
+    if(r<0.01){nx=0;ny=0.16*y;}
+    else if(r<0.86){nx=0.85*x+0.04*y;ny=-0.04*x+0.85*y+1.6;}
+    else if(r<0.93){nx=0.2*x-0.26*y;ny=0.23*x+0.22*y+1.6;}
+    else{nx=-0.15*x+0.28*y;ny=0.26*x+0.24*y+0.44;}
+    x=nx;y=ny;
+    pts.push([x,y]);
+  }
+  return pts;
+}
+
+function dragonCurve(order=12){
+  let seq=[1];
+  for(let i=1;i<order;i++){
+    const newSeq=[...seq,1];
+    for(let j=seq.length-1;j>=0;j--)newSeq.push(seq[j]?0:1);
+    seq=newSeq;
+  }
+  const pts=[];
+  let x=0,y=0,dir=0;
+  const dx=[1,0,-1,0],dy=[0,1,0,-1];
+  pts.push([x,y]);
+  for(const turn of seq){
+    dir=(dir+(turn?1:3))%4;
+    x+=dx[dir];y+=dy[dir];
+    pts.push([x,y]);
+  }
+  return pts;
+}
+
+// Hilbert curve point at index d in [0, 4^order)
+function hilbert(order,d){
+  let rx,ry,s,t=d,x=0,y=0;
+  for(s=1;s<Math.pow(2,order);s*=2){
+    rx=(1&(t/2))|0;
+    ry=(1&(t^rx))|0;
+    if(!ry){if(rx){x=s-1-x;y=s-1-y;}[x,y]=[y,x];}
+    x+=s*rx;y+=s*ry;t>>=2;
+  }
+  return[x,y];
+}
+
+function hilbertPts(order){
+  const n=Math.pow(4,order);
+  const pts=[];
+  for(let i=0;i<n;i++)pts.push(hilbert(order,i));
+  return pts;
+}
+
+// Peano curve
+function peanoPts(order){
+  const pts=[];
+  const n=Math.pow(3,order);
+  function p(x,y,ax,ay,bx,by,d){
+    if(d===0){pts.push([x+ax/2+bx/2,y+ay/2+by/2]);return;}
+    const ax3=ax/3,ay3=ay/3,bx3=bx/3,by3=by/3;
+    p(x,y,ax3,ay3,bx3,by3,d-1);
+    p(x+ax3,y+ay3,bx3,by3,ax3,ay3,d-1);
+    p(x+ax3+bx3,y+ay3+by3,ax3,ay3,bx3,by3,d-1);
+    p(x+ax3+bx3*2,y+ay3+by3*2,-bx3,-by3,ax3,ay3,d-1);
+    p(x+ax3*2+bx3,y+ay3*2+by3,-ax3,-ay3,-bx3,-by3,d-1);
+    p(x+ax3*2,y+ay3*2,-bx3,-by3,-ax3,-ay3,d-1);
+    p(x+ax3+bx3*2,y+ay3+by3*2,ax3,ay3,-bx3,-by3,d-1);
+    p(x+ax3*2+bx3,y+ay3*2+by3,bx3,by3,-ax3,-ay3,d-1);
+    p(x+ax3*3,y+ay3*3,ax3,ay3,bx3,by3,d-1);
+  }
+  const ord=Math.min(order,2);
+  p(0,0,1,0,0,1,ord);
+  return pts;
+}
+
+// ─── Textile rendering helpers ────────────────────────────────────────────────
+function sashikoPattern(ctx,x,y,s,col){
+  ctx.strokeStyle=col;
+  ctx.lineWidth=0.8;
+  ctx.beginPath();
+  // Horizontal stitches
+  for(let dy=0;dy<s;dy+=s/5){
+    ctx.moveTo(x,y+dy);ctx.lineTo(x+s,y+dy);
+  }
+  // Diagonal cross
+  ctx.moveTo(x,y);ctx.lineTo(x+s,y+s);
+  ctx.moveTo(x+s,y);ctx.lineTo(x,y+s);
+  ctx.stroke();
+}
+
+function batikDot(ctx,x,y,r,col){
+  ctx.beginPath();
+  ctx.arc(x,y,r,0,Math.PI*2);
+  ctx.fillStyle=col;
+  ctx.fill();
+  // Wax-resist ring
+  ctx.beginPath();
+  ctx.arc(x,y,r*1.4,0,Math.PI*2);
+  ctx.strokeStyle=col.replace(/[\d.]+\)$/,'0.3)');
+  ctx.lineWidth=0.5;
+  ctx.stroke();
+}
+
+function ikatStripe(ctx,x,y,w,h,col,t){
+  const grad=ctx.createLinearGradient(x,y,x+w,y+h);
+  const jitter=Math.sin(t*2+y*0.05)*3;
+  grad.addColorStop(0,col);
+  grad.addColorStop(0.5+jitter*0.01,col.replace(/[\d.]+\)$/,'0.1)'));
+  grad.addColorStop(1,col);
+  ctx.fillStyle=grad;
+  ctx.fillRect(x,y,w,h);
+}
+
+function brocadeFlower(ctx,x,y,r,col){
+  ctx.save();
+  ctx.translate(x,y);
+  for(let i=0;i<8;i++){
+    ctx.rotate(Math.PI/4);
+    ctx.beginPath();
+    ctx.ellipse(0,-r*0.6,r*0.2,r*0.5,0,0,Math.PI*2);
+    ctx.fillStyle=col;
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+// ─── Main render layer ────────────────────────────────────────────────────────
+let offCanvas=null,offCtx=null;
+
+function ensureOffscreen(){
+  if(!offCanvas||offCanvas.width!==W||offCanvas.height!==H){
+    offCanvas=document.createElement('canvas');
+    offCanvas.width=W;offCanvas.height=H;
+    offCtx=offCanvas.getContext('2d');
+  }
+}
+
+function drawFractalLayer(ctx,tt){
+  const sz=Math.min(W,H)*0.7*P.zoom;
+  const step=Math.max(3,Math.floor(sz/60));
+  ctx.save();
+  ctx.translate(cx2,cy2);
+  ctx.rotate(P.rotation+tt*0.05);
+
+  if(P.fractalType===0){
+    // Mandelbrot
+    for(let py=-sz/2;py<sz/2;py+=step){
+      for(let px=-sz/2;px<sz/2;px+=step){
+        const cr=(px/sz)*3.5-2.5, ci=(py/sz)*2.5-1.25;
+        const v=mandelbrotIter(cr,ci,36);
+        if(v<1){
+          ctx.fillStyle=samplePalette(v*3+tt*0.1, v*0.9+0.05);
+          ctx.fillRect(px,py,step,step);
+        }
+      }
+    }
+  } else if(P.fractalType===1){
+    // Julia
+    for(let py=-sz/2;py<sz/2;py+=step){
+      for(let px=-sz/2;px<sz/2;px+=step){
+        const zr=(px/sz)*3.5, zi=(py/sz)*3.5;
+        const v=juliaIter(zr,zi,36);
+        ctx.fillStyle=samplePalette(v*2+tt*0.07, 0.8);
+        ctx.fillRect(px,py,step,step);
+      }
+    }
+  } else if(P.fractalType===2){
+    // Barnsley Fern
+    const pts=barnsleyFern(2000);
+    for(const[fx,fy] of pts){
+      const px=(fx/6)*sz*0.5, py=-(fy/12)*sz+sz*0.5;
+      ctx.fillStyle=samplePalette((fy/10+tt*0.05)%1, 0.7);
+      ctx.fillRect(px-1,py-1,2,2);
+    }
+  } else {
+    // Dragon Curve
+    const pts=dragonCurve(11);
+    const xs=pts.map(p=>p[0]),ys=pts.map(p=>p[1]);
+    const minX=Math.min(...xs),maxX=Math.max(...xs);
+    const minY=Math.min(...ys),maxY=Math.max(...ys);
+    const scl=sz/(Math.max(maxX-minX,maxY-minY));
+    ctx.beginPath();
+    let first=true;
+    for(const[dx,dy] of pts){
+      const px=(dx-minX-(maxX-minX)/2)*scl;
+      const py=(dy-minY-(maxY-minY)/2)*scl;
+      if(first){ctx.moveTo(px,py);first=false;}else ctx.lineTo(px,py);
+    }
+    ctx.strokeStyle=samplePalette(tt*0.08,0.85);
+    ctx.lineWidth=1;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawSpaceFillingCurve(ctx,tt){
+  const order=P.hilbertOrder;
+  const pts=P.spaceFillingType===0?hilbertPts(order):peanoPts(order);
+  if(!pts.length)return;
+  const xs=pts.map(p=>p[0]),ys=pts.map(p=>p[1]);
+  const maxV=Math.max(Math.max(...xs),Math.max(...ys))||1;
+  const sz=Math.min(W,H)*0.65*P.zoom;
+  ctx.save();
+  ctx.translate(cx2-sz/2,cy2-sz/2);
+  ctx.beginPath();
+  for(let i=0;i<pts.length;i++){
+    const px=pts[i][0]/maxV*sz;
+    const py=pts[i][1]/maxV*sz;
+    if(i===0)ctx.moveTo(px,py);else ctx.lineTo(px,py);
+  }
+  ctx.strokeStyle=samplePalette((tt*0.03)%1,0.4);
+  ctx.lineWidth=0.7;
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawTextileLayer(ctx,tt){
+  const gs=P.gridScale;
+  ctx.save();
+  for(let y=0;y<H+gs;y+=gs){
+    for(let x=0;x<W+gs;x+=gs){
+      const f=((x/W+y/H)*0.5+tt*0.04)%1;
+      const col=samplePalette(f,0.55);
+      if(P.textileType===0){
+        batikDot(ctx,x,y,gs*0.18*(0.7+0.3*Math.sin(tt+x*0.01)),col);
+        batikDot(ctx,x+gs/2,y+gs/2,gs*0.12*(0.7+0.3*Math.cos(tt+y*0.01)),
+          samplePalette((f+0.5)%1,0.4));
+      } else if(P.textileType===1){
+        ikatStripe(ctx,x-gs,y,gs*2,gs,col,tt+x*0.01);
+      } else if(P.textileType===2){
+        // Jacquard diamond
+        ctx.save();
+        ctx.translate(x,y);ctx.rotate(Math.PI/4);
+        ctx.fillStyle=col;
+        ctx.fillRect(-gs*0.25,-gs*0.25,gs*0.5,gs*0.5);
+        ctx.restore();
+      } else if(P.textileType===3){
+        sashikoPattern(ctx,x-gs/2,y-gs/2,gs,col);
+      } else {
+        brocadeFlower(ctx,x,y,gs*0.35*(0.6+0.4*Math.sin(tt+x*0.02+y*0.01)),col);
+      }
+    }
+  }
+  ctx.restore();
+}
+
+function drawOscillators(ctx,tt){
+  const oscs=physObjs.filter(o=>o.type==='osc');
+  for(let i=0;i<oscs.length;i++){
+    const o=oscs[i];
+    const col=samplePalette((i/oscs.length+tt*0.03)%1,0.7);
+    ctx.beginPath();
+    ctx.arc(o.x,o.y,4+Math.abs(Math.sin(tt*o.freq+o.phase))*8,0,Math.PI*2);
+    ctx.fillStyle=col;
+    ctx.fill();
+    // Spring line to center
+    ctx.beginPath();
+    ctx.moveTo(o.x,o.y);ctx.lineTo(cx2,cy2);
+    ctx.strokeStyle=col.replace(/[\d.]+\)$/,'0.15)');
+    ctx.lineWidth=0.5;
+    ctx.stroke();
+    // Couple to next
+    if(i<oscs.length-1){
+      const o2=oscs[i+1];
+      ctx.beginPath();
+      ctx.moveTo(o.x,o.y);ctx.lineTo(o2.x,o2.y);
+      ctx.strokeStyle=samplePalette((i/oscs.length+0.3+tt*0.03)%1,0.2);
+      ctx.lineWidth=0.4;
+      ctx.stroke();
+    }
+  }
+}
+
+function drawPendulumChain(ctx,tt){
+  const chain=physObjs.filter(o=>o.type==='pendulum');
+  if(!chain.length)return;
+  let px=cx2,py=cy2-H*0.3;
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(px,py);
+  for(const o of chain){
+    const nx=px+Math.sin(o.theta)*o.length;
+    const ny=py+Math.cos(o.theta)*o.length;
+    ctx.lineTo(nx,ny);
+    px=nx;py=ny;
+  }
+  ctx.strokeStyle=samplePalette((tt*0.05)%1,0.8);
+  ctx.lineWidth=1.5;
+  ctx.stroke();
+  // Bob circles
+  px=cx2;py=cy2-H*0.3;
+  for(let i=0;i<chain.length;i++){
+    const o=chain[i];
+    const nx=px+Math.sin(o.theta)*o.length;
+    const ny=py+Math.cos(o.theta)*o.length;
+    ctx.beginPath();
+    ctx.arc(nx,ny,4+i*0.5,0,Math.PI*2);
+    ctx.fillStyle=samplePalette((i/chain.length+tt*0.04)%1,0.9);
+    ctx.fill();
+    px=nx;py=ny;
+  }
+  ctx.restore();
+}
+
+function drawVortexParticles(ctx,tt){
+  const vorts=physObjs.filter(o=>o.type==='vortex');
+  for(const v of vorts){
+    const col=samplePalette((v.x/W+tt*0.02)%1,v.life*0.8);
+    ctx.beginPath();
+    ctx.arc(v.x,v.y,v.size*v.life,0,Math.PI*2);
+    ctx.fillStyle=col;
+    ctx.fill();
+  }
+}
+
+function drawInterference(ctx,tt){
+  const freq=P.interferenceFreq;
+  ctx.save();
+  ctx.globalAlpha=0.2;
+  for(let r=20;r<Math.max(W,H);r+=20){
+    const phase=tt*0.3;
+    const a=(Math.sin(r*freq*0.01+phase)*0.5+0.5);
+    ctx.beginPath();
+    ctx.arc(cx2,cy2,r,0,Math.PI*2);
+    ctx.strokeStyle=samplePalette((r/Math.max(W,H)+tt*0.02)%1,a*0.35);
+    ctx.lineWidth=0.5;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawKaleidoSymmetry(ctx,src,tt){
+  const n=P.symmetry;
+  const angle=Math.PI*2/n;
+  ctx.save();
+  ctx.translate(cx2,cy2);
+  const R=Math.max(W,H)*0.6;
+  for(let i=0;i<n;i++){
+    ctx.save();
+    ctx.rotate(angle*i+tt*0.01);
+    // Clip to wedge
+    ctx.beginPath();
+    ctx.moveTo(0,0);
+    ctx.arc(0,0,R,0,angle);
+    ctx.closePath();
+    ctx.clip();
+    ctx.drawImage(src,-cx2,-cy2,W,H);
+    // Mirror alternate
+    if(i%2===1){
+      ctx.save();
+      ctx.scale(-1,1);
+      ctx.drawImage(src,-W+cx2,-cy2,W,H);
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+// ─── Glow / bloom ─────────────────────────────────────────────────────────────
+function applyBloom(ctx){
+  ctx.save();
+  ctx.globalCompositeOperation='screen';
+  ctx.globalAlpha=P.bloomIntensity*0.3;
+  ctx.filter=`blur(${4+P.bloomIntensity*6}px)`;
+  ctx.drawImage(cv,0,0);
+  ctx.filter='none';
+  ctx.restore();
+}
+
+// ─── Main render loop ─────────────────────────────────────────────────────────
+let lastTime=0;
+function render(now){
+  requestAnimationFrame(render);
+  const dt=Math.min((now-lastTime)/1000,0.05);
+  lastTime=now;
+  t+=dt*P.speed;
+  frame++;
+
+  stepPhysics(dt);
+  ensureOffscreen();
+
+  // Draw to offscreen
+  offCtx.clearRect(0,0,W,H);
+  offCtx.fillStyle='#000';
+  offCtx.fillRect(0,0,W,H);
+
+  // Background gradient
+  const bg=offCtx.createRadialGradient(cx2,cy2,0,cx2,cy2,Math.max(W,H)*0.7);
+  bg.addColorStop(0,samplePalette((t*0.02)%1,0.25));
+  bg.addColorStop(0.5,samplePalette((t*0.02+0.3)%1,0.1));
+  bg.addColorStop(1,'#000');
+  offCtx.fillStyle=bg;
+  offCtx.fillRect(0,0,W,H);
+
+  offCtx.save();
+  offCtx.globalAlpha=0.55;
+  drawTextileLayer(offCtx,t);
+  offCtx.restore();
+
+  offCtx.save();
+  offCtx.globalAlpha=0.65;
+  offCtx.globalCompositeOperation='screen';
+  drawFractalLayer(offCtx,t);
+  offCtx.restore();
+
+  offCtx.save();
+  offCtx.globalAlpha=0.4;
+  offCtx.globalCompositeOperation='overlay';
+  drawSpaceFillingCurve(offCtx,t);
+  offCtx.restore();
+
+  drawInterference(offCtx,t);
+  drawOscillators(offCtx,t);
+  drawPendulumChain(offCtx,t);
+  drawVortexParticles(offCtx,t);
+
+  // Kaleidoscope projection onto main canvas
+  cx.clearRect(0,0,W,H);
+  cx.fillStyle='#000';
+  cx.fillRect(0,0,W,H);
+  drawKaleidoSymmetry(cx,offCanvas,t);
+
+  // Bloom
+  applyBloom(cx);
+
+  // Chromatic aberration overlay
+  if(P.chromaticAberration>0.5){
+    const ab=P.chromaticAberration;
+    cx.save();
+    cx.globalCompositeOperation='screen';
+    cx.globalAlpha=0.08;
+    cx.drawImage(cv,ab,0,W,H);
+    cx.drawImage(cv,-ab,0,W,H);
+    cx.restore();
+  }
+
+  // Scan-line shimmer
+  cx.save();
+  cx.globalAlpha=0.03;
+  for(let y=0;y<H;y+=2){
+    cx.fillStyle='rgba(0,0,0,0.5)';
+    cx.fillRect(0,y,W,1);
+  }
+  cx.restore();
+
+  // HUD
+  if(hudVisible){
+    hud.style.display='block';
+    hud.innerHTML=`frame ${frame} · t ${t.toFixed(2)}<br>
+sym ${P.symmetry} · fractal ${['mandelbrot','julia','barnsley','dragon'][P.fractalType]}<br>
+textile ${['batik','ikat','jacquard','sashiko','brocade'][P.textileType]}<br>
+physics ${['oscillator','pendulum','cloth','vortex'][P.physicsType]}<br>
+zoom ${P.zoom.toFixed(2)} · speed ${P.speed.toFixed(2)}<br>
+palette ${P.palette.style} · bloom ${P.bloomIntensity.toFixed(2)}<br>
+space-fill ${['hilbert','peano'][P.spaceFillingType]} ord ${P.hilbertOrder}<br>
+sound ${soundOn?'ON':'OFF'}`;
+  }else{
+    hud.style.display='none';
+  }
+}
+
+// ─── Audio ────────────────────────────────────────────────────────────────────
+function initAudio(){
+  if(audioCtx)return;
+  audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+  masterGain=audioCtx.createGain();
+  masterGain.gain.value=0.12;
+  masterGain.connect(audioCtx.destination);
+
+  // Drone oscillators
+  osc1=audioCtx.createOscillator();
+  osc1.type='sine';
+  osc1.frequency.value=55+Math.random()*30;
+  const g1=audioCtx.createGain();g1.gain.value=0.3;
+  osc1.connect(g1);g1.connect(masterGain);osc1.start();
+
+  osc2=audioCtx.createOscillator();
+  osc2.type='triangle';
+  osc2.frequency.value=110+Math.random()*40;
+  const g2=audioCtx.createGain();g2.gain.value=0.15;
+  osc2.connect(g2);g2.connect(masterGain);osc2.start();
+
+  // LFO for vibrato
+  lfo1=audioCtx.createOscillator();
+  lfo1.frequency.value=0.3+Math.random()*0.5;
+  const lfoGain=audioCtx.createGain();lfoGain.gain.value=4;
+  lfo1.connect(lfoGain);lfoGain.connect(osc1.frequency);lfo1.start();
+
+  lfo2=audioCtx.createOscillator();
+  lfo2.frequency.value=0.1+Math.random()*0.2;
+  const lfoGain2=audioCtx.createGain();lfoGain2.gain.value=6;
+  lfo2.connect(lfoGain2);lfoGain2.connect(osc2.frequency);lfo2.start();
+
+  // Granular noise texture
+  const bufLen=audioCtx.sampleRate*2;
+  const buf=audioCtx.createBuffer(1,bufLen,audioCtx.sampleRate);
+  const d=buf.getChannelData(0);
+  for(let i=0;i<bufLen;i++)d[i]=(Math.random()*2-1)*0.3;
+  noiseNode=audioCtx.createBufferSource();
+  noiseNode.buffer=buf;noiseNode.loop=true;
+  const bpf=audioCtx.createBiquadFilter();
+  bpf.type='bandpass';bpf.frequency.value=400+Math.random()*800;bpf.Q.value=8;
+  noiseGain=audioCtx.createGain();noiseGain.gain.value=0.08;
+  noiseNode.connect(bpf);bpf.connect(noiseGain);noiseGain.connect(masterGain);
+  noiseNode.start();
+}
+
+function updateAudio(){
+  if(!audioCtx)return;
+  if(osc1)osc1.frequency.value=55+P.seed%40;
+  if(osc2)osc2.frequency.value=110+P.seed%60;
+  if(lfo1)lfo1.frequency.value=0.2+P.speed*0.4;
+  if(lfo2)lfo2.frequency.value=0.1+P.speed*0.15;
+}
+
+function toggleSound(){
+  soundOn=!soundOn;
+  if(soundOn){
+    initAudio();
+    if(audioCtx.state==='suspended')audioCtx.resume();
+    masterGain.gain.setTargetAtTime(0.12,audioCtx.currentTime,0.3);
+  }else if(audioCtx){
+    masterGain.gain.setTargetAtTime(0,audioCtx.currentTime,0.3);
+  }
+}
+
+// ─── Input ────────────────────────────────────────────────────────────────────
+document.addEventListener('keydown',e=>{
+  if(e.key===' '||e.key==='Enter'){e.preventDefault();randomize();}
+  if(e.key==='h'||e.key==='H'){hudVisible=!hudVisible;}
+  if(e.key==='s'||e.key==='S'){toggleSound();}
+});
+
+let lastTap=0;
+function handleTap(e){
+  e.preventDefault();
+  const now=Date.now();
+  if(now-lastTap<300){return;}
+  lastTap=now;
+  randomize();
+}
+cv.addEventListener('click',handleTap);
+cv.addEventListener('touchend',handleTap,{passive:false});
+
+// ─── Boot ─────────────────────────────────────────────────────────────────────
+randomize();
+requestAnimationFrame(render);
+
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+
+<title>Gaussian Modular SU(2) Hopf Cellular Automata – Quaternion Lie Group Shader Visualization</title>
+
+<meta name="description" content="Fullscreen WebGL2 shader visualization implementing modular arithmetic cellular automata on Gaussian integer lattices, SU(2) quaternion exponential maps, Hopf fibration projection, de Bruijn convolution kernels, modular exponentiation cycles, HSV domain coloring from Z-transform poles, and binaural beat synthesis driven by discrete Fourier transforms.">
+
+<meta name="keywords" content="modular arithmetic cellular automata, Gaussian integer lattice, SU(2), quaternion exponential map, Hopf fibration shader, de Bruijn sequence convolution, modular exponentiation visualization, WebGL2 fullscreen shader, Lie group visualization, 4D rotation projection, HSV domain coloring, Z-transform poles, binaural beat synthesis, DFT audio generation">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+html,body{
+    margin:0;
+    padding:0;
+    background:black;
+    overflow:hidden;
+    font-family:monospace;
+}
+canvas{display:block;}
+#hud{
+    position:fixed;
+    top:10px;
+    left:10px;
+    color:#0f0;
+    font-size:12px;
+    display:none;
+    pointer-events:none;
+}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="hud"></div>
+
+<script>
+const canvas = document.getElementById("gl");
+const gl = canvas.getContext("webgl2");
+
+let W,H;
+function resize(){
+    W = canvas.width = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+    gl.viewport(0,0,W,H);
+}
+window.addEventListener("resize",resize);
+resize();
+
+/*==============================
+    GLOBAL STATE
+==============================*/
+let generation = 0;
+let modulus = 5;
+let kernelSize = 3;
+let showHUD = false;
+let audioEnabled = true;
+let entropy = 0;
+let colorSeed = Math.random()*1000;
+
+function randomize(){
+    modulus = 2 + Math.floor(Math.random()*12);
+    kernelSize = 2 + Math.floor(Math.random()*6);
+    colorSeed = Math.random()*1000.0;   // NEW randomized palette seed
+}
+window.addEventListener("keydown",e=>{
+    if(e.code==="Space"){randomize();}
+    if(e.key==="h"||e.key==="H"){showHUD=!showHUD;hud.style.display=showHUD?"block":"none";}
+    if(e.key==="s"||e.key==="S"){audioEnabled=!audioEnabled;}
+});
+window.addEventListener("click",randomize);
+
+/*==============================
+    SHADERS
+==============================*/
+
+const vertSrc=`#version 300 es
+precision highp float;
+layout(location=0) in vec2 position;
+out vec2 uv;
+void main(){
+    uv = position*0.5+0.5;
+    gl_Position = vec4(position,0,1);
+}
+`;
+
+const fragSrc=`#version 300 es
+precision highp float;
+out vec4 fragColor;
+in vec2 uv;
+
+uniform float time;
+uniform float modulus;
+uniform float kernelSize;
+uniform float colorSeed;
+uniform vec2 resolution;
+
+/* Complex multiply */
+vec2 cMul(vec2 a, vec2 b){
+    return vec2(a.x*b.x - a.y*b.y,
+                a.x*b.y + a.y*b.x);
+}
+vec2 cExp(float t){
+    return vec2(cos(t), sin(t));
+}
+
+/* Quaternion exponential */
+vec4 qExp(vec4 q){
+    float vlen = length(q.xyz);
+    float ew = exp(q.w);
+    if(vlen < 1e-5) return vec4(q.xyz, ew);
+    float s = ew*sin(vlen)/vlen;
+    return vec4(q.xyz*s, ew*cos(vlen));
+}
+
+/* Hopf projection */
+vec3 hopf(vec4 q){
+    vec2 z1 = q.xy;
+    vec2 z2 = q.zw;
+    float r1 = dot(z1,z1);
+    float r2 = dot(z2,z2);
+    return vec3(
+        2.0*(z1.x*z2.x + z1.y*z2.y),
+        2.0*(z1.y*z2.x - z1.x*z2.y),
+        r1 - r2
+    );
+}
+
+vec3 hsv2rgb(vec3 c){
+    vec3 p = abs(fract(c.xxx+vec3(0,2./3.,1./3.))*6.-3.);
+    return c.z * mix(vec3(1.), clamp(p-1.,0.,1.), c.y);
+}
+
+void main(){
+
+    vec2 p = (uv-0.5)*2.0;
+    p.x *= resolution.x/resolution.y;
+
+    vec2 g = floor(p*20.0);
+
+    float state = mod(g.x*g.x + g.y*g.y, modulus);
+
+    vec2 phase = cExp(state * 6.28318/modulus);
+    vec2 rotated = cMul(g, phase);
+
+    float expCycle = mod(pow(state+1.0,2.0), modulus);
+
+    float conv = 0.0;
+    for(int i=0;i<8;i++){
+        float k = float(i)/kernelSize;
+        conv += sin(dot(g,vec2(k,k))*6.28318/modulus);
+    }
+    conv = mod(conv, modulus);
+
+    float combined = mod(expCycle + conv, modulus);
+
+    vec4 q = vec4(
+        sin(combined),
+        cos(combined),
+        sin(state),
+        cos(state)
+    );
+
+    q = qExp(q*0.5);
+
+    vec3 hopfP = hopf(q);
+
+    float angle = atan(hopfP.y, hopfP.x);
+    float mag = length(hopfP.xy);
+
+    /* NEW: Randomized + continuously cycling hue */
+    float hue = fract(angle/6.28318 + colorSeed + time*0.05);
+    float sat = clamp(mag,0.,1.);
+    float val = 0.85;   // constant brightness (NO pulsing)
+
+    vec3 col = hsv2rgb(vec3(hue, sat, val));
+    fragColor = vec4(col,1);
+}
+`;
+
+/*==============================
+    Compile
+==============================*/
+function compile(type,src){
+    let s=gl.createShader(type);
+    gl.shaderSource(s,src);
+    gl.compileShader(s);
+    return s;
+}
+let vs=compile(gl.VERTEX_SHADER,vertSrc);
+let fs=compile(gl.FRAGMENT_SHADER,fragSrc);
+
+let prog=gl.createProgram();
+gl.attachShader(prog,vs);
+gl.attachShader(prog,fs);
+gl.linkProgram(prog);
+gl.useProgram(prog);
+
+/* Quad */
+let quad=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,quad);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([
+-1,-1,1,-1,-1,1,
+1,-1,1,1,-1,1]),gl.STATIC_DRAW);
+gl.enableVertexAttribArray(0);
+gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
+
+/* Uniforms */
+let uTime=gl.getUniformLocation(prog,"time");
+let uMod=gl.getUniformLocation(prog,"modulus");
+let uKernel=gl.getUniformLocation(prog,"kernelSize");
+let uColor=gl.getUniformLocation(prog,"colorSeed");
+let uRes=gl.getUniformLocation(prog,"resolution");
+
+/* AUDIO (unchanged) */
+const audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+let oscL=audioCtx.createOscillator();
+let oscR=audioCtx.createOscillator();
+let gain=audioCtx.createGain();
+gain.gain.value=0.1;
+oscL.connect(gain);
+oscR.connect(gain);
+gain.connect(audioCtx.destination);
+oscL.start();
+oscR.start();
+
+function updateAudio(){
+    if(!audioEnabled) return;
+    let size=64;
+    let re=0,im=0;
+    for(let k=0;k<size;k++){
+        let angle=2*Math.PI*k/size;
+        let sample=Math.sin(k*generation*0.01);
+        re+=sample*Math.cos(angle);
+        im-=sample*Math.sin(angle);
+    }
+    let mag=Math.sqrt(re*re+im*im);
+    let fib=[1,1,2,3,5,8,13,21];
+    let weight=fib[generation%fib.length];
+    let base=200+mag*2;
+    oscL.frequency.value=base;
+    oscR.frequency.value=base+weight;
+}
+
+/* Render */
+let start=performance.now();
+function loop(){
+    let t=(performance.now()-start)/1000;
+    generation++;
+
+    gl.uniform1f(uTime,t);
+    gl.uniform1f(uMod,modulus);
+    gl.uniform1f(uKernel,kernelSize);
+    gl.uniform1f(uColor,colorSeed);
+    gl.uniform2f(uRes,W,H);
+
+    gl.drawArrays(gl.TRIANGLES,0,6);
+
+    entropy = Math.abs(Math.sin(t*modulus));
+
+    if(showHUD){
+        hud.innerHTML=
+        "GEN: "+generation+"<br>"+
+        "MOD: "+modulus+"<br>"+
+        "KERNEL: "+kernelSize+"<br>"+
+        "ENTROPY: "+entropy.toFixed(4)+"<br>"+
+        "AUDIO FFT: "+(audioEnabled?"ON":"OFF");
+    }
+
+    updateAudio();
+    requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>

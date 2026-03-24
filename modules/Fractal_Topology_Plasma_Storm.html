@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Fractal Topology Plasma Storm — breathtaking real-time WebGL art combining Newton fractal basins, topological genus-3 surface deformations, curl-noise plasma storms, and six levels of recursive self-similar storm-eye spirals in spectral banded gradients.">
+<meta name="keywords" content="fractal, plasma, topology, generative art, WebGL, Newton fractal, Morse theory, curl noise, storm simulation, spectral gradient, mathematical art, psychedelic">
+<meta name="author" content="Fractal Topology Plasma Storm">
+<meta property="og:title" content="Fractal Topology Plasma Storm">
+<meta property="og:description" content="Newton fractal basins meet topological deformations and plasma storm cells in a never-before-seen spectral light show.">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Fractal Topology Plasma Storm">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"CreativeWork","name":"Fractal Topology Plasma Storm","description":"Real-time WebGL plasma storm with fractal topology","genre":"Generative Art","keywords":"fractal, plasma, topology, Newton, WebGL, generative art"}</script>
+<title>Fractal Topology Plasma Storm</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;background:#000;overflow:hidden}
+  canvas{display:block;width:100%;height:100%}
+  #hud{display:none;position:fixed;top:16px;left:16px;color:#f80;font-family:monospace;font-size:12px;background:rgba(0,0,0,0.65);padding:10px 14px;border:1px solid #f804;border-radius:4px;pointer-events:none;z-index:10;line-height:1.8}
+  #hud.visible{display:block}
+  #hint{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,0.3);font-family:monospace;font-size:11px;pointer-events:none;z-index:10;transition:opacity 2s}
+  #hint.fade{opacity:0}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<div id="hint">SPACE/CLICK — new storm &nbsp;|&nbsp; H — HUD &nbsp;|&nbsp; S — sound</div>
+<script>
+(function(){
+'use strict';
+const canvas=document.getElementById('c');
+const gl=canvas.getContext('webgl',{antialias:false,alpha:false,powerPreference:'high-performance'});
+if(!gl){document.body.innerHTML='<p style="color:#fff;padding:40px">WebGL not supported</p>';return;}
+let W,H,seed,params={},hudVisible=false,soundOn=false,audioCtx,masterGain,audioNodes=[],fps=60,lastTime=0,frameCount=0;
+
+const VS=`attribute vec2 pos;void main(){gl_Position=vec4(pos,0,1);}`;
+const FS=`
+precision highp float;
+uniform vec2 res;
+uniform float time;
+uniform float seed;
+uniform float polyDeg;
+uniform float noiseOct;
+uniform float lissA,lissB,lissC;
+uniform float topoFreq;
+uniform float stormScale;
+uniform float coldHot; // 0=cold(violet/blue), 1=hot(gold/red)
+uniform float spiralDepth;
+uniform float lieRot;
+
+#define PI 3.14159265358979
+#define TAU 6.28318530717959
+#define PHI 1.61803398874989
+
+vec3 hsv2rgb(vec3 c){vec4 K=vec4(1.,2./3.,1./3.,3.);vec3 p=abs(fract(c.xxx+K.xyz)*6.-K.www);return c.z*mix(K.xxx,clamp(p-K.xxx,0.,1.),c.y);}
+
+vec2 cmul(vec2 a,vec2 b){return vec2(a.x*b.x-a.y*b.y,a.x*b.y+a.y*b.x);}
+vec2 cdiv(vec2 a,vec2 b){float d=dot(b,b);return vec2(dot(a,b),a.y*b.x-a.x*b.y)/d;}
+
+// Newton fractal degree 5-9
+vec2 newtonStep(vec2 z,float deg){
+  // f(z)=z^deg - 1, f'(z)=deg*z^(deg-1)
+  float d=deg;
+  vec2 zn=vec2(1.,0.);
+  for(int i=0;i<9;i++){if(float(i)>=d-1.)break;zn=cmul(zn,z);}
+  vec2 fz=cmul(zn,z)-vec2(1.,0.);
+  vec2 dfz=d*zn;
+  return z-cdiv(fz,dfz);
+}
+
+float newton(vec2 z,float deg,float t){
+  // roots drift on Lissajous
+  vec2 offset=vec2(lissA*0.3*cos(lissA*t*0.2),lissB*0.3*sin(lissB*t*0.17))*0.1;
+  z+=offset;
+  for(int i=0;i<32;i++){
+    vec2 zn=newtonStep(z,deg);
+    if(length(zn-z)<0.001)break;
+    z=zn;
+  }
+  // which root did we converge to?
+  float rootIdx=0.;
+  float deg2=deg;
+  for(int r=0;r<9;r++){
+    if(float(r)>=deg2)break;
+    float ra=TAU*float(r)/deg2;
+    vec2 root=vec2(cos(ra),sin(ra));
+    if(length(z-root)<0.15){rootIdx=float(r)/deg2;break;}
+  }
+  return rootIdx;
+}
+
+// Perlin-style hash
+float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+float noise(vec2 p){
+  vec2 i=floor(p),f=fract(p);
+  f=f*f*(3.-2.*f);
+  float a=hash(i),b=hash(i+vec2(1,0)),c=hash(i+vec2(0,1)),d=hash(i+vec2(1,1));
+  return mix(mix(a,b,f.x),mix(c,d,f.x),f.y);
+}
+float fbm(vec2 p,float oct){
+  float v=0.,amp=0.5,freq=1.;
+  for(int i=0;i<8;i++){
+    if(float(i)>=oct)break;
+    v+=noise(p*freq)*amp;
+    freq*=2.;amp*=0.5;
+  }
+  return v;
+}
+
+// Curl noise vector field
+vec2 curl(vec2 p,float t){
+  float eps=0.01;
+  float n1=fbm(p+vec2(eps,0.)+t*0.05,noiseOct);
+  float n2=fbm(p-vec2(eps,0.)+t*0.05,noiseOct);
+  float n3=fbm(p+vec2(0.,eps)+t*0.05,noiseOct);
+  float n4=fbm(p-vec2(0.,eps)+t*0.05,noiseOct);
+  return vec2(n3-n4,n2-n1)/(2.*eps);
+}
+
+// Lie algebra exponential rotation
+mat2 lieRot2(float a){return mat2(cos(a),-sin(a),sin(a),cos(a));}
+
+// Recursive storm eye
+float stormEye(vec2 uv,float t,float depth){
+  float glow=0.;
+  vec2 p=uv;
+  float scale=1.;
+  for(int i=0;i<6;i++){
+    if(float(i)>=depth)break;
+    float r=length(p);
+    float a=atan(p.y,p.x)+r*3.+t*(0.5-float(i)*0.08);
+    p=r*vec2(cos(a),sin(a));
+    glow+=exp(-r*r*8./scale)*0.25*scale;
+    p=(p-vec2(0.3,0.)*scale)*2.5;
+    scale*=0.4;
+  }
+  return glow;
+}
+
+// Topological genus-3 deformation (Fourier series on mesh)
+float topo(vec2 uv,float freq,float t){
+  float v=0.;
+  for(int i=1;i<=6;i++){
+    float fi=float(i);
+    v+=sin(uv.x*fi*freq+t*(fi*0.07))*cos(uv.y*fi*freq+t*(fi*0.05+0.3))/(fi*1.5);
+  }
+  return v*0.5+0.5;
+}
+
+void main(){
+  vec2 uv=(gl_FragCoord.xy-res*0.5)/min(res.x,res.y)*2.;
+  float t=time+seed*0.001;
+
+  // Lie algebra rotation warp
+  uv=lieRot2(lieRot*sin(t*0.04))*uv;
+
+  // curl noise integration
+  vec2 curlVec=curl(uv*stormScale,t);
+  vec2 wUV=uv+curlVec*0.3;
+
+  // Newton fractal basin
+  float nv=newton(wUV*1.2,polyDeg,t);
+
+  // topology deformation
+  float tv=topo(wUV*1.5,topoFreq,t);
+
+  // storm eye recursion
+  float se=stormEye(wUV,t,spiralDepth);
+
+  // FBM plasma overlay
+  float plasma=fbm(wUV*2.+vec2(t*0.06,t*0.04),noiseOct);
+  float plasma2=fbm(wUV*3.1+curlVec+vec2(-t*0.05,t*0.07),noiseOct*0.7);
+
+  float val=nv*0.4+tv*0.2+se*0.3+plasma*0.15+plasma2*0.1;
+  val=fract(val*2.);
+
+  // spectral color: cold=violet/blue implosion, hot=gold/red explosion
+  float hotness=length(curlVec)*2.;
+  hotness=clamp(hotness,0.,1.);
+  float coldHue=fract(0.65+val*0.25+t*0.02); // violet->blue
+  float hotHue=fract(0.08+val*0.18+t*0.03);  // gold->crimson
+  float hue=mix(coldHue,hotHue,mix(hotness,coldHot,0.5));
+  float sat=0.9-val*0.2;
+  float bri=0.1+val*0.9+se*0.3;
+  vec3 col=hsv2rgb(vec3(hue,sat,clamp(bri,0.,1.)));
+
+  // chromatic dispersion
+  float disp=length(curlVec)*0.5;
+  col.r+=disp*0.3;
+  col.b-=disp*0.2;
+
+  // lens flare spikes
+  float lr=length(uv);
+  float spike=0.;
+  for(int k=0;k<6;k++){
+    float ka=float(k)*PI/3.+t*0.1;
+    vec2 kd=vec2(cos(ka),sin(ka));
+    spike+=exp(-abs(dot(uv,kd)*15.)*abs(dot(uv,kd)*15.))*exp(-lr*2.)*0.2;
+  }
+  col+=spike*vec3(1.,0.8,0.5);
+
+  gl_FragColor=vec4(clamp(col,0.,1.),1.);
+}
+`;
+
+function cs(t,s){const sh=gl.createShader(t);gl.shaderSource(sh,s);gl.compileShader(sh);if(!gl.getShaderParameter(sh,gl.COMPILE_STATUS))console.error(gl.getShaderInfoLog(sh));return sh;}
+function bp(v,f){const p=gl.createProgram();gl.attachShader(p,cs(gl.VERTEX_SHADER,v));gl.attachShader(p,cs(gl.FRAGMENT_SHADER,f));gl.linkProgram(p);return p;}
+const prog=bp(VS,FS);
+gl.useProgram(prog);
+const buf=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+const pl=gl.getAttribLocation(prog,'pos');
+gl.enableVertexAttribArray(pl);gl.vertexAttribPointer(pl,2,gl.FLOAT,false,0,0);
+
+function u(n){return gl.getUniformLocation(prog,n);}
+const uRes=u('res'),uTime=u('time'),uSeed=u('seed'),uPD=u('polyDeg'),uNO=u('noiseOct');
+const uLA=u('lissA'),uLB=u('lissB'),uLC=u('lissC'),uTF=u('topoFreq');
+const uSS=u('stormScale'),uCH=u('coldHot'),uSD=u('spiralDepth'),uLR=u('lieRot');
+
+function rng(a,b){return a+(b-a)*Math.random();}
+function randomize(){
+  seed=Math.random()*9999;
+  params={
+    polyDeg: Math.floor(rng(5,10)),
+    noiseOct: Math.floor(rng(3,7)),
+    lissA: rng(2,5), lissB: rng(3,7), lissC: rng(1,4),
+    topoFreq: rng(1,4),
+    stormScale: rng(0.5,2),
+    coldHot: Math.random(),
+    spiralDepth: Math.floor(rng(3,7)),
+    lieRot: rng(0.2,1.5)
+  };
+  updateHUD();
+}
+function resize(){W=canvas.width=window.innerWidth;H=canvas.height=window.innerHeight;gl.viewport(0,0,W,H);}
+
+function startAudio(){
+  if(audioCtx)return;
+  audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+  masterGain=audioCtx.createGain();
+  masterGain.gain.value=0.12;
+  masterGain.connect(audioCtx.destination);
+  // thunder drone
+  const noise=audioCtx.createOscillator();
+  const noiseG=audioCtx.createGain();
+  noise.type='sawtooth';noise.frequency.value=40+params.stormScale*20;
+  noiseG.gain.value=0.04;
+  // modulation
+  const lfo=audioCtx.createOscillator();
+  const lfoG=audioCtx.createGain();
+  lfo.frequency.value=0.3;lfoG.gain.value=15;
+  lfo.connect(lfoG);lfoG.connect(noise.frequency);
+  const bpf=audioCtx.createBiquadFilter();
+  bpf.type='bandpass';bpf.frequency.value=120;bpf.Q.value=3;
+  noise.connect(bpf);bpf.connect(noiseG);noiseG.connect(masterGain);
+  noise.start();lfo.start();
+  audioNodes.push(noise,noiseG,lfo,lfoG);
+}
+function stopAudio(){audioNodes.forEach(n=>{try{n.stop?n.stop():n.disconnect();}catch(e){}});audioNodes=[];if(audioCtx){audioCtx.close();audioCtx=null;}}
+
+const hudEl=document.getElementById('hud');
+function updateHUD(){
+  if(!hudVisible)return;
+  hudEl.innerHTML=`FPS: ${fps.toFixed(1)}<br>Polynomial Degree: ${params.polyDeg}<br>Noise Octaves: ${params.noiseOct}<br>Storm Scale: ${params.stormScale?.toFixed(2)}<br>Spiral Depth: ${params.spiralDepth}<br>Topo Freq: ${params.topoFreq?.toFixed(2)}<br>Lie Rot: ${params.lieRot?.toFixed(2)}<br>Sound: ${soundOn?'ON':'OFF'}`;
+}
+
+let startTime=performance.now();
+function render(now){
+  requestAnimationFrame(render);
+  const dt=(now-lastTime)/1000;lastTime=now;
+  if(dt>0)fps=fps*0.95+0.05/dt;
+  frameCount++;if(frameCount%60===0)updateHUD();
+  const t=(now-startTime)/1000;
+  gl.uniform2f(uRes,W,H);gl.uniform1f(uTime,t);gl.uniform1f(uSeed,seed);
+  gl.uniform1f(uPD,params.polyDeg);gl.uniform1f(uNO,params.noiseOct);
+  gl.uniform1f(uLA,params.lissA);gl.uniform1f(uLB,params.lissB);gl.uniform1f(uLC,params.lissC);
+  gl.uniform1f(uTF,params.topoFreq);gl.uniform1f(uSS,params.stormScale);
+  gl.uniform1f(uCH,params.coldHot);gl.uniform1f(uSD,params.spiralDepth);gl.uniform1f(uLR,params.lieRot);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+}
+
+function restart(){randomize();startTime=performance.now();if(soundOn){stopAudio();startAudio();}}
+window.addEventListener('resize',resize);
+document.addEventListener('keydown',e=>{
+  if(e.code==='Space'){e.preventDefault();restart();}
+  if(e.code==='KeyH'){hudVisible=!hudVisible;hudEl.classList.toggle('visible',hudVisible);updateHUD();}
+  if(e.code==='KeyS'){soundOn=!soundOn;if(soundOn)startAudio();else stopAudio();updateHUD();}
+});
+canvas.addEventListener('click',restart);
+setTimeout(()=>document.getElementById('hint').classList.add('fade'),4000);
+resize();randomize();requestAnimationFrame(render);
+})();
+</script>
+</body>
+</html>
