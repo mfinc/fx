@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+
+<title>Atari 2600 Color Science Generative Visualizer | TIA Graphics Animation</title>
+
+<meta name="description" content="A complex generative animation system inspired by Atari 2600 color palette engineering, Television Interface Adapter video circuitry, scanline rendering, and retro video game graphics science. Interactive procedural visualization with sound and randomized systems.">
+
+<meta name="keywords" content="
+Atari 2600 color palette,
+TIA graphics chip,
+retro graphics engineering,
+generative graphics,
+procedural animation,
+scanline graphics,
+video color science,
+Atari color clock,
+MOS technology graphics,
+retro computing art,
+video game hardware visualization">
+
+<meta name="robots" content="index, follow">
+
+<meta property="og:title" content="Atari 2600 Color Science Generative Visualizer">
+<meta property="og:description" content="Procedural generative animations inspired by Atari 2600 graphics hardware and color palette engineering.">
+<meta property="og:type" content="website">
+
+<style>
+
+html,body{
+margin:0;
+padding:0;
+overflow:hidden;
+background:#000;
+font-family:monospace;
+}
+
+canvas{
+display:block;
+}
+
+#hud{
+position:fixed;
+left:12px;
+top:12px;
+color:#0f0;
+font-size:12px;
+pointer-events:none;
+white-space:pre;
+}
+
+</style>
+</head>
+
+<body>
+
+<canvas id="c"></canvas>
+<div id="hud"></div>
+
+<script>
+
+const canvas = document.getElementById("c")
+const ctx = canvas.getContext("2d")
+const hud = document.getElementById("hud")
+
+let W,H
+function resize(){
+W = canvas.width = window.innerWidth
+H = canvas.height = window.innerHeight
+}
+window.addEventListener("resize",resize)
+resize()
+
+/* =========================
+ATARI 2600 STYLE PALETTE
+========================= */
+
+const palette = [
+
+"#000000","#404040","#6C6C6C","#909090","#B0B0B0","#C8C8C8","#ECECEC","#FFFFFF",
+
+"#4C0000","#700000","#940000","#B80000","#D00000","#E80000","#FC3030","#FC7474",
+
+"#4C2000","#703400","#945000","#B86C00","#D08400","#E89C20","#FCB468","#FCC890",
+
+"#4C4800","#706400","#948000","#B89C00","#D0B400","#E8CC20","#FCE468","#FCF490",
+
+"#345C00","#4C7800","#649400","#7CB000","#94C800","#ACDC20","#C4F468","#D4FC90",
+
+"#004C00","#007000","#009400","#00B800","#00D000","#20E820","#68FC68","#90FC90",
+
+"#004C20","#007034","#009450","#00B86C","#00D084","#20E89C","#68FCB4","#90FCC8",
+
+"#003C4C","#005870","#007494","#0090B8","#00A8D0","#20C0E8","#68D8FC","#90E8FC",
+
+"#002C4C","#004870","#006494","#0080B8","#0098D0","#20B0E8","#68C8FC","#90DCFC",
+
+"#00004C","#000070","#000094","#0000B8","#0000D0","#2020E8","#6868FC","#9090FC",
+
+"#2C004C","#480070","#640094","#8000B8","#9800D0","#B020E8","#C868FC","#DC90FC",
+
+"#44004C","#640070","#840094","#A400B8","#B800D0","#D020E8","#EC68FC","#F490FC",
+
+"#4C0038","#700050","#940068","#B80080","#D00098","#E820B0","#FC68C8","#FC90DC"
+
+]
+
+function rand(n){return Math.random()*n}
+
+function pick(){
+return palette[Math.floor(Math.random()*palette.length)]
+}
+
+/* =========================
+SYSTEM STATE
+========================= */
+
+let layers = []
+let seed = 0
+
+let showHUD=false
+let soundOn=false
+
+let audioCtx
+let osc
+
+function initSound(){
+
+audioCtx = new (window.AudioContext || window.webkitAudioContext)()
+osc = audioCtx.createOscillator()
+let g = audioCtx.createGain()
+
+osc.type="square"
+osc.frequency.value = 120
+g.gain.value = 0.05
+
+osc.connect(g)
+g.connect(audioCtx.destination)
+
+osc.start()
+
+}
+
+function randomize(){
+
+seed = Math.random()*10000
+
+layers=[]
+
+let count = 8 + Math.floor(rand(14))
+
+for(let i=0;i<count;i++){
+
+layers.push({
+
+type:Math.floor(rand(5)),
+
+speed:rand(0.002)+0.0005,
+scale:rand(300)+50,
+color:pick(),
+phase:rand(1000),
+density:Math.floor(rand(120))+20,
+amp:rand(200)+40
+
+})
+
+}
+
+}
+
+/* =========================
+RENDERERS
+========================= */
+
+function drawField(l,t){
+
+ctx.strokeStyle = l.color
+ctx.lineWidth=1
+
+for(let i=0;i<l.density;i++){
+
+let x = (i/l.density)*W
+
+let y = H/2 + Math.sin(x/l.scale + t*l.speed + l.phase)*l.amp
+
+ctx.beginPath()
+ctx.moveTo(x,0)
+ctx.lineTo(x,y)
+ctx.stroke()
+
+}
+
+}
+
+function drawOrbit(l,t){
+
+ctx.strokeStyle=l.color
+
+let cx=W/2
+let cy=H/2
+
+for(let i=0;i<l.density;i++){
+
+let a = i/l.density*Math.PI*2 + t*l.speed
+
+let r = Math.sin(a*3 + l.phase)*l.amp + l.scale
+
+let x = cx + Math.cos(a)*r
+let y = cy + Math.sin(a)*r
+
+ctx.fillStyle=l.color
+ctx.fillRect(x,y,2,2)
+
+}
+
+}
+
+function drawScan(l,t){
+
+ctx.strokeStyle=l.color
+
+for(let y=0;y<H;y+=3){
+
+let offset = Math.sin(y*0.01 + t*l.speed)*l.amp
+
+ctx.beginPath()
+ctx.moveTo(0+offset,y)
+ctx.lineTo(W+offset,y)
+ctx.stroke()
+
+}
+
+}
+
+function drawLattice(l,t){
+
+ctx.strokeStyle=l.color
+
+for(let x=0;x<W;x+=20){
+
+for(let y=0;y<H;y+=20){
+
+let dx = Math.sin((x+y)/l.scale + t*l.speed)*l.amp*0.1
+
+ctx.fillStyle=l.color
+ctx.fillRect(x+dx,y,3,3)
+
+}
+
+}
+
+}
+
+function drawSpiral(l,t){
+
+ctx.strokeStyle=l.color
+
+let cx=W/2
+let cy=H/2
+
+for(let i=0;i<l.density;i++){
+
+let a=i*0.1 + t*l.speed
+
+let r=i*0.8 + Math.sin(a*2)*l.amp
+
+let x=cx+Math.cos(a)*r
+let y=cy+Math.sin(a)*r
+
+ctx.fillStyle=l.color
+ctx.fillRect(x,y,2,2)
+
+}
+
+}
+
+/* =========================
+MAIN LOOP
+========================= */
+
+let t=0
+
+function loop(){
+
+t+=1
+
+ctx.fillStyle="black"
+ctx.fillRect(0,0,W,H)
+
+for(let l of layers){
+
+switch(l.type){
+
+case 0: drawField(l,t);break
+case 1: drawOrbit(l,t);break
+case 2: drawScan(l,t);break
+case 3: drawLattice(l,t);break
+case 4: drawSpiral(l,t);break
+
+}
+
+}
+
+if(showHUD){
+
+hud.innerText =
+"ATARI 2600 COLOR SCIENCE VISUALIZER\n"+
+"Layers: "+layers.length+"\n"+
+"Seed: "+seed.toFixed(2)+"\n"+
+"[SPACE/CLICK] Randomize\n"+
+"[H] Toggle HUD\n"+
+"[S] Toggle Sound"
+
+}else{
+
+hud.innerText=""
+
+}
+
+if(soundOn && osc){
+
+osc.frequency.value =
+120 + Math.sin(t*0.01)*60
+
+}
+
+requestAnimationFrame(loop)
+
+}
+
+/* =========================
+INPUT
+========================= */
+
+window.addEventListener("keydown",e=>{
+
+if(e.code==="Space"){
+randomize()
+}
+
+if(e.key==="h"||e.key==="H"){
+showHUD=!showHUD
+}
+
+if(e.key==="s"||e.key==="S"){
+
+soundOn=!soundOn
+
+if(soundOn && !audioCtx){
+
+initSound()
+
+}
+
+}
+
+})
+
+canvas.addEventListener("click",randomize)
+canvas.addEventListener("touchstart",randomize)
+
+/* ========================= */
+
+randomize()
+loop()
+
+</script>
+
+</body>
+</html>

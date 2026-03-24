@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Algorithmic Color Ecosystem Nebula</title>
+<meta name="description" content="Algorithmic Color Ecosystem Nebula — autonomous color agents evolve, blend, and form dynamic gradient ecosystems with audio-reactive behavior.">
+<meta name="keywords" content="color simulation, generative art, canvas animation, color theory, ecosystem, procedural graphics">
+<style>
+html,body{
+  margin:0; padding:0; overflow:hidden; background:#000;
+  touch-action:manipulation;
+}
+canvas{ display:block; }
+#hud{
+  position:fixed; top:10px; left:10px;
+  color:#0f0; font-family:monospace; font-size:12px;
+  background:rgba(0,0,0,0.4); padding:8px; border-radius:8px;
+  display:none;
+}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+
+<script>
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+const hud = document.getElementById("hud");
+
+let W,H;
+function resize(){
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+window.addEventListener("resize", resize);
+resize();
+
+let agents = [];
+let seed = Math.random()*1e9;
+let showHUD = false;
+let audioEnabled = false;
+
+/* ---------- AUDIO ---------- */
+let audioCtx, osc, gain;
+function initAudio(){
+  audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+  osc = audioCtx.createOscillator();
+  gain = audioCtx.createGain();
+  osc.type = "sine";
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  gain.gain.value = 0;
+  osc.start();
+}
+
+/* ---------- UTIL ---------- */
+function rand(a=1){ return Math.random()*a; }
+function pick(a){ return a[Math.floor(rand(a.length))]; }
+
+function hsvToRgb(h,s,v){
+  let f=(n,k=(n+h*6)%6)=>v-v*s*Math.max(Math.min(k,4-k,1),0);
+  return [f(5),f(3),f(1)];
+}
+
+function hslToRgb(h,s,l){
+  let a=s*Math.min(l,1-l);
+  let f=n=>{
+    let k=(n+h*12)%12;
+    return l-a*Math.max(Math.min(k-3,9-k,1),-1);
+  };
+  return [f(0),f(8),f(4)];
+}
+
+/* ---------- COLOR SYSTEMS ---------- */
+const systems = [
+  "HSV","HSL","ANALOGOUS","COMPLEMENTARY","TRIADIC","OPPONENT","SPECTRAL"
+];
+
+function generateColor(sys, base){
+  let h = base;
+  switch(sys){
+    case "HSV":
+      return hsvToRgb(h,0.8,1);
+    case "HSL":
+      return hslToRgb(h,0.7,0.6);
+    case "ANALOGOUS":
+      return hsvToRgb((h+rand(0.1))%1,0.8,1);
+    case "COMPLEMENTARY":
+      return hsvToRgb((h+0.5)%1,0.8,1);
+    case "TRIADIC":
+      return hsvToRgb((h+0.33*Math.floor(rand(3)))%1,0.8,1);
+    case "OPPONENT":
+      return [h,1-h,Math.abs(0.5-h)];
+    case "SPECTRAL":
+      return [Math.sin(h*6.28)*0.5+0.5, Math.sin(h*6.28+2)*0.5+0.5, Math.sin(h*6.28+4)*0.5+0.5];
+  }
+}
+
+/* ---------- AGENT ---------- */
+class Agent{
+  constructor(x,y,sys){
+    this.x=x; this.y=y;
+    this.vx=rand(2)-1; this.vy=rand(2)-1;
+    this.sys=sys;
+    this.base=Math.random();
+    this.size=2+rand(3);
+  }
+  update(){
+    this.x+=this.vx;
+    this.y+=this.vy;
+
+    if(this.x<0||this.x>W) this.vx*=-1;
+    if(this.y<0||this.y>H) this.vy*=-1;
+  }
+  color(){
+    let c = generateColor(this.sys,this.base);
+    return `rgb(${c[0]*255},${c[1]*255},${c[2]*255})`;
+  }
+}
+
+/* ---------- INIT ---------- */
+function init(){
+  agents=[];
+  for(let i=0;i<220;i++){
+    agents.push(new Agent(rand(W),rand(H),pick(systems)));
+  }
+}
+init();
+
+/* ---------- COLLISION / EVOLUTION ---------- */
+function interact(){
+  for(let i=0;i<agents.length;i++){
+    for(let j=i+1;j<agents.length;j++){
+      let a=agents[i], b=agents[j];
+      let dx=a.x-b.x, dy=a.y-b.y;
+      let d=dx*dx+dy*dy;
+      if(d<400){
+        // blend + offspring
+        if(Math.random()<0.02 && agents.length<400){
+          let sys = Math.random()<0.5?a.sys:b.sys;
+          agents.push(new Agent(
+            (a.x+b.x)/2,
+            (a.y+b.y)/2,
+            sys
+          ));
+        }
+        // repulsion
+        a.vx+=dx*0.0005;
+        a.vy+=dy*0.0005;
+        b.vx-=dx*0.0005;
+        b.vy-=dy*0.0005;
+      }
+    }
+  }
+}
+
+/* ---------- BACKGROUND NEBULA ---------- */
+let t=0;
+function drawNebula(){
+  t+=0.002;
+  for(let i=0;i<5;i++){
+    let r = Math.sin(t+i)*0.5+0.5;
+    let g = Math.sin(t+i+2)*0.5+0.5;
+    let b = Math.sin(t+i+4)*0.5+0.5;
+    ctx.fillStyle=`rgba(${r*255},${g*255},${b*255},0.02)`;
+    ctx.beginPath();
+    ctx.arc(
+      W/2+Math.cos(t+i)*200,
+      H/2+Math.sin(t+i)*200,
+      300,0,Math.PI*2
+    );
+    ctx.fill();
+  }
+}
+
+/* ---------- Gamut Visualization ---------- */
+function drawGamut(){
+  let x=10, y=H-110;
+  let w=100, h=100;
+  ctx.strokeStyle="#fff";
+  ctx.strokeRect(x,y,w,h);
+  agents.forEach(a=>{
+    let c=generateColor(a.sys,a.base);
+    ctx.fillStyle=`rgb(${c[0]*255},${c[1]*255},${c[2]*255})`;
+    ctx.fillRect(x+c[0]*w,y+c[1]*h,2,2);
+  });
+}
+
+/* ---------- LOOP ---------- */
+function loop(){
+  ctx.globalCompositeOperation="source-over";
+  ctx.fillStyle="rgba(0,0,0,0.15)";
+  ctx.fillRect(0,0,W,H);
+
+  ctx.globalCompositeOperation="lighter";
+
+  drawNebula();
+
+  agents.forEach(a=>{
+    a.update();
+    ctx.fillStyle=a.color();
+    ctx.beginPath();
+    ctx.arc(a.x,a.y,a.size,0,Math.PI*2);
+    ctx.fill();
+  });
+
+  interact();
+
+  // AUDIO REACT
+  if(audioEnabled && audioCtx){
+    let diversity = new Set(agents.map(a=>a.sys)).size;
+    let freq = 100 + diversity*50 + agents.length*0.5;
+    osc.frequency.value = freq;
+    gain.gain.value = 0.05;
+  }
+
+  if(showHUD){
+    hud.style.display="block";
+    hud.innerHTML = `
+Agents: ${agents.length}<br>
+Systems: ${[...new Set(agents.map(a=>a.sys))].join(", ")}<br>
+FPS approx: ${Math.round(1000/16)}
+`;
+    drawGamut();
+  } else {
+    hud.style.display="none";
+  }
+
+  requestAnimationFrame(loop);
+}
+loop();
+
+/* ---------- CONTROLS ---------- */
+function restart(){
+  seed=Math.random()*1e9;
+  init();
+}
+window.addEventListener("keydown",e=>{
+  if(e.code==="Space") restart();
+  if(e.key==="h"||e.key==="H") showHUD=!showHUD;
+  if(e.key==="s"||e.key==="S"){
+    audioEnabled=!audioEnabled;
+    if(audioEnabled && !audioCtx) initAudio();
+    if(!audioEnabled && gain) gain.gain.value=0;
+  }
+});
+window.addEventListener("click", restart);
+window.addEventListener("touchstart", restart);
+</script>
+</body>
+</html>

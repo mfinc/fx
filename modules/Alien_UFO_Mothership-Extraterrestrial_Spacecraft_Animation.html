@@ -1,0 +1,1255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Alien UFO Mothership – Extraterrestrial Spacecraft Animation</title>
+<meta name="description" content="An immersive, ultra-detailed animated alien UFO mothership canvas experience featuring advanced extraterrestrial technology, vibrant color cycling, plasma drives, energy fields, and living hull systems rendered in real-time WebGL-quality 2D canvas.">
+<meta name="keywords" content="alien UFO mothership, extraterrestrial spacecraft, animated UFO, flying saucer, alien technology, sci-fi animation, canvas animation, space animation, futuristic spacecraft, alien ship, plasma engine, energy shield, holographic display, UFO animation HTML5">
+<meta name="robots" content="index, follow">
+<meta property="og:title" content="Alien UFO Mothership – Advanced Extraterrestrial Spacecraft">
+<meta property="og:description" content="Real-time animated ultra-detailed alien UFO mothership with advanced technology systems, plasma drives, and chromatic energy fields.">
+<meta property="og:type" content="website">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%;
+    background: #000;
+    overflow: hidden;
+    font-family: 'Courier New', monospace;
+    cursor: crosshair;
+    touch-action: manipulation;
+  }
+  canvas { display: block; position: fixed; top: 0; left: 0; }
+  #hud {
+    display: none;
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none; z-index: 10;
+  }
+  #hud.visible { display: block; }
+  .hud-panel {
+    position: absolute;
+    border: 1px solid rgba(0,255,180,0.5);
+    background: rgba(0,10,20,0.75);
+    color: #0fffc0;
+    padding: 10px 14px;
+    font-size: 11px;
+    line-height: 1.7;
+    text-shadow: 0 0 8px #0fffc0;
+    backdrop-filter: blur(4px);
+  }
+  #hud-tl { top: 12px; left: 12px; min-width: 200px; }
+  #hud-tr { top: 12px; right: 12px; min-width: 200px; text-align: right; }
+  #hud-bl { bottom: 12px; left: 12px; min-width: 220px; }
+  #hud-br { bottom: 12px; right: 12px; min-width: 220px; text-align: right; }
+  .hud-title { color: #fff; font-size: 10px; letter-spacing: 3px; margin-bottom: 4px; border-bottom: 1px solid rgba(0,255,180,0.3); padding-bottom: 3px; }
+  .hud-bar { display: inline-block; height: 6px; background: linear-gradient(90deg,#0f0,#0ff,#f0f); border-radius: 3px; vertical-align: middle; margin-left: 6px; }
+  #hint {
+    position: fixed; bottom: 50%; left: 50%; transform: translateX(-50%) translateY(50%);
+    color: rgba(255,255,255,0.18); font-size: 11px; letter-spacing: 2px;
+    pointer-events: none; z-index: 5; text-align: center; white-space: nowrap;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div class="hud-panel" id="hud-tl">
+    <div class="hud-title">◈ SHIP SYSTEMS</div>
+    <div id="h-class">CLASS: —</div>
+    <div id="h-hull">HULL: —</div>
+    <div id="h-shields">SHIELDS: —</div>
+    <div id="h-plasma">PLASMA CORES: —</div>
+    <div id="h-dim">DIMENSION: —</div>
+  </div>
+  <div class="hud-panel" id="hud-tr">
+    <div class="hud-title">NAVIGATION ◈</div>
+    <div id="h-cycle">COLOR CYCLE: —</div>
+    <div id="h-rot">ROTATION: —</div>
+    <div id="h-drift">DRIFT VECTOR: —</div>
+    <div id="h-fps">FPS: —</div>
+    <div id="h-frame">FRAME: —</div>
+  </div>
+  <div class="hud-panel" id="hud-bl">
+    <div class="hud-title">◈ SUBSYSTEMS</div>
+    <div id="h-rings">RING LAYERS: —</div>
+    <div id="h-pods">ENGINE PODS: —</div>
+    <div id="h-beams">TRACTOR BEAMS: —</div>
+    <div id="h-particles">PARTICLES: —</div>
+    <div id="h-sound">SOUND: OFF</div>
+  </div>
+  <div class="hud-panel" id="hud-br">
+    <div class="hud-title">CONTROLS ◈</div>
+    <div>SPACE / CLICK / TAP — RANDOMIZE</div>
+    <div>H — TOGGLE HUD</div>
+    <div>S — TOGGLE SOUND</div>
+    <div style="margin-top:6px;color:#ff0;font-size:10px;">XENOTECH v9.7.3</div>
+  </div>
+</div>
+<div id="hint">CLICK · SPACE · TAP &nbsp;|&nbsp; H = HUD &nbsp;|&nbsp; S = SOUND</div>
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+// UFO MOTHERSHIP ENGINE
+// ─────────────────────────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d', { alpha: false });
+let W, H, CX, CY;
+
+// State
+let S = {}; // ship params – randomized
+let T = 0;  // global time
+let frameCount = 0;
+let hudVisible = false;
+let soundOn = false;
+let hintTimer = 180;
+let fpsTime = performance.now(), fpsCount = 0, fps = 60;
+let audioCtx = null;
+
+// Particles
+let particles = [];
+let exhaust = [];
+let sparks = [];
+let beamParticles = [];
+
+// ─── RANDOM HELPERS ───────────────────────────────────────────────────────────
+const rand = (a, b) => a + Math.random() * (b - a);
+const randInt = (a, b) => Math.floor(rand(a, b + 1));
+const randOf = arr => arr[Math.floor(Math.random() * arr.length)];
+const PI2 = Math.PI * 2;
+const lerp = (a, b, t) => a + (b - a) * t;
+const clamp = (v, a, b) => Math.min(Math.max(v, a), b);
+
+// ─── RESIZE ───────────────────────────────────────────────────────────────────
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  CX = W / 2; CY = H / 2;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ─── COLOR UTILITIES ─────────────────────────────────────────────────────────
+function hsl(h, s, l, a = 1) {
+  return `hsla(${h % 360},${s}%,${l}%,${a})`;
+}
+function cycleHue(base, offset, speed) {
+  return (base + offset * speed * T * 0.3) % 360;
+}
+
+// Color cycle modes
+const COLOR_MODES = [
+  'rainbow-fast', 'rainbow-slow', 'duochrome', 'tricolor',
+  'plasma-fire', 'ice-cold', 'toxic-green', 'void-purple',
+  'solar-gold', 'neon-noir', 'cosmic-dawn', 'deep-ocean',
+  'lava-shift', 'xenon-white', 'bio-luminance', 'nebula-storm'
+];
+
+function getShipColor(type, phase = 0) {
+  const m = S.colorMode;
+  const t = T * S.colorSpeed + phase;
+  switch(m) {
+    case 'rainbow-fast':   return hsl((t * 90 + phase * 40) % 360, 100, 60);
+    case 'rainbow-slow':   return hsl((t * 20 + phase * 30) % 360, 100, 55);
+    case 'duochrome':      return hsl((t * 30 % 180) + S.baseHue, 100, 60);
+    case 'tricolor':       return hsl(S.baseHue + (Math.floor(t * 1.5 + phase) % 3) * 120, 100, 60);
+    case 'plasma-fire':    return hsl(rand(0,60) * 0 + (t * 40 % 60), 100, 55 + Math.sin(t)*15);
+    case 'ice-cold':       return hsl(180 + Math.sin(t * 0.5 + phase) * 40, 90, 70);
+    case 'toxic-green':    return hsl(80 + Math.sin(t + phase) * 30, 100, 55);
+    case 'void-purple':    return hsl(270 + Math.sin(t * 0.7 + phase) * 50, 100, 55);
+    case 'solar-gold':     return hsl(40 + Math.sin(t + phase) * 20, 100, 60);
+    case 'neon-noir':      return hsl(S.baseHue + Math.sin(t + phase) * 15, 100, 60);
+    case 'cosmic-dawn':    return hsl((t * 15 + phase * 60) % 360, 80, 65);
+    case 'deep-ocean':     return hsl(200 + Math.sin(t * 0.6 + phase) * 30, 90, 50);
+    case 'lava-shift':     return hsl((t * 25 % 60), 100, 50 + Math.sin(t * 2) * 10);
+    case 'xenon-white':    return hsl(180 + Math.sin(t * 3 + phase) * 180, 60, 80 + Math.sin(t * 5 + phase) * 15);
+    case 'bio-luminance':  return hsl(150 + Math.sin(t * 1.2 + phase) * 60, 100, 55 + Math.sin(t * 3 + phase) * 10);
+    case 'nebula-storm':   return hsl((t * 50 + phase * 70 + Math.sin(t + phase) * 30) % 360, 100, 55);
+    default:               return hsl((t * 30 + phase * 40) % 360, 100, 60);
+  }
+}
+
+// ─── RANDOMIZE ALL SHIP PARAMETERS ───────────────────────────────────────────
+function randomize() {
+  const minDim = Math.min(W, H);
+  S = {
+    // identity
+    shipClass: randOf(['DREADNOUGHT','CARRIER','ORACLE','VOID-WALKER','HIVE-MIND','ARCHITECT','SERAPH','CHIMERA']),
+    colorMode: randOf(COLOR_MODES),
+    baseHue: rand(0, 360),
+    colorSpeed: rand(0.3, 2.5),
+    // geometry
+    radius: minDim * rand(0.22, 0.36),
+    domeRatio: rand(0.3, 0.55),
+    flatRatio: rand(0.08, 0.18),
+    skirtFlare: rand(1.05, 1.25),
+    // motion
+    bobAmp: rand(4, 22),
+    bobSpeed: rand(0.3, 1.2),
+    rotSpeed: rand(0.0008, 0.004) * randOf([-1, 1]),
+    driftX: rand(-0.3, 0.3),
+    driftY: rand(-0.1, 0.1),
+    wobble: rand(0.01, 0.06),
+    // rings
+    numRings: randInt(4, 9),
+    ringSpacing: rand(0.08, 0.14),
+    ringWidth: rand(3, 9),
+    ringGlow: rand(8, 25),
+    ringRotSpeed: rand(0.001, 0.006) * randOf([-1, 1]),
+    // engine pods
+    numPods: randInt(6, 16),
+    podSize: rand(0.055, 0.11),
+    podGlow: rand(15, 40),
+    podPulseSpeed: rand(1.5, 4),
+    // dome detail
+    domePanels: randInt(6, 14),
+    domeSegments: randInt(4, 8),
+    // tractor beams
+    numBeams: randInt(2, 6),
+    beamWidth: rand(12, 40),
+    beamLength: rand(0.4, 0.9),
+    // hull detail
+    hullSegments: randInt(8, 18),
+    hullLines: randInt(12, 30),
+    hullCircuits: randInt(5, 15),
+    // particles
+    numParticles: Math.floor(minDim * rand(0.3, 0.7)),
+    // energy shield
+    shieldLayers: randInt(2, 5),
+    shieldGlow: rand(20, 60),
+    shieldOff: Math.random() > 0.3,
+    // plasma cores
+    numCores: randInt(3, 8),
+    coreSize: rand(0.035, 0.07),
+    // anti-grav field
+    fieldRadius: rand(1.1, 1.5),
+    fieldLines: randInt(60, 180),
+    // misc
+    glitchProb: rand(0, 0.008),
+    antennae: randInt(4, 12),
+    runningLights: randInt(20, 60),
+    hexDetail: Math.random() > 0.4,
+    circuitLines: Math.random() > 0.3,
+    holoProjActive: Math.random() > 0.5,
+    // position offset (drifts slowly)
+    posX: 0, posY: 0, posAngle: 0
+  };
+
+  // Reset particles
+  particles = [];
+  for (let i = 0; i < S.numParticles; i++) {
+    spawnSpaceParticle(true);
+  }
+  exhaust = [];
+  sparks = [];
+  beamParticles = [];
+
+  T = 0;
+}
+
+// ─── SPACE PARTICLES ─────────────────────────────────────────────────────────
+function spawnSpaceParticle(init = false) {
+  const angle = Math.random() * PI2;
+  const dist = init ? Math.random() * Math.max(W, H) * 0.8 : Math.max(W, H) * 0.6;
+  particles.push({
+    x: CX + Math.cos(angle) * dist,
+    y: CY + Math.sin(angle) * dist,
+    r: rand(0.3, 2.2),
+    h: rand(0, 360),
+    bright: rand(50, 100),
+    twinkle: rand(0.5, 4),
+    phase: Math.random() * PI2,
+    speed: rand(0.05, 0.4)
+  });
+}
+
+// ─── EXHAUST PARTICLE ────────────────────────────────────────────────────────
+function spawnExhaust(x, y, hue) {
+  exhaust.push({
+    x, y, vx: rand(-1.5, 1.5), vy: rand(0.5, 3.5),
+    life: 1, hue, r: rand(2, 8), decay: rand(0.015, 0.04)
+  });
+}
+
+// ─── BEAM PARTICLE ───────────────────────────────────────────────────────────
+function spawnBeamParticle(bx, by, hue) {
+  beamParticles.push({
+    x: bx + rand(-8, 8), y: by,
+    vx: rand(-2, 2), vy: rand(2, 6),
+    life: 1, hue, r: rand(1, 5), decay: rand(0.02, 0.06)
+  });
+}
+
+// ─── DRAW STARFIELD ──────────────────────────────────────────────────────────
+function drawStarfield() {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    const blink = 0.5 + 0.5 * Math.sin(T * p.twinkle + p.phase);
+    const alpha = 0.3 + 0.7 * blink;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r * (0.7 + 0.3 * blink), 0, PI2);
+    ctx.fillStyle = hsl(p.h, 60, p.bright, alpha);
+    ctx.fill();
+    // drift toward center (parallax)
+    p.x += (CX - p.x) * p.speed * 0.0005;
+    p.y += (CY - p.y) * p.speed * 0.0005;
+    // recycle if too close to center
+    const dx = p.x - CX, dy = p.y - CY;
+    if (Math.sqrt(dx * dx + dy * dy) < 5) {
+      particles.splice(i, 1);
+      spawnSpaceParticle(false);
+    }
+  }
+}
+
+// ─── DRAW NEBULA BACKGROUND ──────────────────────────────────────────────────
+function drawNebula() {
+  // Deep space gradient
+  const bg = ctx.createRadialGradient(CX, CY, 0, CX, CY, Math.max(W, H));
+  const h1 = (S.baseHue) % 360;
+  const h2 = (S.baseHue + 120) % 360;
+  const h3 = (S.baseHue + 240) % 360;
+  bg.addColorStop(0,   hsl(h1, 30, 5));
+  bg.addColorStop(0.3, hsl(h2, 20, 3));
+  bg.addColorStop(0.7, hsl(h3, 25, 4));
+  bg.addColorStop(1,   hsl(h1, 15, 2));
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // Nebula clouds
+  for (let n = 0; n < 4; n++) {
+    const nx = CX + Math.cos(T * 0.03 + n * 1.57) * W * 0.35;
+    const ny = CY + Math.sin(T * 0.025 + n * 1.57) * H * 0.3;
+    const nr = Math.min(W, H) * (0.3 + 0.1 * n);
+    const ng = ctx.createRadialGradient(nx, ny, 0, nx, ny, nr);
+    const nh = (h1 + n * 80 + T * 3) % 360;
+    ng.addColorStop(0, hsl(nh, 80, 15, 0.06 + 0.02 * Math.sin(T * 0.1 + n)));
+    ng.addColorStop(0.5, hsl(nh, 60, 8, 0.03));
+    ng.addColorStop(1, hsl(nh, 40, 3, 0));
+    ctx.fillStyle = ng;
+    ctx.fillRect(0, 0, W, H);
+  }
+}
+
+// ─── DRAW ANTI-GRAVITY FIELD ──────────────────────────────────────────────────
+function drawAntiGravField(cx, cy, r) {
+  const fieldR = r * S.fieldRadius;
+  ctx.save();
+  ctx.translate(cx, cy);
+  const numLines = Math.floor(S.fieldLines * Math.min(1, Math.min(W,H) / 600));
+  for (let i = 0; i < numLines; i++) {
+    const progress = i / numLines;
+    const angle = progress * PI2 + T * 0.08 * (i % 2 === 0 ? 1 : -1);
+    const innerR = r * 0.9;
+    const outerR = fieldR * (0.85 + 0.15 * Math.sin(T * 1.5 + progress * PI2));
+    const waveAmp = r * 0.04 * Math.sin(T * 2.5 + i * 0.4);
+    const x1 = Math.cos(angle) * (innerR + waveAmp);
+    const y1 = Math.sin(angle) * (innerR + waveAmp) * 0.22;
+    const x2 = Math.cos(angle) * (outerR + waveAmp * 1.5);
+    const y2 = Math.sin(angle) * (outerR + waveAmp * 1.5) * 0.22;
+    const hue = (S.baseHue + progress * 120 + T * 20) % 360;
+    const alpha = 0.08 + 0.06 * Math.sin(T * 3 + i);
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.strokeStyle = hsl(hue, 100, 65, alpha);
+    ctx.lineWidth = 0.5;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// ─── DRAW TRACTOR BEAMS ───────────────────────────────────────────────────────
+function drawTractorBeams(cx, cy, r) {
+  for (let b = 0; b < S.numBeams; b++) {
+    const angle = (b / S.numBeams) * PI2 + T * 0.15 + S.posAngle;
+    const bx = cx + Math.cos(angle) * r * 0.55;
+    const by = cy + Math.sin(angle) * r * 0.12 + r * 0.05;
+    const beamH = H * S.beamLength * (0.7 + 0.3 * Math.sin(T * 0.8 + b));
+    const hue = getShipColor('beam', b * 0.5).match(/hsla?\(([^,]+)/)[1];
+
+    // beam glow
+    const numSteps = 12;
+    for (let s = 0; s < numSteps; s++) {
+      const ty = by + (beamH * s / numSteps);
+      const spread = S.beamWidth * (1 + s / numSteps * 2);
+      const alpha = (1 - s / numSteps) * 0.12;
+      ctx.beginPath();
+      ctx.moveTo(bx - spread * 0.5, ty);
+      ctx.lineTo(bx + spread * 0.5, ty);
+      ctx.lineTo(bx + spread * 0.5 + 3, ty + beamH / numSteps);
+      ctx.lineTo(bx - spread * 0.5 - 3, ty + beamH / numSteps);
+      ctx.closePath();
+      ctx.fillStyle = hsl(parseFloat(hue), 100, 75, alpha);
+      ctx.fill();
+    }
+
+    // center beam line
+    const bg = ctx.createLinearGradient(bx, by, bx, by + beamH);
+    bg.addColorStop(0, hsl(parseFloat(hue), 100, 80, 0.7));
+    bg.addColorStop(0.5, hsl(parseFloat(hue), 100, 70, 0.3));
+    bg.addColorStop(1, hsl(parseFloat(hue), 100, 60, 0));
+    ctx.beginPath();
+    ctx.moveTo(bx - 1, by);
+    ctx.lineTo(bx + 1, by);
+    ctx.lineTo(bx + S.beamWidth * 0.6, by + beamH);
+    ctx.lineTo(bx - S.beamWidth * 0.6, by + beamH);
+    ctx.closePath();
+    ctx.fillStyle = bg;
+    ctx.fill();
+
+    // spawn beam particles occasionally
+    if (Math.random() < 0.15) spawnBeamParticle(bx, by + beamH * 0.9, parseFloat(hue));
+  }
+}
+
+// ─── DRAW BEAM PARTICLES ─────────────────────────────────────────────────────
+function drawBeamParticles() {
+  for (let i = beamParticles.length - 1; i >= 0; i--) {
+    const p = beamParticles[i];
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r * p.life, 0, PI2);
+    ctx.fillStyle = hsl(p.hue, 100, 75, p.life * 0.8);
+    ctx.fill();
+    p.x += p.vx; p.y += p.vy;
+    p.life -= p.decay;
+    if (p.life <= 0) beamParticles.splice(i, 1);
+  }
+}
+
+// ─── DRAW ENGINE EXHAUST ─────────────────────────────────────────────────────
+function drawExhaust() {
+  for (let i = exhaust.length - 1; i >= 0; i--) {
+    const p = exhaust[i];
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r * p.life, 0, PI2);
+    ctx.fillStyle = hsl(p.hue, 100, 65, p.life * 0.6);
+    ctx.fill();
+    // glow
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r * p.life * 2.5, 0, PI2);
+    ctx.fillStyle = hsl(p.hue, 100, 65, p.life * 0.1);
+    ctx.fill();
+    p.x += p.vx; p.y += p.vy;
+    p.life -= p.decay;
+    if (p.life <= 0) exhaust.splice(i, 1);
+  }
+}
+
+// ─── DRAW HULL HEXAGONS ───────────────────────────────────────────────────────
+function drawHullHex(cx, cy, r, flatness) {
+  if (!S.hexDetail) return;
+  const gridR = r * 0.9;
+  const hexSize = r * 0.042;
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(1, flatness);
+  const cols = Math.ceil(gridR / hexSize / 1.5);
+  for (let row = -cols; row <= cols; row++) {
+    for (let col = -cols; col <= cols; col++) {
+      const hx = col * hexSize * 1.73 + (row % 2) * hexSize * 0.865;
+      const hy = row * hexSize * 1.5;
+      const dist = Math.sqrt(hx * hx + hy * hy);
+      if (dist > gridR * 0.85) continue;
+      const alpha = (1 - dist / gridR) * 0.18 * (0.5 + 0.5 * Math.sin(T * 2 + dist * 0.15));
+      const hue = (S.baseHue + dist * 0.5 + T * 15) % 360;
+      ctx.beginPath();
+      for (let v = 0; v < 6; v++) {
+        const va = (v / 6) * PI2 - Math.PI / 6;
+        const vx = hx + Math.cos(va) * hexSize * 0.88;
+        const vy = hy + Math.sin(va) * hexSize * 0.88;
+        v === 0 ? ctx.moveTo(vx, vy) : ctx.lineTo(vx, vy);
+      }
+      ctx.closePath();
+      ctx.strokeStyle = hsl(hue, 80, 65, alpha);
+      ctx.lineWidth = 0.5;
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+// ─── DRAW CIRCUIT LINES ──────────────────────────────────────────────────────
+function drawCircuitLines(cx, cy, r, flatness) {
+  if (!S.circuitLines) return;
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(1, flatness);
+  const num = S.hullLines;
+  for (let i = 0; i < num; i++) {
+    const angle = (i / num) * PI2 + S.posAngle;
+    const r1 = r * rand(0.25, 0.85);
+    const r2 = r * rand(0.25, 0.85);
+    const a2 = angle + rand(-0.4, 0.4);
+    const hue = (S.baseHue + i * 7 + T * 10) % 360;
+    const pulse = 0.3 + 0.7 * Math.abs(Math.sin(T * 2 + i * 0.7));
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(angle) * r1, Math.sin(angle) * r1 * 0.35);
+    // L-shaped circuit
+    const mx = Math.cos(angle) * r2;
+    const my = Math.sin(angle) * r2 * 0.35;
+    ctx.lineTo(mx, my * 0.5);
+    ctx.lineTo(Math.cos(a2) * r2, Math.sin(a2) * r2 * 0.35);
+    ctx.strokeStyle = hsl(hue, 100, 60, pulse * 0.2);
+    ctx.lineWidth = 0.5;
+    ctx.stroke();
+    // dot at junction
+    ctx.beginPath();
+    ctx.arc(mx, my * 0.5, 1.2, 0, PI2);
+    ctx.fillStyle = hsl(hue, 100, 80, pulse * 0.5);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+// ─── DRAW HULL MAIN BODY ─────────────────────────────────────────────────────
+function drawHullBody(cx, cy, r, flatness) {
+  ctx.save();
+  ctx.translate(cx, cy);
+
+  // ── Bottom skirt / undercarriage ──
+  ctx.scale(1, flatness * 0.3);
+  const skirtR = r * S.skirtFlare;
+  const skirtGrad = ctx.createRadialGradient(0, 0, r * 0.5, 0, 0, skirtR);
+  const hBot = cycleHue(S.baseHue, 0.5, S.colorSpeed);
+  skirtGrad.addColorStop(0, hsl(hBot, 80, 25, 0.9));
+  skirtGrad.addColorStop(0.6, hsl(hBot + 20, 70, 15, 0.7));
+  skirtGrad.addColorStop(1, hsl(hBot + 40, 60, 5, 0));
+  ctx.beginPath();
+  ctx.ellipse(0, r * 0.8, skirtR, skirtR * 0.4, 0, 0, PI2);
+  ctx.fillStyle = skirtGrad;
+  ctx.fill();
+
+  ctx.scale(1, 1 / (flatness * 0.3));
+  ctx.scale(1, flatness);
+
+  // ── Main disc body ──
+  const bodyGrad = ctx.createRadialGradient(0, -r * 0.1, r * 0.1, 0, 0, r);
+  const h1 = cycleHue(S.baseHue, 0, S.colorSpeed);
+  const h2 = cycleHue(S.baseHue, 1, S.colorSpeed);
+  bodyGrad.addColorStop(0,   hsl(h1, 70, 35, 1));
+  bodyGrad.addColorStop(0.4, hsl(h1 + 30, 60, 20, 1));
+  bodyGrad.addColorStop(0.7, hsl(h2, 50, 12, 1));
+  bodyGrad.addColorStop(1,   hsl(h2 + 20, 40, 6, 1));
+
+  ctx.beginPath();
+  ctx.ellipse(0, 0, r, r * 0.18, 0, 0, PI2);
+  ctx.fillStyle = bodyGrad;
+  ctx.fill();
+
+  // hull sheen
+  const sheen = ctx.createLinearGradient(0, -r * 0.18, 0, r * 0.18);
+  sheen.addColorStop(0, `rgba(255,255,255,0.12)`);
+  sheen.addColorStop(0.4, `rgba(255,255,255,0.04)`);
+  sheen.addColorStop(1, `rgba(0,0,0,0.3)`);
+  ctx.beginPath();
+  ctx.ellipse(0, 0, r, r * 0.18, 0, 0, PI2);
+  ctx.fillStyle = sheen;
+  ctx.fill();
+
+  // hull edge rim
+  ctx.beginPath();
+  ctx.ellipse(0, 0, r, r * 0.18, 0, 0, PI2);
+  ctx.strokeStyle = hsl(h1, 100, 70, 0.6);
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // hull edge glow
+  ctx.shadowBlur = 20;
+  ctx.shadowColor = hsl(h1, 100, 70, 0.8);
+  ctx.beginPath();
+  ctx.ellipse(0, 0, r, r * 0.18, 0, 0, PI2);
+  ctx.strokeStyle = hsl(h1, 100, 70, 0.3);
+  ctx.lineWidth = 4;
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  ctx.restore();
+}
+
+// ─── DRAW RINGS ───────────────────────────────────────────────────────────────
+function drawRings(cx, cy, r, flatness) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(1, flatness * 0.22);
+
+  for (let ri = 0; ri < S.numRings; ri++) {
+    const frac = (ri + 1) / (S.numRings + 1);
+    const ringR = r * (0.25 + frac * 0.75);
+    const ringAngle = T * S.ringRotSpeed * (1 + ri * 0.3) * (ri % 2 === 0 ? 1 : -1);
+    const hue = (S.baseHue + ri * 25 + T * 20 * S.colorSpeed) % 360;
+    const pulse = 0.5 + 0.5 * Math.sin(T * 3 + ri * 1.2);
+    const lineW = S.ringWidth * (0.5 + 0.5 * frac);
+    const glow = S.ringGlow * pulse;
+
+    // ring glow
+    ctx.shadowBlur = glow;
+    ctx.shadowColor = hsl(hue, 100, 65, 0.8);
+    ctx.beginPath();
+    ctx.ellipse(0, 0, ringR, ringR * 0.08, ringAngle, 0, PI2);
+    ctx.strokeStyle = hsl(hue, 100, 65, 0.7 + 0.3 * pulse);
+    ctx.lineWidth = lineW;
+    ctx.stroke();
+
+    // dashed energy segments on each ring
+    const segs = 8 + ri * 4;
+    for (let s = 0; s < segs; s++) {
+      const sa = (s / segs) * PI2 + ringAngle;
+      const ea = sa + (1 / segs) * PI2 * 0.4;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, ringR, ringR * 0.08, 0, sa, ea);
+      ctx.strokeStyle = hsl((hue + 60) % 360, 100, 85, 0.9 * pulse);
+      ctx.lineWidth = lineW * 0.5;
+      ctx.stroke();
+    }
+    ctx.shadowBlur = 0;
+  }
+  ctx.restore();
+}
+
+// ─── DRAW ENGINE PODS ────────────────────────────────────────────────────────
+function drawEnginePods(cx, cy, r, flatness) {
+  const podR = r * S.podSize;
+  ctx.save();
+  ctx.translate(cx, cy);
+
+  for (let p = 0; p < S.numPods; p++) {
+    const angle = (p / S.numPods) * PI2 + T * S.ringRotSpeed * 2 + S.posAngle;
+    const px = Math.cos(angle) * r * 0.88;
+    const py = Math.sin(angle) * r * 0.88 * flatness * 0.22;
+    const hue = (S.baseHue + p * 25 + T * 30 * S.colorSpeed) % 360;
+    const pulse = 0.4 + 0.6 * Math.abs(Math.sin(T * S.podPulseSpeed + p * 0.9));
+
+    ctx.save();
+    ctx.translate(px, py);
+
+    // pod body
+    const podGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, podR);
+    podGrad.addColorStop(0, hsl(hue, 100, 85, 0.95));
+    podGrad.addColorStop(0.5, hsl(hue, 100, 55, 0.8));
+    podGrad.addColorStop(1, hsl(hue + 30, 80, 20, 0));
+    ctx.shadowBlur = S.podGlow * pulse;
+    ctx.shadowColor = hsl(hue, 100, 65);
+    ctx.beginPath();
+    ctx.arc(0, 0, podR, 0, PI2);
+    ctx.fillStyle = podGrad;
+    ctx.fill();
+
+    // inner core
+    ctx.beginPath();
+    ctx.arc(0, 0, podR * 0.45, 0, PI2);
+    ctx.fillStyle = hsl(hue, 100, 95, pulse);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // outer ring on pod
+    ctx.beginPath();
+    ctx.arc(0, 0, podR * 0.85, 0, PI2);
+    ctx.strokeStyle = hsl((hue + 60) % 360, 100, 70, 0.6);
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.restore();
+
+    // exhaust trail downward from pod
+    if (Math.random() < 0.2) {
+      spawnExhaust(cx + px, cy + py + podR * 1.5, hue);
+    }
+  }
+  ctx.restore();
+}
+
+// ─── DRAW DOME ───────────────────────────────────────────────────────────────
+function drawDome(cx, cy, r, flatness) {
+  const domeH = r * S.domeRatio;
+  const domeR = r * 0.45;
+
+  ctx.save();
+  ctx.translate(cx, cy);
+
+  // dome base glow
+  const baseGrad = ctx.createRadialGradient(0, 0, domeR * 0.5, 0, 0, domeR * 1.2);
+  const dh = cycleHue(S.baseHue, 2, S.colorSpeed);
+  baseGrad.addColorStop(0, hsl(dh, 80, 40, 0.3));
+  baseGrad.addColorStop(1, hsl(dh, 60, 20, 0));
+  ctx.beginPath();
+  ctx.ellipse(0, 0, domeR * 1.2, domeR * 0.15 * flatness, 0, 0, PI2);
+  ctx.fillStyle = baseGrad;
+  ctx.fill();
+
+  // outer dome shell
+  const domeGrad = ctx.createLinearGradient(-domeR, 0, domeR, -domeH);
+  const dh2 = cycleHue(S.baseHue, 1.5, S.colorSpeed);
+  domeGrad.addColorStop(0,   hsl(dh2, 70, 20, 0.95));
+  domeGrad.addColorStop(0.3, hsl(dh2 + 30, 80, 35, 0.9));
+  domeGrad.addColorStop(0.7, hsl(dh2 + 60, 90, 55, 0.8));
+  domeGrad.addColorStop(1,   hsl(dh2 + 90, 100, 75, 0.6));
+
+  ctx.beginPath();
+  ctx.moveTo(-domeR, 0);
+  // bezier dome shape
+  ctx.bezierCurveTo(-domeR, -domeH * 0.5, -domeR * 0.3, -domeH, 0, -domeH);
+  ctx.bezierCurveTo(domeR * 0.3, -domeH, domeR, -domeH * 0.5, domeR, 0);
+  ctx.closePath();
+  ctx.fillStyle = domeGrad;
+  ctx.fill();
+
+  // dome glow rim
+  ctx.shadowBlur = 25;
+  ctx.shadowColor = hsl(dh, 100, 70, 0.8);
+  ctx.beginPath();
+  ctx.moveTo(-domeR, 0);
+  ctx.bezierCurveTo(-domeR, -domeH * 0.5, -domeR * 0.3, -domeH, 0, -domeH);
+  ctx.bezierCurveTo(domeR * 0.3, -domeH, domeR, -domeH * 0.5, domeR, 0);
+  ctx.strokeStyle = hsl(dh, 100, 80, 0.6);
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  // dome inner panels
+  const panels = S.domePanels;
+  for (let p = 0; p < panels; p++) {
+    const a1 = -Math.PI + (p / panels) * Math.PI;
+    const a2 = -Math.PI + ((p + 1) / panels) * Math.PI;
+    const pr = domeR * 0.85;
+    const hue = (S.baseHue + p * 20 + T * 25 * S.colorSpeed) % 360;
+    const pulse = 0.3 + 0.7 * Math.abs(Math.sin(T * 2.5 + p * 0.8));
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.arc(0, 0, pr, a1, a2);
+    ctx.closePath();
+    ctx.strokeStyle = hsl(hue, 100, 60, pulse * 0.35);
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+    ctx.fillStyle = hsl(hue, 60, 30, pulse * 0.08);
+    ctx.fill();
+  }
+
+  // dome lattice arcs
+  const segs = S.domeSegments;
+  for (let s = 1; s < segs; s++) {
+    const frac = s / segs;
+    const lR = domeR * frac;
+    const lH = -domeH * Math.sqrt(1 - frac * frac);
+    const lHue = (S.baseHue + s * 30 + T * 15) % 360;
+    ctx.beginPath();
+    ctx.moveTo(-Math.sqrt(domeR * domeR - lH * lH * (domeR * domeR) / (domeH * domeH)) * 0.98, lH);
+    const xW = Math.sqrt(Math.max(0, domeR * domeR * (1 - (lH * lH) / (domeH * domeH))));
+    ctx.lineTo(xW * 0.98, lH);
+    ctx.strokeStyle = hsl(lHue, 80, 65, 0.25);
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+  }
+
+  // apex glow
+  ctx.shadowBlur = 30;
+  ctx.shadowColor = hsl(dh, 100, 80);
+  ctx.beginPath();
+  ctx.arc(0, -domeH, r * 0.04, 0, PI2);
+  ctx.fillStyle = hsl(dh, 100, 90, 0.9);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // inner holographic sphere
+  const innerGrad = ctx.createRadialGradient(0, -domeH * 0.5, 0, 0, -domeH * 0.5, domeR * 0.35);
+  innerGrad.addColorStop(0, hsl(dh + 60, 100, 80, 0.4));
+  innerGrad.addColorStop(1, hsl(dh + 60, 80, 40, 0));
+  ctx.beginPath();
+  ctx.arc(0, -domeH * 0.45, domeR * 0.35, 0, PI2);
+  ctx.fillStyle = innerGrad;
+  ctx.fill();
+
+  ctx.restore();
+}
+
+// ─── DRAW ANTENNAE ───────────────────────────────────────────────────────────
+function drawAntennae(cx, cy, r, flatness) {
+  const domeH = r * S.domeRatio;
+  ctx.save();
+  ctx.translate(cx, cy);
+
+  for (let a = 0; a < S.antennae; a++) {
+    const angle = (a / S.antennae) * PI2 * 0.6 - Math.PI * 0.3 + Math.sin(T * 0.5 + a) * 0.05;
+    const len = r * rand(0.15, 0.35);
+    const startX = Math.cos(angle) * r * 0.35;
+    const startY = -domeH * 0.6 + Math.sin(angle * 2) * r * 0.05;
+    const endX = startX + Math.cos(angle - Math.PI * 0.5) * len;
+    const endY = startY - Math.abs(Math.cos(angle)) * len;
+    const hue = (S.baseHue + a * 30 + T * 20) % 360;
+    const pulse = 0.5 + 0.5 * Math.sin(T * 4 + a);
+
+    ctx.beginPath();
+    ctx.moveTo(startX, startY);
+    ctx.lineTo(endX, endY);
+    ctx.strokeStyle = hsl(hue, 80, 55, 0.7);
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // tip glow
+    ctx.shadowBlur = 12 * pulse;
+    ctx.shadowColor = hsl(hue, 100, 80);
+    ctx.beginPath();
+    ctx.arc(endX, endY, 2 + 2 * pulse, 0, PI2);
+    ctx.fillStyle = hsl(hue, 100, 85, pulse);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+  ctx.restore();
+}
+
+// ─── DRAW RUNNING LIGHTS ─────────────────────────────────────────────────────
+function drawRunningLights(cx, cy, r, flatness) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(1, flatness * 0.22);
+
+  for (let l = 0; l < S.runningLights; l++) {
+    const angle = (l / S.runningLights) * PI2 + T * 0.3;
+    const lx = Math.cos(angle) * r * 0.97;
+    const ly = Math.sin(angle) * r * 0.97;
+    const hue = (S.baseHue + l * 8 + T * 40 * S.colorSpeed) % 360;
+    const pulse = 0.5 + 0.5 * Math.sin(T * 5 + l * 0.5);
+
+    ctx.shadowBlur = 10 * pulse;
+    ctx.shadowColor = hsl(hue, 100, 70);
+    ctx.beginPath();
+    ctx.arc(lx, ly, 2 + pulse, 0, PI2);
+    ctx.fillStyle = hsl(hue, 100, 80, 0.8 + 0.2 * pulse);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+  ctx.restore();
+}
+
+// ─── DRAW PLASMA CORES ───────────────────────────────────────────────────────
+function drawPlasmaCores(cx, cy, r, flatness) {
+  const coreR = r * S.coreSize;
+  ctx.save();
+  ctx.translate(cx, cy);
+
+  for (let c = 0; c < S.numCores; c++) {
+    const angle = (c / S.numCores) * PI2 + T * S.ringRotSpeed * 3 + S.posAngle;
+    const px = Math.cos(angle) * r * 0.48;
+    const py = Math.sin(angle) * r * 0.48 * flatness * 0.22;
+    const hue = (S.baseHue + c * 40 + T * 50 * S.colorSpeed) % 360;
+    const pulse = 0.3 + 0.7 * Math.abs(Math.sin(T * 3 + c * 1.3));
+
+    ctx.save();
+    ctx.translate(px, py);
+
+    // multi-layer plasma
+    for (let layer = 3; layer >= 0; layer--) {
+      const lR = coreR * (1 + layer * 0.6);
+      const la = (3 - layer) / 3;
+      const lg = ctx.createRadialGradient(0, 0, 0, 0, 0, lR);
+      lg.addColorStop(0, hsl(hue, 100, 95, la * pulse * 0.9));
+      lg.addColorStop(0.5, hsl(hue + 30, 100, 70, la * pulse * 0.5));
+      lg.addColorStop(1, hsl(hue + 60, 100, 40, 0));
+      ctx.shadowBlur = layer === 0 ? 20 * pulse : 0;
+      ctx.shadowColor = hsl(hue, 100, 70);
+      ctx.beginPath();
+      ctx.arc(0, 0, lR, 0, PI2);
+      ctx.fillStyle = lg;
+      ctx.fill();
+    }
+
+    // rotating plasma tendrils
+    for (let t = 0; t < 6; t++) {
+      const ta = T * 4 + c + t * (PI2 / 6);
+      const tx = Math.cos(ta) * coreR * 1.8;
+      const ty = Math.sin(ta) * coreR * 1.8;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(tx, ty);
+      ctx.strokeStyle = hsl(hue, 100, 75, 0.3 * pulse);
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+
+    ctx.shadowBlur = 0;
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+// ─── DRAW ENERGY SHIELD ───────────────────────────────────────────────────────
+function drawEnergyShield(cx, cy, r, flatness) {
+  if (!S.shieldOff) return;
+  const shieldR = r * 1.12;
+  ctx.save();
+  ctx.translate(cx, cy);
+
+  for (let l = 0; l < S.shieldLayers; l++) {
+    const lFrac = l / S.shieldLayers;
+    const lR = shieldR * (1 + lFrac * 0.08);
+    const hue = (S.baseHue + l * 40 + T * 15) % 360;
+    const pulse = 0.2 + 0.8 * Math.abs(Math.sin(T * 1.5 + l * 1.1));
+    const alpha = (1 - lFrac) * 0.12 * pulse;
+
+    ctx.beginPath();
+    ctx.ellipse(0, 0, lR, lR * flatness * 0.3, 0, 0, PI2);
+    ctx.strokeStyle = hsl(hue, 100, 70, alpha * 3);
+    ctx.lineWidth = 1 + (1 - lFrac) * 3;
+    ctx.shadowBlur = S.shieldGlow * pulse * (1 - lFrac);
+    ctx.shadowColor = hsl(hue, 100, 70, 0.5);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // shield segments (hexagonal facets on the shield)
+    if (l === 0) {
+      const hexFacets = 24;
+      for (let f = 0; f < hexFacets; f++) {
+        const fa = (f / hexFacets) * PI2 + T * 0.2;
+        const fa2 = fa + (PI2 / hexFacets) * 0.85;
+        const fx1 = Math.cos(fa) * lR;
+        const fy1 = Math.sin(fa) * lR * flatness * 0.3;
+        const fx2 = Math.cos(fa2) * lR;
+        const fy2 = Math.sin(fa2) * lR * flatness * 0.3;
+        const fhue = (hue + f * 5 + T * 20) % 360;
+        const fPulse = Math.abs(Math.sin(T * 3 + f * 0.3));
+        ctx.beginPath();
+        ctx.moveTo(fx1, fy1);
+        ctx.lineTo(fx2, fy2);
+        ctx.strokeStyle = hsl(fhue, 100, 75, fPulse * 0.25);
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+    }
+  }
+  ctx.restore();
+}
+
+// ─── DRAW HOLOGRAPHIC PROJECTIONS ────────────────────────────────────────────
+function drawHoloProjections(cx, cy, r) {
+  if (!S.holoProjActive) return;
+  const numProj = 3;
+  ctx.save();
+  ctx.translate(cx, cy);
+
+  for (let p = 0; p < numProj; p++) {
+    const angle = (p / numProj) * PI2 + T * 0.2;
+    const dist = r * 1.3;
+    const projX = Math.cos(angle) * dist;
+    const projY = Math.sin(angle) * dist * 0.3;
+    const hue = (S.baseHue + p * 120 + T * 20) % 360;
+    const scale = 0.7 + 0.3 * Math.sin(T * 1.5 + p);
+    const alpha = 0.5 + 0.5 * Math.sin(T * 2 + p);
+
+    ctx.save();
+    ctx.translate(projX, projY);
+    ctx.scale(scale, scale);
+
+    // connecting beam from ship
+    ctx.beginPath();
+    ctx.moveTo(-projX * 0.9, -projY * 0.9);
+    ctx.lineTo(0, 0);
+    ctx.strokeStyle = hsl(hue, 100, 70, alpha * 0.2);
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // hologram shape (rotating diamond)
+    const sides = 4 + p;
+    ctx.beginPath();
+    for (let v = 0; v < sides; v++) {
+      const va = (v / sides) * PI2 + T * 1.5 * (p % 2 === 0 ? 1 : -1);
+      const vr = r * 0.07;
+      v === 0 ? ctx.moveTo(Math.cos(va) * vr, Math.sin(va) * vr) :
+                ctx.lineTo(Math.cos(va) * vr, Math.sin(va) * vr);
+    }
+    ctx.closePath();
+    ctx.strokeStyle = hsl(hue, 100, 75, alpha * 0.7);
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillStyle = hsl(hue, 80, 50, alpha * 0.1);
+    ctx.fill();
+
+    // inner data lines
+    for (let d = 0; d < 4; d++) {
+      const dy = (d - 1.5) * r * 0.025;
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.06, dy);
+      ctx.lineTo(r * 0.06 * (0.3 + 0.7 * Math.random()), dy);
+      ctx.strokeStyle = hsl(hue, 80, 70, alpha * 0.5);
+      ctx.lineWidth = 0.8;
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+// ─── DRAW HULL PANELS / DETAIL ────────────────────────────────────────────────
+function drawHullPanels(cx, cy, r, flatness) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(1, flatness * 0.22);
+
+  const segs = S.hullSegments;
+  for (let s = 0; s < segs; s++) {
+    const a1 = (s / segs) * PI2 + S.posAngle;
+    const a2 = ((s + 1) / segs) * PI2 + S.posAngle;
+    const r1 = r * 0.3;
+    const r2 = r * 0.97;
+    const hue = (S.baseHue + s * (360 / segs) + T * 12 * S.colorSpeed) % 360;
+    const pulse = 0.1 + 0.9 * Math.abs(Math.sin(T * 1.5 + s * 0.6));
+
+    ctx.beginPath();
+    ctx.arc(0, 0, r2, a1, a2);
+    ctx.arc(0, 0, r1, a2, a1, true);
+    ctx.closePath();
+    ctx.fillStyle = hsl(hue, 60, 18, pulse * 0.12);
+    ctx.fill();
+    ctx.strokeStyle = hsl(hue, 80, 50, pulse * 0.3);
+    ctx.lineWidth = 0.6;
+    ctx.stroke();
+
+    // radial detail lines
+    for (let l = 0; l < 3; l++) {
+      const la = a1 + (l / 3) * (a2 - a1);
+      const lr1 = r * (0.35 + l * 0.12);
+      const lr2 = r * (0.9 - l * 0.05);
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(la) * lr1, Math.sin(la) * lr1);
+      ctx.lineTo(Math.cos(la) * lr2, Math.sin(la) * lr2);
+      ctx.strokeStyle = hsl(hue, 70, 55, pulse * 0.2);
+      ctx.lineWidth = 0.5;
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+// ─── DRAW CIRCUIT BOARD ───────────────────────────────────────────────────────
+function drawHullCircuits(cx, cy, r, flatness) {
+  if (!S.circuitLines) return;
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(1, flatness * 0.22);
+
+  for (let c = 0; c < S.hullCircuits; c++) {
+    const baseAngle = (c / S.hullCircuits) * PI2 + S.posAngle + T * 0.05;
+    const startR = r * rand(0.3, 0.6);
+    const hue = (S.baseHue + c * 24 + T * 18) % 360;
+    const pulse = Math.abs(Math.sin(T * 2 + c * 0.7));
+
+    // L-shaped trace
+    const x1 = Math.cos(baseAngle) * startR;
+    const y1 = Math.sin(baseAngle) * startR;
+    const x2 = x1 + Math.cos(baseAngle + 0.5) * r * 0.2;
+    const y2 = y1 + Math.sin(baseAngle + 0.5) * r * 0.2;
+    const x3 = x2 + Math.cos(baseAngle - 0.3) * r * 0.12;
+    const y3 = y2 + Math.sin(baseAngle - 0.3) * r * 0.12;
+
+    ctx.beginPath();
+    ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.lineTo(x3, y3);
+    ctx.strokeStyle = hsl(hue, 100, 55, 0.15 + pulse * 0.2);
+    ctx.lineWidth = 0.7;
+    ctx.stroke();
+
+    // node dot
+    ctx.beginPath();
+    ctx.arc(x2, y2, 1.8, 0, PI2);
+    ctx.fillStyle = hsl(hue, 100, 80, pulse * 0.6);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+// ─── DRAW GLITCH EFFECT ──────────────────────────────────────────────────────
+function drawGlitch(cx, cy, r) {
+  if (Math.random() > S.glitchProb * 30) return;
+  const sliceH = rand(2, 15);
+  const sliceY = cy - r + Math.random() * r * 2;
+  const offset = rand(-20, 20);
+  ctx.save();
+  ctx.drawImage(canvas,
+    cx - r, sliceY, r * 2, sliceH,
+    cx - r + offset, sliceY, r * 2, sliceH);
+  ctx.restore();
+}
+
+// ─── MAIN DRAW LOOP ───────────────────────────────────────────────────────────
+function draw() {
+  // FPS
+  fpsCount++;
+  const now = performance.now();
+  if (now - fpsTime > 1000) { fps = fpsCount; fpsCount = 0; fpsTime = now; }
+
+  T += 0.016;
+  frameCount++;
+
+  // Ship position
+  const bobY = Math.sin(T * S.bobSpeed) * S.bobAmp;
+  S.posAngle += S.rotSpeed;
+  S.posX += S.driftX * 0.05;
+  S.posY += S.driftY * 0.05;
+  // Keep in bounds
+  const maxDrift = Math.min(W, H) * 0.1;
+  if (Math.abs(S.posX) > maxDrift) S.posX *= 0.98;
+  if (Math.abs(S.posY) > maxDrift) S.posY *= 0.98;
+
+  const cx = CX + S.posX + Math.sin(T * S.wobble * 0.7) * 5;
+  const cy = CY + S.posY + bobY;
+  const r = S.radius;
+  const flatness = 1; // used for 3D-like flattening
+
+  // ── Background ──
+  drawNebula();
+  drawStarfield();
+
+  // ── Anti-grav field ──
+  drawAntiGravField(cx, cy, r);
+
+  // ── Tractor beams (below ship) ──
+  drawTractorBeams(cx, cy, r);
+
+  // ── Beam particles ──
+  drawBeamParticles();
+
+  // ── Energy shield ──
+  drawEnergyShield(cx, cy, r, flatness);
+
+  // ── Hull hexagons ──
+  drawHullHex(cx, cy, r, flatness);
+
+  // ── Circuit lines ──
+  drawCircuitLines(cx, cy, r, flatness);
+  drawHullCircuits(cx, cy, r, flatness);
+
+  // ── Hull panels ──
+  drawHullPanels(cx, cy, r, flatness);
+
+  // ── Main body ──
+  drawHullBody(cx, cy, r, flatness);
+
+  // ── Rings ──
+  drawRings(cx, cy, r, flatness);
+
+  // ── Running lights ──
+  drawRunningLights(cx, cy, r, flatness);
+
+  // ── Exhaust particles ──
+  drawExhaust();
+
+  // ── Engine pods ──
+  drawEnginePods(cx, cy, r, flatness);
+
+  // ── Plasma cores ──
+  drawPlasmaCores(cx, cy, r, flatness);
+
+  // ── Dome ──
+  drawDome(cx, cy, r, flatness);
+
+  // ── Antennae ──
+  drawAntennae(cx, cy, r, flatness);
+
+  // ── Holographic projections ──
+  drawHoloProjections(cx, cy, r);
+
+  // ── Glitch ──
+  if (Math.random() < S.glitchProb) drawGlitch(cx, cy, r);
+
+  // ── Hint fade ──
+  if (hintTimer > 0) {
+    hintTimer--;
+    document.getElementById('hint').style.opacity = hintTimer > 60 ? '1' : (hintTimer / 60).toString();
+  } else {
+    document.getElementById('hint').style.display = 'none';
+  }
+
+  // ── HUD update ──
+  if (hudVisible) updateHUD();
+
+  requestAnimationFrame(draw);
+}
+
+// ─── HUD UPDATE ──────────────────────────────────────────────────────────────
+function updateHUD() {
+  document.getElementById('h-class').textContent   = `CLASS: ${S.shipClass}`;
+  document.getElementById('h-hull').textContent    = `HULL: ${(S.radius / Math.min(W,H) * 200).toFixed(1)}% SCALE`;
+  document.getElementById('h-shields').textContent = `SHIELDS: ${S.shieldOff ? 'ACTIVE' : 'DOWN'}`;
+  document.getElementById('h-plasma').textContent  = `PLASMA CORES: ${S.numCores}`;
+  document.getElementById('h-dim').textContent     = `DIMENSION: ${W}×${H}`;
+  document.getElementById('h-cycle').textContent   = `COLOR CYCLE: ${S.colorMode.toUpperCase()}`;
+  document.getElementById('h-rot').textContent     = `ROTATION: ${(S.rotSpeed * 1000).toFixed(3)} rad/s`;
+  document.getElementById('h-drift').textContent   = `DRIFT: ${S.driftX.toFixed(2)} / ${S.driftY.toFixed(2)}`;
+  document.getElementById('h-fps').textContent     = `FPS: ${fps}`;
+  document.getElementById('h-frame').textContent   = `FRAME: ${frameCount}`;
+  document.getElementById('h-rings').textContent   = `RING LAYERS: ${S.numRings}`;
+  document.getElementById('h-pods').textContent    = `ENGINE PODS: ${S.numPods}`;
+  document.getElementById('h-beams').textContent   = `TRACTOR BEAMS: ${S.numBeams}`;
+  document.getElementById('h-particles').textContent = `PARTICLES: ${particles.length + exhaust.length + beamParticles.length}`;
+  document.getElementById('h-sound').textContent   = `SOUND: ${soundOn ? 'ON' : 'OFF'}`;
+}
+
+// ─── SOUND ───────────────────────────────────────────────────────────────────
+let soundNodes = [];
+function startSound() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  stopSound();
+  // Drone hum
+  const osc1 = audioCtx.createOscillator();
+  const osc2 = audioCtx.createOscillator();
+  const osc3 = audioCtx.createOscillator();
+  const gain1 = audioCtx.createGain();
+  const gain2 = audioCtx.createGain();
+  const gain3 = audioCtx.createGain();
+  const masterGain = audioCtx.createGain();
+  masterGain.gain.value = 0.06;
+
+  osc1.type = 'sine'; osc1.frequency.value = 55 + S.numPods * 2;
+  osc2.type = 'sine'; osc2.frequency.value = 110 + S.numRings * 3;
+  osc3.type = 'triangle'; osc3.frequency.value = 220 + S.numCores * 5;
+
+  gain1.gain.value = 0.5; gain2.gain.value = 0.3; gain3.gain.value = 0.2;
+
+  osc1.connect(gain1); gain1.connect(masterGain);
+  osc2.connect(gain2); gain2.connect(masterGain);
+  osc3.connect(gain3); gain3.connect(masterGain);
+  masterGain.connect(audioCtx.destination);
+
+  osc1.start(); osc2.start(); osc3.start();
+
+  // LFO modulation
+  const lfo = audioCtx.createOscillator();
+  const lfoGain = audioCtx.createGain();
+  lfo.frequency.value = 0.5 + S.bobSpeed * 0.3;
+  lfoGain.gain.value = 8;
+  lfo.connect(lfoGain);
+  lfoGain.connect(osc1.frequency);
+  lfo.start();
+
+  soundNodes = [osc1, osc2, osc3, lfo, gain1, gain2, gain3, lfoGain, masterGain];
+}
+function stopSound() {
+  soundNodes.forEach(n => { try { n.stop && n.stop(); n.disconnect && n.disconnect(); } catch(e){} });
+  soundNodes = [];
+}
+
+// ─── CONTROLS ────────────────────────────────────────────────────────────────
+function doRandomize() {
+  randomize();
+  if (soundOn) startSound();
+}
+
+window.addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+  if (k === ' ' || e.code === 'Space') { e.preventDefault(); doRandomize(); }
+  if (k === 'h') {
+    hudVisible = !hudVisible;
+    document.getElementById('hud').classList.toggle('visible', hudVisible);
+  }
+  if (k === 's') {
+    soundOn = !soundOn;
+    if (soundOn) startSound(); else stopSound();
+  }
+});
+
+canvas.addEventListener('click', doRandomize);
+canvas.addEventListener('touchstart', e => { e.preventDefault(); doRandomize(); }, { passive: false });
+
+// ─── BOOT ────────────────────────────────────────────────────────────────────
+randomize();
+draw();
+</script>
+</body>
+</html>

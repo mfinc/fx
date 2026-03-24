@@ -1,0 +1,1367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="description" content="Atari 2600 Color Palette Engineering - Interactive animated showcase of the Atari 2600 TIA chip color science, NTSC color palette, and video graphics circuitry. Featuring breathtaking real-time animations of all 128 colors, scanline rendering, color burst signals, and sprite graphics systems.">
+<meta name="keywords" content="Atari 2600, color palette, TIA chip, NTSC, video graphics, retro gaming, color science, scanline animation, sprite graphics, color burst, vintage gaming hardware, 6507 CPU, Television Interface Adaptor, PAL palette, SECAM, color registers, playfield graphics, player missiles, ball sprite, retro computing, video game history, color engineering">
+<meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+<meta name="author" content="Atari 2600 Color Science Visualization">
+<meta property="og:title" content="Atari 2600 Color Palette & Video Graphics Engineering – Interactive Animation">
+<meta property="og:description" content="Breathtaking real-time animation of the Atari 2600 TIA chip color science, NTSC color palette engineering, scanline rendering, sprite systems, and video display circuitry.">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#000000">
+<link rel="canonical" href="https://atari2600-color-science.html">
+<title>Atari 2600 Color Palette Engineering – TIA Chip Video Graphics Animation & Color Science Circuitry Showcase</title>
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background: #000;
+    font-family: 'Courier New', Courier, monospace;
+    cursor: crosshair;
+  }
+  canvas {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+    image-rendering: pixelated;
+  }
+  #hud {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    pointer-events: none;
+    display: none;
+    z-index: 100;
+  }
+  #hud.visible { display: block; }
+  #hud-panel {
+    position: absolute;
+    top: 12px; left: 12px;
+    background: rgba(0,0,0,0.82);
+    border: 1px solid rgba(255,200,0,0.4);
+    color: #ffd700;
+    font-size: 11px;
+    padding: 10px 14px;
+    line-height: 1.7;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    min-width: 240px;
+  }
+  #hud-panel span { color: #ff6b35; }
+  #hud-corner {
+    position: absolute;
+    bottom: 12px; right: 12px;
+    background: rgba(0,0,0,0.75);
+    border: 1px solid rgba(255,200,0,0.25);
+    color: rgba(255,215,0,0.6);
+    font-size: 9px;
+    padding: 6px 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  #key-hint {
+    position: fixed;
+    bottom: 10px; left: 50%;
+    transform: translateX(-50%);
+    color: rgba(255,200,0,0.35);
+    font-size: 9px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    pointer-events: none;
+    z-index: 99;
+    transition: opacity 1s;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div id="hud-panel">
+    <div>⬡ ATARI 2600 TIA CHIP <span>ACTIVE</span></div>
+    <div>SYSTEM: <span id="h-sys">NTSC 60Hz</span></div>
+    <div>SCANLINE: <span id="h-scan">0</span> / 262</div>
+    <div>COLOR CLK: <span id="h-clk">0</span> MHz</div>
+    <div>PALETTE: <span id="h-pal">128 COLORS</span></div>
+    <div>PHASE: <span id="h-phase">0</span>°</div>
+    <div>LUMA: <span id="h-luma">0</span> / 7</div>
+    <div>CHROMA: <span id="h-chroma">0</span> / 15</div>
+    <div>FRAME: <span id="h-frame">0</span></div>
+    <div>MODE: <span id="h-mode">ATTRACT</span></div>
+    <div>SPRITES: <span id="h-sprites">P0 P1 M0 M1 BL</span></div>
+    <div>PLAYFIELD: <span id="h-pf">REFLECTED</span></div>
+    <div>SEED: <span id="h-seed">0</span></div>
+    <div style="margin-top:6px;color:rgba(255,215,0,0.4);font-size:9px">
+      [SPACE/CLICK] RESET · [H] HUD · [S] SOUND
+    </div>
+  </div>
+  <div id="hud-corner">TIA · MOS 6507 · 1.19 MHz · STELLA</div>
+</div>
+<div id="key-hint">SPACE / CLICK / TAP = RESET &nbsp;·&nbsp; H = HUD &nbsp;·&nbsp; S = SOUND</div>
+
+<script>
+// ============================================================
+// ATARI 2600 AUTHENTIC COLOR PALETTE (NTSC)
+// TIA chip color registers: hue × luma = 128 colors
+// ============================================================
+const ATARI_NTSC = [
+  // Hue 0 – Grey/Black
+  0x000000,0x404040,0x6c6c6c,0x909090,0xb0b0b0,0xc8c8c8,0xdcdcdc,0xf4f4f4,
+  // Hue 1 – Gold
+  0x444400,0x646410,0x848424,0xa0a034,0xb8b840,0xd0d050,0xe8e85c,0xfcfc68,
+  // Hue 2 – Orange/Gold
+  0x702800,0x844414,0x985c28,0xac783c,0xbc8c4c,0xcca05c,0xdcb468,0xecc878,
+  // Hue 3 – Pink/Red
+  0x841800,0x983418,0xac5030,0xc06848,0xd0805c,0xe09470,0xeca880,0xfcbc94,
+  // Hue 4 – Purple/Magenta
+  0x880000,0x9c2020,0xb03c3c,0xc05858,0xd07070,0xe08888,0xec9c9c,0xfcb0b0,
+  // Hue 5 – Purple
+  0x78005c,0x8c2074,0xa03c88,0xb0589c,0xc070b0,0xd084c0,0xdc9cd0,0xecb0e0,
+  // Hue 6 – Blue/Purple
+  0x480078,0x602090,0x7840a4,0x8c5cb8,0xa074cc,0xb488dc,0xc49cec,0xd4b0fc,
+  // Hue 7 – Blue
+  0x140084,0x302098,0x4c3cac,0x6858c0,0x7c70d0,0x9488e0,0xa8a0ec,0xbcb4fc,
+  // Hue 8 – Blue (mid)
+  0x000088,0x1c209c,0x3840b0,0x505cc4,0x6874d4,0x7c8ce4,0x90a4f4,0xa4b8fc,
+  // Hue 9 – Teal/Cyan
+  0x00187c,0x1c3890,0x3854a8,0x5070bc,0x6888cc,0x7c9cdc,0x90b4ec,0xa4c8fc,
+  // Hue 10 – Cyan/Green
+  0x002c5c,0x1c4c78,0x386890,0x5484ac,0x6c9cc0,0x84b4d4,0x9ccce8,0xb4e4fc,
+  // Hue 11 – Green/Cyan
+  0x003c2c,0x1c5c48,0x387c64,0x549c80,0x6cb494,0x84ccac,0x9ce4c0,0xb4fcd4,
+  // Hue 12 – Green
+  0x003c00,0x205c20,0x407c40,0x5c9c5c,0x74b474,0x8cd08c,0xa4e4a4,0xb8fcb8,
+  // Hue 13 – Yellow/Green
+  0x143800,0x345c1c,0x507c38,0x6c9850,0x84b468,0x9ccc7c,0xb4e490,0xc8fca4,
+  // Hue 14 – Orange/Yellow
+  0x2c3000,0x4c501c,0x687034,0x848c4c,0x9ca864,0xb4c07c,0xccd490,0xe0e8a4,
+  // Hue 15 – Orange
+  0x442800,0x644818,0x846830,0xa08444,0xb89c58,0xd0b46c,0xe8cc7c,0xfce08c,
+];
+
+// ============================================================
+// ENGINE STATE
+// ============================================================
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H, CX, CY;
+let frame = 0, t = 0;
+let rng, seed;
+let hudVisible = false, soundOn = false;
+let audioCtx = null;
+
+// Animation layers
+let layers = [];
+let scanlineY = 0;
+let colorBurst = [];
+let sprites = [];
+let playfield = [];
+let palette_ring = [];
+let circuit_nodes = [];
+let electrons = [];
+let waveforms = [];
+let chroma_wheels = [];
+let color_registers = [];
+let luma_bars = [];
+let phase_angles = [];
+
+// ============================================================
+// RANDOM NUMBER GENERATOR (seeded)
+// ============================================================
+function mkRng(s) {
+  let x = s >>> 0;
+  return function() {
+    x ^= x << 13; x ^= x >> 17; x ^= x << 5;
+    return ((x >>> 0) / 4294967296);
+  };
+}
+
+function pickColor(r) {
+  return ATARI_NTSC[Math.floor(r() * ATARI_NTSC.length)];
+}
+
+function hexToRgb(hex) {
+  return [(hex>>16)&255,(hex>>8)&255,hex&255];
+}
+function rgbStr(hex,a=1) {
+  const [r,g,b]=hexToRgb(hex);
+  return a<1?`rgba(${r},${g},${b},${a})`:`rgb(${r},${g},${b})`;
+}
+function lerpColor(a,b,t) {
+  const [ar,ag,ab]=hexToRgb(a),[br,bg,bb]=hexToRgb(b);
+  return ((Math.round(ar+(br-ar)*t)<<16)|(Math.round(ag+(bg-ag)*t)<<8)|Math.round(ab+(bb-ab)*t));
+}
+
+// ============================================================
+// SYSTEM INIT / RESET
+// ============================================================
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  CX = W/2; CY = H/2;
+}
+
+function randomSeed() {
+  seed = (Date.now() ^ Math.random()*0xFFFFFF) >>> 0;
+  rng = mkRng(seed);
+}
+
+function init() {
+  randomSeed();
+  frame = 0; t = 0;
+  layers = [];
+
+  // --- Color burst ring (inner) ---
+  colorBurst = [];
+  for(let i=0;i<128;i++){
+    const angle = (i/128)*Math.PI*2;
+    const hue = Math.floor(i/8); // 0-15
+    const luma = i%8;
+    colorBurst.push({
+      angle, hue, luma,
+      color: ATARI_NTSC[i],
+      r0: 0, r1: 0,
+      orbitSpeed: 0.0003 + rng()*0.0005,
+      pulsePhase: rng()*Math.PI*2,
+    });
+  }
+
+  // --- Circuit nodes ---
+  circuit_nodes = [];
+  const nodeCount = 60 + Math.floor(rng()*40);
+  for(let i=0;i<nodeCount;i++){
+    circuit_nodes.push({
+      x: rng()*W, y: rng()*H,
+      color: pickColor(rng),
+      size: 2+rng()*5,
+      connections: [],
+      pulsePhase: rng()*Math.PI*2,
+      type: Math.floor(rng()*4), // 0=node,1=chip,2=resistor,3=capacitor
+    });
+  }
+  // Connect nodes
+  for(let i=0;i<circuit_nodes.length;i++){
+    const n = circuit_nodes[i];
+    const count = 1+Math.floor(rng()*3);
+    for(let j=0;j<count;j++){
+      const target = Math.floor(rng()*circuit_nodes.length);
+      if(target!==i) n.connections.push(target);
+    }
+  }
+
+  // --- Electrons flowing through circuits ---
+  electrons = [];
+  for(let i=0;i<80+Math.floor(rng()*60);i++){
+    const srcIdx = Math.floor(rng()*circuit_nodes.length);
+    const src = circuit_nodes[srcIdx];
+    if(src.connections.length>0){
+      const dstIdx = src.connections[Math.floor(rng()*src.connections.length)];
+      electrons.push({
+        srcIdx, dstIdx,
+        progress: rng(),
+        speed: 0.003+rng()*0.009,
+        color: pickColor(rng),
+        size: 1.5+rng()*3,
+        trail: [],
+      });
+    }
+  }
+
+  // --- Sprites (P0, P1, M0, M1, BL) ---
+  sprites = [];
+  const spriteTypes = ['P0','P1','M0','M1','BL'];
+  for(let i=0;i<5+Math.floor(rng()*8);i++){
+    const type = spriteTypes[Math.floor(rng()*spriteTypes.length)];
+    sprites.push({
+      type,
+      x: rng()*W, y: rng()*H,
+      vx: (rng()-0.5)*2.5,
+      vy: (rng()-0.5)*2.5,
+      color: pickColor(rng),
+      color2: pickColor(rng),
+      w: type==='BL'?4:type.startsWith('M')?4:8,
+      h: type.startsWith('M')||type==='BL'?4:16,
+      pattern: Math.floor(rng()*0xFF),
+      scale: 1+Math.floor(rng()*3),
+      reflect: rng()>0.5,
+      phase: rng()*Math.PI*2,
+    });
+  }
+
+  // --- Playfield rows ---
+  playfield = [];
+  for(let row=0;row<20;row++){
+    playfield.push({
+      pf0: Math.floor(rng()*0xFF),
+      pf1: Math.floor(rng()*0xFF),
+      pf2: Math.floor(rng()*0xFF),
+      color: pickColor(rng),
+      reflect: rng()>0.5,
+      y: rng()*H,
+      speed: (rng()-0.5)*0.4,
+    });
+  }
+
+  // --- Chroma wheels ---
+  chroma_wheels = [];
+  const wCount = 3+Math.floor(rng()*4);
+  for(let i=0;i<wCount;i++){
+    chroma_wheels.push({
+      x: rng()*W, y: rng()*H,
+      r: 40+rng()*80,
+      speed: (rng()-0.5)*0.015,
+      phase: rng()*Math.PI*2,
+      hueSet: Math.floor(rng()*16),
+      ringCount: 2+Math.floor(rng()*4),
+    });
+  }
+
+  // --- Luma bars (scanline visualization) ---
+  luma_bars = [];
+  for(let i=0;i<8;i++){
+    luma_bars.push({
+      luma: i,
+      y: 0,
+      targetY: 0,
+      speed: 0.02+rng()*0.04,
+      colors: ATARI_NTSC.filter((_,idx)=>idx%8===i),
+    });
+  }
+
+  // --- Waveforms (color signal) ---
+  waveforms = [];
+  const wfCount = 4+Math.floor(rng()*5);
+  for(let w=0;w<wfCount;w++){
+    const baseHue = Math.floor(rng()*16);
+    waveforms.push({
+      y: rng()*H,
+      amplitude: 20+rng()*60,
+      frequency: 0.005+rng()*0.02,
+      speed: 0.01+rng()*0.03,
+      phase: rng()*Math.PI*2,
+      color1: ATARI_NTSC[baseHue*8+Math.floor(rng()*8)],
+      color2: ATARI_NTSC[((baseHue+8)%16)*8+Math.floor(rng()*8)],
+      lineWidth: 1+rng()*2,
+    });
+  }
+
+  // --- Color register matrix ---
+  color_registers = [];
+  const regNames = ['COLUP0','COLUP1','COLUPF','COLUBK','CTRLPF','GRP0','GRP1','ENABL','ENAM0','ENAM1','HMP0','HMP1','HMBL','HMM0','HMM1','VBLANK'];
+  for(let i=0;i<regNames.length;i++){
+    color_registers.push({
+      name: regNames[i],
+      value: Math.floor(rng()*256),
+      color: pickColor(rng),
+      x: 0, y: 0,
+      targetValue: Math.floor(rng()*256),
+      changeTimer: Math.floor(rng()*120),
+    });
+  }
+
+  // --- Phase angle markers ---
+  phase_angles = [];
+  for(let i=0;i<16;i++){
+    phase_angles.push({
+      hue: i,
+      angle: (i/16)*Math.PI*2 - Math.PI/2,
+      label: ['BLK','GLD','ORG','PNK','RED','PRP','BLV','BLU','BLM','TEL','CYN','GCN','GRN','YGN','YEL','ORN'][i],
+    });
+  }
+
+  updateHUD();
+}
+
+// ============================================================
+// HUD UPDATE
+// ============================================================
+function updateHUD() {
+  if(!hudVisible) return;
+  const scanline = Math.floor((frame*2)%262);
+  document.getElementById('h-scan').textContent = scanline;
+  document.getElementById('h-clk').textContent = '3.58';
+  document.getElementById('h-phase').textContent = Math.floor((t*57.3)%360);
+  document.getElementById('h-luma').textContent = Math.floor(t*0.3)%8;
+  document.getElementById('h-chroma').textContent = Math.floor(t*0.2)%16;
+  document.getElementById('h-frame').textContent = frame;
+  document.getElementById('h-seed').textContent = seed.toString(16).toUpperCase();
+}
+
+// ============================================================
+// DRAW ROUTINES
+// ============================================================
+
+function drawBackground() {
+  // Deep black scanline field
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0,0,W,H);
+
+  // Subtle scanline texture
+  ctx.save();
+  for(let y=0;y<H;y+=2){
+    const alpha = 0.015+0.01*Math.sin(y*0.05+t*0.3);
+    ctx.fillStyle = `rgba(0,0,0,${alpha})`;
+    ctx.fillRect(0,y,W,1);
+  }
+  ctx.restore();
+}
+
+function drawScanlineBeam() {
+  // Active scanline sweep
+  const sl = ((frame * 1.5) % 262) / 262;
+  const y = sl * H;
+  const grad = ctx.createLinearGradient(0,y-30,0,y+4);
+  grad.addColorStop(0,'rgba(0,0,0,0)');
+  grad.addColorStop(0.7,`rgba(255,255,200,0.04)`);
+  grad.addColorStop(1,`rgba(255,255,255,0.12)`);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0,y-30,W,34);
+
+  // Bright beam line
+  ctx.save();
+  ctx.globalAlpha = 0.18+0.12*Math.sin(t*4);
+  const beamColor = ATARI_NTSC[Math.floor(frame*0.3)%128];
+  ctx.strokeStyle = rgbStr(beamColor);
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0,y); ctx.lineTo(W,y);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawCircuitBoard() {
+  // Background circuit trace grid
+  ctx.save();
+  ctx.globalAlpha = 0.07;
+  const gridSize = 40;
+  ctx.strokeStyle = '#2a4a2a';
+  ctx.lineWidth = 0.5;
+  for(let x=0;x<W;x+=gridSize){
+    ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke();
+  }
+  for(let y=0;y<H;y+=gridSize){
+    ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke();
+  }
+  ctx.restore();
+
+  // Circuit connections
+  ctx.save();
+  ctx.lineWidth = 1;
+  for(let i=0;i<circuit_nodes.length;i++){
+    const n = circuit_nodes[i];
+    const pulse = 0.3+0.25*Math.sin(t*2+n.pulsePhase);
+    for(const ci of n.connections){
+      const d = circuit_nodes[ci];
+      const grad = ctx.createLinearGradient(n.x,n.y,d.x,d.y);
+      const [r,g,b]=hexToRgb(n.color);
+      grad.addColorStop(0,`rgba(${r},${g},${b},${pulse*0.5})`);
+      grad.addColorStop(1,`rgba(0,0,0,0)`);
+      ctx.strokeStyle = grad;
+      // L-shaped routing (Manhattan style)
+      ctx.beginPath();
+      ctx.moveTo(n.x,n.y);
+      ctx.lineTo(n.x,d.y);
+      ctx.lineTo(d.x,d.y);
+      ctx.stroke();
+    }
+  }
+
+  // Nodes
+  for(let i=0;i<circuit_nodes.length;i++){
+    const n = circuit_nodes[i];
+    const pulse = 0.5+0.5*Math.sin(t*3+n.pulsePhase);
+    const [r,g,b]=hexToRgb(n.color);
+    ctx.globalAlpha = 0.4+0.4*pulse;
+    if(n.type===1){
+      // Chip rectangle
+      ctx.fillStyle = `rgb(${r},${g},${b})`;
+      ctx.fillRect(n.x-6,n.y-4,12,8);
+      ctx.strokeStyle = `rgba(${r},${g},${b},0.6)`;
+      ctx.strokeRect(n.x-6,n.y-4,12,8);
+    } else if(n.type===2){
+      // Resistor zig-zag symbol
+      ctx.strokeStyle = `rgb(${r},${g},${b})`;
+      ctx.beginPath();
+      ctx.moveTo(n.x-6,n.y); ctx.lineTo(n.x-4,n.y-4);
+      ctx.lineTo(n.x-2,n.y+4); ctx.lineTo(n.x,n.y-4);
+      ctx.lineTo(n.x+2,n.y+4); ctx.lineTo(n.x+4,n.y-4);
+      ctx.lineTo(n.x+6,n.y);
+      ctx.stroke();
+    } else {
+      // Node dot
+      ctx.fillStyle = `rgb(${r},${g},${b})`;
+      ctx.beginPath();
+      ctx.arc(n.x,n.y,n.size*pulse,0,Math.PI*2);
+      ctx.fill();
+      // Glow
+      const grd = ctx.createRadialGradient(n.x,n.y,0,n.x,n.y,n.size*3);
+      grd.addColorStop(0,`rgba(${r},${g},${b},0.3)`);
+      grd.addColorStop(1,`rgba(${r},${g},${b},0)`);
+      ctx.fillStyle = grd;
+      ctx.beginPath();
+      ctx.arc(n.x,n.y,n.size*3,0,Math.PI*2);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+function drawElectrons() {
+  ctx.save();
+  for(const e of electrons){
+    const src = circuit_nodes[e.srcIdx];
+    const dst = circuit_nodes[e.dstIdx];
+    if(!src||!dst) continue;
+    // Position along L-shaped path
+    let px,py;
+    if(e.progress<0.5){
+      const p=e.progress*2;
+      px=src.x; py=src.y+(dst.y-src.y)*p;
+    } else {
+      const p=(e.progress-0.5)*2;
+      px=src.x+(dst.x-src.x)*p; py=dst.y;
+    }
+    const [r,g,b]=hexToRgb(e.color);
+    // Trail
+    e.trail.push({x:px,y:py});
+    if(e.trail.length>12) e.trail.shift();
+    for(let ti=0;ti<e.trail.length;ti++){
+      const tr=e.trail[ti];
+      const alpha=(ti/e.trail.length)*0.7;
+      ctx.globalAlpha=alpha;
+      ctx.fillStyle=`rgb(${r},${g},${b})`;
+      const sz=e.size*(ti/e.trail.length);
+      ctx.beginPath();
+      ctx.arc(tr.x,tr.y,sz,0,Math.PI*2);
+      ctx.fill();
+    }
+    // Main electron
+    ctx.globalAlpha=0.9;
+    const grd=ctx.createRadialGradient(px,py,0,px,py,e.size*2);
+    grd.addColorStop(0,`rgba(${Math.min(r+80,255)},${Math.min(g+80,255)},${Math.min(b+80,255)},1)`);
+    grd.addColorStop(1,`rgba(${r},${g},${b},0)`);
+    ctx.fillStyle=grd;
+    ctx.beginPath();
+    ctx.arc(px,py,e.size*2,0,Math.PI*2);
+    ctx.fill();
+
+    e.progress+=e.speed;
+    if(e.progress>=1){
+      e.progress=0;
+      e.srcIdx=e.dstIdx;
+      const src2=circuit_nodes[e.srcIdx];
+      if(src2&&src2.connections.length>0){
+        e.dstIdx=src2.connections[Math.floor(rng()*src2.connections.length)];
+      }
+      e.color=pickColor(rng);
+      e.trail=[];
+    }
+  }
+  ctx.restore();
+}
+
+function drawColorPaletteRing() {
+  const cx=CX, cy=CY;
+  const maxR=Math.min(W,H)*0.42;
+  const segments=128;
+
+  ctx.save();
+  // Outer palette wheel (all 128 colors arranged by hue×luma)
+  for(let i=0;i<segments;i++){
+    const angle0=(i/segments)*Math.PI*2-Math.PI/2;
+    const angle1=((i+1)/segments)*Math.PI*2-Math.PI/2;
+    const hue=Math.floor(i/8);
+    const luma=i%8;
+    const r0=maxR*(0.35+luma/8*0.45);
+    const r1=r0+(maxR*0.08);
+    const c=ATARI_NTSC[i];
+    const [cr,cg,cb]=hexToRgb(c);
+    const pulse=0.8+0.2*Math.sin(t*2+i*0.15);
+    ctx.globalAlpha=pulse;
+    ctx.beginPath();
+    ctx.arc(cx,cy,r1,angle0,angle1);
+    ctx.arc(cx,cy,r0,angle1,angle0,true);
+    ctx.closePath();
+    ctx.fillStyle=`rgb(${cr},${cg},${cb})`;
+    ctx.fill();
+
+    // Glow on bright luminas
+    if(luma>=5){
+      ctx.globalAlpha=0.15;
+      const grd=ctx.createRadialGradient(cx,cy,r0,cx,cy,r1+10);
+      grd.addColorStop(0,`rgba(${cr},${cg},${cb},0.5)`);
+      grd.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=grd;
+      ctx.beginPath();
+      ctx.arc(cx,cy,r1+10,angle0,angle1);
+      ctx.arc(cx,cy,r0,angle1,angle0,true);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+
+  // Phase angle markers (hue labels)
+  ctx.globalAlpha=0.9;
+  for(const pa of phase_angles){
+    const ang=pa.angle+(t*0.01);
+    const labelR=maxR*0.88;
+    const lx=cx+Math.cos(ang)*labelR;
+    const ly=cy+Math.sin(ang)*labelR;
+    const c=ATARI_NTSC[pa.hue*8+4];
+    const [cr,cg,cb]=hexToRgb(c);
+    ctx.fillStyle=`rgb(${cr},${cg},${cb})`;
+    ctx.font=`bold ${Math.max(7,Math.min(11,W/80))}px 'Courier New'`;
+    ctx.textAlign='center';
+    ctx.textBaseline='middle';
+    ctx.fillText(pa.label,lx,ly);
+    // Tick
+    ctx.strokeStyle=`rgba(${cr},${cg},${cb},0.5)`;
+    ctx.lineWidth=1;
+    ctx.beginPath();
+    ctx.moveTo(cx+Math.cos(ang)*maxR*0.82,cy+Math.sin(ang)*maxR*0.82);
+    ctx.lineTo(cx+Math.cos(ang)*maxR*0.80,cy+Math.sin(ang)*maxR*0.80);
+    ctx.stroke();
+  }
+
+  // Inner rotating selector ring
+  const selPhase=t*0.08;
+  for(let i=0;i<16;i++){
+    const ang=(i/16)*Math.PI*2-Math.PI/2+selPhase;
+    const r=maxR*0.28;
+    const sx=cx+Math.cos(ang)*r;
+    const sy=cy+Math.sin(ang)*r;
+    const c=ATARI_NTSC[i*8+4];
+    const [cr,cg,cb]=hexToRgb(c);
+    ctx.globalAlpha=0.85;
+    ctx.fillStyle=`rgb(${cr},${cg},${cb})`;
+    ctx.beginPath();
+    ctx.arc(sx,sy,5+3*Math.sin(t*3+i*0.7),0,Math.PI*2);
+    ctx.fill();
+  }
+
+  // Central TIA chip label
+  ctx.globalAlpha=1;
+  ctx.textAlign='center';
+  ctx.textBaseline='middle';
+  ctx.font=`bold ${Math.max(10,Math.min(16,W/60))}px 'Courier New'`;
+  ctx.fillStyle='rgba(255,215,0,0.9)';
+  ctx.fillText('TIA', cx, cy-10);
+  ctx.font=`${Math.max(7,Math.min(10,W/80))}px 'Courier New'`;
+  ctx.fillStyle='rgba(255,200,100,0.6)';
+  ctx.fillText('ATARI 2600', cx, cy+4);
+  ctx.fillText('COLOR', cx, cy+15);
+
+  ctx.restore();
+}
+
+function drawChromaWheels() {
+  ctx.save();
+  for(const w of chroma_wheels){
+    const baseAng=w.phase+t*w.speed;
+    for(let ring=0;ring<w.ringCount;ring++){
+      const r=w.r*(0.4+ring/w.ringCount*0.7);
+      const segs=16;
+      for(let i=0;i<segs;i++){
+        const ang0=(i/segs)*Math.PI*2+baseAng*(ring%2===0?1:-1);
+        const ang1=((i+1)/segs)*Math.PI*2+baseAng*(ring%2===0?1:-1);
+        const cidx=((w.hueSet+i)%16)*8+(ring%8);
+        const c=ATARI_NTSC[cidx];
+        const [cr,cg,cb]=hexToRgb(c);
+        const alpha=0.3+0.35*Math.sin(t*2+i*0.3+ring);
+        ctx.globalAlpha=alpha;
+        ctx.beginPath();
+        ctx.moveTo(w.x,w.y);
+        ctx.arc(w.x,w.y,r,ang0,ang1);
+        ctx.closePath();
+        ctx.fillStyle=`rgb(${cr},${cg},${cb})`;
+        ctx.fill();
+      }
+    }
+    // Center
+    const cc=ATARI_NTSC[w.hueSet*8+7];
+    const [cr,cg,cb]=hexToRgb(cc);
+    ctx.globalAlpha=0.9;
+    ctx.fillStyle=`rgb(${cr},${cg},${cb})`;
+    ctx.beginPath();
+    ctx.arc(w.x,w.y,4,0,Math.PI*2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawWaveforms() {
+  ctx.save();
+  for(const wf of waveforms){
+    ctx.globalAlpha=0.6;
+    ctx.lineWidth=wf.lineWidth;
+    ctx.beginPath();
+    for(let x=0;x<W;x+=2){
+      const s1=Math.sin(x*wf.frequency+t*wf.speed*60+wf.phase);
+      const s2=Math.sin(x*wf.frequency*1.5+t*wf.speed*40+wf.phase*1.3);
+      const y=wf.y+wf.amplitude*(s1+s2*0.3);
+      const prog=x/W;
+      const c=lerpColor(wf.color1,wf.color2,prog);
+      if(x===0) ctx.moveTo(x,y);
+      else ctx.lineTo(x,y);
+    }
+    const grad=ctx.createLinearGradient(0,wf.y-wf.amplitude,0,wf.y+wf.amplitude);
+    const [r1,g1,b1]=hexToRgb(wf.color1);
+    const [r2,g2,b2]=hexToRgb(wf.color2);
+    grad.addColorStop(0,`rgba(${r1},${g1},${b1},0.8)`);
+    grad.addColorStop(1,`rgba(${r2},${g2},${b2},0.8)`);
+    ctx.strokeStyle=grad;
+    ctx.stroke();
+    // Digital high/low indicator
+    const phase=Math.sin(t*wf.speed*60+wf.phase);
+    const digitalY=wf.y+(phase>0?-wf.amplitude*0.6:wf.amplitude*0.6);
+    ctx.globalAlpha=0.25;
+    ctx.setLineDash([4,8]);
+    ctx.beginPath();
+    ctx.moveTo(0,digitalY); ctx.lineTo(W,digitalY);
+    ctx.strokeStyle=`rgba(${r1},${g1},${b1},0.4)`;
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  ctx.restore();
+}
+
+function drawSprites() {
+  ctx.save();
+  for(const sp of sprites){
+    sp.x+=sp.vx; sp.y+=sp.vy;
+    if(sp.x<-50) sp.x=W+50;
+    if(sp.x>W+50) sp.x=-50;
+    if(sp.y<-50) sp.y=H+50;
+    if(sp.y>H+50) sp.y=-50;
+
+    const [r,g,b]=hexToRgb(sp.color);
+    const [r2,g2,b2]=hexToRgb(sp.color2);
+    const blink=0.5+0.5*Math.sin(t*4+sp.phase);
+
+    ctx.globalAlpha=0.8+0.2*blink;
+
+    if(sp.type==='P0'||sp.type==='P1'){
+      // Player sprite – draw pixel pattern (8×1 pixel graphics)
+      const pw=sp.w*sp.scale;
+      const ph=sp.h;
+      for(let bit=0;bit<8;bit++){
+        if((sp.pattern>>bit)&1){
+          ctx.fillStyle=`rgb(${r},${g},${b})`;
+          ctx.fillRect(sp.x+bit*pw,sp.y,pw,ph);
+        }
+        // Reflected copy
+        if(sp.reflect && ((sp.pattern>>(7-bit))&1)){
+          ctx.fillStyle=`rgb(${r2},${g2},${b2})`;
+          ctx.fillRect(sp.x+bit*pw+8*pw+2,sp.y,pw,ph);
+        }
+      }
+      // Label
+      ctx.globalAlpha=0.5;
+      ctx.fillStyle='rgba(255,255,255,0.6)';
+      ctx.font=`${Math.max(6,Math.min(8,W/120))}px 'Courier New'`;
+      ctx.textAlign='center';
+      ctx.fillText(sp.type,sp.x+4*pw,sp.y-3);
+    } else if(sp.type==='M0'||sp.type==='M1'){
+      // Missile – thin rectangle
+      ctx.fillStyle=`rgb(${r},${g},${b})`;
+      ctx.fillRect(sp.x,sp.y,sp.w*sp.scale,sp.h);
+      ctx.globalAlpha=0.3;
+      const grd=ctx.createRadialGradient(sp.x,sp.y,0,sp.x,sp.y,sp.w*4);
+      grd.addColorStop(0,`rgba(${r},${g},${b},0.5)`);
+      grd.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=grd;
+      ctx.fillRect(sp.x-sp.w*2,sp.y-sp.w*2,sp.w*5,sp.h+sp.w*4);
+    } else {
+      // Ball sprite
+      ctx.fillStyle=`rgb(${r},${g},${b})`;
+      ctx.fillRect(sp.x,sp.y,sp.w,sp.h);
+      const grd2=ctx.createRadialGradient(sp.x+sp.w/2,sp.y+sp.h/2,0,sp.x+sp.w/2,sp.y+sp.h/2,sp.w*3);
+      grd2.addColorStop(0,`rgba(${r},${g},${b},0.4)`);
+      grd2.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.globalAlpha=0.5;
+      ctx.fillStyle=grd2;
+      ctx.arc(sp.x+sp.w/2,sp.y+sp.h/2,sp.w*3,0,Math.PI*2);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+function drawPlayfieldVisualization() {
+  ctx.save();
+  for(const pf of playfield){
+    pf.y+=pf.speed;
+    if(pf.y>H+20) pf.y=-20;
+    if(pf.y<-20) pf.y=H+20;
+
+    const rowH=3;
+    const cellW=W/40;
+    const [r,g,b]=hexToRgb(pf.color);
+
+    // Draw PF0 (4 bits, left side, D4-D7)
+    for(let bit=4;bit<8;bit++){
+      if((pf.pf0>>bit)&1){
+        ctx.globalAlpha=0.35;
+        ctx.fillStyle=`rgb(${r},${g},${b})`;
+        ctx.fillRect((bit-4)*cellW*2,pf.y,cellW*2,rowH);
+      }
+    }
+    // Draw PF1 (8 bits, center)
+    for(let bit=0;bit<8;bit++){
+      if((pf.pf1>>(7-bit))&1){
+        ctx.globalAlpha=0.35;
+        ctx.fillStyle=`rgb(${r},${g},${b})`;
+        ctx.fillRect(8*cellW+bit*cellW*2,pf.y,cellW*2,rowH);
+      }
+    }
+    // Draw PF2 (8 bits)
+    for(let bit=0;bit<8;bit++){
+      if((pf.pf2>>bit)&1){
+        ctx.globalAlpha=0.35;
+        ctx.fillStyle=`rgb(${r},${g},${b})`;
+        ctx.fillRect(24*cellW+bit*cellW*2,pf.y,cellW*2,rowH);
+      }
+    }
+    // Reflected right half
+    if(pf.reflect){
+      for(let bit=0;bit<8;bit++){
+        if((pf.pf2>>(7-bit))&1){
+          ctx.fillRect(W/2+bit*cellW*2,pf.y,cellW*2,rowH);
+        }
+      }
+    }
+  }
+  ctx.restore();
+}
+
+function drawColorRegisters() {
+  ctx.save();
+  const regW=Math.min(120,W/10);
+  const regH=22;
+  const cols=4;
+  const startX=8, startY=H-color_registers.length/cols*regH-8;
+
+  ctx.globalAlpha=0.75;
+  for(let i=0;i<color_registers.length;i++){
+    const reg=color_registers[i];
+    reg.changeTimer--;
+    if(reg.changeTimer<=0){
+      reg.targetValue=Math.floor(Math.random()*256);
+      reg.changeTimer=60+Math.floor(Math.random()*180);
+      reg.color=ATARI_NTSC[Math.floor(reg.targetValue/2)%128];
+    }
+    reg.value+=(reg.targetValue-reg.value)*0.05;
+
+    const col=i%cols;
+    const row=Math.floor(i/cols);
+    const x=startX+col*(regW+4);
+    const y=startY+row*(regH+3);
+    const [r,g,b]=hexToRgb(reg.color);
+
+    // Register box
+    ctx.fillStyle='rgba(0,0,0,0.8)';
+    ctx.fillRect(x,y,regW,regH);
+    ctx.strokeStyle=`rgba(${r},${g},${b},0.6)`;
+    ctx.lineWidth=0.5;
+    ctx.strokeRect(x,y,regW,regH);
+
+    // Color swatch
+    ctx.fillStyle=`rgb(${r},${g},${b})`;
+    ctx.fillRect(x+1,y+1,8,regH-2);
+
+    // Register name
+    ctx.fillStyle=`rgba(${r},${g},${b},0.9)`;
+    ctx.font=`${Math.max(6,Math.min(7,W/140))}px 'Courier New'`;
+    ctx.textAlign='left';
+    ctx.textBaseline='top';
+    ctx.fillText(reg.name,x+12,y+2);
+
+    // Value bar
+    const barW=(regW-12)*((reg.value&0xFE)/254);
+    ctx.fillStyle=`rgba(${r},${g},${b},0.5)`;
+    ctx.fillRect(x+12,y+regH-6,barW,4);
+
+    // Hex value
+    ctx.fillStyle='rgba(255,255,255,0.5)';
+    ctx.font=`${Math.max(5,Math.min(6,W/160))}px 'Courier New'`;
+    ctx.fillText('$'+('00'+Math.floor(reg.value).toString(16).toUpperCase()).slice(-2),x+regW-18,y+2);
+  }
+  ctx.restore();
+}
+
+function drawLumaBars() {
+  ctx.save();
+  const barH=Math.max(4,Math.min(8,H/80));
+  const barSpacing=barH+1;
+  const totalH=8*barSpacing;
+  const startY=(H-totalH)/2;
+
+  for(let luma=0;luma<8;luma++){
+    const y=startY+luma*barSpacing;
+    const sweepX=(t*80*(luma+1))%W;
+    // All 16 hues at this luma
+    for(let hue=0;hue<16;hue++){
+      const c=ATARI_NTSC[hue*8+luma];
+      const [r,g,b]=hexToRgb(c);
+      const x=(hue/16)*W;
+      const w=W/16;
+      ctx.globalAlpha=0.12+0.08*Math.sin(t*2+hue*0.5+luma);
+      ctx.fillStyle=`rgb(${r},${g},${b})`;
+      ctx.fillRect(x,y,w,barH);
+    }
+    // Sweep highlight
+    const sweepHue=Math.floor((sweepX/W)*16);
+    const sc=ATARI_NTSC[sweepHue*8+luma];
+    const [sr,sg,sb]=hexToRgb(sc);
+    ctx.globalAlpha=0.7;
+    const grd=ctx.createLinearGradient(sweepX-20,y,sweepX+20,y);
+    grd.addColorStop(0,'rgba(0,0,0,0)');
+    grd.addColorStop(0.5,`rgba(${Math.min(sr+100,255)},${Math.min(sg+100,255)},${Math.min(sb+100,255)},0.9)`);
+    grd.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle=grd;
+    ctx.fillRect(sweepX-20,y,40,barH);
+  }
+  ctx.restore();
+}
+
+function drawColorBurstSignal() {
+  // 3.58MHz color burst reference signal visualization
+  ctx.save();
+  const burstY=H*0.08;
+  const burstH=30;
+  const cycles=20;
+  ctx.globalAlpha=0.6;
+  for(let x=0;x<W;x+=2){
+    const phase=(x/W)*cycles*Math.PI*2+t*10;
+    const amplitude=Math.sin(phase)*burstH*0.5;
+    // Color varies with phase position
+    const hue=Math.floor((Math.sin(phase)*0.5+0.5)*16);
+    const luma=Math.floor(Math.abs(Math.sin(phase+0.5))*8);
+    const c=ATARI_NTSC[Math.min(hue*8+luma,127)];
+    const [r,g,b]=hexToRgb(c);
+    ctx.fillStyle=`rgba(${r},${g},${b},0.7)`;
+    ctx.fillRect(x,burstY+burstH/2+amplitude,2,Math.abs(amplitude));
+  }
+  // Label
+  ctx.globalAlpha=0.5;
+  ctx.fillStyle='rgba(255,215,0,0.7)';
+  ctx.font=`${Math.max(7,Math.min(9,W/100))}px 'Courier New'`;
+  ctx.textAlign='left';
+  ctx.fillText('COLOR BURST  3.579545 MHz',8,burstY-4);
+  ctx.restore();
+}
+
+function drawPhaseVectorDiagram() {
+  // Chroma phase vector display (like a vectorscope)
+  const vx=W-Math.min(W*0.15,100), vy=H*0.15;
+  const vr=Math.min(W*0.07,50);
+  ctx.save();
+
+  // Background
+  ctx.globalAlpha=0.5;
+  ctx.fillStyle='rgba(0,8,0,0.8)';
+  ctx.beginPath();
+  ctx.arc(vx,vy,vr+4,0,Math.PI*2);
+  ctx.fill();
+
+  // Grid circles
+  ctx.globalAlpha=0.3;
+  ctx.strokeStyle='rgba(0,180,0,0.4)';
+  ctx.lineWidth=0.5;
+  for(let i=1;i<=3;i++){
+    ctx.beginPath();
+    ctx.arc(vx,vy,vr*(i/3),0,Math.PI*2);
+    ctx.stroke();
+  }
+  // Crosshairs
+  ctx.beginPath();
+  ctx.moveTo(vx-vr,vy); ctx.lineTo(vx+vr,vy);
+  ctx.moveTo(vx,vy-vr); ctx.lineTo(vx,vy+vr);
+  ctx.stroke();
+
+  // Phase vectors for each hue
+  for(let hue=0;hue<16;hue++){
+    const angle=(hue/16)*Math.PI*2-Math.PI/2+t*0.1;
+    const luma=4; // mid-luma
+    const c=ATARI_NTSC[hue*8+luma];
+    const [r,g,b]=hexToRgb(c);
+    const magnitude=vr*0.85*(0.5+0.5*Math.sin(t*2+hue*0.8));
+    ctx.globalAlpha=0.7;
+    ctx.strokeStyle=`rgb(${r},${g},${b})`;
+    ctx.lineWidth=1.5;
+    ctx.beginPath();
+    ctx.moveTo(vx,vy);
+    ctx.lineTo(vx+Math.cos(angle)*magnitude, vy+Math.sin(angle)*magnitude);
+    ctx.stroke();
+    // Dot at tip
+    ctx.fillStyle=`rgb(${r},${g},${b})`;
+    ctx.beginPath();
+    ctx.arc(vx+Math.cos(angle)*magnitude,vy+Math.sin(angle)*magnitude,2,0,Math.PI*2);
+    ctx.fill();
+  }
+
+  ctx.globalAlpha=0.6;
+  ctx.fillStyle='rgba(0,220,0,0.7)';
+  ctx.font=`${Math.max(6,Math.min(8,W/120))}px 'Courier New'`;
+  ctx.textAlign='center';
+  ctx.fillText('VECTORSCOPE',vx,vy+vr+12);
+
+  ctx.restore();
+}
+
+function drawPixelatedTitle() {
+  ctx.save();
+  ctx.globalAlpha=0.15+0.05*Math.sin(t*0.8);
+  const titleY=H*0.88;
+  const texts=[
+    {t:'ATARI 2600', size: Math.max(14,Math.min(32,W/25))},
+    {t:'TIA — TELEVISION INTERFACE ADAPTOR', size: Math.max(7,Math.min(12,W/80))},
+    {t:'COLOR SCIENCE ENGINEERING • NTSC PALETTE • 128 COLORS • 3.58MHz CHROMA', size: Math.max(6,Math.min(9,W/100))},
+  ];
+  const cycleColor=ATARI_NTSC[Math.floor(t*8)%128];
+  const [cr,cg,cb]=hexToRgb(cycleColor);
+
+  ctx.textAlign='center';
+  ctx.fillStyle=`rgba(${cr},${cg},${cb},0.8)`;
+  ctx.font=`bold ${texts[0].size}px 'Courier New'`;
+  ctx.fillText(texts[0].t,CX,titleY);
+
+  ctx.fillStyle='rgba(255,215,0,0.5)';
+  ctx.font=`${texts[1].size}px 'Courier New'`;
+  ctx.fillText(texts[1].t,CX,titleY+texts[0].size+4);
+
+  ctx.fillStyle='rgba(180,180,180,0.35)';
+  ctx.font=`${texts[2].size}px 'Courier New'`;
+  ctx.fillText(texts[2].t,CX,titleY+texts[0].size+texts[1].size+8);
+
+  ctx.restore();
+}
+
+function drawScanlineOverlay() {
+  // Authentic CRT phosphor scanline overlay
+  ctx.save();
+  ctx.globalAlpha=0.06;
+  for(let y=0;y<H;y+=2){
+    ctx.fillStyle='rgba(0,0,0,1)';
+    ctx.fillRect(0,y+1,W,1);
+  }
+  // Phosphor vignette
+  ctx.globalAlpha=0.4;
+  const vig=ctx.createRadialGradient(CX,CY,Math.min(W,H)*0.3,CX,CY,Math.max(W,H)*0.8);
+  vig.addColorStop(0,'rgba(0,0,0,0)');
+  vig.addColorStop(1,'rgba(0,0,0,0.7)');
+  ctx.fillStyle=vig;
+  ctx.fillRect(0,0,W,H);
+
+  // RGB triad dots (very faint phosphor texture)
+  ctx.globalAlpha=0.025;
+  for(let x=0;x<W;x+=3){
+    for(let y=0;y<H;y+=4){
+      const phase=(x+y)%9;
+      if(phase<3) ctx.fillStyle='rgba(255,0,0,1)';
+      else if(phase<6) ctx.fillStyle='rgba(0,255,0,1)';
+      else ctx.fillStyle='rgba(0,0,255,1)';
+      ctx.fillRect(x,y,1,1);
+    }
+  }
+  ctx.restore();
+}
+
+function drawTIAChipDiagram() {
+  // TIA chip schematic in corner
+  const chipX=W-Math.min(W*0.18,130);
+  const chipY=H*0.4;
+  const chipW=Math.min(W*0.16,120);
+  const chipH=chipW*0.6;
+  ctx.save();
+  ctx.globalAlpha=0.55;
+
+  // Chip body
+  ctx.fillStyle='rgba(20,40,20,0.9)';
+  ctx.fillRect(chipX,chipY,chipW,chipH);
+  ctx.strokeStyle='rgba(0,255,100,0.5)';
+  ctx.lineWidth=1;
+  ctx.strokeRect(chipX,chipY,chipW,chipH);
+
+  // Chip label
+  ctx.fillStyle='rgba(0,255,100,0.7)';
+  ctx.font=`bold ${Math.max(7,Math.min(10,W/100))}px 'Courier New'`;
+  ctx.textAlign='center';
+  ctx.fillText('TIA 1A',chipX+chipW/2,chipY+chipH/2-4);
+  ctx.font=`${Math.max(5,Math.min(7,W/130))}px 'Courier New'`;
+  ctx.fillStyle='rgba(0,200,80,0.5)';
+  ctx.fillText('TELEVISION',chipX+chipW/2,chipY+chipH/2+6);
+  ctx.fillText('INTERFACE ADAPTOR',chipX+chipW/2,chipY+chipH/2+15);
+
+  // Pin labels left side
+  const leftPins=['VSS','GND','ΦIN','Φ2','RDY','RES','R/W','CS0'];
+  const rightPins=['A0','A1','A2','A3','D0','D1','D2','D3'];
+  const pinSpacing=chipH/(leftPins.length+1);
+  ctx.font=`${Math.max(4,Math.min(6,W/150))}px 'Courier New'`;
+
+  for(let i=0;i<leftPins.length;i++){
+    const py=chipY+(i+1)*pinSpacing;
+    const active=Math.sin(t*3+i*0.7)>0.3;
+    ctx.strokeStyle=active?'rgba(255,150,0,0.8)':'rgba(0,180,0,0.4)';
+    ctx.lineWidth=active?1.5:0.5;
+    ctx.beginPath();
+    ctx.moveTo(chipX-14,py); ctx.lineTo(chipX,py);
+    ctx.stroke();
+    ctx.fillStyle=active?'rgba(255,150,0,0.8)':'rgba(0,180,0,0.5)';
+    ctx.textAlign='right';
+    ctx.fillText(leftPins[i],chipX-16,py+2);
+    if(active){
+      ctx.fillStyle='rgba(255,180,0,0.9)';
+      ctx.beginPath();
+      ctx.arc(chipX-14,py,2,0,Math.PI*2);
+      ctx.fill();
+    }
+  }
+  for(let i=0;i<rightPins.length;i++){
+    const py=chipY+(i+1)*pinSpacing;
+    const active=Math.sin(t*4+i*1.1+2)>0.2;
+    ctx.strokeStyle=active?'rgba(0,200,255,0.8)':'rgba(0,180,0,0.4)';
+    ctx.lineWidth=active?1.5:0.5;
+    ctx.beginPath();
+    ctx.moveTo(chipX+chipW,py); ctx.lineTo(chipX+chipW+14,py);
+    ctx.stroke();
+    ctx.fillStyle=active?'rgba(0,200,255,0.8)':'rgba(0,180,0,0.5)';
+    ctx.textAlign='left';
+    ctx.fillText(rightPins[i],chipX+chipW+16,py+2);
+  }
+  ctx.restore();
+}
+
+function drawNTSCSignalTrace() {
+  // NTSC composite video signal trace at top
+  ctx.save();
+  const traceY=H-H*0.12;
+  const traceH=H*0.10;
+  ctx.globalAlpha=0.4;
+  ctx.fillStyle='rgba(0,0,0,0.6)';
+  ctx.fillRect(0,traceY,W,traceH+10);
+
+  ctx.globalAlpha=0.7;
+  ctx.lineWidth=1;
+  ctx.beginPath();
+
+  const blanking=0.12; // fraction of line for blanking
+  for(let x=0;x<W;x++){
+    const prog=x/W;
+    const linePhase=(prog*4+t*0.5)%1; // multiple visible lines
+
+    let signal;
+    if(linePhase<blanking){
+      // Horizontal blanking + sync
+      if(linePhase<blanking*0.4) signal=-0.4; // sync tip
+      else signal=0; // back porch
+    } else {
+      // Active video
+      const vidPhase=(linePhase-blanking)/(1-blanking);
+      const hue=Math.floor(vidPhase*16);
+      const luma=(Math.floor(vidPhase*8)%8)/7;
+      signal=0.1+luma*0.8+Math.sin(vidPhase*Math.PI*2*3.58+t*60)*0.15;
+    }
+
+    const y=traceY+traceH/2-signal*traceH*0.5;
+    if(x===0) ctx.moveTo(x,y);
+    else ctx.lineTo(x,y);
+  }
+
+  const traceGrad=ctx.createLinearGradient(0,0,W,0);
+  for(let h=0;h<16;h++){
+    const c=ATARI_NTSC[h*8+4];
+    const [r,g,b]=hexToRgb(c);
+    traceGrad.addColorStop(h/16,`rgba(${r},${g},${b},0.9)`);
+  }
+  ctx.strokeStyle=traceGrad;
+  ctx.stroke();
+
+  // Labels
+  ctx.globalAlpha=0.5;
+  ctx.fillStyle='rgba(255,215,0,0.7)';
+  ctx.font=`${Math.max(6,Math.min(8,W/120))}px 'Courier New'`;
+  ctx.textAlign='left';
+  ctx.fillText('NTSC COMPOSITE ▲ 1.0Vpp  SYNC ▼ -0.4V',8,traceY-4);
+  ctx.fillText('IRE +100',W*0.02,traceY+5);
+  ctx.fillText('IRE 0',W*0.02,traceY+traceH/2);
+  ctx.fillText('IRE -40',W*0.02,traceY+traceH-5);
+  ctx.restore();
+}
+
+function drawFloatingColorCells() {
+  // Floating palette color cells scattered across canvas
+  ctx.save();
+  const count=Math.floor(W*H/25000)+8;
+  const baseTime=t*0.001;
+  for(let i=0;i<count;i++){
+    // Deterministic pseudo-random position based on index and time
+    const phase=i*2.399+baseTime*(1+(i%5)*0.15);
+    const x=((Math.sin(phase)*0.5+0.5)*W);
+    const y=((Math.cos(phase*1.3)*0.5+0.5)*H);
+    const cidx=i%128;
+    const c=ATARI_NTSC[cidx];
+    const [r,g,b]=hexToRgb(c);
+    const sz=4+Math.sin(phase*3)*2;
+    const alpha=0.3+0.25*Math.sin(phase*2+i);
+    ctx.globalAlpha=alpha;
+    ctx.fillStyle=`rgb(${r},${g},${b})`;
+    ctx.fillRect(x-sz/2,y-sz/2,sz,sz);
+  }
+  ctx.restore();
+}
+
+function drawPaletteSweepBand() {
+  // Full palette sweeping band
+  ctx.save();
+  const bandY=(Math.sin(t*0.15)*0.3+0.5)*H;
+  const bandH=Math.min(H*0.06,40);
+  const barW=W/128;
+  for(let i=0;i<128;i++){
+    const offset=(i+Math.floor(t*30))%128;
+    const c=ATARI_NTSC[offset];
+    const [r,g,b]=hexToRgb(c);
+    ctx.globalAlpha=0.35+0.25*Math.abs(Math.sin(t+i*0.15));
+    ctx.fillStyle=`rgb(${r},${g},${b})`;
+    ctx.fillRect(i*barW,bandY,barW+1,bandH);
+  }
+  ctx.restore();
+}
+
+function drawModeLabel() {
+  ctx.save();
+  const modeNames=['ATTRACT','TITLE SCREEN','IN GAME','TRANSITION','DEMO'];
+  const modeName=modeNames[Math.floor(t*0.1)%modeNames.length];
+  const c=ATARI_NTSC[Math.floor(t*5)%128];
+  const [r,g,b]=hexToRgb(c);
+  ctx.globalAlpha=0.4+0.2*Math.sin(t*3);
+  ctx.fillStyle=`rgba(${r},${g},${b},0.8)`;
+  ctx.font=`${Math.max(8,Math.min(11,W/80))}px 'Courier New'`;
+  ctx.textAlign='right';
+  ctx.fillText(`MODE: ${modeName}`,W-8,H*0.08);
+  document.getElementById('h-mode').textContent=modeName;
+  ctx.restore();
+}
+
+// ============================================================
+// SOUND ENGINE
+// ============================================================
+function startSound() {
+  if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+  // TIA-style square wave bleeps
+  const osc=audioCtx.createOscillator();
+  const gain=audioCtx.createGain();
+  osc.type='square';
+  const tiaFreqs=[110,220,440,880,55,165,330,660];
+  osc.frequency.value=tiaFreqs[Math.floor(Math.random()*tiaFreqs.length)];
+  gain.gain.value=0.04;
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.start();
+  gain.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+0.3);
+  osc.stop(audioCtx.currentTime+0.35);
+}
+
+// ============================================================
+// MAIN LOOP
+// ============================================================
+function loop() {
+  t+=0.016;
+  frame++;
+
+  drawBackground();
+  drawLumaBars();
+  drawPlayfieldVisualization();
+  drawCircuitBoard();
+  drawElectrons();
+  drawFloatingColorCells();
+  drawPaletteSweepBand();
+  drawColorBurstSignal();
+  drawWaveforms();
+  drawChromaWheels();
+  drawColorPaletteRing();
+  drawPhaseVectorDiagram();
+  drawSprites();
+  drawTIAChipDiagram();
+  drawColorRegisters();
+  drawNTSCSignalTrace();
+  drawScanlineBeam();
+  drawPixelatedTitle();
+  drawModeLabel();
+  drawScanlineOverlay();
+
+  if(hudVisible) updateHUD();
+  if(soundOn && frame%45===0) startSound();
+
+  requestAnimationFrame(loop);
+}
+
+// ============================================================
+// INPUT HANDLERS
+// ============================================================
+function resetSystem() {
+  init();
+}
+
+window.addEventListener('keydown', e=>{
+  if(e.code==='Space') { e.preventDefault(); resetSystem(); }
+  if(e.key==='h'||e.key==='H') {
+    hudVisible=!hudVisible;
+    document.getElementById('hud').classList.toggle('visible',hudVisible);
+  }
+  if(e.key==='s'||e.key==='S') {
+    soundOn=!soundOn;
+    if(soundOn && !audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+  }
+});
+
+canvas.addEventListener('click', ()=>resetSystem());
+canvas.addEventListener('touchstart', e=>{ e.preventDefault(); resetSystem(); }, {passive:false});
+
+window.addEventListener('resize', ()=>{ resize(); });
+
+// Fade out key hint
+setTimeout(()=>{
+  const hint=document.getElementById('key-hint');
+  if(hint) hint.style.opacity='0';
+}, 6000);
+
+// ============================================================
+// BOOT
+// ============================================================
+resize();
+init();
+loop();
+</script>
+
+<!--
+  Structured Data for SEO
+-->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Atari 2600 Color Palette Engineering – TIA Chip Video Graphics Animation",
+  "applicationCategory": "MultimediaApplication",
+  "operatingSystem": "Web Browser",
+  "description": "An immersive real-time interactive animation showcasing the Atari 2600 TIA chip color science, NTSC color palette engineering, scanline rendering, sprite graphics (P0, P1, M0, M1, BL), playfield graphics, chroma phase vectors, circuit board electron flow, color registers (COLUP0, COLUP1, COLUPF, COLUBK), luma bars, and composite video signal traces. Features all 128 authentic Atari 2600 NTSC colors arranged by hue and luminance as defined by the Television Interface Adaptor (TIA) chip.",
+  "keywords": ["Atari 2600", "TIA chip", "NTSC palette", "color science", "video graphics", "retro gaming", "scanline", "sprite graphics", "color burst", "vintage hardware", "6507 CPU"],
+  "url": "https://atari2600-color-science.html",
+  "author": {
+    "@type": "Organization",
+    "name": "Atari 2600 Color Science Visualization Project"
+  },
+  "about": [
+    {"@type": "Thing", "name": "Atari 2600"},
+    {"@type": "Thing", "name": "Television Interface Adaptor"},
+    {"@type": "Thing", "name": "NTSC Color Encoding"},
+    {"@type": "Thing", "name": "Video Game Hardware"},
+    {"@type": "Thing", "name": "Retro Computing"},
+    {"@type": "Thing", "name": "Color Palette Engineering"}
+  ]
+}
+</script>
+
+</body>
+</html>

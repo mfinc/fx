@@ -1,0 +1,1542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="description" content="Atari 2600 TIA Color Palette Engineering Showcase — An immersive animated visualization of the Atari 2600 Television Interface Adaptor (TIA) chip color science, NTSC palette, scanline rendering, playfield graphics, sprite logic, and retro video game color circuitry. All 128 colors rendered in authentic phosphor glory.">
+<meta name="keywords" content="Atari 2600, TIA chip, color palette, NTSC, retro gaming, video game graphics, color science, scanline, phosphor, television interface adaptor, vintage gaming, color engineering, pixel art animation, retro computer graphics, Atari colors, 6507 CPU, game cartridge, sprite graphics, playfield, missile objects, ball object, player sprites">
+<meta name="robots" content="index, follow, max-image-preview:large">
+<meta name="author" content="Atari 2600 TIA Color Palette Showcase">
+<meta property="og:title" content="Atari 2600 TIA Color Palette — Animated Color Science Engineering Showcase">
+<meta property="og:description" content="Breathtaking animated visualization of the Atari 2600 TIA chip color palette, scanline graphics, and retro video game color engineering circuitry.">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#000000">
+<title>Atari 2600 TIA Color Palette — Animated Color Science Engineering Showcase | Retro Video Game Graphics</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background: #000;
+    font-family: 'Courier New', monospace;
+  }
+  canvas {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+    image-rendering: pixelated;
+  }
+  #hud {
+    display: none;
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    z-index: 100;
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    color: #0f0;
+    padding: 10px;
+  }
+  #hud.visible { display: block; }
+  #hud-panel {
+    background: rgba(0,0,0,0.72);
+    border: 1px solid #0f0;
+    padding: 8px 14px;
+    display: inline-block;
+    line-height: 1.7;
+    min-width: 280px;
+  }
+  #hud-panel span { color: #ff0; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div id="hud-panel">
+    <div>▓ ATARI 2600 TIA COLOR SCIENCE ENGINE ▓</div>
+    <div>FRAME: <span id="h-frame">0</span> &nbsp; FPS: <span id="h-fps">60</span></div>
+    <div>SCENE: <span id="h-scene">—</span></div>
+    <div>SCANLINE: <span id="h-scan">0</span> / 262</div>
+    <div>PALETTE COLORS: <span id="h-colors">128</span></div>
+    <div>ACTIVE SPRITES: <span id="h-sprites">0</span></div>
+    <div>HUES: <span id="h-hues">16</span> × LUMAS: <span id="h-lumas">8</span></div>
+    <div>TIA CLOCK: <span id="h-clk">3.579545 MHz</span></div>
+    <div>CPU: MOS 6507 @ 1.19 MHz</div>
+    <div>SEED: <span id="h-seed">0</span></div>
+    <div>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</div>
+    <div>[SPACE/CLICK/TAP] RESET &nbsp; [H] HUD &nbsp; [S] SOUND</div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// ATARI 2600 TIA AUTHENTIC COLOR PALETTE (NTSC, all 128 colors)
+// Hue 0-15 × Luminance 1-7 (luma 0 = black)
+// ============================================================
+const ATARI_NTSC = [
+  // Hue 0: Gray
+  0x000000,0x404040,0x6c6c6c,0x909090,0xb0b0b0,0xc8c8c8,0xdcdcdc,0xf4f4f4,
+  // Hue 1: Gold
+  0x444400,0x646410,0x848424,0xa0a034,0xb8b840,0xd0d050,0xe8e85c,0xfcfc68,
+  // Hue 2: Orange-gold
+  0x702800,0x844414,0x985c28,0xac783c,0xbc8c4c,0xcca05c,0xdcb468,0xecc878,
+  // Hue 3: Orange
+  0x841800,0x983418,0xac5030,0xc06848,0xd07c5c,0xe09470,0xeca880,0xfcbc94,
+  // Hue 4: Red-orange
+  0x880000,0x9c2020,0xb03c3c,0xc05858,0xd07070,0xe08888,0xeca0a0,0xfcb4b4,
+  // Hue 5: Pink
+  0x78005c,0x8c2074,0xa03c88,0xb0589c,0xc070b0,0xd084c0,0xdc9cd0,0xecb0e0,
+  // Hue 6: Purple
+  0x480078,0x602090,0x7840a8,0x8c58bc,0xa070cc,0xb484dc,0xc49ce8,0xd4b0f4,
+  // Hue 7: Violet-blue
+  0x140084,0x302098,0x4c3cac,0x6858c0,0x7c70d0,0x9488e0,0xaca0ec,0xc0b4f8,
+  // Hue 8: Blue
+  0x000088,0x1c209c,0x3840b0,0x505cc4,0x6874d4,0x7c8ce4,0x90a4f0,0xa8b8fc,
+  // Hue 9: Cyan-blue
+  0x00187c,0x1c3890,0x3854a8,0x5070bc,0x6888cc,0x7c9cdc,0x90b4ec,0xa8c8fc,
+  // Hue 10: Cyan
+  0x002c5c,0x1c4c78,0x386890,0x5084ac,0x689cc0,0x80b4d4,0x94cce4,0xace0f8,
+  // Hue 11: Teal
+  0x003c2c,0x1c5c48,0x387c64,0x549880,0x6cb494,0x80ccac,0x94e0c0,0xacf4d4,
+  // Hue 12: Green
+  0x003c00,0x205c20,0x407c40,0x5c9c5c,0x74b474,0x8cd08c,0xa4e4a4,0xbcf4bc,
+  // Hue 13: Yellow-green
+  0x143800,0x345c1c,0x507c38,0x6c9c50,0x84b468,0x9ccc80,0xb4e494,0xc8f4ac,
+  // Hue 14: Yellow
+  0x2c3000,0x4c5018,0x686c30,0x848848,0x9ca05c,0xb4b870,0xccd084,0xe0e898,
+  // Hue 15: Orange-yellow
+  0x442c00,0x644c18,0x846830,0xa08448,0xb89c5c,0xd0b470,0xe8cc84,0xfce09c,
+];
+
+// Full 128-color TIA palette (hues 0-15, luma 0 = black excluded, luma 1-7 = 7 shades)
+// We'll build the full indexed set:
+function buildPalette() {
+  // Returns array of {r,g,b,hex,hue,luma,index}
+  const pal = [];
+  for (let h = 0; h < 16; h++) {
+    for (let l = 0; l < 8; l++) {
+      const hex = ATARI_NTSC[h * 8 + l];
+      const r = (hex >> 16) & 0xff;
+      const g = (hex >> 8) & 0xff;
+      const b = hex & 0xff;
+      pal.push({ hex, r, g, b, hue: h, luma: l, index: h * 8 + l });
+    }
+  }
+  return pal;
+}
+
+const PALETTE = buildPalette();
+
+// TIA register names
+const TIA_REGISTERS = [
+  'VSYNC','VBLANK','WSYNC','RSYNC','NUSIZ0','NUSIZ1','COLUP0','COLUP1',
+  'COLUPF','COLUBK','CTRLPF','REFP0','REFP1','PF0','PF1','PF2',
+  'RESP0','RESP1','RESM0','RESM1','RESBL','AUDC0','AUDC1','AUDF0',
+  'AUDF1','AUDV0','AUDV1','GRP0','GRP1','ENAM0','ENAM1','ENABL',
+  'HMP0','HMP1','HMM0','HMM1','HMBL','VDELP0','VDELP1','VDELBL',
+  'RESMP0','RESMP1','HMOVE','HMCLR','CXCLR'
+];
+
+const HUE_NAMES = [
+  'GRAY','GOLD','ORANGE-GOLD','ORANGE','RED-ORANGE',
+  'PINK','PURPLE','VIOLET-BLUE','BLUE','CYAN-BLUE',
+  'CYAN','TEAL','GREEN','YELLOW-GREEN','YELLOW','ORANGE-YELLOW'
+];
+
+// ============================================================
+// CANVAS SETUP
+// ============================================================
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H;
+
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', () => { resize(); });
+
+// ============================================================
+// GLOBAL STATE
+// ============================================================
+let seed = Math.random() * 99999 | 0;
+let frame = 0;
+let lastTime = 0;
+let fps = 60;
+let hudVisible = false;
+let soundEnabled = false;
+let sceneIndex = 0;
+let sceneTimer = 0;
+let sceneDuration = 600; // frames per scene
+let globalT = 0;
+let rng; // seeded rng
+
+// Audio
+let audioCtx = null;
+let masterGain = null;
+
+function initAudio() {
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  masterGain = audioCtx.createGain();
+  masterGain.gain.value = 0.15;
+  masterGain.connect(audioCtx.destination);
+}
+
+function playTone(freq, type, dur, vol) {
+  if (!soundEnabled || !audioCtx) return;
+  const osc = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  osc.type = type || 'square';
+  osc.frequency.value = freq;
+  g.gain.setValueAtTime(vol || 0.1, audioCtx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+  osc.connect(g);
+  g.connect(masterGain);
+  osc.start();
+  osc.stop(audioCtx.currentTime + dur);
+}
+
+// Seeded RNG (mulberry32)
+function mkRng(s) {
+  return function() {
+    s |= 0; s = s + 0x6D2B79F5 | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = t + Math.imul(t ^ (t >>> 7), 61 | t) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// ============================================================
+// SCENE SYSTEM
+// ============================================================
+const SCENES = [
+  'TIA_CIRCUIT_BOARD',
+  'PALETTE_WHEEL',
+  'SCANLINE_ENGINE',
+  'SPRITE_PARADE',
+  'PLAYFIELD_MATRIX',
+  'COLOR_BURST_REACTOR',
+  'NTSC_WAVEFORM',
+  'REGISTER_STORM',
+  'PLASMA_FIELD',
+  'CARTRIDGE_UNIVERSE',
+];
+
+// ============================================================
+// PARTICLES & SPRITES
+// ============================================================
+let particles = [];
+let scanParticles = [];
+let registerFlashes = [];
+let spriteObjects = [];
+let colorBursts = [];
+let plasmaSeeds = [];
+let circuitNodes = [];
+let circuitEdges = [];
+
+// ============================================================
+// RESET / INIT
+// ============================================================
+function reset() {
+  seed = Math.random() * 0xFFFFFF | 0;
+  rng = mkRng(seed);
+  frame = 0;
+  sceneTimer = 0;
+  sceneIndex = Math.floor(rng() * SCENES.length);
+  sceneDuration = 480 + Math.floor(rng() * 360);
+  particles = [];
+  scanParticles = [];
+  spriteObjects = [];
+  colorBursts = [];
+  plasmaSeeds = [];
+  circuitNodes = [];
+  circuitEdges = [];
+  registerFlashes = [];
+
+  initScene();
+
+  document.getElementById('h-seed').textContent = seed;
+  document.getElementById('h-colors').textContent = '128';
+  document.getElementById('h-hues').textContent = '16';
+  document.getElementById('h-lumas').textContent = '8';
+}
+
+function initScene() {
+  const scene = SCENES[sceneIndex];
+  document.getElementById('h-scene').textContent = scene;
+
+  if (scene === 'TIA_CIRCUIT_BOARD') initCircuit();
+  if (scene === 'PALETTE_WHEEL') initPaletteWheel();
+  if (scene === 'SCANLINE_ENGINE') initScanlines();
+  if (scene === 'SPRITE_PARADE') initSprites();
+  if (scene === 'PLAYFIELD_MATRIX') initPlayfield();
+  if (scene === 'COLOR_BURST_REACTOR') initBursts();
+  if (scene === 'NTSC_WAVEFORM') initWaveform();
+  if (scene === 'REGISTER_STORM') initRegisters();
+  if (scene === 'PLASMA_FIELD') initPlasma();
+  if (scene === 'CARTRIDGE_UNIVERSE') initCartridge();
+}
+
+// ============================================================
+// INIT FUNCTIONS
+// ============================================================
+function initCircuit() {
+  circuitNodes = [];
+  circuitEdges = [];
+  const cols = 18, rows = 12;
+  for (let i = 0; i < cols; i++) {
+    for (let j = 0; j < rows; j++) {
+      const px = (i / (cols - 1)) * W * 0.88 + W * 0.06;
+      const py = (j / (rows - 1)) * H * 0.84 + H * 0.08;
+      const pIdx = Math.floor(rng() * 128);
+      circuitNodes.push({
+        x: px, y: py,
+        ox: px, oy: py,
+        color: PALETTE[pIdx],
+        pulse: rng() * Math.PI * 2,
+        pulseSpeed: 0.02 + rng() * 0.05,
+        size: 4 + rng() * 8,
+        label: TIA_REGISTERS[Math.floor(rng() * TIA_REGISTERS.length)],
+        active: false,
+        activeTimer: 0,
+        kind: rng() < 0.2 ? 'register' : rng() < 0.5 ? 'bus' : 'gate',
+      });
+    }
+  }
+  // Edges
+  for (let i = 0; i < circuitNodes.length; i++) {
+    const n = circuitNodes[i];
+    // Connect right
+    if (i % cols < cols - 1) circuitEdges.push({ a: i, b: i + 1, pulse: 0, speed: 0.01 + rng() * 0.03 });
+    // Connect down
+    if (i < circuitNodes.length - cols) circuitEdges.push({ a: i, b: i + cols, pulse: 0, speed: 0.01 + rng() * 0.03 });
+    // Some diagonal
+    if (rng() < 0.08 && i < circuitNodes.length - cols - 1 && i % cols < cols - 1)
+      circuitEdges.push({ a: i, b: i + cols + 1, pulse: 0, speed: 0.01 + rng() * 0.04 });
+  }
+}
+
+function initPaletteWheel() {
+  particles = [];
+  for (let i = 0; i < 128; i++) {
+    const p = PALETTE[i];
+    const angle = (i / 128) * Math.PI * 2;
+    const r = 0.3 * Math.min(W, H) + (p.luma / 7) * 0.12 * Math.min(W, H);
+    particles.push({
+      targetX: W / 2 + Math.cos(angle) * r,
+      targetY: H / 2 + Math.sin(angle) * r,
+      x: W / 2 + (rng() - 0.5) * W,
+      y: H / 2 + (rng() - 0.5) * H,
+      vx: 0, vy: 0,
+      color: p,
+      size: 6 + p.luma * 2,
+      angle, r,
+      orbitSpeed: 0.003 + rng() * 0.002,
+      orbitOffset: rng() * Math.PI * 2,
+      trail: [],
+    });
+  }
+}
+
+function initScanlines() {
+  scanParticles = [];
+  for (let i = 0; i < 60; i++) {
+    const pIdx = Math.floor(rng() * 128);
+    scanParticles.push({
+      y: rng() * H,
+      speed: 1 + rng() * 3,
+      color: PALETTE[pIdx],
+      width: W * (0.4 + rng() * 0.6),
+      x: rng() * W * 0.3,
+      alpha: 0.3 + rng() * 0.7,
+      thickness: 1 + Math.floor(rng() * 3),
+    });
+  }
+}
+
+function initSprites() {
+  spriteObjects = [];
+  for (let i = 0; i < 24; i++) {
+    const pIdx0 = Math.floor(rng() * 128);
+    const pIdx1 = Math.floor(rng() * 128);
+    spriteObjects.push({
+      x: rng() * W,
+      y: rng() * H,
+      vx: (rng() - 0.5) * 3,
+      vy: (rng() - 0.5) * 3,
+      color0: PALETTE[pIdx0],
+      color1: PALETTE[pIdx1],
+      pattern: generateSpritePattern(),
+      scale: 3 + Math.floor(rng() * 5),
+      flipH: rng() < 0.5,
+      angle: rng() * Math.PI * 2,
+      rotSpeed: (rng() - 0.5) * 0.03,
+      label: TIA_REGISTERS[Math.floor(rng() * TIA_REGISTERS.length)],
+    });
+  }
+}
+
+function generateSpritePattern() {
+  // 8x8 sprite bitmap (TIA sprite is 8 pixels wide)
+  const pat = [];
+  for (let y = 0; y < 8; y++) {
+    let row = 0;
+    for (let x = 0; x < 8; x++) {
+      if (rng() < 0.5) row |= (1 << (7 - x));
+    }
+    pat.push(row);
+  }
+  return pat;
+}
+
+function initPlayfield() {
+  particles = [];
+  // 20-bit playfield register (PF0, PF1, PF2)
+  for (let col = 0; col < 40; col++) {
+    for (let row = 0; row < 24; row++) {
+      const pIdx = Math.floor(rng() * 128);
+      particles.push({
+        col, row,
+        color: PALETTE[pIdx],
+        nextColor: PALETTE[Math.floor(rng() * 128)],
+        transition: 0,
+        active: rng() < 0.6,
+        pulsePhase: rng() * Math.PI * 2,
+      });
+    }
+  }
+}
+
+function initBursts() {
+  colorBursts = [];
+  for (let i = 0; i < 200; i++) {
+    spawnBurst();
+  }
+}
+
+function spawnBurst() {
+  const pIdx = Math.floor(rng() * 128);
+  colorBursts.push({
+    x: rng() * W, y: rng() * H,
+    vx: (rng() - 0.5) * 8,
+    vy: (rng() - 0.5) * 8,
+    color: PALETTE[pIdx],
+    size: 2 + rng() * 12,
+    life: 1.0,
+    decay: 0.005 + rng() * 0.02,
+    trail: [],
+  });
+}
+
+function initWaveform() {
+  particles = [];
+  for (let i = 0; i < 128; i++) {
+    particles.push({
+      hue: i >> 3,
+      luma: i & 7,
+      color: PALETTE[i],
+      phase: rng() * Math.PI * 2,
+      amp: 0.05 + rng() * 0.15,
+      freq: 1 + rng() * 4,
+    });
+  }
+}
+
+function initRegisters() {
+  registerFlashes = [];
+  for (let i = 0; i < TIA_REGISTERS.length; i++) {
+    const pIdx = Math.floor(rng() * 128);
+    registerFlashes.push({
+      name: TIA_REGISTERS[i],
+      x: rng() * W * 0.8 + W * 0.1,
+      y: rng() * H * 0.8 + H * 0.1,
+      vx: (rng() - 0.5) * 2,
+      vy: (rng() - 0.5) * 2,
+      color: PALETTE[pIdx],
+      value: Math.floor(rng() * 256),
+      alpha: rng(),
+      size: 14 + Math.floor(rng() * 20),
+      pulse: rng() * Math.PI * 2,
+      pulseSpeed: 0.03 + rng() * 0.07,
+    });
+  }
+}
+
+function initPlasma() {
+  plasmaSeeds = [];
+  for (let i = 0; i < 8; i++) {
+    plasmaSeeds.push({
+      fx: rng(), fy: rng(),
+      freqX: 1 + rng() * 3,
+      freqY: 1 + rng() * 3,
+      phase: rng() * Math.PI * 2,
+      speed: 0.01 + rng() * 0.04,
+    });
+  }
+}
+
+function initCartridge() {
+  particles = [];
+  for (let i = 0; i < 180; i++) {
+    const pIdx = Math.floor(rng() * 128);
+    particles.push({
+      x: rng() * W,
+      y: rng() * H,
+      vx: (rng() - 0.5) * 1.5,
+      vy: (rng() - 0.5) * 1.5,
+      color: PALETTE[pIdx],
+      size: 2 + rng() * 8,
+      alpha: 0.4 + rng() * 0.6,
+      twinkle: rng() * Math.PI * 2,
+      twinkleSpeed: 0.02 + rng() * 0.06,
+      label: rng() < 0.15 ? TIA_REGISTERS[Math.floor(rng() * TIA_REGISTERS.length)] : null,
+    });
+  }
+}
+
+// ============================================================
+// HELPERS
+// ============================================================
+function safeNum(v, fallback) {
+  const n = +v;
+  return (isFinite(n) && !isNaN(n)) ? n : (fallback || 0);
+}
+
+function hexColor(p, alpha) {
+  const r = safeNum(p.r, 0)|0, g = safeNum(p.g, 0)|0, b = safeNum(p.b, 0)|0;
+  if (alpha === undefined) return `rgb(${r},${g},${b})`;
+  const a = safeNum(alpha, 1);
+  return `rgba(${r},${g},${b},${a})`;
+}
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+function drawScanlineOverlay(alpha) {
+  ctx.save();
+  ctx.globalAlpha = safeNum(alpha, 0.3);
+  ctx.fillStyle = 'rgba(0,0,0,0.18)';
+  for (let y = 0; y < H; y += 2) {
+    ctx.fillRect(0, y, W, 1);
+  }
+  ctx.restore();
+}
+
+function drawVignetteOverlay() {
+  const cx = W / 2, cy = H / 2;
+  const r0 = Math.min(W, H) * 0.3;
+  const r1 = Math.max(W, H) * 0.72;
+  if (r0 >= r1 || r0 < 0 || r1 <= 0) return; // guard degenerate gradient
+  const grad = ctx.createRadialGradient(cx, cy, r0, cx, cy, r1);
+  grad.addColorStop(0, 'rgba(0,0,0,0)');
+  grad.addColorStop(1, 'rgba(0,0,0,0.6)');
+  ctx.save();
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+  ctx.restore();
+}
+
+function drawPhosphorGlow(x, y, r, color, intensity) {
+  const sr = safeNum(r, 1);
+  const si = safeNum(intensity, 0);
+  if (sr <= 0 || si <= 0 || !isFinite(x) || !isFinite(y)) return;
+  const cr = safeNum(color && color.r, 0)|0;
+  const cg = safeNum(color && color.g, 0)|0;
+  const cb = safeNum(color && color.b, 0)|0;
+  const i0 = Math.min(1, si);
+  const i1 = Math.min(1, si * 0.4);
+  try {
+    const grad = ctx.createRadialGradient(x, y, 0, x, y, sr);
+    grad.addColorStop(0, `rgba(${cr},${cg},${cb},${i0})`);
+    grad.addColorStop(0.4, `rgba(${cr},${cg},${cb},${i1})`);
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.save();
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(x, y, sr, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  } catch(e) { /* skip degenerate glow */ }
+}
+
+function drawPixelSprite(x, y, pattern, color0, color1, scale, flipH) {
+  ctx.save();
+  ctx.translate(x, y);
+  for (let row = 0; row < pattern.length; row++) {
+    const bits = pattern[row];
+    for (let col = 0; col < 8; col++) {
+      const bit = flipH ? (bits >> col) & 1 : (bits >> (7 - col)) & 1;
+      if (bit) {
+        ctx.fillStyle = hexColor(row < 4 ? color0 : color1);
+        ctx.fillRect(col * scale, row * scale, scale, scale);
+        // Pixel glow
+        ctx.fillStyle = `rgba(${color0.r},${color0.g},${color0.b},0.2)`;
+        ctx.fillRect(col * scale - 1, row * scale - 1, scale + 2, scale + 2);
+      }
+    }
+  }
+  ctx.restore();
+}
+
+// ============================================================
+// SCENE RENDER FUNCTIONS
+// ============================================================
+
+// SCENE 0: TIA Circuit Board
+function drawCircuit(t) {
+  ctx.fillStyle = '#000508';
+  ctx.fillRect(0, 0, W, H);
+
+  // Grid background
+  ctx.save();
+  ctx.strokeStyle = 'rgba(0,60,30,0.25)';
+  ctx.lineWidth = 0.5;
+  const gsp = 40;
+  for (let x = 0; x < W; x += gsp) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y < H; y += gsp) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+  ctx.restore();
+
+  // Update & draw edges
+  for (const e of circuitEdges) {
+    e.pulse = (e.pulse + e.speed) % 1;
+    const a = circuitNodes[e.a];
+    const b = circuitNodes[e.b];
+    // Draw wire
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.strokeStyle = `rgba(0,80,40,0.4)`;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    // Pulse dot
+    const px = lerp(a.x, b.x, e.pulse);
+    const py = lerp(a.y, b.y, e.pulse);
+    const pc = (a && a.color) ? a.color : PALETTE[0];
+    drawPhosphorGlow(px, py, 10, pc, 0.7);
+    ctx.fillStyle = hexColor(pc);
+    ctx.beginPath();
+    ctx.arc(px, py, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Update & draw nodes
+  for (const n of circuitNodes) {
+    n.pulse += n.pulseSpeed;
+    const glow = 0.5 + 0.5 * Math.sin(n.pulse);
+    n.x = n.ox + Math.sin(n.pulse * 0.3) * 3;
+    n.y = n.oy + Math.cos(n.pulse * 0.3) * 3;
+
+    // Randomly activate nodes
+    if (rng() < 0.002) { n.active = true; n.activeTimer = 30; playTone(220 + n.color.hue * 80, 'square', 0.1, 0.05); }
+    if (n.activeTimer > 0) { n.activeTimer--; if (n.activeTimer === 0) n.active = false; }
+
+    const r = n.size * (n.active ? 2 : 1);
+    drawPhosphorGlow(n.x, n.y, r * 4, n.color, 0.3 + glow * 0.4);
+
+    ctx.save();
+    ctx.fillStyle = hexColor(n.color, 0.7 + glow * 0.3);
+    if (n.kind === 'register') {
+      ctx.fillRect(n.x - r / 2, n.y - r / 2, r, r);
+    } else if (n.kind === 'gate') {
+      ctx.beginPath();
+      ctx.moveTo(n.x, n.y - r);
+      ctx.lineTo(n.x + r, n.y + r);
+      ctx.lineTo(n.x - r, n.y + r);
+      ctx.closePath();
+      ctx.fill();
+    } else {
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    if (n.active) {
+      ctx.fillStyle = '#fff';
+      ctx.font = `bold 8px Courier New`;
+      ctx.textAlign = 'center';
+      ctx.fillText(n.label, n.x, n.y - r - 4);
+    }
+    ctx.restore();
+  }
+
+  // Title
+  ctx.save();
+  ctx.fillStyle = `rgba(0,255,120,${0.6 + 0.4 * Math.sin(t * 0.02)})`;
+  ctx.font = `bold ${Math.min(W * 0.025, 22)}px Courier New`;
+  ctx.textAlign = 'center';
+  ctx.fillText('ATARI 2600 TIA CHIP — CIRCUIT ARCHITECTURE', W / 2, H * 0.95);
+  ctx.fillStyle = 'rgba(0,180,80,0.7)';
+  ctx.font = `${Math.min(W * 0.015, 13)}px Courier New`;
+  ctx.fillText('TELEVISION INTERFACE ADAPTOR · 3.579545 MHz · 128 COLORS · 262 SCANLINES/FRAME', W / 2, H * 0.97);
+  ctx.restore();
+}
+
+// SCENE 1: Palette Wheel
+function drawPaletteWheel(t) {
+  ctx.fillStyle = 'rgba(0,0,0,0.2)';
+  ctx.fillRect(0, 0, W, H);
+
+  const cx = W / 2, cy = H / 2;
+  const maxR = Math.min(W, H) * 0.44;
+
+  // Background hue rings
+  for (let h = 0; h < 16; h++) {
+    const angle = (h / 16) * Math.PI * 2;
+    for (let l = 1; l < 8; l++) {
+      const p = PALETTE[h * 8 + l];
+      const r1 = maxR * (l / 8) * 0.95;
+      const r2 = maxR * ((l + 1) / 8) * 0.95;
+      const a1 = angle - Math.PI / 16;
+      const a2 = angle + Math.PI / 16;
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.arc(cx, cy, r2, a1, a2);
+      ctx.arc(cx, cy, r1, a2, a1, true);
+      ctx.closePath();
+      ctx.fillStyle = hexColor(p, 0.85);
+      ctx.fill();
+      ctx.restore();
+    }
+    // Hue label
+    const lr = maxR * 1.04;
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx.font = `${Math.min(W * 0.008, 9)}px Courier New`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(HUE_NAMES[h].split('-')[0], cx + Math.cos(angle) * lr, cy + Math.sin(angle) * lr);
+    ctx.restore();
+  }
+
+  // Animated orbit particles
+  for (let i = 0; i < particles.length; i++) {
+    const p = particles[i];
+    p.orbitOffset += p.orbitSpeed;
+    const angle = p.angle + p.orbitOffset + Math.sin(t * 0.01 + i) * 0.05;
+    const r = p.r + Math.sin(t * 0.02 + i * 0.3) * 8;
+    p.x = cx + Math.cos(angle) * r;
+    p.y = cy + Math.sin(angle) * r;
+
+    drawPhosphorGlow(p.x, p.y, p.size * 3, p.color, 0.5);
+    ctx.save();
+    ctx.fillStyle = hexColor(p.color);
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size * 0.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Center TIA chip
+  const chipR = maxR * 0.12;
+  const chipGlow = 0.6 + 0.4 * Math.sin(t * 0.03);
+  drawPhosphorGlow(cx, cy, chipR * 3, {r: 200, g: 255, b: 200}, chipGlow * 0.5);
+  ctx.save();
+  ctx.fillStyle = '#1a1a1a';
+  ctx.strokeStyle = `rgba(0,255,100,${chipGlow})`;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(cx, cy, chipR, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = `rgba(0,255,100,${chipGlow})`;
+  ctx.font = `bold ${Math.min(W * 0.014, 14)}px Courier New`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('TIA', cx, cy - 8);
+  ctx.font = `${Math.min(W * 0.01, 10)}px Courier New`;
+  ctx.fillText('128 COLORS', cx, cy + 6);
+  ctx.restore();
+
+  // Rotating spoke lines
+  for (let h = 0; h < 16; h++) {
+    const angle = (h / 16) * Math.PI * 2 + t * 0.001;
+    ctx.save();
+    ctx.strokeStyle = `rgba(255,255,255,0.05)`;
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + Math.cos(angle) * maxR * 1.0, cy + Math.sin(angle) * maxR * 1.0);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(255,255,200,0.8)';
+  ctx.font = `bold ${Math.min(W * 0.022, 20)}px Courier New`;
+  ctx.textAlign = 'center';
+  ctx.fillText('ATARI 2600 TIA — NTSC COLOR PALETTE WHEEL', W / 2, H * 0.95);
+  ctx.fillStyle = 'rgba(200,200,100,0.6)';
+  ctx.font = `${Math.min(W * 0.013, 12)}px Courier New`;
+  ctx.fillText('16 HUE BANDS × 8 LUMINANCE LEVELS = 128 UNIQUE COLORS', W / 2, H * 0.97);
+  ctx.restore();
+}
+
+// SCENE 2: Scanline Engine
+function drawScanlineEngine(t) {
+  ctx.fillStyle = 'rgba(0,0,2,0.15)';
+  ctx.fillRect(0, 0, W, H);
+
+  // 262 scanline visualization
+  const lineH = H / 262;
+  const visibleStart = 40; // VBLANK
+  const visibleEnd = 230;
+
+  // Draw VBLANK region
+  ctx.save();
+  ctx.fillStyle = 'rgba(80,0,0,0.15)';
+  ctx.fillRect(0, 0, W, visibleStart * lineH);
+  ctx.fillStyle = 'rgba(80,0,0,0.15)';
+  ctx.fillRect(0, visibleEnd * lineH, W, (262 - visibleEnd) * lineH);
+  ctx.restore();
+
+  // Scan beam
+  const beamLine = ((t * 1.5) % 262);
+  const beamY = beamLine * lineH;
+
+  // Moving scanlines with colors
+  for (const sp of scanParticles) {
+    sp.y += sp.speed;
+    if (sp.y > H) sp.y = -5;
+    const glow = 0.4 + 0.6 * Math.sin(t * 0.05 + sp.y * 0.01);
+    ctx.save();
+    ctx.globalAlpha = sp.alpha * glow;
+    ctx.fillStyle = hexColor(sp.color);
+    ctx.fillRect(sp.x, sp.y, sp.width, sp.thickness);
+    // Phosphor trail
+    for (let tr = 1; tr < 5; tr++) {
+      ctx.globalAlpha = sp.alpha * glow * (1 - tr / 5) * 0.3;
+      ctx.fillRect(sp.x, sp.y - tr * sp.thickness, sp.width, sp.thickness);
+    }
+    ctx.restore();
+  }
+
+  // Active scanline beam
+  ctx.save();
+  if (W > 1) {
+    const beamGrad = ctx.createLinearGradient(0, beamY, W, beamY);
+    beamGrad.addColorStop(0, 'rgba(255,255,255,0)');
+    beamGrad.addColorStop(0.2, 'rgba(200,255,200,0.7)');
+    beamGrad.addColorStop(0.5, 'rgba(255,255,255,0.9)');
+    beamGrad.addColorStop(0.8, 'rgba(200,200,255,0.7)');
+    beamGrad.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = beamGrad;
+    ctx.fillRect(0, beamY, W, 2);
+  }
+  ctx.globalAlpha = 0.15;
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, beamY - 2, W, 6);
+  ctx.restore();
+
+  // Color palette bar on right
+  const palW = W * 0.04;
+  const palX = W - palW - W * 0.02;
+  for (let i = 0; i < 128; i++) {
+    const p = PALETTE[i];
+    const py = (i / 128) * H;
+    const ph = H / 128;
+    ctx.fillStyle = hexColor(p);
+    ctx.fillRect(palX, py, palW, ph + 1);
+  }
+
+  // Scanline counter
+  ctx.save();
+  ctx.fillStyle = 'rgba(0,255,120,0.9)';
+  ctx.font = `bold ${Math.min(W * 0.018, 15)}px Courier New`;
+  ctx.textAlign = 'left';
+  ctx.fillText(`SCANLINE: ${Math.floor(beamLine).toString().padStart(3, '0')} / 262`, W * 0.02, beamY - 8);
+  ctx.font = `${Math.min(W * 0.011, 10)}px Courier New`;
+  ctx.fillStyle = 'rgba(0,200,80,0.7)';
+  ctx.fillText(`VBLANK: 0–39  VISIBLE: 40–229  OVERSCAN: 230–261`, W * 0.02, H * 0.96);
+  ctx.restore();
+
+  // Labels
+  ctx.save();
+  ctx.fillStyle = 'rgba(255,60,60,0.7)';
+  ctx.font = `${Math.min(W * 0.012, 11)}px Courier New`;
+  ctx.textAlign = 'left';
+  ctx.fillText('VBLANK', W * 0.01, visibleStart * lineH * 0.5);
+  ctx.fillText('OVERSCAN', W * 0.01, (visibleEnd + (262 - visibleEnd) / 2) * lineH);
+  ctx.fillStyle = 'rgba(100,255,100,0.8)';
+  ctx.fillText('VISIBLE FRAME (192 LINES)', W * 0.01, (visibleStart + (visibleEnd - visibleStart) / 2) * lineH);
+  ctx.restore();
+
+  document.getElementById('h-scan').textContent = Math.floor(beamLine);
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(200,255,200,0.85)';
+  ctx.font = `bold ${Math.min(W * 0.022, 20)}px Courier New`;
+  ctx.textAlign = 'center';
+  ctx.fillText('ATARI 2600 TIA — SCANLINE RENDERING ENGINE', W / 2, H * 0.022);
+  ctx.restore();
+}
+
+// SCENE 3: Sprite Parade
+function drawSpriteParade(t) {
+  ctx.fillStyle = 'rgba(2,0,5,0.18)';
+  ctx.fillRect(0, 0, W, H);
+
+  for (const sp of spriteObjects) {
+    sp.x += sp.vx;
+    sp.y += sp.vy;
+    sp.angle += sp.rotSpeed;
+    if (sp.x < -80) sp.x = W + 80;
+    if (sp.x > W + 80) sp.x = -80;
+    if (sp.y < -80) sp.y = H + 80;
+    if (sp.y > H + 80) sp.y = -80;
+
+    ctx.save();
+    ctx.translate(sp.x, sp.y);
+    ctx.rotate(sp.angle);
+    drawPixelSprite(-sp.scale * 4, -sp.scale * 4, sp.pattern, sp.color0, sp.color1, sp.scale, sp.flipH);
+    ctx.restore();
+
+    // Glow
+    drawPhosphorGlow(sp.x, sp.y, sp.scale * 10, sp.color0, 0.2);
+
+    // Label
+    ctx.save();
+    ctx.fillStyle = `rgba(${sp.color0.r},${sp.color0.g},${sp.color0.b},0.7)`;
+    ctx.font = `${Math.min(W * 0.009, 9)}px Courier New`;
+    ctx.textAlign = 'center';
+    ctx.fillText(sp.label, sp.x, sp.y + sp.scale * 8 + 14);
+    ctx.restore();
+  }
+
+  // TIA sprite object labels
+  const objs = ['P0','P1','M0','M1','BL','PF'];
+  const objColors = [PALETTE[14*8+4], PALETTE[10*8+4], PALETTE[4*8+4], PALETTE[6*8+4], PALETTE[12*8+4], PALETTE[1*8+5]];
+  for (let i = 0; i < objs.length; i++) {
+    const x = (i + 0.5) / 6 * W;
+    ctx.save();
+    drawPhosphorGlow(x, 30, 25, objColors[i], 0.6);
+    ctx.fillStyle = hexColor(objColors[i]);
+    ctx.font = `bold ${Math.min(W * 0.018, 16)}px Courier New`;
+    ctx.textAlign = 'center';
+    ctx.fillText(objs[i], x, 30);
+    ctx.font = `${Math.min(W * 0.009, 8)}px Courier New`;
+    ctx.fillStyle = 'rgba(200,200,200,0.6)';
+    const descs = ['PLAYER 0','PLAYER 1','MISSILE 0','MISSILE 1','BALL','PLAYFIELD'];
+    ctx.fillText(descs[i], x, 44);
+    ctx.restore();
+  }
+
+  document.getElementById('h-sprites').textContent = spriteObjects.length;
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(255,200,100,0.85)';
+  ctx.font = `bold ${Math.min(W * 0.022, 20)}px Courier New`;
+  ctx.textAlign = 'center';
+  ctx.fillText('ATARI 2600 TIA — SPRITE & OBJECT SYSTEM', W / 2, H * 0.96);
+  ctx.fillStyle = 'rgba(200,150,60,0.6)';
+  ctx.font = `${Math.min(W * 0.012, 11)}px Courier New`;
+  ctx.fillText('P0 · P1 · M0 · M1 · BL · PF  |  GRP0 GRP1 NUSIZ0 NUSIZ1 ENAM0 ENAM1 ENABL', W / 2, H * 0.98);
+  ctx.restore();
+}
+
+// SCENE 4: Playfield Matrix
+function drawPlayfieldMatrix(t) {
+  ctx.fillStyle = 'rgba(0,0,0,0.25)';
+  ctx.fillRect(0, 0, W, H);
+
+  const cols = 40, rows = 24;
+  const cw = W / cols, ch = H / rows;
+
+  for (let i = 0; i < particles.length; i++) {
+    const p = particles[i];
+    const { col, row } = p;
+    const x = col * cw, y = row * ch;
+
+    // Color cycling
+    p.transition += 0.008;
+    if (p.transition >= 1) {
+      p.transition = 0;
+      p.color = p.nextColor;
+      p.nextColor = PALETTE[Math.floor(rng() * 128)];
+    }
+    p.pulsePhase += 0.02;
+
+    if (p.active) {
+      const alpha = 0.6 + 0.4 * Math.sin(p.pulsePhase);
+      ctx.fillStyle = hexColor(p.color, alpha);
+      ctx.fillRect(x + 1, y + 1, cw - 2, ch - 2);
+
+      // Grid label
+      if (cw > 18 && ch > 18) {
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.font = `${Math.min(cw * 0.35, 8)}px Courier New`;
+        ctx.textAlign = 'center';
+        ctx.fillText(`${col.toString(16).toUpperCase()}${row.toString(16).toUpperCase()}`, x + cw / 2, y + ch / 2 + 3);
+      }
+    }
+
+    // Cell border
+    ctx.strokeStyle = 'rgba(40,40,40,0.5)';
+    ctx.lineWidth = 0.5;
+    ctx.strokeRect(x, y, cw, ch);
+  }
+
+  // PF register overlay
+  const regLabels = ['PF0 (4-bit)', 'PF1 (8-bit)', 'PF2 (8-bit)', 'PF0-MIRROR', 'PF1-MIRROR', 'PF2-MIRROR'];
+  const regW = W / 6;
+  for (let i = 0; i < 6; i++) {
+    ctx.save();
+    ctx.strokeStyle = `rgba(0,255,100,0.3)`;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(i * regW, 0, regW, 8);
+    ctx.fillStyle = 'rgba(0,255,100,0.7)';
+    ctx.font = `${Math.min(W * 0.012, 10)}px Courier New`;
+    ctx.textAlign = 'center';
+    ctx.fillText(regLabels[i], i * regW + regW / 2, H - 12);
+    ctx.restore();
+  }
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(100,255,180,0.9)';
+  ctx.font = `bold ${Math.min(W * 0.022, 20)}px Courier New`;
+  ctx.textAlign = 'center';
+  ctx.fillText('ATARI 2600 TIA — PLAYFIELD GRAPHICS MATRIX', W / 2, H * 0.97);
+  ctx.restore();
+}
+
+// SCENE 5: Color Burst Reactor
+function drawColorBurstReactor(t) {
+  ctx.fillStyle = 'rgba(0,0,0,0.1)';
+  ctx.fillRect(0, 0, W, H);
+
+  // Spawn new bursts
+  while (colorBursts.length < 200) spawnBurst();
+
+  // Reactor core
+  const cx = W / 2, cy = H / 2;
+  const coreR = Math.min(W, H) * 0.12 + Math.sin(t * 0.04) * 20;
+  const cIdx = Math.floor(t * 0.5) % 128;
+  const coreColor = PALETTE[cIdx];
+  drawPhosphorGlow(cx, cy, coreR * 3, {r: coreColor.r, g: coreColor.g, b: coreColor.b}, 0.6);
+  ctx.save();
+  ctx.fillStyle = hexColor(coreColor, 0.9);
+  ctx.beginPath();
+  ctx.arc(cx, cy, coreR, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  ctx.font = `bold ${Math.min(W * 0.018, 15)}px Courier New`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(`$${(cIdx * 2).toString(16).toUpperCase().padStart(2, '0')}`, cx, cy - 8);
+  ctx.font = `${Math.min(W * 0.01, 9)}px Courier New`;
+  ctx.fillText(HUE_NAMES[coreColor.hue], cx, cy + 8);
+  ctx.restore();
+
+  // Burst particles
+  for (let i = colorBursts.length - 1; i >= 0; i--) {
+    const b = colorBursts[i];
+    b.x += b.vx;
+    b.y += b.vy;
+    b.vx *= 0.99;
+    b.vy *= 0.99;
+    b.life -= b.decay;
+
+    b.trail.push({ x: b.x, y: b.y });
+    if (b.trail.length > 8) b.trail.shift();
+
+    if (b.life <= 0) {
+      colorBursts.splice(i, 1);
+      continue;
+    }
+
+    // Trail
+    for (let tr = 0; tr < b.trail.length; tr++) {
+      const tp = b.trail[tr];
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, Math.min(1, b.life * (tr / b.trail.length) * 0.4));
+      ctx.fillStyle = hexColor(b.color);
+      ctx.beginPath();
+      ctx.arc(tp.x, tp.y, b.size * 0.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    drawPhosphorGlow(b.x, b.y, b.size * 4, b.color, b.life * 0.4);
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, Math.min(1, isFinite(b.life) ? b.life : 0));
+    ctx.fillStyle = hexColor(b.color);
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, b.size, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Orbital color rings
+  for (let ring = 0; ring < 4; ring++) {
+    const rr = coreR * (2 + ring * 1.5) + Math.sin(t * 0.02 + ring) * 15;
+    const ringColor = PALETTE[(Math.floor(t * 0.3 + ring * 20)) % 128];
+    ctx.save();
+    ctx.strokeStyle = hexColor(ringColor, 0.3 - ring * 0.05);
+    ctx.lineWidth = 2 - ring * 0.3;
+    ctx.beginPath();
+    ctx.arc(cx, cy, rr, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(255,100,50,0.9)';
+  ctx.font = `bold ${Math.min(W * 0.022, 20)}px Courier New`;
+  ctx.textAlign = 'center';
+  ctx.fillText('ATARI 2600 TIA — COLOR BURST REACTOR', W / 2, H * 0.97);
+  ctx.restore();
+}
+
+// SCENE 6: NTSC Waveform
+function drawNTSCWaveform(t) {
+  ctx.fillStyle = 'rgba(0,0,4,0.2)';
+  ctx.fillRect(0, 0, W, H);
+
+  const rows = 16, cols = 8;
+  const rowH = H / rows;
+  const colW = W / cols;
+
+  for (let h = 0; h < rows; h++) {
+    for (let l = 0; l < cols; l++) {
+      const p = PALETTE[h * 8 + l];
+      const py = h * rowH + rowH / 2;
+      const px0 = l * colW;
+      const px1 = px0 + colW;
+
+      // Waveform
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(px0, py);
+      const wavePhase = particles[h * 8 + l]?.phase || 0;
+      const waveAmp = rowH * (particles[h * 8 + l]?.amp || 0.1);
+      const waveFreq = particles[h * 8 + l]?.freq || 2;
+      for (let x = px0; x <= px1; x += 1) {
+        const u = (x - px0) / colW;
+        const y = py + Math.sin(u * Math.PI * 2 * waveFreq + t * 0.04 + wavePhase) * waveAmp;
+        if (x === px0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.strokeStyle = hexColor(p, 0.9);
+      ctx.lineWidth = 2;
+      ctx.shadowColor = hexColor(p);
+      ctx.shadowBlur = 8;
+      ctx.stroke();
+
+      // Fill color patch
+      ctx.fillStyle = hexColor(p, 0.15);
+      ctx.fillRect(px0, h * rowH, colW, rowH);
+
+      // Color index label
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = hexColor(p, 0.9);
+      ctx.font = `bold ${Math.min(colW * 0.18, 9)}px Courier New`;
+      ctx.textAlign = 'center';
+      ctx.fillText(`$${(h * 16 + l * 2).toString(16).toUpperCase().padStart(2,'0')}`, px0 + colW / 2, h * rowH + 10);
+      ctx.restore();
+    }
+
+    // Hue label
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.font = `${Math.min(H * 0.018, 9)}px Courier New`;
+    ctx.textAlign = 'right';
+    ctx.fillText(HUE_NAMES[h], W - 4, h * rowH + rowH / 2 + 4);
+    ctx.restore();
+  }
+
+  // Grid
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+  ctx.lineWidth = 0.5;
+  for (let h = 0; h <= rows; h++) {
+    ctx.beginPath(); ctx.moveTo(0, h * rowH); ctx.lineTo(W, h * rowH); ctx.stroke();
+  }
+  for (let l = 0; l <= cols; l++) {
+    ctx.beginPath(); ctx.moveTo(l * colW, 0); ctx.lineTo(l * colW, H); ctx.stroke();
+  }
+  ctx.restore();
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(100,200,255,0.9)';
+  ctx.font = `bold ${Math.min(W * 0.022, 20)}px Courier New`;
+  ctx.textAlign = 'center';
+  ctx.fillText('ATARI 2600 TIA — NTSC COLOR WAVEFORM MATRIX', W / 2, H * 0.98);
+  ctx.restore();
+}
+
+// SCENE 7: Register Storm
+function drawRegisterStorm(t) {
+  ctx.fillStyle = 'rgba(0,0,0,0.12)';
+  ctx.fillRect(0, 0, W, H);
+
+  for (const rf of registerFlashes) {
+    rf.x += rf.vx;
+    rf.y += rf.vy;
+    rf.pulse += rf.pulseSpeed;
+    rf.alpha = 0.5 + 0.5 * Math.sin(rf.pulse);
+    rf.value = (rf.value + 1) & 0xFF;
+
+    if (rf.x < -100) rf.vx = Math.abs(rf.vx);
+    if (rf.x > W + 100) rf.vx = -Math.abs(rf.vx);
+    if (rf.y < -50) rf.vy = Math.abs(rf.vy);
+    if (rf.y > H + 50) rf.vy = -Math.abs(rf.vy);
+
+    drawPhosphorGlow(rf.x, rf.y, rf.size * 3, rf.color, rf.alpha * 0.4);
+
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, Math.min(1, rf.alpha));
+
+    // Box
+    const bw = rf.size * 5, bh = rf.size * 2.5;
+    ctx.strokeStyle = hexColor(rf.color);
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(rf.x - bw / 2, rf.y - bh / 2, bw, bh);
+    ctx.fillStyle = `rgba(0,0,0,0.7)`;
+    ctx.fillRect(rf.x - bw / 2, rf.y - bh / 2, bw, bh);
+
+    // Register name
+    ctx.fillStyle = hexColor(rf.color);
+    ctx.font = `bold ${rf.size * 0.7}px Courier New`;
+    ctx.textAlign = 'center';
+    ctx.fillText(rf.name, rf.x, rf.y - 2);
+
+    // Value
+    ctx.fillStyle = 'rgba(255,255,255,0.8)';
+    ctx.font = `${rf.size * 0.55}px Courier New`;
+    ctx.fillText(`$${rf.value.toString(16).toUpperCase().padStart(2, '0')} = %${rf.value.toString(2).padStart(8, '0')}`, rf.x, rf.y + rf.size * 0.8);
+
+    ctx.restore();
+  }
+
+  // Title
+  ctx.save();
+  ctx.fillStyle = 'rgba(255,150,0,0.9)';
+  ctx.font = `bold ${Math.min(W * 0.022, 20)}px Courier New`;
+  ctx.textAlign = 'center';
+  ctx.fillText('ATARI 2600 TIA — REGISTER STORM', W / 2, H * 0.97);
+  ctx.restore();
+}
+
+// SCENE 8: Plasma Field
+function drawPlasmaField(t) {
+  // Plasma using offscreen pixel manipulation
+  const idata = ctx.createImageData(W, H);
+  const buf = idata.data;
+  const scale = Math.max(1, Math.floor(Math.min(W, H) / 180));
+
+  for (let py = 0; py < H; py += scale) {
+    for (let px = 0; px < W; px += scale) {
+      const ux = px / W, uy = py / H;
+      let v = 0;
+      for (const s of plasmaSeeds) {
+        const dx = ux - s.fx;
+        const dy = uy - s.fy;
+        v += Math.sin(dx * s.freqX * 8 + t * s.speed * 3 + s.phase)
+           + Math.sin(dy * s.freqY * 8 + t * s.speed * 2 + s.phase * 1.3)
+           + Math.sin(Math.sqrt(dx * dx + dy * dy) * 10 + t * s.speed * 4);
+      }
+      v = (v / plasmaSeeds.length / 3 + 1) / 2;
+      const pIdx = Math.floor(v * 127) & 127;
+      const c = PALETTE[pIdx];
+
+      for (let sy = 0; sy < scale && py + sy < H; sy++) {
+        for (let sx = 0; sx < scale && px + sx < W; sx++) {
+          const idx = ((py + sy) * W + (px + sx)) * 4;
+          buf[idx] = c.r;
+          buf[idx + 1] = c.g;
+          buf[idx + 2] = c.b;
+          buf[idx + 3] = 255;
+        }
+      }
+    }
+  }
+  ctx.putImageData(idata, 0, 0);
+
+  // Scanline overlay
+  drawScanlineOverlay(0.3);
+
+  // HUE labels around edges
+  for (let h = 0; h < 16; h++) {
+    const p = PALETTE[h * 8 + 4];
+    const x = (h / 16 + 1/32) * W;
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(x - 30, 2, 60, 14);
+    ctx.fillStyle = hexColor(p);
+    ctx.font = `bold ${Math.min(W * 0.009, 9)}px Courier New`;
+    ctx.textAlign = 'center';
+    ctx.fillText(HUE_NAMES[h], x, 13);
+    ctx.restore();
+  }
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  ctx.font = `bold ${Math.min(W * 0.022, 20)}px Courier New`;
+  ctx.textAlign = 'center';
+  ctx.fillText('ATARI 2600 TIA — COLOR PLASMA FIELD', W / 2, H * 0.97);
+  ctx.fillStyle = 'rgba(200,200,200,0.6)';
+  ctx.font = `${Math.min(W * 0.012, 11)}px Courier New`;
+  ctx.fillText('ALL 128 NTSC PALETTE COLORS · COLUBK · COLUPF · COLUP0 · COLUP1', W / 2, H * 0.99);
+  ctx.restore();
+}
+
+// SCENE 9: Cartridge Universe
+function drawCartridgeUniverse(t) {
+  ctx.fillStyle = 'rgba(0,0,2,0.18)';
+  ctx.fillRect(0, 0, W, H);
+
+  const cx = W / 2, cy = H / 2;
+
+  // Cartridge shape
+  const cw = Math.min(W * 0.18, 140), ch = Math.min(H * 0.28, 200);
+  const cartPulse = 0.8 + 0.2 * Math.sin(t * 0.04);
+  ctx.save();
+  ctx.strokeStyle = `rgba(180,160,100,${cartPulse})`;
+  ctx.lineWidth = 3;
+  ctx.fillStyle = `rgba(60,50,30,0.85)`;
+  ctx.beginPath();
+  ctx.roundRect(cx - cw / 2, cy - ch / 2, cw, ch, 8);
+  ctx.fill();
+  ctx.stroke();
+  // Label area
+  ctx.fillStyle = `rgba(200,180,120,0.9)`;
+  ctx.fillRect(cx - cw * 0.45, cy - ch * 0.35, cw * 0.9, ch * 0.45);
+  ctx.fillStyle = `rgba(20,10,5,0.9)`;
+  ctx.font = `bold ${Math.min(cw * 0.22, 14)}px Courier New`;
+  ctx.textAlign = 'center';
+  ctx.fillText('ATARI 2600', cx, cy - ch * 0.12);
+  ctx.font = `bold ${Math.min(cw * 0.15, 10)}px Courier New`;
+  ctx.fillText('TIA COLOR CHIP', cx, cy + 2);
+  ctx.font = `${Math.min(cw * 0.12, 8)}px Courier New`;
+  ctx.fillText('128 NTSC COLORS', cx, cy + 14);
+  // Edge connector pins
+  ctx.fillStyle = `rgba(200,200,100,0.7)`;
+  for (let pin = 0; pin < 12; pin++) {
+    const px = cx - cw * 0.4 + pin * (cw * 0.8 / 11);
+    ctx.fillRect(px - 2, cy + ch / 2, 4, ch * 0.12);
+  }
+  ctx.restore();
+
+  // Star particles
+  for (const p of particles) {
+    p.x += p.vx;
+    p.y += p.vy;
+    if (p.x < 0) p.x = W;
+    if (p.x > W) p.x = 0;
+    if (p.y < 0) p.y = H;
+    if (p.y > H) p.y = 0;
+    p.twinkle += p.twinkleSpeed;
+    const alpha = Math.max(0, Math.min(1, p.alpha * (0.5 + 0.5 * Math.sin(p.twinkle))));
+
+    drawPhosphorGlow(p.x, p.y, p.size * 3, p.color, alpha * 0.3);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = hexColor(p.color);
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size * 0.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    if (p.label) {
+      ctx.font = `${Math.min(W * 0.01, 9)}px Courier New`;
+      ctx.textAlign = 'center';
+      ctx.fillText(p.label, p.x, p.y - p.size - 4);
+    }
+    ctx.restore();
+  }
+
+  // Orbiting color rings around cartridge
+  for (let ring = 0; ring < 8; ring++) {
+    const orbitR = Math.min(cw, ch) * (1.2 + ring * 0.7);
+    const speed = 0.008 * (ring % 2 === 0 ? 1 : -1) * (1 + ring * 0.1);
+    const baseAngle = t * speed;
+    const ringPIdx = (Math.floor(t * 0.2 + ring * 15)) % 128;
+    const ringColor = PALETTE[ringPIdx];
+
+    // Orbit path
+    ctx.save();
+    ctx.strokeStyle = hexColor(ringColor, 0.12);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, orbitR, orbitR * 0.6, ring * 0.3, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Orbiting dot
+    const dotX = cx + Math.cos(baseAngle) * orbitR;
+    const dotY = cy + Math.sin(baseAngle) * orbitR * 0.6;
+    drawPhosphorGlow(dotX, dotY, 14, ringColor, 0.7);
+    ctx.fillStyle = hexColor(ringColor);
+    ctx.beginPath();
+    ctx.arc(dotX, dotY, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(220,180,100,0.9)';
+  ctx.font = `bold ${Math.min(W * 0.022, 20)}px Courier New`;
+  ctx.textAlign = 'center';
+  ctx.fillText('ATARI 2600 — GAME CARTRIDGE UNIVERSE', W / 2, H * 0.97);
+  ctx.fillStyle = 'rgba(160,130,60,0.6)';
+  ctx.font = `${Math.min(W * 0.012, 11)}px Courier New`;
+  ctx.fillText('MOS 6507 CPU · TIA VIDEO CHIP · RIOT · 128 NTSC PALETTE COLORS · 4096 BYTES ROM', W / 2, H * 0.99);
+  ctx.restore();
+}
+
+// ============================================================
+// TRANSITIONS
+// ============================================================
+let transitionAlpha = 0;
+let transitioning = false;
+let nextSceneIndex = 0;
+
+function triggerTransition() {
+  transitioning = true;
+  transitionAlpha = 0;
+  nextSceneIndex = (sceneIndex + 1) % SCENES.length;
+}
+
+function drawTransition() {
+  if (!transitioning) return;
+  transitionAlpha += 0.04;
+  if (transitionAlpha <= 1) {
+    ctx.save();
+    ctx.globalAlpha = Math.min(transitionAlpha, 1);
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+  } else if (transitionAlpha <= 2) {
+    if (transitionAlpha - 0.04 <= 1) {
+      sceneIndex = nextSceneIndex;
+      particles = [];
+      scanParticles = [];
+      spriteObjects = [];
+      colorBursts = [];
+      plasmaSeeds = [];
+      circuitNodes = [];
+      circuitEdges = [];
+      registerFlashes = [];
+      initScene();
+      sceneTimer = 0;
+    }
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, 2 - transitionAlpha);
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+  } else {
+    transitioning = false;
+    transitionAlpha = 0;
+  }
+}
+
+// ============================================================
+// PALETTE RIBBON (always on, bottom)
+// ============================================================
+function drawPaletteRibbon(t) {
+  const ribbonH = Math.max(4, H * 0.012);
+  const tileW = W / 128;
+  for (let i = 0; i < 128; i++) {
+    const p = PALETTE[(i + Math.floor(t * 0.2)) % 128];
+    ctx.fillStyle = hexColor(p);
+    ctx.fillRect(i * tileW, H - ribbonH, tileW + 1, ribbonH);
+  }
+}
+
+// ============================================================
+// MAIN RENDER LOOP
+// ============================================================
+function render(timestamp) {
+  const dt = Math.min(timestamp - lastTime, 100);
+  lastTime = timestamp;
+  fps = Math.round(1000 / Math.max(dt, 1));
+  frame++;
+  globalT = frame;
+  sceneTimer++;
+
+  if (sceneTimer >= sceneDuration && !transitioning) {
+    triggerTransition();
+    sceneDuration = 480 + Math.floor(rng() * 360);
+  }
+
+  const scene = SCENES[sceneIndex];
+
+  if (scene === 'TIA_CIRCUIT_BOARD') drawCircuit(globalT);
+  else if (scene === 'PALETTE_WHEEL') drawPaletteWheel(globalT);
+  else if (scene === 'SCANLINE_ENGINE') drawScanlineEngine(globalT);
+  else if (scene === 'SPRITE_PARADE') drawSpriteParade(globalT);
+  else if (scene === 'PLAYFIELD_MATRIX') drawPlayfieldMatrix(globalT);
+  else if (scene === 'COLOR_BURST_REACTOR') drawColorBurstReactor(globalT);
+  else if (scene === 'NTSC_WAVEFORM') drawNTSCWaveform(globalT);
+  else if (scene === 'REGISTER_STORM') drawRegisterStorm(globalT);
+  else if (scene === 'PLASMA_FIELD') drawPlasmaField(globalT);
+  else if (scene === 'CARTRIDGE_UNIVERSE') drawCartridgeUniverse(globalT);
+
+  drawPaletteRibbon(globalT);
+  drawVignetteOverlay();
+  drawTransition();
+
+  // HUD update
+  if (hudVisible) {
+    document.getElementById('h-frame').textContent = frame;
+    document.getElementById('h-fps').textContent = fps;
+    document.getElementById('h-scene').textContent = scene;
+  }
+
+  requestAnimationFrame(render);
+}
+
+// ============================================================
+// INPUT HANDLING
+// ============================================================
+function handleReset() {
+  if (soundEnabled) {
+    playTone(440, 'square', 0.2, 0.15);
+    playTone(880, 'square', 0.15, 0.1);
+  }
+  reset();
+  triggerTransition();
+  sceneIndex = nextSceneIndex = Math.floor(rng() * SCENES.length);
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.code === 'Space' || e.key === ' ') { e.preventDefault(); handleReset(); }
+  if (e.key === 'h' || e.key === 'H') {
+    hudVisible = !hudVisible;
+    document.getElementById('hud').classList.toggle('visible', hudVisible);
+  }
+  if (e.key === 's' || e.key === 'S') {
+    soundEnabled = !soundEnabled;
+    if (soundEnabled) { initAudio(); playTone(220, 'square', 0.3, 0.1); }
+  }
+});
+
+canvas.addEventListener('click', handleReset);
+canvas.addEventListener('touchstart', (e) => { e.preventDefault(); handleReset(); }, { passive: false });
+
+// ============================================================
+// BOOT
+// ============================================================
+reset();
+requestAnimationFrame(render);
+</script>
+
+<!-- Structured Data for SEO -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Atari 2600 TIA Color Palette Animated Engineering Showcase",
+  "description": "An immersive, breathtaking animated visualization of the Atari 2600 Television Interface Adaptor (TIA) chip color science. Features all 128 NTSC palette colors across 16 hue bands and 8 luminance levels, scanline rendering engine, sprite object system, playfield graphics, register storm, color burst reactor, plasma field, and cartridge universe animations. Authentic phosphor glow effects, scanline overlay, and retro CRT aesthetics.",
+  "applicationCategory": "MultimediaApplication",
+  "operatingSystem": "Web Browser",
+  "offers": { "@type": "Offer", "price": "0" },
+  "keywords": "Atari 2600, TIA chip, color palette, NTSC, retro gaming, video game graphics, color science, scanline rendering, phosphor display, television interface adaptor, vintage computing, pixel art, sprite graphics, playfield, color engineering"
+}
+</script>
+</body>
+</html>

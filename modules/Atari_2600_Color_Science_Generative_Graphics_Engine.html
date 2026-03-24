@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Atari 2600 Color Science Generative Graphics Engine</title>
+
+<meta name="description" content="Massively complex generative video graphics system inspired by Atari 2600 color science and TIA circuitry. Procedural scanlines, sprites, playfields and palette cycling visualized in real time.">
+<meta name="keywords" content="Atari 2600 graphics, TIA chip visualization, Atari color palette, retro video graphics, generative art, scanline graphics, procedural animation">
+<meta name="robots" content="index, follow">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+
+<style>
+html,body{
+margin:0;
+background:black;
+overflow:hidden;
+font-family:monospace;
+}
+canvas{
+position:absolute;
+top:0;
+left:0;
+}
+#hud{
+position:absolute;
+top:10px;
+left:10px;
+color:#00ff9c;
+font-size:13px;
+pointer-events:none;
+}
+</style>
+</head>
+
+<body>
+
+<canvas id="c"></canvas>
+<div id="hud"></div>
+
+<script>
+
+const canvas=document.getElementById("c")
+const ctx=canvas.getContext("2d")
+
+let w,h
+
+function resize(){
+w=canvas.width=window.innerWidth
+h=canvas.height=window.innerHeight
+}
+window.addEventListener("resize",resize)
+resize()
+
+/* Atari-style palette (approximation of TIA NTSC hues) */
+
+const palette=[
+"#000000","#1a1a1a","#404040","#6b6b6b",
+"#a1a1a1","#cfcfcf","#ffffff",
+"#5c0000","#8b0000","#b03030","#ff4040",
+"#7a2f00","#b35b00","#ff8c00",
+"#7a5a00","#bfbf00","#ffff40",
+"#004000","#008000","#00c060","#40ff80",
+"#003040","#006080","#00a0c0","#40d0ff",
+"#000070","#2020b0","#6060ff",
+"#400060","#7000b0","#b040ff"
+]
+
+let systems=[]
+
+let hud=false
+let sound=false
+
+let audioCtx=null
+
+function rand(a,b){return a+Math.random()*(b-a)}
+
+function reset(){
+
+systems=[]
+
+let count=20+Math.floor(rand(0,25))
+
+for(let i=0;i<count;i++){
+
+systems.push({
+x:rand(0,w),
+y:rand(0,h),
+vx:rand(-1.5,1.5),
+vy:rand(-1.5,1.5),
+size:rand(30,200),
+color:palette[Math.floor(rand(0,palette.length))],
+phase:rand(0,1000),
+freq:rand(.005,.03),
+mode:Math.floor(rand(0,4))
+})
+
+}
+
+if(sound && audioCtx){
+
+let osc=audioCtx.createOscillator()
+let gain=audioCtx.createGain()
+
+osc.type="square"
+osc.frequency.value=rand(120,880)
+
+gain.gain.value=.03
+
+osc.connect(gain)
+gain.connect(audioCtx.destination)
+
+osc.start()
+osc.stop(audioCtx.currentTime+.1)
+
+}
+
+}
+
+reset()
+
+/* scanline renderer */
+
+function drawScanlines(t){
+
+let lines=180
+
+for(let i=0;i<lines;i++){
+
+let y=i*(h/lines)
+
+let c=palette[(i+Math.floor(t*20))%palette.length]
+
+ctx.fillStyle=c
+
+let offset=Math.sin(i*0.2+t)*20
+
+ctx.fillRect(offset,y,w,2)
+
+}
+
+}
+
+/* sprite engine */
+
+function drawSystems(t){
+
+systems.forEach(s=>{
+
+s.x+=s.vx
+s.y+=s.vy
+
+if(s.x<0||s.x>w)s.vx*=-1
+if(s.y<0||s.y>h)s.vy*=-1
+
+let r=s.size*(0.5+Math.sin(t*s.freq+s.phase)*.5)
+
+ctx.strokeStyle=s.color
+
+ctx.beginPath()
+
+if(s.mode===0){
+
+ctx.arc(s.x,s.y,r,0,Math.PI*2)
+
+}
+
+else if(s.mode===1){
+
+ctx.rect(s.x-r/2,s.y-r/2,r,r)
+
+}
+
+else if(s.mode===2){
+
+ctx.moveTo(s.x,s.y-r)
+ctx.lineTo(s.x+r,s.y+r)
+ctx.lineTo(s.x-r,s.y+r)
+ctx.closePath()
+
+}
+
+else{
+
+for(let a=0;a<6;a++){
+
+let ang=a*Math.PI/3+t
+let px=s.x+Math.cos(ang)*r
+let py=s.y+Math.sin(ang)*r
+
+if(a===0)ctx.moveTo(px,py)
+else ctx.lineTo(px,py)
+
+}
+
+ctx.closePath()
+
+}
+
+ctx.stroke()
+
+})
+
+}
+
+/* playfield symmetry generator */
+
+function drawPlayfield(t){
+
+let cells=40
+let size=w/cells
+
+for(let y=0;y<cells;y++){
+
+for(let x=0;x<cells/2;x++){
+
+let v=Math.sin(x*0.4+y*0.3+t)
+
+if(v>.6){
+
+let col=palette[(x+y)%palette.length]
+
+ctx.fillStyle=col
+
+ctx.fillRect(x*size,y*size,size,size)
+
+ctx.fillRect(w-(x+1)*size,y*size,size,size)
+
+}
+
+}
+
+}
+
+}
+
+function animate(t){
+
+t/=1000
+
+ctx.fillStyle="black"
+ctx.fillRect(0,0,w,h)
+
+drawScanlines(t)
+drawPlayfield(t)
+drawSystems(t)
+
+if(hud){
+
+hudEl.innerHTML=
+"Atari-style Graphics Engine<br>"+
+"systems:"+systems.length+"<br>"+
+"palette:"+palette.length+" colors<br>"+
+"sound:"+sound
+
+}
+
+requestAnimationFrame(animate)
+
+}
+
+const hudEl=document.getElementById("hud")
+
+requestAnimationFrame(animate)
+
+/* controls */
+
+window.addEventListener("keydown",e=>{
+
+if(e.code==="Space"){
+reset()
+}
+
+if(e.key==="h"||e.key==="H"){
+hud=!hud
+hudEl.style.display=hud?"block":"none"
+}
+
+if(e.key==="s"||e.key==="S"){
+
+sound=!sound
+
+if(sound && !audioCtx)
+audioCtx=new AudioContext()
+
+}
+
+})
+
+window.addEventListener("click",reset)
+window.addEventListener("touchstart",reset)
+
+</script>
+
+</body>
+</html>

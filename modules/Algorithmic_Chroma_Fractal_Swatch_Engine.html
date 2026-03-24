@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Algorithmic Chroma Fractal Swatch Engine</title>
+
+<!-- SEO -->
+<meta name="description" content="Algorithmic Chroma Fractal Swatch Engine — recursive fractal color system with dynamic palettes, spectral cycling, perceptual illusions, and reactive audio.">
+<meta name="keywords" content="fractal, color engine, generative art, chroma, swatches, color theory, audiovisual, canvas animation">
+<meta name="author" content="Chroma Engine">
+
+<style>
+html, body {
+  margin:0;
+  padding:0;
+  overflow:hidden;
+  background:black;
+  font-family:monospace;
+}
+canvas {
+  display:block;
+}
+#hud {
+  position:fixed;
+  top:10px;
+  left:10px;
+  color:#0f0;
+  font-size:12px;
+  background:rgba(0,0,0,0.5);
+  padding:8px;
+  border:1px solid #0f0;
+  display:none;
+}
+</style>
+</head>
+
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+
+<script>
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+let W, H;
+
+function resize(){
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+window.addEventListener("resize", resize);
+resize();
+
+/* STATE */
+let time = 0;
+let hueShift = 0;
+let running = true;
+let hudOn = false;
+let soundOn = false;
+
+/* AUDIO */
+let audioCtx, osc, gain;
+
+function initAudio(){
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  osc = audioCtx.createOscillator();
+  gain = audioCtx.createGain();
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  gain.gain.value = 0;
+  osc.start();
+}
+
+/* COLOR SYSTEMS */
+function hsv(h,s,v){
+  let f = (n, k=(n+h/60)%6) => v - v*s*Math.max(Math.min(k,4-k,1),0);
+  return `rgb(${f(5)*255},${f(3)*255},${f(1)*255})`;
+}
+
+function randomPalette(baseHue){
+  let arr = [];
+  for(let i=0;i<6;i++){
+    arr.push(hsv((baseHue + i*60 + Math.random()*30)%360, 0.6+Math.random()*0.4, 0.7+Math.random()*0.3));
+  }
+  return arr;
+}
+
+/* FRACTAL */
+let maxDepth = 5;
+let basePalette = randomPalette(Math.random()*360);
+
+function drawFractal(x,y,r,depth,angle){
+  if(depth <= 0) return;
+
+  let palette = basePalette;
+  let color = palette[depth % palette.length];
+
+  // PERCEPTUAL ILLUSION (afterimage flicker)
+  let flicker = Math.sin(time*0.1 + depth) * 0.5 + 0.5;
+  ctx.fillStyle = color;
+  ctx.globalAlpha = 0.6 + flicker*0.4;
+
+  ctx.beginPath();
+  ctx.arc(x,y,r,0,Math.PI*2);
+  ctx.fill();
+
+  // SWATCH RING
+  for(let i=0;i<palette.length;i++){
+    let a = angle + (i/palette.length)*Math.PI*2;
+    let nx = x + Math.cos(a)*r*1.5;
+    let ny = y + Math.sin(a)*r*1.5;
+
+    ctx.fillStyle = palette[i];
+    ctx.globalAlpha = 0.8;
+    ctx.fillRect(nx-5, ny-5, 10,10);
+
+    drawFractal(nx, ny, r*0.5, depth-1, a + time*0.002);
+  }
+}
+
+/* UPDATE */
+function update(){
+  time++;
+
+  // spectral cycling
+  hueShift += 0.2;
+  if(time % 200 === 0){
+    basePalette = randomPalette((hueShift)%360);
+  }
+
+  // audio reactivity
+  if(soundOn && audioCtx){
+    let entropy = Math.abs(Math.sin(time*0.01)) * maxDepth;
+    osc.frequency.value = 100 + entropy * 200;
+    gain.gain.value = 0.05 + entropy*0.02;
+  }
+}
+
+/* DRAW */
+function draw(){
+  ctx.globalAlpha = 0.15;
+  ctx.fillStyle = "black";
+  ctx.fillRect(0,0,W,H);
+
+  ctx.globalAlpha = 1;
+
+  drawFractal(W/2, H/2, Math.min(W,H)/6, maxDepth, time*0.001);
+}
+
+/* HUD */
+function updateHUD(){
+  if(!hudOn) return;
+  document.getElementById("hud").innerHTML = `
+TIME: ${time}<br>
+DEPTH: ${maxDepth}<br>
+HUE SHIFT: ${hueShift.toFixed(2)}<br>
+SOUND: ${soundOn}<br>
+FPS-ish: ~60
+`;
+}
+
+/* LOOP */
+function loop(){
+  if(running){
+    update();
+    draw();
+    updateHUD();
+  }
+  requestAnimationFrame(loop);
+}
+loop();
+
+/* INTERACTION */
+function reset(){
+  maxDepth = 4 + Math.floor(Math.random()*3);
+  basePalette = randomPalette(Math.random()*360);
+}
+
+window.addEventListener("keydown", e=>{
+  if(e.code === "Space") reset();
+  if(e.key === "h" || e.key === "H"){
+    hudOn = !hudOn;
+    document.getElementById("hud").style.display = hudOn ? "block" : "none";
+  }
+  if(e.key === "s" || e.key === "S"){
+    soundOn = !soundOn;
+    if(soundOn && !audioCtx) initAudio();
+  }
+});
+
+canvas.addEventListener("click", reset);
+canvas.addEventListener("touchstart", reset);
+
+</script>
+</body>
+</html>

@@ -1,0 +1,763 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Atari Vector Category Morphism Arcade Labyrinth</title>
+<meta name="description" content="A full-screen generative vector labyrinth engine inspired by Atari 2600 and Tron, visualizing category-theoretic structures through logistic maps, strange attractors, Voronoi tessellations, fractal noise, and kaleidoscopic Coxeter symmetries with synchronized procedural audio.">
+<meta name="keywords" content="Atari, vector graphics, generative art, category theory, Tron, labyrinth, strange attractor, Voronoi, Coxeter symmetry, fractal, procedural audio, WebGL, canvas, arcade, cyberpunk, morphism, CRISPR morphogenesis">
+<meta name="author" content="Generative Vector Engine">
+<meta property="og:title" content="Atari Vector Category Morphism Arcade Labyrinth">
+<meta property="og:description" content="Generative mathematical labyrinth: category theory meets Atari arcade geometry with real-time strange attractors, Voronoi cells, fractal turbulence and procedural oscillator audio.">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="robots" content="index, follow">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Courier New',monospace}
+  canvas{display:block;position:fixed;top:0;left:0;width:100%;height:100%}
+  #hud{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;display:none;z-index:10}
+  #hud-inner{position:absolute;top:16px;left:16px;color:#0ff;font-size:11px;line-height:1.7;text-shadow:0 0 8px #0ff,0 0 16px #0ff;letter-spacing:0.08em;background:rgba(0,0,40,0.55);padding:10px 14px;border:1px solid rgba(0,255,255,0.3);border-radius:2px}
+  #hud-inner span{color:#ff0}
+  #corner{position:fixed;bottom:14px;right:16px;color:rgba(0,255,255,0.35);font-size:10px;letter-spacing:0.12em;pointer-events:none;z-index:10;text-shadow:0 0 6px #0ff}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"><div id="hud-inner" id="hi">
+  FRAME: <span id="hf">0</span> &nbsp;|&nbsp; FPS: <span id="hfps">0</span><br>
+  NODES: <span id="hn">0</span> &nbsp;|&nbsp; MORPHISMS: <span id="hm">0</span><br>
+  ATTRACTOR: <span id="ha">lorenz</span><br>
+  PALETTE: <span id="hp">spectral</span><br>
+  SYMMETRY: <span id="hs">4</span>-fold<br>
+  LOGISTIC r: <span id="hlr">0</span><br>
+  AVATAR PHASE: <span id="hav">0</span><br>
+  [H] HUD &nbsp;[S] SOUND &nbsp;[SPACE/TAP] RESTART
+</div></div>
+<div id="corner">ATARI · VECTOR · CATEGORY · MORPHISM · LABYRINTH</div>
+
+<script>
+(function(){
+"use strict";
+
+// ─── STATE ────────────────────────────────────────────────────────────────────
+const C = document.getElementById('c');
+const ctx = C.getContext('2d');
+let W,H,cx,cy,seed,frame=0,lastT=0,fps=0,fpsAcc=0,fpsFrames=0;
+let hudOn=false, soundOn=false;
+let audioCtx=null, masterGain=null;
+let oscillators=[], noiseNode=null;
+let params={};
+let nodes=[],morphisms=[],particles=[],voronoi=[],avatars=[];
+let attractorPts=[], lorenzX,lorenzY,lorenzZ;
+let logisticX=0.5;
+let coxeterAngle=0, palPhase=0, turbPhase=0;
+let tapStarted=false;
+
+// ─── RESIZE ───────────────────────────────────────────────────────────────────
+function resize(){
+  W=C.width=window.innerWidth;
+  H=C.height=window.innerHeight;
+  cx=W/2; cy=H/2;
+}
+window.addEventListener('resize',resize);
+resize();
+
+// ─── PRNG ─────────────────────────────────────────────────────────────────────
+function mkRng(s){
+  let st=(s|0)||1;
+  return function(a=0,b=1){
+    st=(st^(st<<13))>>>0;st=(st^(st>>17))>>>0;st=(st^(st<<5))>>>0;
+    return a+(st/4294967296)*(b-a);
+  };
+}
+let rng;
+
+// ─── PALETTE ──────────────────────────────────────────────────────────────────
+const PALETTES=[
+  'spectral','neon','rainbow','harmonic','tron','atari','plasma','phosphor'
+];
+function hsl(h,s,l,a=1){return `hsla(${h},${s}%,${l}%,${a})`;}
+function getPalColor(t,variant,a=1){
+  t=((t%1)+1)%1;
+  switch(variant){
+    case 'spectral':  return hsl(t*360,90,55+15*Math.sin(t*6),a);
+    case 'neon':      return hsl([0,120,180,300,60][Math.floor(t*5)%5]+(t*5%1)*30,100,60,a);
+    case 'rainbow':   return hsl(t*360,95,50,a);
+    case 'harmonic':  {let h2=Math.sin(t*Math.PI*4)*180+180; return hsl(h2,85,55,a);}
+    case 'tron':      {let v=t<0.5?[185,0]:t<0.75?[30,0]:[280,0]; return hsl(v[0]+t*60,100,60,a);}
+    case 'atari':     {let cols=[[0,100,50],[120,100,50],[240,100,60],[60,100,55],[300,100,55]];
+                       let i=Math.floor(t*cols.length)%cols.length; let c2=cols[i];
+                       return hsl(c2[0],c2[1],c2[2],a);}
+    case 'plasma':    return hsl(240+t*240,80+20*Math.cos(t*Math.PI*3),50+20*Math.sin(t*Math.PI*5),a);
+    case 'phosphor':  return hsl(120+Math.sin(t*Math.PI*2)*30,70,50+30*t,a);
+    default:          return hsl(t*360,80,55,a);
+  }
+}
+
+// ─── MATH UTILS ───────────────────────────────────────────────────────────────
+function lerp(a,b,t){return a+(b-a)*t;}
+function dist(a,b){return Math.hypot(a.x-b.x,a.y-b.y);}
+function norm(v){let l=Math.hypot(v.x,v.y)||1;return{x:v.x/l,y:v.y/l};}
+// Logistic map
+function logisticStep(x,r){return r*x*(1-x);}
+// Lorenz attractor
+function lorenzStep(x,y,z,dt=0.01,s=10,r2=28,b=8/3){
+  return{x:x+dt*s*(y-x), y:y+dt*(x*(r2-z)-y), z:z+dt*(x*y-b*z)};
+}
+// Fractal noise (value noise + octaves)
+function valueNoise(x,y,s){
+  x/=s; y/=s;
+  let xi=Math.floor(x),yi=Math.floor(y);
+  let xf=x-xi,yf=y-yi;
+  let fade=t=>t*t*t*(t*(t*6-15)+10);
+  let xf2=fade(xf),yf2=fade(yf);
+  function hash(a,b){let h=(a*374761393+b*668265263)^seed;h=(h^(h>>13))*1274126177;return((h^(h>>16))>>>0)/4294967296;}
+  let aa=hash(xi,yi),ba=hash(xi+1,yi),ab=hash(xi,yi+1),bb=hash(xi+1,yi+1);
+  return lerp(lerp(aa,ba,xf2),lerp(ab,bb,xf2),yf2);
+}
+function fbm(x,y,oct=4){
+  let v=0,amp=0.5,freq=1,tot=0;
+  for(let i=0;i<oct;i++){v+=amp*valueNoise(x*freq,y*freq,1);tot+=amp;amp*=0.5;freq*=2.1;}
+  return v/tot;
+}
+
+// ─── VORONOI SEEDS ────────────────────────────────────────────────────────────
+function buildVoronoi(){
+  voronoi=[];
+  let n=params.voronoiN;
+  for(let i=0;i<n;i++){
+    voronoi.push({
+      x:rng(50,W-50), y:rng(50,H-50),
+      vx:rng(-0.3,0.3), vy:rng(-0.3,0.3),
+      col:rng(0,1), phase:rng(0,Math.PI*2)
+    });
+  }
+}
+function nearestVoronoi(x,y){
+  let best=0,bd=1e9;
+  for(let i=0;i<voronoi.length;i++){
+    let d=dist({x,y},voronoi[i]);
+    if(d<bd){bd=d;best=i;}
+  }
+  return{idx:best,d:bd};
+}
+
+// ─── NODES / MORPHISMS ────────────────────────────────────────────────────────
+function buildGraph(){
+  nodes=[];morphisms=[];
+  let n=params.nodeCount;
+  for(let i=0;i<n;i++){
+    let r=rng(0.15,0.42)*(Math.min(W,H)/2);
+    let a=rng(0,Math.PI*2);
+    let turbX=fbm(Math.cos(a)*50+seed,Math.sin(a)*50)*60-30;
+    let turbY=fbm(Math.sin(a)*50+seed+100,Math.cos(a)*50)*60-30;
+    nodes.push({
+      x:cx+Math.cos(a)*r+turbX, y:cy+Math.sin(a)*r+turbY,
+      r:rng(5,16), col:rng(0,1),
+      vx:rng(-0.15,0.15), vy:rng(-0.15,0.15),
+      pulse:rng(0,Math.PI*2), pulseRate:rng(0.02,0.06),
+      morphPhase:0, morphTarget:rng(0.3,0.8),
+      label:`Obj${i}`, id:i
+    });
+  }
+  let mCount=params.morphismCount;
+  for(let i=0;i<mCount;i++){
+    let a=Math.floor(rng(0,nodes.length));
+    let b=Math.floor(rng(0,nodes.length));
+    if(a===b) b=(a+1)%nodes.length;
+    morphisms.push({
+      from:a, to:b,
+      col:rng(0,1), phase:rng(0,Math.PI*2),
+      speed:rng(0.005,0.02), particles:[]
+    });
+  }
+  // seed particles on each morphism
+  for(let m of morphisms){
+    for(let j=0;j<6;j++){
+      m.particles.push({t:rng(0,1),life:1,speed:m.speed*(0.5+rng(0,1))});
+    }
+  }
+}
+
+// ─── AVATARS ──────────────────────────────────────────────────────────────────
+function buildAvatars(){
+  avatars=[];
+  let n=params.avatarCount;
+  for(let i=0;i<n;i++){
+    avatars.push({
+      x:rng(80,W-80), y:rng(80,H-80),
+      vx:rng(-0.4,0.4), vy:rng(-0.4,0.4),
+      phase:rng(0,Math.PI*2),   // 0=human, 1=cybernetic
+      morphRate:rng(0.001,0.004),
+      col:rng(0,1), size:rng(12,22),
+      segments:[],
+      crisprPhase:rng(0,Math.PI*2)
+    });
+    // CRISPR segment decomp
+    let av=avatars[i];
+    for(let s=0;s<8;s++){
+      av.segments.push({angle:rng(0,Math.PI*2),r:rng(4,12),phase:rng(0,Math.PI*2),attached:rng(0,1)<0.7});
+    }
+  }
+}
+
+// ─── LORENZ INIT ─────────────────────────────────────────────────────────────
+function initLorenz(){
+  lorenzX=rng(-10,10); lorenzY=rng(-10,10); lorenzZ=rng(0,40);
+  attractorPts=[];
+}
+
+// ─── INIT ────────────────────────────────────────────────────────────────────
+function init(){
+  seed=Date.now()^(Math.random()*0xFFFFFFFF|0);
+  rng=mkRng(seed);
+  frame=0; coxeterAngle=0; palPhase=0; turbPhase=0; logisticX=rng(0.1,0.9);
+
+  params={
+    palette: PALETTES[Math.floor(rng(0,PALETTES.length))],
+    nodeCount: Math.floor(rng(6,14)),
+    morphismCount: Math.floor(rng(8,20)),
+    voronoiN: Math.floor(rng(8,20)),
+    coxeterFold: [3,4,5,6,8][Math.floor(rng(0,5))],
+    logisticR: rng(3.5,4.0),
+    attractorType: ['lorenz','rossler','halvorsen'][Math.floor(rng(0,3))],
+    avatarCount: Math.floor(rng(2,5)),
+    bgAlpha: rng(0.04,0.09),
+    glowRadius: rng(8,20),
+  };
+
+  buildVoronoi();
+  buildGraph();
+  buildAvatars();
+  initLorenz();
+
+  // update HUD labels
+  if(hudOn) refreshHUD();
+}
+
+// ─── AUDIO ───────────────────────────────────────────────────────────────────
+function startAudio(){
+  if(audioCtx) return;
+  audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+  masterGain=audioCtx.createGain();
+  masterGain.gain.value=0.04;
+  masterGain.connect(audioCtx.destination);
+
+  // Drone oscillators based on logistic map harmonics
+  let baseFreqs=[55,110,165,220,330];
+  oscillators=baseFreqs.map((f,i)=>{
+    let osc=audioCtx.createOscillator();
+    let g=audioCtx.createGain();
+    osc.type=['sine','triangle','sawtooth','square','sine'][i];
+    osc.frequency.value=f;
+    g.gain.value=0.015/(i+1);
+    osc.connect(g); g.connect(masterGain);
+    osc.start();
+    return{osc,gain:g,base:f};
+  });
+
+  // Noise for turbulence
+  let bufSize=2*audioCtx.sampleRate;
+  let buf=audioCtx.createBuffer(1,bufSize,audioCtx.sampleRate);
+  let data=buf.getChannelData(0);
+  for(let i=0;i<bufSize;i++) data[i]=(Math.random()*2-1)*0.3;
+  noiseNode=audioCtx.createBufferSource();
+  noiseNode.buffer=buf; noiseNode.loop=true;
+  let noiseFilter=audioCtx.createBiquadFilter();
+  noiseFilter.type='bandpass'; noiseFilter.frequency.value=200; noiseFilter.Q.value=0.5;
+  let noiseGain=audioCtx.createGain(); noiseGain.gain.value=0.006;
+  noiseNode.connect(noiseFilter); noiseFilter.connect(noiseGain); noiseGain.connect(masterGain);
+  noiseNode.start();
+}
+function stopAudio(){
+  if(!audioCtx) return;
+  oscillators.forEach(o=>{try{o.osc.stop();}catch(e){}});
+  if(noiseNode){try{noiseNode.stop();}catch(e){}}
+  try{audioCtx.close();}catch(e){}
+  audioCtx=null; masterGain=null; oscillators=[]; noiseNode=null;
+}
+function updateAudio(){
+  if(!audioCtx||!oscillators.length) return;
+  // Modulate frequencies from logistic map
+  let lx=logisticX;
+  oscillators.forEach((o,i)=>{
+    let f=o.base*(1+lx*0.5+Math.sin(frame*0.003+i)*0.1);
+    o.osc.frequency.setTargetAtTime(f,audioCtx.currentTime,0.1);
+    o.gain.gain.setTargetAtTime(0.008/(i+1)*(0.5+lx*0.5),audioCtx.currentTime,0.1);
+  });
+}
+
+// ─── DRAWING HELPERS ─────────────────────────────────────────────────────────
+function glow(radius,col){
+  ctx.shadowBlur=radius;
+  ctx.shadowColor=col;
+}
+function noGlow(){ctx.shadowBlur=0;}
+
+function drawArrow(x1,y1,x2,y2,col,w=1.5,alpha=1){
+  let dx=x2-x1,dy=y2-y1,len=Math.hypot(dx,dy);
+  if(len<1) return;
+  let nx=dx/len,ny=dy/len;
+  let mx=x1+nx*len*0.5, my=y1+ny*len*0.5;
+  // curved morphism path
+  let bend=30*Math.sin(frame*0.012);
+  let bx=mx-ny*bend, by=my+nx*bend;
+  ctx.beginPath();
+  ctx.moveTo(x1,y1);
+  ctx.quadraticCurveTo(bx,by,x2,y2);
+  ctx.strokeStyle=getPalColor(col,params.palette,alpha);
+  ctx.lineWidth=w;
+  glow(params.glowRadius*0.7,getPalColor(col,params.palette,0.8));
+  ctx.stroke(); noGlow();
+  // arrowhead
+  let t2=0.98, t1=0.96;
+  // point on quad at t2
+  function qpt(t){return{x:(1-t)*(1-t)*x1+2*(1-t)*t*bx+t*t*x2, y:(1-t)*(1-t)*y1+2*(1-t)*t*by+t*t*y2};}
+  let p1=qpt(t1),p2=qpt(t2);
+  let adx=p2.x-p1.x,ady=p2.y-p1.y,al=Math.hypot(adx,ady)||1;
+  let anx=adx/al,any=ady/al;
+  let hs=6+w*2;
+  ctx.beginPath();
+  ctx.moveTo(p2.x+anx*hs,p2.y+any*hs);
+  ctx.lineTo(p2.x-any*hs*0.5-anx*hs*0.6,p2.y+anx*hs*0.5-any*hs*0.6);
+  ctx.lineTo(p2.x+any*hs*0.5-anx*hs*0.6,p2.y-anx*hs*0.5-any*hs*0.6);
+  ctx.closePath();
+  ctx.fillStyle=getPalColor(col,params.palette,alpha);
+  glow(params.glowRadius,getPalColor(col,params.palette,1));
+  ctx.fill(); noGlow();
+}
+
+// ─── KALEIDOSCOPE / COXETER ───────────────────────────────────────────────────
+function drawCoxeterChamber(){
+  let fold=params.coxeterFold;
+  let dA=Math.PI*2/fold;
+  let R=Math.min(W,H)*0.48;
+  ctx.save();
+  ctx.translate(cx,cy);
+  ctx.rotate(coxeterAngle);
+  for(let i=0;i<fold;i++){
+    ctx.save();
+    ctx.rotate(i*dA);
+    // Radial vector lines
+    let steps=16;
+    for(let j=0;j<steps;j++){
+      let t=j/steps;
+      let r1=R*t, r2=R*(t+1/steps);
+      let angle=dA*t*(fold/2);
+      let col=getPalColor((t+palPhase+i/fold)%1,params.palette,0.15+0.1*Math.sin(turbPhase+t*4));
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(angle)*r1,Math.sin(angle)*r1);
+      ctx.lineTo(Math.cos(angle)*r2,Math.sin(angle)*r2);
+      ctx.strokeStyle=col;
+      ctx.lineWidth=1.5;
+      glow(6,col); ctx.stroke(); noGlow();
+    }
+    // Chamber boundary
+    ctx.beginPath();
+    ctx.moveTo(0,0); ctx.lineTo(Math.cos(0)*R,Math.sin(0)*R);
+    ctx.strokeStyle=getPalColor((palPhase+i/fold)%1,params.palette,0.2);
+    ctx.lineWidth=0.8; ctx.stroke();
+    ctx.restore();
+  }
+  // Rotating inner polygon
+  ctx.beginPath();
+  for(let i=0;i<fold;i++){
+    let a=i*dA+coxeterAngle*2;
+    let r2=R*0.35*(0.8+0.2*Math.sin(turbPhase*1.3+i));
+    i===0?ctx.moveTo(Math.cos(a)*r2,Math.sin(a)*r2):ctx.lineTo(Math.cos(a)*r2,Math.sin(a)*r2);
+  }
+  ctx.closePath();
+  ctx.strokeStyle=getPalColor(palPhase,params.palette,0.35);
+  ctx.lineWidth=1.5;
+  glow(10,getPalColor(palPhase,params.palette,0.6));
+  ctx.stroke(); noGlow();
+  ctx.restore();
+}
+
+// ─── VORONOI RENDER ──────────────────────────────────────────────────────────
+function renderVoronoi(){
+  // Sample grid for Voronoi edges
+  let step=Math.floor(Math.max(W,H)/70);
+  for(let x=0;x<W;x+=step){
+    for(let y=0;y<H;y+=step){
+      let v=nearestVoronoi(x,y);
+      let v2=nearestVoronoi(x+step,y);
+      let v3=nearestVoronoi(x,y+step);
+      let isEdge=(v.idx!==v2.idx||v.idx!==v3.idx);
+      if(isEdge){
+        let vc=voronoi[v.idx];
+        let col=getPalColor((vc.col+palPhase*0.5)%1,params.palette,0.18);
+        ctx.beginPath(); ctx.arc(x,y,1.5,0,Math.PI*2);
+        ctx.fillStyle=col; ctx.fill();
+      }
+    }
+  }
+}
+
+// ─── LORENZ / ATTRACTOR ──────────────────────────────────────────────────────
+function stepLorenz(){
+  let dt=0.008;
+  let nx,ny,nz;
+  switch(params.attractorType){
+    case 'lorenz':{
+      let s=10,r2=28,b=8/3;
+      nx=lorenzX+dt*s*(lorenzY-lorenzX);
+      ny=lorenzY+dt*(lorenzX*(r2-lorenzZ)-lorenzY);
+      nz=lorenzZ+dt*(lorenzX*lorenzY-b*lorenzZ);
+      break;
+    }
+    case 'rossler':{
+      let a=0.2,b2=0.2,c=5.7;
+      nx=lorenzX+dt*(-lorenzY-lorenzZ);
+      ny=lorenzY+dt*(lorenzX+a*lorenzY);
+      nz=lorenzZ+dt*(b2+lorenzZ*(lorenzX-c));
+      break;
+    }
+    case 'halvorsen':{
+      let a=1.4;
+      nx=lorenzX+dt*(-a*lorenzX-4*lorenzY-4*lorenzZ-lorenzY*lorenzY);
+      ny=lorenzY+dt*(-a*lorenzY-4*lorenzZ-4*lorenzX-lorenzZ*lorenzZ);
+      nz=lorenzZ+dt*(-a*lorenzZ-4*lorenzX-4*lorenzY-lorenzX*lorenzX);
+      break;
+    }
+  }
+  lorenzX=nx; lorenzY=ny; lorenzZ=nz;
+  // scale to screen
+  let scl=Math.min(W,H)*0.012;
+  let px=cx+lorenzX*scl, py=cy+lorenzY*scl;
+  if(attractorPts.length>800) attractorPts.shift();
+  attractorPts.push({x:px,y:py,c:(lorenzZ/40+palPhase)%1});
+}
+function renderAttractor(){
+  let n=attractorPts.length;
+  if(n<2) return;
+  for(let i=1;i<n;i++){
+    let a=attractorPts[i-1],b=attractorPts[i];
+    let alpha=(i/n)*0.5;
+    ctx.beginPath();
+    ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y);
+    ctx.strokeStyle=getPalColor(b.c,params.palette,alpha);
+    ctx.lineWidth=1;
+    if(i%12===0){glow(4,getPalColor(b.c,params.palette,0.5));}
+    ctx.stroke();
+    if(i%12===0) noGlow();
+  }
+}
+
+// ─── NODES RENDER ────────────────────────────────────────────────────────────
+function renderNodes(){
+  for(let n2 of nodes){
+    n2.x+=n2.vx; n2.y+=n2.vy;
+    if(n2.x<50||n2.x>W-50) n2.vx*=-1;
+    if(n2.y<50||n2.y>H-50) n2.vy*=-1;
+    n2.pulse+=n2.pulseRate;
+    let pr=n2.r*(1+0.25*Math.sin(n2.pulse));
+    let col=getPalColor((n2.col+palPhase)%1,params.palette,1);
+    // Outer glow ring
+    let grad=ctx.createRadialGradient(n2.x,n2.y,pr*0.3,n2.x,n2.y,pr*3);
+    grad.addColorStop(0,getPalColor((n2.col+palPhase)%1,params.palette,0.6));
+    grad.addColorStop(1,getPalColor((n2.col+palPhase)%1,params.palette,0));
+    ctx.beginPath(); ctx.arc(n2.x,n2.y,pr*3,0,Math.PI*2);
+    ctx.fillStyle=grad; ctx.fill();
+    // Core
+    ctx.beginPath(); ctx.arc(n2.x,n2.y,pr,0,Math.PI*2);
+    ctx.fillStyle=col;
+    glow(params.glowRadius*1.2,col); ctx.fill(); noGlow();
+    // Hexagonal frame (category object box)
+    let sides=6;
+    ctx.beginPath();
+    for(let s=0;s<sides;s++){
+      let a=s/sides*Math.PI*2+frame*0.008;
+      let rx=n2.x+Math.cos(a)*(pr+8), ry=n2.y+Math.sin(a)*(pr+8);
+      s===0?ctx.moveTo(rx,ry):ctx.lineTo(rx,ry);
+    }
+    ctx.closePath();
+    ctx.strokeStyle=getPalColor((n2.col+0.5+palPhase)%1,params.palette,0.6);
+    ctx.lineWidth=1.5;
+    glow(5,col); ctx.stroke(); noGlow();
+  }
+}
+
+// ─── MORPHISMS RENDER ────────────────────────────────────────────────────────
+function renderMorphisms(){
+  for(let m of morphisms){
+    let nA=nodes[m.from], nB=nodes[m.to];
+    if(!nA||!nB) continue;
+    drawArrow(nA.x,nA.y,nB.x,nB.y,(m.col+palPhase)%1,1.5,0.7);
+    // update particles
+    for(let p of m.particles){
+      p.t+=p.speed;
+      if(p.t>1){p.t=0;p.speed=m.speed*(0.5+rng(0,1));}
+      // quadratic bezier position
+      let bend=30*Math.sin(frame*0.012);
+      let dx=nB.x-nA.x,dy=nB.y-nA.y;
+      let len2=Math.hypot(dx,dy)||1;
+      let nx2=-dy/len2,ny2=dx/len2;
+      let mx=(nA.x+nB.x)/2+nx2*bend, my=(nA.y+nB.y)/2+ny2*bend;
+      let t=p.t;
+      let px2=(1-t)*(1-t)*nA.x+2*(1-t)*t*mx+t*t*nB.x;
+      let py2=(1-t)*(1-t)*nA.y+2*(1-t)*t*my+t*t*nB.y;
+      let pcol=getPalColor((m.col+t*0.3+palPhase)%1,params.palette,0.8*(1-Math.abs(t-0.5)*1.5));
+      ctx.beginPath(); ctx.arc(px2,py2,2.5+Math.sin(frame*0.1+t*10),0,Math.PI*2);
+      ctx.fillStyle=pcol;
+      glow(8,pcol); ctx.fill(); noGlow();
+    }
+  }
+}
+
+// ─── AVATAR / CRISPR RENDER ──────────────────────────────────────────────────
+function renderAvatars(){
+  for(let av of avatars){
+    av.x+=av.vx+(fbm(av.x*0.005+turbPhase,av.y*0.005)-0.5)*0.5;
+    av.y+=av.vy+(fbm(av.y*0.005+turbPhase,av.x*0.005+100)-0.5)*0.5;
+    if(av.x<40||av.x>W-40) av.vx*=-1;
+    if(av.y<40||av.y>H-40) av.vy*=-1;
+    av.phase=Math.min(1,av.phase+av.morphRate);
+    av.crisprPhase+=0.02;
+    let ph=av.phase;
+    let col=getPalColor((av.col+palPhase)%1,params.palette,1);
+
+    if(ph<0.4){
+      // Human silhouette - simple vector figure
+      ctx.save(); ctx.translate(av.x,av.y);
+      let s=av.size;
+      ctx.strokeStyle=col; ctx.lineWidth=1.8;
+      glow(8,col);
+      // head
+      ctx.beginPath(); ctx.arc(0,-s*1.2,s*0.4,0,Math.PI*2); ctx.stroke();
+      // body
+      ctx.beginPath(); ctx.moveTo(0,-s*0.8); ctx.lineTo(0,s*0.5); ctx.stroke();
+      // arms
+      ctx.beginPath(); ctx.moveTo(-s*0.6,-s*0.2); ctx.lineTo(s*0.6,-s*0.2); ctx.stroke();
+      // legs
+      ctx.beginPath(); ctx.moveTo(0,s*0.5); ctx.lineTo(-s*0.4,s*1.2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0,s*0.5); ctx.lineTo(s*0.4,s*1.2); ctx.stroke();
+      noGlow(); ctx.restore();
+    } else {
+      // CRISPR morphogenesis - geometric decomposition + reassembly
+      ctx.save(); ctx.translate(av.x,av.y);
+      let detach=ph<0.7?(ph-0.4)/0.3:1; // 0..1 as segments detach
+      for(let i=0;i<av.segments.length;i++){
+        let seg=av.segments[i];
+        let angle=seg.angle+av.crisprPhase*(0.5+i*0.1);
+        let d=seg.attached?0:detach*seg.r*(Math.sin(av.crisprPhase+seg.phase)*0.5+1)*2;
+        let sx=Math.cos(angle)*d, sy=Math.sin(angle)*d;
+        // reassembly pulls back after ph>0.7
+        if(ph>0.7) { let pull=(ph-0.7)/0.3; sx*=(1-pull); sy*=(1-pull); }
+        let segCol=getPalColor((av.col+(i/av.segments.length)*0.3+palPhase)%1,params.palette,0.9);
+        ctx.save(); ctx.translate(sx,sy); ctx.rotate(angle*2+av.crisprPhase);
+        // Each segment becomes a geometric primitive
+        let shapes=['rect','tri','hex','circle'];
+        let sh=shapes[i%4];
+        ctx.strokeStyle=segCol; ctx.lineWidth=1.5;
+        glow(6,segCol);
+        ctx.beginPath();
+        if(sh==='rect'){
+          ctx.rect(-seg.r/2,-seg.r/2,seg.r,seg.r);
+        } else if(sh==='tri'){
+          ctx.moveTo(0,-seg.r); ctx.lineTo(seg.r*0.866,seg.r*0.5); ctx.lineTo(-seg.r*0.866,seg.r*0.5); ctx.closePath();
+        } else if(sh==='hex'){
+          for(let k=0;k<6;k++){let a=k/6*Math.PI*2; k===0?ctx.moveTo(Math.cos(a)*seg.r,Math.sin(a)*seg.r):ctx.lineTo(Math.cos(a)*seg.r,Math.sin(a)*seg.r);} ctx.closePath();
+        } else {
+          ctx.arc(0,0,seg.r,0,Math.PI*2);
+        }
+        ctx.stroke(); noGlow();
+        ctx.restore();
+      }
+      // Core cybernetic node
+      if(ph>0.6){
+        let cyberPh=(ph-0.6)/0.4;
+        ctx.beginPath(); ctx.arc(0,0,av.size*0.4*cyberPh,0,Math.PI*2);
+        ctx.strokeStyle=col; ctx.lineWidth=2;
+        glow(12,col); ctx.stroke(); noGlow();
+        // data rings
+        for(let r=0;r<3;r++){
+          ctx.beginPath(); ctx.arc(0,0,av.size*(0.6+r*0.3)*cyberPh,0,Math.PI*1.5+av.crisprPhase%(Math.PI*2));
+          ctx.strokeStyle=getPalColor((av.col+r*0.15+palPhase)%1,params.palette,0.4*cyberPh);
+          ctx.lineWidth=1; ctx.stroke();
+        }
+      }
+      ctx.restore();
+    }
+  }
+}
+
+// ─── TENSOR FIELD FLOW ───────────────────────────────────────────────────────
+function renderTensorField(){
+  let step=Math.floor(Math.min(W,H)/18);
+  for(let x=step;x<W;x+=step){
+    for(let y=step;y<H;y+=step){
+      let nx2=fbm(x*0.004+turbPhase,y*0.004)*2-1;
+      let ny2=fbm(y*0.004+turbPhase,x*0.004+50)*2-1;
+      let mag=Math.hypot(nx2,ny2)||1;
+      nx2/=mag; ny2/=mag;
+      let len=step*0.38;
+      let x2=x+nx2*len, y2=y+ny2*len;
+      let alpha=0.08+0.06*fbm(x*0.003+turbPhase*0.5,y*0.003);
+      let col=getPalColor((fbm(x*0.005,y*0.005+turbPhase)+palPhase)%1,params.palette,alpha);
+      ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x2,y2);
+      ctx.strokeStyle=col; ctx.lineWidth=0.8; ctx.stroke();
+      // small tick at end
+      ctx.beginPath(); ctx.arc(x2,y2,1.2,0,Math.PI*2);
+      ctx.fillStyle=col; ctx.fill();
+    }
+  }
+}
+
+// ─── FOURIER RINGS ───────────────────────────────────────────────────────────
+function renderFourierRings(){
+  let n=12;
+  for(let i=0;i<n;i++){
+    let t=i/n;
+    let freq=Math.floor(i/2)+1;
+    let amp=Math.min(W,H)*0.04*(1-t*0.5)*(0.5+0.5*logisticX);
+    let r=Math.min(W,H)*(0.08+t*0.35);
+    let pts=120;
+    ctx.beginPath();
+    for(let j=0;j<=pts;j++){
+      let a=j/pts*Math.PI*2;
+      let ra=r+amp*Math.sin(freq*a+frame*0.01*(i+1)+palPhase*Math.PI*2);
+      let px2=cx+Math.cos(a)*ra, py2=cy+Math.sin(a)*ra;
+      j===0?ctx.moveTo(px2,py2):ctx.lineTo(px2,py2);
+    }
+    ctx.closePath();
+    let col=getPalColor((t+palPhase)%1,params.palette,0.07+0.04*Math.sin(frame*0.02+i));
+    ctx.strokeStyle=col; ctx.lineWidth=0.8;
+    if(i%3===0){glow(4,col);}
+    ctx.stroke();
+    if(i%3===0) noGlow();
+  }
+}
+
+// ─── BACKGROUND GRID ─────────────────────────────────────────────────────────
+function renderGrid(){
+  let step=Math.floor(Math.min(W,H)/16);
+  let turbAmt=8;
+  ctx.lineWidth=0.4;
+  for(let x=0;x<=W;x+=step){
+    ctx.beginPath();
+    for(let y=0;y<=H;y+=4){
+      let tx=(fbm(x*0.01+turbPhase*0.3,y*0.01)-0.5)*turbAmt;
+      let px=x+tx;
+      y===0?ctx.moveTo(px,y):ctx.lineTo(px,y);
+    }
+    ctx.strokeStyle=getPalColor((x/W+palPhase*0.3)%1,params.palette,0.05);
+    ctx.stroke();
+  }
+  for(let y=0;y<=H;y+=step){
+    ctx.beginPath();
+    for(let x=0;x<=W;x+=4){
+      let ty=(fbm(x*0.01,y*0.01+turbPhase*0.3)-0.5)*turbAmt;
+      let py=y+ty;
+      x===0?ctx.moveTo(x,py):ctx.lineTo(x,py);
+    }
+    ctx.strokeStyle=getPalColor((y/H+palPhase*0.3)%1,params.palette,0.05);
+    ctx.stroke();
+  }
+}
+
+// ─── SCAN LINE OVERLAY ───────────────────────────────────────────────────────
+function renderScanLines(){
+  let scanH=3;
+  for(let y=0;y<H;y+=scanH*2){
+    ctx.fillStyle='rgba(0,0,0,0.03)';
+    ctx.fillRect(0,y,W,scanH);
+  }
+}
+
+// ─── HUD UPDATE ──────────────────────────────────────────────────────────────
+function refreshHUD(){
+  document.getElementById('hf').textContent=frame;
+  document.getElementById('hfps').textContent=fps.toFixed(1);
+  document.getElementById('hn').textContent=nodes.length;
+  document.getElementById('hm').textContent=morphisms.length;
+  document.getElementById('ha').textContent=params.attractorType;
+  document.getElementById('hp').textContent=params.palette;
+  document.getElementById('hs').textContent=params.coxeterFold;
+  document.getElementById('hlr').textContent=params.logisticR.toFixed(3);
+  document.getElementById('hav').textContent=avatars.length?avatars[0].phase.toFixed(2):'0';
+}
+
+// ─── MAIN LOOP ───────────────────────────────────────────────────────────────
+function loop(ts){
+  requestAnimationFrame(loop);
+
+  // FPS
+  let dt=(ts-lastT)/1000; lastT=ts;
+  fpsAcc+=dt; fpsFrames++;
+  if(fpsAcc>=0.5){fps=fpsFrames/fpsAcc; fpsAcc=0; fpsFrames=0;}
+  frame++;
+
+  // Dynamic variables
+  palPhase=(palPhase+0.0007)%1;
+  turbPhase+=0.004;
+  coxeterAngle+=0.0015;
+  logisticX=logisticStep(logisticX,params.logisticR);
+  if(logisticX<0.001||logisticX>0.999) logisticX=0.3+Math.random()*0.4;
+
+  // Voronoi drift
+  for(let v of voronoi){
+    v.x+=v.vx+Math.sin(turbPhase+v.phase)*0.2;
+    v.y+=v.vy+Math.cos(turbPhase+v.phase)*0.2;
+    if(v.x<0||v.x>W) v.vx*=-1;
+    if(v.y<0||v.y>H) v.vy*=-1;
+    v.col=(v.col+0.0003)%1;
+  }
+
+  // Advance attractor
+  for(let i=0;i<4;i++) stepLorenz();
+
+  // Audio
+  if(soundOn && frame%20===0) updateAudio();
+
+  // BG fade
+  ctx.fillStyle=`rgba(0,2,8,${params.bgAlpha})`;
+  ctx.fillRect(0,0,W,H);
+
+  // Draw layers
+  renderGrid();
+  renderVoronoi();
+  renderFourierRings();
+  drawCoxeterChamber();
+  renderAttractor();
+  renderTensorField();
+  renderMorphisms();
+  renderNodes();
+  renderAvatars();
+  renderScanLines();
+
+  // HUD
+  if(hudOn && frame%10===0) refreshHUD();
+}
+
+// ─── CONTROLS ────────────────────────────────────────────────────────────────
+window.addEventListener('keydown',e=>{
+  if(e.key===' '||e.code==='Space'){e.preventDefault(); init();}
+  if(e.key==='h'||e.key==='H'){
+    hudOn=!hudOn;
+    document.getElementById('hud').style.display=hudOn?'block':'none';
+  }
+  if(e.key==='s'||e.key==='S'){
+    soundOn=!soundOn;
+    if(soundOn) startAudio(); else stopAudio();
+  }
+});
+
+function handleTap(e){
+  e.preventDefault();
+  if(!tapStarted){ tapStarted=true; return; }
+  init();
+}
+window.addEventListener('click',e=>{ init(); });
+window.addEventListener('touchend',handleTap,{passive:false});
+
+// ─── START ────────────────────────────────────────────────────────────────────
+init();
+lastT=performance.now();
+requestAnimationFrame(loop);
+
+})();
+</script>
+</body>
+</html>

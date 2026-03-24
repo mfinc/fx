@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Atari 2600 Color Palette Graphics Animation – Procedural Visualization of TIA Video Display Engineering</title>
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<meta name="description" content="Procedural video graphics animation inspired by Atari 2600 color palette engineering and TIA video display circuitry. Complex generative visuals emulate scanline graphics, sprites, playfields, missiles and color clock dynamics.">
+
+<meta name="keywords" content="Atari 2600 graphics, Atari 2600 color palette, TIA chip visualization, retro graphics animation, Atari video circuitry simulation, procedural CRT scanline animation, retro game graphics">
+
+<meta name="robots" content="index, follow">
+
+<style>
+html,body{
+margin:0;
+padding:0;
+overflow:hidden;
+background:black;
+font-family:monospace;
+}
+canvas{
+display:block;
+}
+#hud{
+position:absolute;
+top:0;
+left:0;
+padding:10px;
+color:#0f0;
+background:rgba(0,0,0,0.35);
+font-size:12px;
+display:none;
+}
+</style>
+</head>
+
+<body>
+
+<canvas id="c"></canvas>
+<div id="hud"></div>
+
+<script>
+
+const canvas = document.getElementById("c")
+const ctx = canvas.getContext("2d")
+const hud = document.getElementById("hud")
+
+let W,H
+
+function resize(){
+W=canvas.width=window.innerWidth
+H=canvas.height=window.innerHeight
+}
+window.addEventListener("resize",resize)
+resize()
+
+/* --- Atari-like palette --- */
+
+function atariPalette(){
+
+let colors=[]
+
+for(let h=0;h<16;h++){
+for(let l=0;l<8;l++){
+
+let hue = h*22.5
+let light = 25 + l*8
+
+colors.push(`hsl(${hue},80%,${light}%)`)
+}
+}
+
+return colors
+}
+
+const palette = atariPalette()
+
+/* --- system state --- */
+
+let state={}
+let showHUD=false
+let soundEnabled=false
+
+/* --- sound --- */
+
+let audioCtx
+let osc
+let gain
+
+function initSound(){
+
+audioCtx = new (window.AudioContext||window.webkitAudioContext)()
+osc = audioCtx.createOscillator()
+gain = audioCtx.createGain()
+
+osc.type="square"
+osc.frequency.value=200
+
+gain.gain.value=0
+
+osc.connect(gain)
+gain.connect(audioCtx.destination)
+
+osc.start()
+
+}
+
+function updateSound(){
+
+if(!soundEnabled || !audioCtx)return
+
+let f = 80 + Math.random()*600
+osc.frequency.setValueAtTime(f,audioCtx.currentTime)
+
+gain.gain.setTargetAtTime(0.05,audioCtx.currentTime,0.01)
+
+}
+
+/* --- reset system --- */
+
+function reset(){
+
+state.layers=[]
+state.time=0
+
+let layerCount = 6 + Math.floor(Math.random()*8)
+
+for(let i=0;i<layerCount;i++){
+
+state.layers.push({
+
+type:Math.floor(Math.random()*4),
+speed:0.2+Math.random()*2,
+scale:20+Math.random()*200,
+color:palette[Math.floor(Math.random()*palette.length)],
+phase:Math.random()*10,
+density:5+Math.random()*40
+
+})
+
+}
+
+updateHUD()
+
+}
+
+/* --- HUD --- */
+
+function updateHUD(){
+
+hud.innerHTML=
+"Procedural Atari-Style Graphics System<br>"+
+"Layers: "+state.layers.length+"<br>"+
+"Palette size: "+palette.length+"<br>"+
+"Resolution: "+W+" × "+H+"<br>"+
+"Sound: "+(soundEnabled?"ON":"OFF")+"<br>"+
+"H = toggle HUD<br>"+
+"S = toggle sound<br>"+
+"SPACE / CLICK / TAP = randomize"
+
+}
+
+/* --- drawing primitives --- */
+
+function drawPlayfield(layer,y){
+
+ctx.fillStyle=layer.color
+
+for(let x=0;x<W;x+=layer.scale){
+
+let v=Math.sin((x+state.time*layer.speed)/layer.scale + layer.phase)
+
+let h = (v*0.5+0.5)*layer.density
+
+ctx.fillRect(x,y,h,2)
+
+}
+
+}
+
+function drawSprites(layer,y){
+
+for(let i=0;i<10;i++){
+
+let x=(Math.sin(state.time*layer.speed+i)*0.5+0.5)*W
+
+ctx.fillStyle=layer.color
+
+ctx.fillRect(x,y,4+layer.scale*0.05,4+layer.scale*0.05)
+
+}
+
+}
+
+function drawMissiles(layer,y){
+
+for(let i=0;i<20;i++){
+
+let x=(Math.cos(state.time*layer.speed+i)*0.5+0.5)*W
+
+ctx.fillStyle=layer.color
+
+ctx.fillRect(x,y,2,6)
+
+}
+
+}
+
+function drawBall(layer,y){
+
+let x=(Math.sin(state.time*layer.speed)*0.5+0.5)*W
+
+ctx.fillStyle=layer.color
+ctx.beginPath()
+ctx.arc(x,y,layer.scale*0.05,0,Math.PI*2)
+ctx.fill()
+
+}
+
+/* --- animation --- */
+
+function frame(){
+
+requestAnimationFrame(frame)
+
+state.time+=0.01
+
+ctx.fillStyle="black"
+ctx.fillRect(0,0,W,H)
+
+/* simulate scanlines */
+
+let scanHeight=2
+
+for(let y=0;y<H;y+=scanHeight){
+
+let layer=state.layers[y % state.layers.length]
+
+switch(layer.type){
+
+case 0: drawPlayfield(layer,y); break
+case 1: drawSprites(layer,y); break
+case 2: drawMissiles(layer,y); break
+case 3: drawBall(layer,y); break
+
+}
+
+}
+
+/* CRT glow overlay */
+
+let g=ctx.createLinearGradient(0,0,0,H)
+g.addColorStop(0,"rgba(0,0,0,0.2)")
+g.addColorStop(0.5,"rgba(255,255,255,0.05)")
+g.addColorStop(1,"rgba(0,0,0,0.3)")
+
+ctx.fillStyle=g
+ctx.fillRect(0,0,W,H)
+
+if(soundEnabled) updateSound()
+
+}
+
+/* --- controls --- */
+
+window.addEventListener("keydown",e=>{
+
+if(e.code==="Space") reset()
+
+if(e.key==="h"||e.key==="H"){
+showHUD=!showHUD
+hud.style.display=showHUD?"block":"none"
+}
+
+if(e.key==="s"||e.key==="S"){
+
+soundEnabled=!soundEnabled
+
+if(soundEnabled && !audioCtx){
+initSound()
+}
+
+updateHUD()
+
+}
+
+})
+
+window.addEventListener("click",reset)
+window.addEventListener("touchstart",reset)
+
+/* --- start --- */
+
+reset()
+frame()
+
+</script>
+
+</body>
+</html>

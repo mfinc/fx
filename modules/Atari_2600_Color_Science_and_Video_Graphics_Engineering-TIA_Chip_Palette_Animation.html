@@ -1,0 +1,736 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Atari 2600 Color Science &amp; Video Graphics Engineering — TIA Chip Palette Animation</title>
+<meta name="description" content="Breathtaking animated visualization of the Atari 2600 TIA chip 128-color NTSC palette, raster scan circuitry, luminance registers, chroma subcarrier engineering, and retro video game color science.">
+<meta name="keywords" content="Atari 2600, TIA chip, NTSC color palette, video graphics, color science, luminance, chroma, raster scan, scanline, 8-bit color, television interface adaptor, retro computing, vintage gaming, pixel art, color registers, COLUP0, COLUP1, COLUBK, COLUPF">
+<meta name="robots" content="index, follow, max-image-preview:large">
+<meta property="og:title" content="Atari 2600 TIA Color Science &amp; Video Graphics Engineering">
+<meta property="og:description" content="Animated showcase of the Atari 2600 TIA chip 128-color NTSC palette, color circuitry, raster beam, and video display engineering.">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000;cursor:crosshair}
+canvas{display:block;position:fixed;top:0;left:0;width:100vw;height:100vh}
+#hud{display:none;position:fixed;top:12px;left:12px;color:#0f0;font:11px/1.7 'Courier New',monospace;pointer-events:none;text-shadow:0 0 6px #0f0;z-index:100;white-space:pre}
+#hud.on{display:block}
+#hint{position:fixed;bottom:12px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,.3);font:10px/1 'Courier New',monospace;letter-spacing:2px;pointer-events:none;z-index:100;white-space:nowrap}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<div id="hint">SPACE / CLICK / TAP = RESET &nbsp;·&nbsp; H = HUD &nbsp;·&nbsp; S = SOUND</div>
+<script>
+'use strict';
+// ─────────────────────────────────────────────────────────────────────────────
+// ATARI 2600 TIA — AUTHENTIC NTSC PALETTE  (16 hues x 8 luminance = 128 colors)
+// ─────────────────────────────────────────────────────────────────────────────
+const HUE_NAMES=[
+  'Grey','Gold','Orange','Red-Orange','Pink','Magenta',
+  'Purple','Violet-Blue','Blue','Light-Blue','Teal','Green-Teal',
+  'Green','Yellow-Green','Yellow','Light-Yellow'
+];
+const RAW=[
+  [[0,0,0],[64,64,64],[108,108,108],[144,144,144],[176,176,176],[200,200,200],[220,220,220],[236,236,236]],
+  [[68,68,0],[100,100,16],[132,116,40],[160,140,60],[188,164,80],[212,188,100],[232,208,120],[248,228,140]],
+  [[96,48,0],[128,72,16],[160,96,32],[188,120,52],[216,144,68],[236,164,84],[252,188,100],[255,208,120]],
+  [[120,20,0],[152,44,12],[184,68,28],[212,92,48],[236,116,64],[252,140,80],[255,164,96],[255,188,112]],
+  [[116,0,32],[148,16,52],[180,40,72],[208,64,96],[232,88,116],[252,112,136],[255,136,156],[255,160,176]],
+  [[88,0,80],[120,16,108],[152,40,136],[180,64,164],[208,88,188],[228,112,208],[248,136,228],[255,160,248]],
+  [[44,0,108],[72,16,140],[100,40,168],[128,64,196],[156,88,220],[180,112,240],[204,136,255],[228,160,255]],
+  [[0,0,120],[16,16,152],[40,40,184],[64,68,212],[88,96,236],[112,120,255],[136,148,255],[160,172,255]],
+  [[0,0,104],[0,16,136],[16,40,168],[40,68,196],[64,96,220],[88,124,240],[112,152,255],[136,176,255]],
+  [[0,20,80],[0,52,112],[16,84,144],[40,116,172],[64,148,196],[88,176,216],[112,200,236],[136,220,252]],
+  [[0,44,40],[0,76,72],[16,108,104],[40,140,132],[64,168,156],[88,196,180],[112,220,200],[136,240,220]],
+  [[0,56,0],[0,88,16],[16,120,40],[40,152,64],[68,180,88],[96,208,112],[124,232,136],[152,252,160]],
+  [[0,52,0],[0,84,0],[16,116,0],[44,148,16],[72,176,40],[100,204,64],[128,228,88],[156,248,112]],
+  [[24,52,0],[56,84,0],[88,116,0],[116,148,16],[144,176,40],[172,204,64],[196,228,88],[220,248,112]],
+  [[56,44,0],[88,76,0],[120,108,0],[148,140,16],[176,168,40],[200,196,64],[224,220,88],[244,240,112]],
+  [[72,52,0],[104,84,0],[136,116,0],[164,148,16],[192,176,40],[216,204,64],[236,228,88],[252,248,112]],
+];
+const PR=new Uint8Array(128),PG=new Uint8Array(128),PB=new Uint8Array(128);
+for(let h=0;h<16;h++) for(let l=0;l<8;l++){
+  const i=h*8+l;
+  PR[i]=RAW[h][l][0]; PG[i]=RAW[h][l][1]; PB[i]=RAW[h][l][2];
+}
+function pc(i){i=((i%128)+128)%128;return'rgb('+PR[i]+','+PG[i]+','+PB[i]+')';}
+function pa(i,a){i=((i%128)+128)%128;return'rgba('+PR[i]+','+PG[i]+','+PB[i]+','+a+')';}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GLOBALS
+// ─────────────────────────────────────────────────────────────────────────────
+const canvas=document.getElementById('c');
+const ctx=canvas.getContext('2d');
+const hudEl=document.getElementById('hud');
+let W=1,H=1,T=0,frame=0,lastTS=0;
+let hudOn=false,sndOn=false,audioCtx=null,lastBeep=0;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UTILS
+// ─────────────────────────────────────────────────────────────────────────────
+const TAU=Math.PI*2;
+function rnd(a,b){return a+Math.random()*(b-a);}
+function ri(a,b){return Math.floor(a+Math.random()*(b-a+1));}
+function clamp(v,a,b){return v<a?a:v>b?b:v;}
+function pick(arr){return arr[Math.floor(Math.random()*arr.length)];}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SESSION STATE
+// ─────────────────────────────────────────────────────────────────────────────
+var S={speed:1,cycle:1,glow:0.7,tint:0,scanAlpha:0.1,rasterAmp:15,waveType:0,
+       plasmaF:2,domHues:[0,4,8,12],stars:[],nodes:[],rings:[],sprites:[],regs:[],
+       plasmaCanvas:null,plasmaCtx:null};
+
+function buildSession(){
+  T=0; frame=0;
+  S.speed=rnd(0.4,1.8);
+  S.cycle=rnd(0.5,3.0);
+  S.glow=rnd(0.4,1.1);
+  S.tint=ri(0,15)*8;
+  S.scanAlpha=rnd(0.04,0.22);
+  S.rasterAmp=rnd(6,38);
+  S.waveType=ri(0,3);
+  S.plasmaF=rnd(1,4);
+  S.domHues=[];
+  var dlen=ri(2,5);
+  for(var d=0;d<dlen;d++) S.domHues.push(ri(0,15));
+
+  // Stars
+  S.stars=[];
+  var sc=ri(220,700);
+  for(var i=0;i<sc;i++) S.stars.push({
+    x:Math.random(),y:Math.random(),z:Math.random(),
+    pi:ri(0,127),spd:rnd(0.0002,0.002),tw:Math.random()*TAU
+  });
+
+  // Circuit nodes
+  S.nodes=[];
+  var nc=ri(18,55);
+  for(var n=0;n<nc;n++) S.nodes.push({
+    x:Math.random(),y:Math.random(),
+    pi:ri(0,127),ph:Math.random()*TAU,
+    spd:rnd(0.5,3),r:rnd(2,6),conns:[]
+  });
+  for(var n=0;n<S.nodes.length;n++){
+    var k=ri(1,3);
+    for(var j=0;j<k;j++){
+      var t2=ri(0,S.nodes.length-1);
+      if(t2!==n) S.nodes[n].conns.push(t2);
+    }
+  }
+
+  // Tunnel rings
+  S.rings=[];
+  var layers=ri(6,14);
+  var rtotal=layers*3;
+  for(var i=0;i<rtotal;i++) S.rings.push({
+    depth:i/rtotal,
+    pi:ri(0,127),
+    rot:Math.random()*TAU,
+    rotSpd:rnd(-0.02,0.02),
+    sides:pick([3,4,5,6,7,8,12,16])
+  });
+
+  // Sprites
+  S.sprites=[];
+  var spc=ri(8,28);
+  for(var i=0;i<spc;i++) S.sprites.push({
+    x:Math.random(),y:Math.random(),
+    vx:rnd(-0.003,0.003),vy:rnd(-0.003,0.003),
+    pi:ri(0,127),sz:rnd(3,16),
+    shape:ri(0,4),trail:[],trailLen:ri(8,28),
+    spin:Math.random()*TAU,spinSpd:rnd(-0.1,0.1)
+  });
+
+  // Register chips
+  S.regs=[];
+  for(var i=0;i<16;i++) S.regs.push({
+    hue:i,x:rnd(0.06,0.94),y:rnd(0.06,0.94),
+    sc:rnd(0.5,1.5),rot:rnd(-Math.PI,Math.PI),rotSpd:rnd(-0.01,0.01)
+  });
+
+  rebuildPlasma();
+}
+
+function rebuildPlasma(){
+  if(!W||!H) return;
+  var pw=Math.max(1,Math.floor(W/4));
+  var ph=Math.max(1,Math.floor(H/4));
+  S.plasmaCanvas=document.createElement('canvas');
+  S.plasmaCanvas.width=pw; S.plasmaCanvas.height=ph;
+  S.plasmaCtx=S.plasmaCanvas.getContext('2d');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DRAW FUNCTIONS
+// ─────────────────────────────────────────────────────────────────────────────
+function drawStars(){
+  for(var i=0;i<S.stars.length;i++){
+    var s=S.stars[i];
+    s.tw+=0.03*S.speed;
+    var bright=0.4+0.6*Math.abs(Math.sin(s.tw));
+    var x=((s.x+T*s.spd)%1)*W;
+    var y=s.y*H;
+    ctx.beginPath();
+    ctx.arc(x,y,0.5+s.z*1.5,0,TAU);
+    ctx.fillStyle=pa(s.pi,bright*0.75);
+    ctx.fill();
+  }
+}
+
+function drawPlasma(){
+  if(!S.plasmaCanvas||!S.plasmaCtx) return;
+  var pw=S.plasmaCanvas.width, ph=S.plasmaCanvas.height;
+  if(!pw||!ph) return;
+  var id=S.plasmaCtx.createImageData(pw,ph);
+  var d=id.data;
+  var f=S.plasmaF, cr=S.cycle*S.speed;
+  for(var py=0;py<ph;py++){
+    for(var px=0;px<pw;px++){
+      var nx=px/pw, ny=py/ph;
+      var v1=Math.sin(nx*f*6.28+T*cr);
+      var v2=Math.sin(ny*f*6.28+T*cr*0.7);
+      var v3=Math.sin((nx+ny)*f*4+T*cr*1.3);
+      var v4=Math.sin(Math.sqrt((nx-0.5)*(nx-0.5)+(ny-0.5)*(ny-0.5))*f*8+T*cr*0.5);
+      var val=(v1+v2+v3+v4+4)/8;
+      var hi=Math.floor(val*16)%16;
+      var li=Math.floor(((v1+v3+2)/4)*8)%8;
+      var pi=(hi*8+li)%128;
+      var idx=(py*pw+px)*4;
+      d[idx]=PR[pi]; d[idx+1]=PG[pi]; d[idx+2]=PB[pi]; d[idx+3]=155;
+    }
+  }
+  S.plasmaCtx.putImageData(id,0,0);
+  ctx.save();
+  ctx.imageSmoothingEnabled=false;
+  ctx.drawImage(S.plasmaCanvas,0,0,W,H);
+  ctx.restore();
+}
+
+function drawScanlines(){
+  ctx.save();
+  var lh=Math.max(1,Math.floor(H/240));
+  for(var line=0;line<240;line++){
+    var y=(line/240)*H;
+    var ph=T*S.speed*2+line*0.05;
+    var hi=(Math.floor(line*16/240)+S.tint+Math.floor(T*S.cycle))%16;
+    var li=Math.floor((Math.sin(ph)*0.5+0.5)*8)%8;
+    var pi=(hi*8+li)%128;
+    var xOff=Math.sin(ph+line*0.03)*S.rasterAmp*Math.sin(T*0.7+line*0.01);
+    ctx.fillStyle=pa(pi,S.scanAlpha);
+    ctx.fillRect(xOff,y,W,lh);
+  }
+  ctx.restore();
+}
+
+function drawCircuit(){
+  if(!S.nodes||!S.nodes.length) return;
+  ctx.save();
+  for(var i=0;i<S.nodes.length;i++){
+    var n=S.nodes[i];
+    var nx=n.x*W, ny=n.y*H;
+    var pulse=(Math.sin(T*n.spd*S.speed+n.ph)+1)/2;
+    for(var ci=0;ci<n.conns.length;ci++){
+      var idx2=n.conns[ci];
+      if(idx2<0||idx2>=S.nodes.length) continue;
+      var cn=S.nodes[idx2];
+      var cx2=cn.x*W, cy2=cn.y*H;
+      var g=ctx.createLinearGradient(nx,ny,cx2,cy2);
+      g.addColorStop(0,pa(n.pi,0.1+pulse*0.5));
+      g.addColorStop(clamp(pulse,0.01,0.99),'rgba(255,255,255,'+(0.2+pulse*0.35)+')');
+      g.addColorStop(1,pa(n.pi,0.04));
+      ctx.strokeStyle=g; ctx.lineWidth=0.5+pulse*1.5;
+      ctx.beginPath();
+      var mx=nx+(cx2-nx)*0.5;
+      ctx.moveTo(nx,ny); ctx.lineTo(mx,ny); ctx.lineTo(mx,cy2); ctx.lineTo(cx2,cy2);
+      ctx.stroke();
+    }
+  }
+  for(var i=0;i<S.nodes.length;i++){
+    var n=S.nodes[i];
+    var nx=n.x*W, ny=n.y*H;
+    var pulse=(Math.sin(T*n.spd*S.speed+n.ph)+1)/2;
+    var gr=ctx.createRadialGradient(nx,ny,0,nx,ny,n.r*(2+pulse*3)*S.glow);
+    gr.addColorStop(0,pa(n.pi,0.8+pulse*0.2));
+    gr.addColorStop(0.5,pa(n.pi,0.25+pulse*0.25));
+    gr.addColorStop(1,pa(n.pi,0));
+    ctx.beginPath(); ctx.arc(nx,ny,n.r*(2+pulse*3)*S.glow,0,TAU);
+    ctx.fillStyle=gr; ctx.fill();
+    ctx.beginPath(); ctx.arc(nx,ny,n.r,0,TAU);
+    ctx.fillStyle=pc(n.pi); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawColorBurst(){
+  ctx.save();
+  var cx=W*0.5, cy=H*0.5;
+  var maxR=Math.min(W,H)*0.43;
+  for(var i=0;i<128;i++){
+    var angle=(i/128)*TAU;
+    var pi=(i+Math.floor(T*S.cycle*S.speed*16))%128;
+    var r1=maxR*(0.3+0.7*(i%8)/8);
+    var r2=maxR*(0.32+0.7*((i%8)+1)/8);
+    var pulse=Math.sin(T*S.speed*2+i*0.2)*0.1;
+    var sweep=(TAU/128)*1.02;
+    var g=ctx.createRadialGradient(cx,cy,r1*(1+pulse),cx,cy,r2*(1+pulse));
+    g.addColorStop(0,pa(pi,0.7)); g.addColorStop(1,pa(pi,0.04));
+    ctx.beginPath(); ctx.moveTo(cx,cy);
+    ctx.arc(cx,cy,r2*(1+pulse),angle,angle+sweep);
+    ctx.closePath(); ctx.fillStyle=g; ctx.fill();
+  }
+  var fz=Math.floor(Math.min(W,H)*0.022);
+  var pi2=Math.floor(T*2)%128;
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.font='bold '+fz+'px Courier New';
+  ctx.fillStyle='rgba(255,255,255,'+(0.6+0.4*Math.sin(T*2))+')';
+  ctx.fillText('TIA',cx,cy-12);
+  ctx.font=Math.floor(fz*0.55)+'px Courier New';
+  ctx.fillStyle=pa((pi2+32)%128,0.7+0.3*Math.sin(T*1.5));
+  ctx.fillText('TELEVISION',cx,cy+4);
+  ctx.fillText('INTERFACE',cx,cy+16);
+  ctx.fillText('ADAPTOR',cx,cy+28);
+  ctx.restore();
+}
+
+function drawSprites(){
+  if(!S.sprites||!S.sprites.length) return;
+  ctx.save();
+  for(var i=0;i<S.sprites.length;i++){
+    var s=S.sprites[i];
+    s.x+=s.vx*S.speed; s.y+=s.vy*S.speed;
+    if(s.x<0||s.x>1){s.vx*=-1; s.x=clamp(s.x,0,1);}
+    if(s.y<0||s.y>1){s.vy*=-1; s.y=clamp(s.y,0,1);}
+    s.spin+=s.spinSpd*S.speed;
+    var sx=s.x*W, sy=s.y*H;
+    s.trail.unshift([sx,sy]);
+    if(s.trail.length>s.trailLen) s.trail.length=s.trailLen;
+    for(var ti=1;ti<s.trail.length;ti++){
+      var a=(1-ti/s.trail.length)*0.55;
+      ctx.strokeStyle=pa(s.pi,a);
+      ctx.lineWidth=s.sz*0.3*(1-ti/s.trail.length);
+      ctx.beginPath();
+      ctx.moveTo(s.trail[ti-1][0],s.trail[ti-1][1]);
+      ctx.lineTo(s.trail[ti][0],s.trail[ti][1]);
+      ctx.stroke();
+    }
+    var gr=ctx.createRadialGradient(sx,sy,0,sx,sy,s.sz*S.glow*1.5);
+    gr.addColorStop(0,pa(s.pi,0.9)); gr.addColorStop(0.5,pa(s.pi,0.35)); gr.addColorStop(1,pa(s.pi,0));
+    ctx.beginPath(); ctx.arc(sx,sy,s.sz*S.glow*1.5,0,TAU);
+    ctx.fillStyle=gr; ctx.fill();
+    ctx.save(); ctx.translate(sx,sy); ctx.rotate(s.spin);
+    ctx.fillStyle=pc(s.pi);
+    var z=s.sz;
+    if(s.shape===0) ctx.fillRect(-z/2,-z/2,z,z);
+    else if(s.shape===1){ctx.beginPath();ctx.arc(0,0,z/2,0,TAU);ctx.fill();}
+    else if(s.shape===2){ctx.beginPath();ctx.moveTo(0,-z/2);ctx.lineTo(z/2,0);ctx.lineTo(0,z/2);ctx.lineTo(-z/2,0);ctx.closePath();ctx.fill();}
+    else if(s.shape===3){ctx.fillRect(-z/2,-2,z,4);ctx.fillRect(-2,-z/2,4,z);}
+    else ctx.fillRect(-2,-2,4,4);
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+function drawTunnel(){
+  if(!S.rings||!S.rings.length) return;
+  ctx.save();
+  var cx=W*0.5, cy=H*0.5, maxR=Math.min(W,H)*0.5;
+  for(var i=0;i<S.rings.length;i++){
+    var rg=S.rings[i];
+    rg.rot+=rg.rotSpd*S.speed;
+    var depth=((rg.depth+T*0.04*S.speed)%1);
+    var r=(1-depth)*maxR;
+    if(r<2) continue;
+    var pi=(rg.pi+Math.floor(T*S.cycle*S.speed*4))%128;
+    var alpha=(1-depth)*0.5+depth*0.04;
+    ctx.strokeStyle=pa(pi,alpha);
+    ctx.lineWidth=(1-depth)*3+0.5;
+    ctx.save(); ctx.translate(cx,cy); ctx.rotate(rg.rot);
+    ctx.beginPath();
+    for(var s2=0;s2<=rg.sides;s2++){
+      var ang=(s2/rg.sides)*TAU;
+      var rx=Math.cos(ang)*r*(0.9+0.2*(W/H));
+      var ry=Math.sin(ang)*r;
+      if(s2===0) ctx.moveTo(rx,ry); else ctx.lineTo(rx,ry);
+    }
+    ctx.stroke(); ctx.restore();
+  }
+  ctx.restore();
+}
+
+function drawHueSpiral(){
+  ctx.save();
+  var cx=W*0.5, cy=H*0.5, turns=4, pts=1000;
+  for(var i=0;i<pts;i++){
+    var frac=i/pts;
+    var angle=frac*TAU*turns+T*S.speed*S.cycle*0.5;
+    var radius=frac*Math.min(W,H)*0.44;
+    var x=cx+Math.cos(angle)*radius;
+    var y=cy+Math.sin(angle)*radius;
+    var hi=(Math.floor(frac*16*turns)+S.tint)%16;
+    var li=Math.floor(frac*8*turns)%8;
+    var pi=(hi*8+li)%128;
+    ctx.beginPath();
+    ctx.arc(x,y,1.5+(1-frac)*2,0,TAU);
+    ctx.fillStyle=pa(pi,0.4+frac*0.5);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawLumaGrid(){
+  ctx.save();
+  var cw=Math.min(W*0.008,18);
+  var gx=W*0.5-8*cw+Math.sin(T*0.3)*W*0.1;
+  var gy=H*0.5-4*cw+Math.cos(T*0.25)*H*0.08;
+  var shift=Math.floor(T*S.cycle*S.speed)%128;
+  for(var h=0;h<16;h++){
+    for(var l=0;l<8;l++){
+      var pi=(h*8+l+shift)%128;
+      var px=gx+h*cw, py=gy+l*cw;
+      ctx.fillStyle=pc(pi);
+      ctx.fillRect(px,py,cw-1,cw-1);
+      var pulse=Math.sin(T*S.speed*3+h*0.3+l*0.5);
+      if(pulse>0.9){
+        ctx.strokeStyle='rgba(255,255,255,'+(pulse-0.9)*5+')';
+        ctx.lineWidth=1; ctx.strokeRect(px,py,cw-1,cw-1);
+      }
+    }
+  }
+  ctx.font=Math.floor(cw*0.6)+'px Courier New';
+  ctx.fillStyle='rgba(255,255,255,.5)'; ctx.textAlign='center';
+  ctx.fillText('ATARI 2600 -- 128 NTSC TIA COLORS',gx+8*cw,gy-5);
+  ctx.restore();
+}
+
+function drawRasterBeam(){
+  ctx.save();
+  var prog=(T*S.speed*0.5)%1;
+  var beamY=prog*H;
+  var beamX=((T*S.speed*240)%1)*W;
+  var pi=(Math.floor(beamY/H*128)+S.tint)%128;
+  var bx=clamp(beamX/W,0,1);
+  // Build gradient stops carefully so they are always ascending
+  var g=ctx.createLinearGradient(0,beamY,W,beamY);
+  g.addColorStop(0,'rgba(0,0,0,0)');
+  var s1=clamp(bx-0.02,0,0.98);
+  var s2=clamp(bx,s1+0.001,1);
+  var s3=clamp(bx+0.03,s2+0.001,1);
+  g.addColorStop(s1,'rgba(0,0,0,0)');
+  g.addColorStop(s2,pa(pi,0.9));
+  if(s3<1){ g.addColorStop(s3,pa(pi,0.08)); g.addColorStop(1,'rgba(0,0,0,0)'); }
+  ctx.fillStyle=g; ctx.fillRect(0,beamY-1,W,3);
+  var dg=ctx.createRadialGradient(beamX,beamY,0,beamX,beamY,12);
+  dg.addColorStop(0,'rgba(255,255,255,.95)');
+  dg.addColorStop(0.3,pa(pi,0.7));
+  dg.addColorStop(1,pa(pi,0));
+  ctx.beginPath(); ctx.arc(beamX,beamY,12,0,TAU);
+  ctx.fillStyle=dg; ctx.fill();
+  ctx.restore();
+}
+
+function drawChromaWaves(){
+  ctx.save();
+  var n=256, wh=H*0.11;
+  var dom=S.domHues.length?S.domHues:[0,4,8,12];
+  for(var ch=0;ch<4;ch++){
+    var yBase=H*(0.76+ch*0.055);
+    var phase=ch*Math.PI*0.5;
+    var pi=(dom[ch%dom.length]*8+Math.floor(T*S.cycle))%128;
+    ctx.beginPath();
+    for(var i=0;i<=n;i++){
+      var x=(i/n)*W;
+      var v=i/n*Math.PI*S.plasmaF*8+T*S.speed*2+phase;
+      var y;
+      if(S.waveType===0){
+        y=yBase+Math.sin(v)*wh;
+      } else if(S.waveType===1){
+        y=yBase+(Math.sin(v)>0?1:-1)*wh*0.8;
+      } else if(S.waveType===2){
+        y=yBase+((i/n*S.plasmaF*4+T*S.speed)%1)*wh*2-wh;
+      } else {
+        var tv=((i/n*4+T*S.speed)%1);
+        y=yBase+(tv<0.5?tv*4-1:(1-tv)*4-1)*wh;
+      }
+      if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    }
+    ctx.strokeStyle=pa(pi,0.6); ctx.lineWidth=1.5; ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawRegisterChips(){
+  if(!S.regs||!S.regs.length) return;
+  var names=['COLUP0','COLUP1','COLUPF','COLUBK','GRP0','GRP1','ENAM0','ENAM1','ENABL','CTRLPF','NUSIZ0','NUSIZ1','VBLANK','WSYNC','RSYNC','HMOVE'];
+  ctx.save();
+  for(var i=0;i<S.regs.length;i++){
+    var rg=S.regs[i];
+    rg.rot+=rg.rotSpd*S.speed;
+    var sx=rg.x*W, sy=rg.y*H;
+    var pi=(i*8+Math.floor(T*S.cycle*S.speed*2)+S.tint)%128;
+    var sz=Math.min(W,H)*0.028*rg.sc;
+    ctx.save(); ctx.translate(sx,sy); ctx.rotate(rg.rot);
+    ctx.fillStyle=pa(pi,0.13); ctx.strokeStyle=pa(pi,0.65); ctx.lineWidth=1;
+    ctx.fillRect(-sz,-sz*0.6,sz*2,sz*1.2);
+    ctx.strokeRect(-sz,-sz*0.6,sz*2,sz*1.2);
+    for(var b=0;b<8;b++){
+      var bx=-sz+b*(sz*2/7);
+      var active=(Math.floor(T*S.speed*10+i+b)%3===0);
+      ctx.fillStyle=active?pc(pi):pa(pi,0.28);
+      ctx.fillRect(bx-1,-sz*0.6-4,2,4);
+      ctx.fillRect(bx-1,sz*0.6,2,4);
+    }
+    ctx.fillStyle=pa(pi,0.9);
+    ctx.font=Math.floor(sz*0.35)+'px Courier New';
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(names[i]||'',0,0);
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+function drawWaveScope(){
+  ctx.save();
+  var n=256, sh=H*0.07, yOff=H*0.1;
+  ctx.beginPath();
+  for(var i=0;i<=n;i++){
+    var x=(i/n)*W;
+    var p=i/n*Math.PI*8;
+    var v=Math.sin(p+T*S.speed*3)*Math.sin(p*0.5+T*0.7)*Math.sin(p*0.25+T*0.3)*sh;
+    if(i===0) ctx.moveTo(x,yOff+v); else ctx.lineTo(x,yOff+v);
+  }
+  var wg=ctx.createLinearGradient(0,0,W,0);
+  for(var h=0;h<16;h++) wg.addColorStop(h/15,pa((h*8+4+S.tint)%128,0.7));
+  ctx.strokeStyle=wg; ctx.lineWidth=2; ctx.stroke();
+  ctx.restore();
+}
+
+function drawBitplane(){
+  ctx.save();
+  var ts=Math.max(4,Math.floor(Math.min(W,H)/60));
+  var cols=Math.ceil(W/ts)+1, rows=Math.ceil(H/ts)+1;
+  var sp=S.speed*S.cycle;
+  for(var row=0;row<rows;row++){
+    for(var col=0;col<cols;col++){
+      var v=Math.sin(col*0.4+T*sp)*Math.cos(row*0.4+T*sp*0.7)+Math.sin((col+row)*0.2+T*sp*0.5);
+      if(v>1.2){
+        var pi=(col*3+row*2+Math.floor(T*sp*8))%128;
+        ctx.fillStyle=pa(pi,(v-1.2)*0.4);
+        ctx.fillRect(col*ts,row*ts,ts,ts);
+      }
+    }
+  }
+  ctx.restore();
+}
+
+function drawPaletteRibbon(){
+  ctx.save();
+  var sw=Math.min(W,H)*0.022, pad=2;
+  var totalW=128*(sw+pad);
+  if(totalW<1) { ctx.restore(); return; }
+  var off=((T*S.speed*18)%totalW);
+  var ry=H*0.928;
+  for(var i=0;i<128;i++){
+    var x=((i*(sw+pad)-off+totalW*2)%(totalW+W))-sw;
+    if(x>W+sw||x<-sw) continue;
+    var pulse=Math.sin(T*2+i*0.15)*0.3+0.7;
+    ctx.fillStyle=pa(i,0.82*pulse);
+    ctx.fillRect(x,ry,sw,sw);
+    if(i%8===0){
+      ctx.strokeStyle='rgba(255,255,255,.25)';
+      ctx.lineWidth=1; ctx.strokeRect(x,ry,sw,sw);
+    }
+  }
+  ctx.restore();
+}
+
+function drawCRT(){
+  ctx.save();
+  for(var y=0;y<H;y+=2){
+    ctx.fillStyle='rgba(0,0,0,.07)';
+    ctx.fillRect(0,y,W,1);
+  }
+  var vg=ctx.createRadialGradient(W/2,H/2,Math.min(W,H)*0.28,W/2,H/2,Math.max(W,H)*0.72);
+  vg.addColorStop(0,'rgba(0,0,0,0)'); vg.addColorStop(1,'rgba(0,0,0,.62)');
+  ctx.fillStyle=vg; ctx.fillRect(0,0,W,H);
+  var corners=[[0,0],[W,0],[0,H],[W,H]];
+  for(var c=0;c<corners.length;c++){
+    var cx2=corners[c][0], cy2=corners[c][1];
+    var cg=ctx.createRadialGradient(cx2,cy2,0,cx2,cy2,Math.min(W,H)*0.33);
+    cg.addColorStop(0,'rgba(0,0,0,.38)'); cg.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle=cg; ctx.fillRect(0,0,W,H);
+  }
+  ctx.restore();
+}
+
+function drawTitle(){
+  ctx.save();
+  var pulse=Math.sin(T*0.8)*0.3+0.7;
+  var sz=Math.floor(Math.min(W,H)*0.031);
+  var pi=Math.floor(T*S.cycle*S.speed*4)%128;
+  ctx.shadowColor=pc(pi); ctx.shadowBlur=16*S.glow;
+  ctx.font='bold '+sz+'px Courier New';
+  ctx.textAlign='left'; ctx.textBaseline='top';
+  ctx.fillStyle='rgba(255,255,255,'+pulse+')';
+  ctx.fillText('ATARI 2600',16,12);
+  ctx.font=Math.floor(sz*0.52)+'px Courier New';
+  ctx.fillStyle=pa((pi+32)%128,0.78*pulse);
+  ctx.fillText('TIA COLOR SCIENCE & VIDEO GRAPHICS ENGINEERING',16,16+sz);
+  ctx.shadowBlur=0;
+  ctx.restore();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SYSTEM REGISTRY — every key maps to a real function above
+// ─────────────────────────────────────────────────────────────────────────────
+var DRAW_FNS={
+  scanlines:     drawScanlines,
+  plasma:        drawPlasma,
+  colorBurst:    drawColorBurst,
+  sprites:       drawSprites,
+  tunnel:        drawTunnel,
+  hueSpiral:     drawHueSpiral,
+  lumaGrid:      drawLumaGrid,
+  rasterBeam:    drawRasterBeam,
+  chromaWaves:   drawChromaWaves,
+  registerChips: drawRegisterChips,
+  waveScope:     drawWaveScope,
+  bitplane:      drawBitplane,
+  circuit:       drawCircuit
+};
+var ALL_KEYS=Object.keys(DRAW_FNS);
+var REQUIRED=['scanlines','plasma','colorBurst','sprites'];
+var activeSystems=[];
+
+function pickSystems(){
+  var optional=[];
+  for(var i=0;i<ALL_KEYS.length;i++){
+    if(REQUIRED.indexOf(ALL_KEYS[i])<0) optional.push(ALL_KEYS[i]);
+  }
+  optional.sort(function(){return Math.random()-0.5;});
+  var count=ri(4,8);
+  if(count>optional.length) count=optional.length;
+  activeSystems=REQUIRED.slice();
+  for(var i=0;i<count;i++) activeSystems.push(optional[i]);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SOUND
+// ─────────────────────────────────────────────────────────────────────────────
+function initAudio(){
+  if(!audioCtx) audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+}
+function beep(){
+  if(!sndOn||!audioCtx) return;
+  if(T-lastBeep<rnd(0.25,1.2)/S.speed) return;
+  lastBeep=T;
+  try{
+    var o=audioCtx.createOscillator();
+    var g=audioCtx.createGain();
+    o.connect(g); g.connect(audioCtx.destination);
+    o.type=pick(['square','sawtooth']);
+    o.frequency.value=80+PR[ri(0,127)]*1.8;
+    g.gain.setValueAtTime(0.055,audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+0.12);
+    o.start(); o.stop(audioCtx.currentTime+0.13);
+  }catch(e){}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HUD
+// ─────────────────────────────────────────────────────────────────────────────
+function updateHUD(dt){
+  if(!hudOn) return;
+  var pi=Math.floor(T*S.cycle)%128;
+  var txt='ATARI 2600 TIA MONITOR\n';
+  txt+='----------------------\n';
+  txt+='FRAME  '+frame+'\n';
+  txt+='TIME   '+T.toFixed(2)+'s\n';
+  txt+='FPS    '+(dt>0?(1/dt).toFixed(0):'--')+'\n';
+  txt+='SPEED  '+S.speed.toFixed(2)+'x\n';
+  txt+='CYCLE  '+S.cycle.toFixed(2)+'Hz\n';
+  txt+='----------------------\n';
+  txt+='COLOR  $'+(pi*2).toString(16).toUpperCase().padStart(2,'0')+'\n';
+  txt+='HUE    '+(pi>>3)+' '+HUE_NAMES[pi>>3]+'\n';
+  txt+='LUMA   '+(pi&7)+'\n';
+  txt+='RGB    '+PR[pi]+','+PG[pi]+','+PB[pi]+'\n';
+  txt+='----------------------\n';
+  txt+='ACTIVE:\n';
+  for(var i=0;i<activeSystems.length;i++) txt+=' >'+activeSystems[i]+'\n';
+  txt+='SOUND  '+(sndOn?'ON':'OFF');
+  hudEl.textContent=txt;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RESIZE
+// ─────────────────────────────────────────────────────────────────────────────
+function resize(){
+  W=canvas.width=window.innerWidth||1;
+  H=canvas.height=window.innerHeight||1;
+  rebuildPlasma();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RESET
+// ─────────────────────────────────────────────────────────────────────────────
+function reset(){
+  buildSession();
+  pickSystems();
+  ctx.fillStyle='#000';
+  ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='rgba(255,255,255,.22)';
+  ctx.fillRect(0,0,W,H);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MAIN LOOP
+// ─────────────────────────────────────────────────────────────────────────────
+function loop(ts){
+  requestAnimationFrame(loop);
+  var dt=Math.min((ts-lastTS)/1000,0.1);
+  lastTS=ts; T+=dt*S.speed; frame++;
+  ctx.fillStyle='rgba(0,0,0,.16)';
+  ctx.fillRect(0,0,W,H);
+  drawStars();
+  for(var i=0;i<activeSystems.length;i++){
+    var fn=DRAW_FNS[activeSystems[i]];
+    if(typeof fn==='function') fn();
+  }
+  drawPaletteRibbon();
+  drawCRT();
+  drawTitle();
+  beep();
+  updateHUD(dt);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BOOT
+// ─────────────────────────────────────────────────────────────────────────────
+window.addEventListener('keydown',function(e){
+  var k=e.key.toLowerCase();
+  if(k===' '||k==='enter'){e.preventDefault();reset();}
+  if(k==='h'){hudOn=!hudOn;hudEl.classList.toggle('on',hudOn);}
+  if(k==='s'){
+    sndOn=!sndOn;
+    if(sndOn){initAudio();if(audioCtx.state==='suspended')audioCtx.resume();}
+  }
+});
+canvas.addEventListener('click',reset);
+canvas.addEventListener('touchstart',function(e){e.preventDefault();reset();},{passive:false});
+window.addEventListener('resize',resize);
+
+// Resize first so W/H are valid, then build session, then loop
+resize();
+reset();
+lastTS=performance.now();
+requestAnimationFrame(loop);
+</script>
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Atari 2600 TIA Color Science & Video Graphics Engineering","applicationCategory":"MultimediaApplication","description":"Animated visualization of the Atari 2600 TIA chip 128-color NTSC palette, raster scan, luminance registers, chroma subcarrier, and retro video game color science.","keywords":"Atari 2600,TIA chip,NTSC color palette,video graphics,color science,luminance,chroma,raster scan,8-bit color,retro computing"}
+</script>
+</body>
+</html>

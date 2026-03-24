@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+
+<meta charset="UTF-8">
+
+<title>Atari 2600 Color Science Hyper Visualization Engine</title>
+
+<meta name="description" content="Massively complex generative Atari 2600 graphics visualization. Procedural scanlines, CRT phosphor glow, sprite multiplexing and NTSC color artifacts inspired by Atari TIA circuitry.">
+
+<meta name="keywords" content="Atari 2600 graphics, TIA chip visualization, Atari palette generator, retro generative art, scanline simulation, CRT phosphor effect">
+
+<meta name="robots" content="index,follow">
+
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<style>
+
+html,body{
+margin:0;
+background:black;
+overflow:hidden;
+font-family:monospace;
+}
+
+canvas{
+position:absolute;
+top:0;
+left:0;
+}
+
+#hud{
+position:absolute;
+top:12px;
+left:12px;
+color:#00ff88;
+font-size:13px;
+pointer-events:none;
+}
+
+</style>
+</head>
+
+<body>
+
+<canvas id="c"></canvas>
+<div id="hud"></div>
+
+<script>
+
+const canvas=document.getElementById("c")
+const ctx=canvas.getContext("2d")
+
+let w,h
+function resize(){
+w=canvas.width=window.innerWidth
+h=canvas.height=window.innerHeight
+}
+window.addEventListener("resize",resize)
+resize()
+
+/* ----- Atari palette generator (16 hues × 8 luminance) ----- */
+
+function tiaPalette(){
+
+let palette=[]
+
+for(let h=0;h<16;h++){
+
+let hue=h*22.5
+
+for(let l=0;l<8;l++){
+
+let light=20+l*10
+palette.push(`hsl(${hue},80%,${light}%)`)
+
+}
+
+}
+
+return palette
+
+}
+
+const palette=tiaPalette()
+
+/* ----- global state ----- */
+
+let plasmaScale
+let plasmaSpeed
+let artifactLevel
+let playfieldDensity
+let spriteCount
+
+let sprites=[]
+
+let hud=false
+let sound=false
+
+let audioCtx=null
+
+const hudEl=document.getElementById("hud")
+
+function rand(a,b){
+return a+Math.random()*(b-a)
+}
+
+function reset(){
+
+plasmaScale=rand(.005,.02)
+plasmaSpeed=rand(.2,2)
+artifactLevel=rand(.5,4)
+playfieldDensity=Math.floor(rand(10,40))
+spriteCount=Math.floor(rand(20,60))
+
+sprites=[]
+
+for(let i=0;i<spriteCount;i++){
+
+sprites.push({
+
+x:rand(0,w),
+y:rand(0,h),
+vx:rand(-1.5,1.5),
+vy:rand(-1.5,1.5),
+size:rand(10,120),
+color:palette[Math.floor(rand(0,palette.length))],
+phase:rand(0,999)
+
+})
+
+}
+
+if(sound && audioCtx){
+
+let osc=audioCtx.createOscillator()
+let gain=audioCtx.createGain()
+
+osc.type="square"
+osc.frequency.value=rand(120,900)
+
+gain.gain.value=.03
+
+osc.connect(gain)
+gain.connect(audioCtx.destination)
+
+osc.start()
+osc.stop(audioCtx.currentTime+.15)
+
+}
+
+}
+
+reset()
+
+/* ----- plasma field ----- */
+
+function plasma(x,y,t){
+
+let v=
+Math.sin(x*plasmaScale+t)+
+Math.sin(y*plasmaScale+t*.7)+
+Math.sin((x+y)*plasmaScale*.7+t*.6)
+
+return v
+
+}
+
+/* ----- scanline renderer ----- */
+
+function drawScanlines(t){
+
+let lines=200
+
+for(let i=0;i<lines;i++){
+
+let y=i*(h/lines)
+
+let brightness=(Math.sin(i*.3+t*3)+1)/2
+
+let colIndex=Math.floor(brightness*(palette.length-1))
+
+ctx.fillStyle=palette[colIndex]
+
+ctx.fillRect(0,y,w,2)
+
+}
+
+}
+
+/* ----- playfield symmetry ----- */
+
+function drawPlayfield(t){
+
+let cell=w/playfieldDensity
+
+for(let y=0;y<playfieldDensity;y++){
+
+for(let x=0;x<playfieldDensity/2;x++){
+
+let v=plasma(x,y,t)
+
+if(v>.8){
+
+let col=palette[(x+y)%palette.length]
+
+ctx.fillStyle=col
+
+ctx.fillRect(x*cell,y*cell,cell,cell)
+
+ctx.fillRect(w-(x+1)*cell,y*cell,cell,cell)
+
+}
+
+}
+
+}
+
+}
+
+/* ----- sprites ----- */
+
+function drawSprites(t){
+
+sprites.forEach(s=>{
+
+s.x+=s.vx
+s.y+=s.vy
+
+if(s.x<0||s.x>w)s.vx*=-1
+if(s.y<0||s.y>h)s.vy*=-1
+
+let r=s.size*(.5+Math.sin(t+s.phase)*.5)
+
+ctx.strokeStyle=s.color
+
+ctx.beginPath()
+
+for(let a=0;a<6;a++){
+
+let ang=a*Math.PI/3+t
+
+let px=s.x+Math.cos(ang)*r
+let py=s.y+Math.sin(ang)*r
+
+if(a==0)ctx.moveTo(px,py)
+else ctx.lineTo(px,py)
+
+}
+
+ctx.closePath()
+ctx.stroke()
+
+})
+
+}
+
+/* ----- CRT phosphor glow ----- */
+
+function glow(){
+
+ctx.globalAlpha=.1
+ctx.drawImage(canvas,0,0)
+ctx.globalAlpha=1
+
+}
+
+/* ----- NTSC artifact simulation ----- */
+
+function ntscArtifacts(t){
+
+let stripes=40
+
+for(let i=0;i<stripes;i++){
+
+let x=i*(w/stripes)
+
+let offset=Math.sin(t*10+i)*artifactLevel
+
+ctx.fillStyle="rgba(255,255,255,.02)"
+
+ctx.fillRect(x+offset,0,2,h)
+
+}
+
+}
+
+/* ----- animation loop ----- */
+
+function animate(t){
+
+t/=1000
+
+ctx.fillStyle="black"
+ctx.fillRect(0,0,w,h)
+
+drawScanlines(t)
+drawPlayfield(t)
+drawSprites(t)
+
+ntscArtifacts(t)
+glow()
+
+if(hud){
+
+hudEl.innerHTML=
+
+"ATARI 2600 VISUALIZATION<br>"+
+"palette colors: "+palette.length+"<br>"+
+"sprites: "+sprites.length+"<br>"+
+"plasma scale: "+plasmaScale.toFixed(4)+"<br>"+
+"sound: "+sound
+
+}
+
+requestAnimationFrame(animate)
+
+}
+
+requestAnimationFrame(animate)
+
+/* ----- controls ----- */
+
+window.addEventListener("keydown",e=>{
+
+if(e.code==="Space"){
+reset()
+}
+
+if(e.key==="h"||e.key==="H"){
+
+hud=!hud
+hudEl.style.display=hud?"block":"none"
+
+}
+
+if(e.key==="s"||e.key==="S"){
+
+sound=!sound
+
+if(sound && !audioCtx)
+audioCtx=new AudioContext()
+
+}
+
+})
+
+window.addEventListener("click",reset)
+window.addEventListener("touchstart",reset)
+
+</script>
+
+</body>
+</html>

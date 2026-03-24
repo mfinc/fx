@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Atari 2600 Color Science Visualizer | TIA Graphics Animation Engine</title>
+
+<meta name="description" content="Massively complex procedural Atari 2600 color palette animation system visualizing TIA color clocks, NTSC chroma phase modulation, and retro video game graphics circuitry.">
+<meta name="keywords" content="Atari 2600 graphics, TIA chip visualization, Atari color palette, NTSC chroma phase, retro graphics engineering, Atari video system, procedural animation">
+<meta name="robots" content="index,follow">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<style>
+
+html,body{
+margin:0;
+padding:0;
+overflow:hidden;
+background:black;
+font-family:monospace;
+}
+
+canvas{
+display:block;
+}
+
+#hud{
+position:fixed;
+top:10px;
+left:10px;
+color:#0f0;
+font-size:13px;
+pointer-events:none;
+}
+
+</style>
+</head>
+
+<body>
+
+<canvas id="c"></canvas>
+
+<div id="hud"></div>
+
+<script>
+
+const canvas=document.getElementById("c")
+const ctx=canvas.getContext("2d")
+const hud=document.getElementById("hud")
+
+let W,H
+
+function resize(){
+W=canvas.width=window.innerWidth
+H=canvas.height=window.innerHeight
+}
+
+window.addEventListener("resize",resize)
+resize()
+
+let particles=[]
+let fields=[]
+let palette=[]
+let phase=0
+let frame=0
+let showHUD=false
+let soundEnabled=false
+
+let audioCtx
+let oscillator
+
+function randomPalette(){
+
+palette=[]
+
+for(let i=0;i<128;i++){
+
+let hue=(i*2.8125)%360
+let sat=60+Math.random()*40
+let lum=40+Math.random()*20
+
+palette.push(`hsl(${hue},${sat}%,${lum}%)`)
+
+}
+
+}
+
+function resetSystem(){
+
+particles=[]
+fields=[]
+
+randomPalette()
+
+let particleCount=800+Math.random()*1200
+
+for(let i=0;i<particleCount;i++){
+
+particles.push({
+
+x:Math.random()*W,
+y:Math.random()*H,
+
+vx:(Math.random()-0.5)*2,
+vy:(Math.random()-0.5)*2,
+
+size:1+Math.random()*3,
+phase:Math.random()*1000,
+freq:0.002+Math.random()*0.01
+
+})
+
+}
+
+let fieldCount=3+Math.floor(Math.random()*5)
+
+for(let i=0;i<fieldCount;i++){
+
+fields.push({
+
+cx:Math.random()*W,
+cy:Math.random()*H,
+strength:0.0005+Math.random()*0.003,
+spin:(Math.random()-0.5)*0.002
+
+})
+
+}
+
+phase=Math.random()*1000
+frame=0
+
+}
+
+function toggleSound(){
+
+if(!audioCtx){
+
+audioCtx=new AudioContext()
+
+oscillator=audioCtx.createOscillator()
+
+let gain=audioCtx.createGain()
+
+gain.gain.value=0.05
+
+oscillator.connect(gain)
+gain.connect(audioCtx.destination)
+
+oscillator.start()
+
+}
+
+soundEnabled=!soundEnabled
+
+}
+
+function updateSound(){
+
+if(!soundEnabled)return
+
+let freq=120+Math.sin(frame*0.01)*80
+
+oscillator.frequency.value=freq
+
+}
+
+function drawRaster(){
+
+let lines=60
+
+for(let i=0;i<lines;i++){
+
+let y=(i/lines)*H
+
+ctx.fillStyle=palette[(i*2+frame)%palette.length]
+
+ctx.globalAlpha=0.03
+
+ctx.fillRect(0,y,W,H/lines)
+
+}
+
+ctx.globalAlpha=1
+
+}
+
+function updateParticles(){
+
+for(let p of particles){
+
+for(let f of fields){
+
+let dx=p.x-f.cx
+let dy=p.y-f.cy
+
+let d=Math.sqrt(dx*dx+dy*dy)+0.1
+
+let force=f.strength/d
+
+p.vx+=-dy*f.spin
+p.vy+=dx*f.spin
+
+p.vx+=dx*force
+p.vy+=dy*force
+
+}
+
+p.x+=p.vx
+p.y+=p.vy
+
+p.vx*=0.98
+p.vy*=0.98
+
+if(p.x<0)p.x=W
+if(p.x>W)p.x=0
+if(p.y<0)p.y=H
+if(p.y>H)p.y=0
+
+}
+
+}
+
+function drawParticles(){
+
+for(let p of particles){
+
+let colorIndex=Math.floor(
+(p.x+p.y+Math.sin(p.phase+frame*p.freq)*200)%palette.length
+)
+
+ctx.fillStyle=palette[Math.abs(colorIndex)]
+
+ctx.beginPath()
+ctx.arc(p.x,p.y,p.size,0,Math.PI*2)
+ctx.fill()
+
+}
+
+}
+
+function drawPlayfield(){
+
+let blocks=80
+
+let bw=W/blocks
+
+for(let x=0;x<blocks/2;x++){
+
+for(let y=0;y<blocks;y++){
+
+let n=Math.sin(x*0.3+y*0.2+phase)
+
+if(n>0.7){
+
+let color=palette[(x*y+frame)%palette.length]
+
+ctx.fillStyle=color
+
+ctx.fillRect(x*bw,y*bw,bw,bw)
+
+ctx.fillRect(W-x*bw-bw,y*bw,bw,bw)
+
+}
+
+}
+
+}
+
+}
+
+function draw(){
+
+frame++
+phase+=0.01
+
+ctx.fillStyle="black"
+ctx.fillRect(0,0,W,H)
+
+drawRaster()
+
+drawPlayfield()
+
+updateParticles()
+drawParticles()
+
+updateSound()
+
+if(showHUD){
+
+hud.innerHTML=`
+ATARI 2600 COLOR ENGINE<br>
+Particles: ${particles.length}<br>
+Fields: ${fields.length}<br>
+Frame: ${frame}<br>
+Sound: ${soundEnabled}
+`
+
+}else{
+
+hud.innerHTML=""
+
+}
+
+requestAnimationFrame(draw)
+
+}
+
+window.addEventListener("keydown",e=>{
+
+if(e.code==="Space")resetSystem()
+
+if(e.key==="h"||e.key==="H")showHUD=!showHUD
+
+if(e.key==="s"||e.key==="S")toggleSound()
+
+})
+
+window.addEventListener("click",resetSystem)
+window.addEventListener("touchstart",resetSystem)
+
+resetSystem()
+draw()
+
+</script>
+
+</body>
+</html>

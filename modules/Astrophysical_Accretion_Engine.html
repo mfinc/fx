@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Astrophysical Accretion Engine</title>
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Astrophysical Accretion Engine — Physics Art Black Hole Simulation powered by Generative WebGL.">
+<meta name="keywords" content="Physics Art, Black Hole Simulation, Generative WebGL, Accretion Disk, Event Horizon, Doppler Shift, Gravitational Lensing">
+
+<style>
+html,body{margin:0;padding:0;overflow:hidden;background:black;}
+canvas{display:block;}
+#hud{
+position:fixed;top:10px;left:10px;color:white;
+font-family:monospace;font-size:13px;
+pointer-events:none;display:none;opacity:0.85;
+}
+</style>
+</head>
+<body>
+<canvas id="glcanvas"></canvas>
+<div id="hud"></div>
+
+<script>
+const canvas=document.getElementById("glcanvas");
+const gl=canvas.getContext("webgl2");
+if(!gl){alert("WebGL2 required.");}
+
+let W,H;
+function resize(){
+W=canvas.width=window.innerWidth;
+H=canvas.height=window.innerHeight;
+gl.viewport(0,0,W,H);
+}
+resize();
+window.addEventListener("resize",resize);
+
+function rand(a,b){return a+Math.random()*(b-a);}
+
+let params;
+let startTime=performance.now();
+let soundOn=false;
+let hudOn=false;
+let audioCtx,gainNode,osc1,osc2;
+
+function randomPalette(){
+return [
+Math.random(),Math.random(),Math.random(),
+Math.random(),Math.random(),Math.random(),
+Math.random(),Math.random(),Math.random()
+];
+}
+
+function bigBang(){
+params={
+bhRadius:rand(0.1,0.4),
+diskRadius:rand(0.5,1.5),
+spin:rand(-3,3),
+doppler:rand(1,10),
+lensing:rand(0.5,3),
+turbulence:rand(0.5,3),
+palette:randomPalette(),
+chaosType:Math.random()<0.5?0:1,
+chaosSeed:rand(0.1,2)
+};
+startTime=performance.now();
+if(soundOn)updateSound(0);
+}
+
+const vs=`#version 300 es
+precision highp float;
+layout(location=0) in vec2 position;
+out vec2 uv;
+void main(){
+uv=position*0.5+0.5;
+gl_Position=vec4(position,0.0,1.0);
+}
+`;
+
+const fs=`#version 300 es
+precision highp float;
+out vec4 fragColor;
+in vec2 uv;
+
+uniform vec2 resolution;
+uniform float time;
+uniform float bhRadius;
+uniform float diskRadius;
+uniform float spin;
+uniform float doppler;
+uniform float lensing;
+uniform float turbulence;
+uniform vec3 palette[3];
+uniform int chaosType;
+uniform float chaosSeed;
+
+vec3 paletteColor(float t){
+return palette[0]
++ palette[1]*cos(6.28318*(palette[2]*t));
+}
+
+vec3 lorenz(vec3 p){
+float a=10.,b=28.,c=8./3.;
+return vec3(a*(p.y-p.x),p.x*(b-p.z)-p.y,p.x*p.y-c*p.z);
+}
+
+vec3 rossler(vec3 p){
+float a=0.2,b=0.2,c=5.7;
+return vec3(-p.y-p.z,p.x+a*p.y,b+p.z*(p.x-c));
+}
+
+float noise(vec2 p){
+return sin(p.x*3.)*sin(p.y*3.);
+}
+
+void main(){
+
+vec2 p=(uv-0.5)*vec2(resolution.x/resolution.y,1.0)*2.0;
+float r=length(p);
+float angle=atan(p.y,p.x);
+
+float lens=1.0+lensing/(r+0.1);
+p*=lens;
+
+angle+=spin*time/(r+0.2);
+
+float disk=exp(-abs(r-diskRadius)*6.0);
+
+float chaos=0.0;
+vec3 c=vec3(chaosSeed);
+for(int i=0;i<5;i++){
+c+=(chaosType==0?lorenz(c):rossler(c))*0.01;
+}
+chaos=length(c);
+
+float turb=noise(p*5.+time)*turbulence;
+float dop=(spin/(r+0.3))*doppler;
+
+float intensity=disk+turb*0.3;
+float t=intensity+dop+chaos*0.1;
+
+vec3 col=paletteColor(t);
+
+/* ONLY CHANGE: remove black masking.
+Instead of multiplying by horizon,
+we allow central region to glow naturally. */
+
+fragColor=vec4(col,1.0);
+}
+`;
+
+function compile(type,src){
+let s=gl.createShader(type);
+gl.shaderSource(s,src);
+gl.compileShader(s);
+return s;
+}
+
+let prog=gl.createProgram();
+gl.attachShader(prog,compile(gl.VERTEX_SHADER,vs));
+gl.attachShader(prog,compile(gl.FRAGMENT_SHADER,fs));
+gl.linkProgram(prog);
+gl.useProgram(prog);
+
+let quad=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,quad);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+gl.enableVertexAttribArray(0);
+gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
+
+function render(){
+let t=(performance.now()-startTime)/1000;
+
+gl.useProgram(prog);
+gl.uniform2f(gl.getUniformLocation(prog,"resolution"),W,H);
+gl.uniform1f(gl.getUniformLocation(prog,"time"),t);
+gl.uniform1f(gl.getUniformLocation(prog,"bhRadius"),params.bhRadius);
+gl.uniform1f(gl.getUniformLocation(prog,"diskRadius"),params.diskRadius);
+gl.uniform1f(gl.getUniformLocation(prog,"spin"),params.spin);
+gl.uniform1f(gl.getUniformLocation(prog,"doppler"),params.doppler);
+gl.uniform1f(gl.getUniformLocation(prog,"lensing"),params.lensing);
+gl.uniform1f(gl.getUniformLocation(prog,"turbulence"),params.turbulence);
+gl.uniform3fv(gl.getUniformLocation(prog,"palette"),params.palette);
+gl.uniform1i(gl.getUniformLocation(prog,"chaosType"),params.chaosType);
+gl.uniform1f(gl.getUniformLocation(prog,"chaosSeed"),params.chaosSeed);
+
+gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+
+if(soundOn)updateSound(t);
+
+if(hudOn){
+let h=document.getElementById("hud");
+h.style.display="block";
+h.innerHTML="Spin: "+params.spin.toFixed(2)+"<br>"+
+"Lensing: "+params.lensing.toFixed(2)+"<br>"+
+"Doppler: "+params.doppler.toFixed(2)+"<br>"+
+"Turbulence: "+params.turbulence.toFixed(2)+"<br>"+
+"Chaos: "+(params.chaosType==0?"Lorenz":"Rössler")+"<br>"+
+"[SPACE/CLICK] Big Bang<br>[S] Sound<br>[H] HUD";
+}else{
+document.getElementById("hud").style.display="none";
+}
+
+requestAnimationFrame(render);
+}
+
+function initAudio(){
+audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+gainNode=audioCtx.createGain();
+gainNode.gain.value=0.1;
+gainNode.connect(audioCtx.destination);
+osc1=audioCtx.createOscillator();
+osc2=audioCtx.createOscillator();
+osc1.type="sine";
+osc2.type="triangle";
+osc1.connect(gainNode);
+osc2.connect(gainNode);
+osc1.start();
+osc2.start();
+}
+
+function updateSound(t){
+if(!audioCtx)initAudio();
+let base=100+Math.abs(params.spin)*100;
+let chaosMod=Math.sin(t*params.chaosSeed)*50;
+osc1.frequency.setValueAtTime(base+chaosMod,audioCtx.currentTime);
+osc2.frequency.setValueAtTime(base*0.5+chaosMod*0.5,audioCtx.currentTime);
+}
+
+document.addEventListener("keydown",e=>{
+if(e.code==="Space")bigBang();
+if(e.key==="s"||e.key==="S")soundOn=!soundOn;
+if(e.key==="h"||e.key==="H")hudOn=!hudOn;
+});
+document.addEventListener("click",bigBang);
+document.addEventListener("touchstart",bigBang);
+
+bigBang();
+render();
+</script>
+</body>
+</html>

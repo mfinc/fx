@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Astrophysical Accretion Engine — Black Hole Simulation</title>
+<meta name="description" content="Real-time black hole accretion disk simulation with magnetohydrodynamics, gravitational lensing, Doppler spectral shift, and chaotic attractors. Physics Art generative WebGL experience.">
+<meta name="keywords" content="Physics Art, Black Hole Simulation, Generative WebGL, Accretion Disk, Magnetohydrodynamics, Gravitational Lensing, Doppler Effect, Navier-Stokes, Astrophysics, Interactive Simulation, Lorenz Attractor, Plasma Physics, Event Horizon, Singularity, Spacetime Visualization">
+<meta property="og:title" content="Astrophysical Accretion Engine">
+<meta property="og:description" content="Immersive black hole simulation: spectral Doppler color cycling, gravitational lensing conformal maps, Perlin noise plasma, chaotic attractors.">
+<meta name="twitter:card" content="summary_large_image">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Courier New',monospace}
+  canvas{display:block;position:absolute;top:0;left:0}
+  #hud{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;display:none;z-index:10}
+  #hud-content{position:absolute;top:20px;left:20px;color:rgba(120,220,255,0.85);font-size:11px;line-height:1.7;text-shadow:0 0 8px rgba(0,180,255,0.8);letter-spacing:0.5px}
+  #hud-right{position:absolute;top:20px;right:20px;color:rgba(120,220,255,0.85);font-size:11px;line-height:1.7;text-align:right;text-shadow:0 0 8px rgba(0,180,255,0.8)}
+  #controls{position:absolute;bottom:18px;left:50%;transform:translateX(-50%);color:rgba(180,180,200,0.45);font-size:10px;letter-spacing:2px;text-transform:uppercase;text-align:center;z-index:10;pointer-events:none}
+  #bigbang{position:absolute;top:0;left:0;width:100%;height:100%;background:radial-gradient(circle,rgba(255,255,255,1) 0%,rgba(255,200,100,0.8) 30%,rgba(255,50,0,0.4) 60%,transparent 80%);opacity:0;pointer-events:none;z-index:20;transition:none}
+  .hud-bar{display:inline-block;width:80px;height:4px;background:rgba(0,80,120,0.5);vertical-align:middle;margin-left:6px;position:relative;overflow:hidden}
+  .hud-bar-fill{height:100%;background:linear-gradient(90deg,rgba(0,200,255,0.8),rgba(0,255,180,0.9));transition:width 0.3s}
+  #sound-icon{position:absolute;top:20px;left:50%;transform:translateX(-50%);color:rgba(120,220,255,0.4);font-size:10px;letter-spacing:3px;z-index:10;pointer-events:none}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="bigbang"></div>
+<div id="hud">
+  <div id="hud-content">
+    <div>MASS <span class="hud-bar"><span class="hud-bar-fill" id="b-mass" style="width:75%"></span></span> <span id="v-mass">7.4×10⁶ M☉</span></div>
+    <div>SPIN <span class="hud-bar"><span class="hud-bar-fill" id="b-spin" style="width:60%"></span></span> <span id="v-spin">a=0.91</span></div>
+    <div>TEMP <span class="hud-bar"><span class="hud-bar-fill" id="b-temp" style="width:80%"></span></span> <span id="v-temp">1.2×10⁹ K</span></div>
+    <div>B-FIELD <span class="hud-bar"><span class="hud-bar-fill" id="b-mag" style="width:55%"></span></span> <span id="v-mag">10⁴ G</span></div>
+    <div>JET PWR <span class="hud-bar"><span class="hud-bar-fill" id="b-jet" style="width:40%"></span></span> <span id="v-jet">10³⁸ erg/s</span></div>
+    <div style="margin-top:8px">ATTRACTOR: <span id="v-att">LORENZ</span></div>
+    <div>MDOT <span id="v-mdot">0.042 M☉/yr</span></div>
+    <div>R_ISCO <span id="v-isco">2.31 r_g</span></div>
+  </div>
+  <div id="hud-right">
+    <div>FPS <span id="v-fps">60</span></div>
+    <div>t = <span id="v-time">00:00</span></div>
+    <div>FRAME <span id="v-frame">0</span></div>
+    <div style="margin-top:8px">DOPPLER β=<span id="v-dop">0.73c</span></div>
+    <div>LENS κ=<span id="v-lens">1.84</span></div>
+    <div>NOISE σ=<span id="v-noise">0.41</span></div>
+  </div>
+</div>
+<div id="sound-icon" id="snd-ind"></div>
+<div id="controls">SPACE / TAP — BIG BANG &nbsp;|&nbsp; S — SOUND &nbsp;|&nbsp; H — HUD</div>
+
+<script>
+(function(){
+'use strict';
+
+// ── Canvas setup ──────────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d', {alpha:false});
+let W, H, cx, cy, R;
+
+function resize(){
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  cx = W/2; cy = H/2;
+  R = Math.min(W,H)*0.42;
+}
+resize();
+window.addEventListener('resize', ()=>{ resize(); buildGradients(); });
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let frame = 0, t = 0, fps = 60, lastTime = 0;
+let soundOn = false, hudOn = false;
+let audioCtx = null, gainNode = null, osc1 = null, osc2 = null, noiseSource = null;
+let bigBangTimeout = null;
+
+// Physical parameters (randomized on Big Bang)
+let P = {};
+
+function randomizeParams(){
+  P = {
+    spin:       0.5 + Math.random()*0.49,      // Kerr spin parameter a
+    mass:       (2 + Math.random()*12).toFixed(1), // 10^6 solar masses
+    temp:       (0.8 + Math.random()*1.5).toFixed(1),
+    bfield:     Math.floor(3 + Math.random()*4),
+    jetPower:   (37 + Math.random()*2).toFixed(1),
+    mdot:       (0.01 + Math.random()*0.08).toFixed(3),
+    diskTilt:   (Math.random()-0.5)*0.3,
+    dopplerBeta:(0.4 + Math.random()*0.55).toFixed(2),
+    lensKappa:  (1.2 + Math.random()*1.5).toFixed(2),
+    noiseScale: (0.3 + Math.random()*0.4).toFixed(2),
+    attractorType: Math.random()<0.5 ? 'LORENZ' : 'RÖSSLER',
+    colorSeed:  Math.random()*6.28,
+    diskThick:  0.08 + Math.random()*0.12,
+    armCount:   Math.floor(3 + Math.random()*4),
+    noiseFreq:  0.003 + Math.random()*0.005,
+    jetsOn:     Math.random()>0.3,
+    ringCount:  Math.floor(4 + Math.random()*6),
+    glowColor:  [Math.random()*60+10, Math.random()*40+200, Math.random()*60+180],
+    isco:       (1.2 + Math.random()*3).toFixed(2),
+  };
+}
+randomizeParams();
+
+// ── Perlin / Simplex noise (fast 2D) ─────────────────────────────────────────
+const perm = new Uint8Array(512);
+const grad2 = [[1,1],[-1,1],[1,-1],[-1,-1],[1,0],[-1,0],[0,1],[0,-1]];
+function seedNoise(){
+  for(let i=0;i<256;i++) perm[i]=i;
+  for(let i=255;i>0;i--){
+    const j=Math.floor(Math.random()*(i+1));
+    [perm[i],perm[j]]=[perm[j],perm[i]];
+  }
+  for(let i=0;i<256;i++) perm[256+i]=perm[i];
+}
+seedNoise();
+function fade(t){return t*t*t*(t*(t*6-15)+10);}
+function lerp(a,b,t){return a+t*(b-a);}
+function grad(h,x,y){const g=grad2[h&7];return g[0]*x+g[1]*y;}
+function noise2(x,y){
+  const X=Math.floor(x)&255, Y=Math.floor(y)&255;
+  x-=Math.floor(x); y-=Math.floor(y);
+  const u=fade(x),v=fade(y);
+  const a=perm[X]+Y, b=perm[X+1]+Y;
+  return lerp(lerp(grad(perm[a],x,y),grad(perm[b],x-1,y),u),
+              lerp(grad(perm[a+1],x,y-1),grad(perm[b+1],x-1,y-1),u),v);
+}
+function fbm(x,y,oct){
+  let v=0,amp=0.5,freq=1;
+  for(let i=0;i<oct;i++){v+=noise2(x*freq,y*freq)*amp;freq*=2;amp*=0.5;}
+  return v;
+}
+
+// ── Lorenz / Rössler attractors ───────────────────────────────────────────────
+let lorenz = {x:0.1,y:0,z:0};
+let rossler = {x:0.1,y:0,z:0};
+const LS = {sigma:10,rho:28,beta:8/3};
+const RS = {a:0.2,b:0.2,c:5.7};
+
+function stepLorenz(dt){
+  const {x,y,z}=lorenz;
+  lorenz.x+=dt*(LS.sigma*(y-x));
+  lorenz.y+=dt*(x*(LS.rho-z)-y);
+  lorenz.z+=dt*(x*y-LS.beta*z);
+}
+function stepRossler(dt){
+  const {x,y,z}=rossler;
+  rossler.x+=dt*(-y-z);
+  rossler.y+=dt*(x+RS.a*y);
+  rossler.z+=dt*(RS.b+z*(x-RS.c));
+}
+function resetAttractors(){
+  lorenz={x:(Math.random()-0.5)*2,y:(Math.random()-0.5)*2,z:Math.random()*30};
+  rossler={x:Math.random()*5,y:Math.random()*5,z:Math.random()*2};
+}
+resetAttractors();
+
+// ── Spectral / Doppler color ──────────────────────────────────────────────────
+function dopplerColor(angle, r, tt){
+  // Relativistic Doppler β from orbital velocity
+  const beta = parseFloat(P.dopplerBeta);
+  const vr = Math.sin(angle)*beta; // radial component
+  const shift = Math.sqrt((1+vr)/(1-vr+0.001)); // relativistic shift
+  // Map wavelength shift to hue
+  const hue = (P.colorSeed*57 + angle*180/Math.PI + shift*30 + tt*8) % 360;
+  const rNorm = Math.max(0, 1 - r);
+  // Gravitational redshift near horizon
+  const gravShift = 1/(1 + 3/(r*R*0.05+1));
+  const sat = 85 + rNorm*15;
+  const lit = 35 + rNorm*50 * gravShift;
+  return `hsl(${hue},${sat}%,${lit}%)`;
+}
+
+function tempToColor(temp01, alpha){
+  // Planck-like blackbody: cool=red, hot=blue-white
+  const t = Math.max(0, Math.min(1, temp01));
+  const r = Math.min(255, Math.round(255*Math.pow(t,0.3)));
+  const g = Math.min(255, Math.round(200*Math.pow(t,0.7)));
+  const b = Math.min(255, Math.round(255*Math.pow(t,1.5)));
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+// ── Gradients ─────────────────────────────────────────────────────────────────
+let diskGrad, haloGrad, photonRingGrad;
+function buildGradients(){
+  // Accretion disk radial glow
+  diskGrad = ctx.createRadialGradient(cx,cy,R*0.08,cx,cy,R);
+  diskGrad.addColorStop(0,'rgba(255,255,255,0.95)');
+  diskGrad.addColorStop(0.08,'rgba(255,220,120,0.9)');
+  diskGrad.addColorStop(0.18,'rgba(255,100,30,0.8)');
+  diskGrad.addColorStop(0.35,'rgba(200,40,160,0.5)');
+  diskGrad.addColorStop(0.6,'rgba(50,10,100,0.25)');
+  diskGrad.addColorStop(1,'rgba(0,0,20,0)');
+
+  haloGrad = ctx.createRadialGradient(cx,cy,0,cx,cy,R*1.6);
+  haloGrad.addColorStop(0,'rgba(0,0,0,0)');
+  haloGrad.addColorStop(0.3,'rgba(0,5,20,0)');
+  haloGrad.addColorStop(0.7,'rgba(0,0,0,0.4)');
+  haloGrad.addColorStop(1,'rgba(0,0,0,0.92)');
+
+  photonRingGrad = ctx.createRadialGradient(cx,cy,R*0.27,cx,cy,R*0.37);
+  photonRingGrad.addColorStop(0,'rgba(255,240,200,0)');
+  photonRingGrad.addColorStop(0.4,'rgba(255,220,100,0.65)');
+  photonRingGrad.addColorStop(0.7,'rgba(255,160,40,0.25)');
+  photonRingGrad.addColorStop(1,'rgba(0,0,0,0)');
+}
+buildGradients();
+
+// ── Star field ────────────────────────────────────────────────────────────────
+const STARS = 1400;
+let stars = [];
+function genStars(){
+  stars = [];
+  for(let i=0;i<STARS;i++){
+    const ang = Math.random()*Math.PI*2;
+    const rad = R*0.5 + Math.random()*(Math.max(W,H));
+    stars.push({
+      x: cx + Math.cos(ang)*rad,
+      y: cy + Math.sin(ang)*rad,
+      r: 0.3 + Math.random()*1.2,
+      b: 0.3 + Math.random()*0.7,
+      flicker: Math.random()*6.28
+    });
+  }
+}
+genStars();
+
+function drawStars(tt){
+  for(const s of stars){
+    const br = s.b*(0.7+0.3*Math.sin(tt*1.3+s.flicker));
+    ctx.beginPath();
+    ctx.arc(s.x,s.y,s.r,0,Math.PI*2);
+    ctx.fillStyle=`rgba(200,220,255,${br})`;
+    ctx.fill();
+  }
+}
+
+// ── Disk geometry (ellipse, tilted) ──────────────────────────────────────────
+function diskPoint(angle, r, tilt){
+  const x = Math.cos(angle)*r;
+  const y = Math.sin(angle)*r*Math.cos(tilt);
+  return {x:cx+x, y:cy+y};
+}
+
+// ── Magnetic field lines ──────────────────────────────────────────────────────
+function drawMagneticField(tt){
+  const nLines = 28;
+  ctx.save();
+  for(let i=0;i<nLines;i++){
+    const baseAng = (i/nLines)*Math.PI*2 + tt*0.04;
+    const attNorm = P.attractorType==='LORENZ'
+      ? (lorenz.x/25+0.5)
+      : (rossler.x/15+0.5);
+    ctx.beginPath();
+    let first = true;
+    for(let step=0;step<=80;step++){
+      const prog = step/80;
+      const ang = baseAng + prog*Math.PI*2.5 + attNorm*0.8;
+      const nr = fbm(prog*3+tt*0.1, i*0.4, 4)*0.25;
+      const rad = R*(0.15+prog*0.82+nr*0.12);
+      const n = noise2(Math.cos(ang)*2+tt*0.05, Math.sin(ang)*2+i)*0.15;
+      const p = diskPoint(ang+n, rad, P.diskTilt+n*0.2);
+      if(first){ctx.moveTo(p.x,p.y);first=false;}
+      else ctx.lineTo(p.x,p.y);
+    }
+    const hue = (200+i*7+tt*3)%360;
+    const alpha = 0.05+0.07*Math.abs(attNorm-0.5);
+    ctx.strokeStyle=`hsla(${hue},80%,65%,${alpha})`;
+    ctx.lineWidth=0.7;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// ── Plasma spiral arms ────────────────────────────────────────────────────────
+function drawPlasmaArms(tt){
+  const arms = P.armCount;
+  ctx.save();
+  for(let a=0;a<arms;a++){
+    const baseOff = (a/arms)*Math.PI*2;
+    for(let layer=0;layer<3;layer++){
+      ctx.beginPath();
+      let first=true;
+      const layerOff = layer*0.3;
+      for(let step=0;step<=200;step++){
+        const prog = step/200;
+        const ang = baseOff + prog*Math.PI*4 + tt*(0.15+layer*0.05);
+        const noise = fbm(
+          Math.cos(ang)*parseFloat(P.noiseFreq)*1000+tt*0.07,
+          Math.sin(ang)*parseFloat(P.noiseFreq)*1000+a,
+          5
+        );
+        const rad = R*(0.13+prog*0.84+noise*parseFloat(P.diskThick)+layerOff*0.05);
+        const twist = noise*0.4;
+        const p = diskPoint(ang+twist, rad, P.diskTilt*(1-prog*0.3));
+        if(first){ctx.moveTo(p.x,p.y);first=false;}
+        else ctx.lineTo(p.x,p.y);
+      }
+      const hue = (P.colorSeed*57 + a*40 + layer*25 + tt*12) % 360;
+      const alpha = (0.12-layer*0.03)*(0.6+0.4*Math.sin(tt*0.5+a));
+      ctx.strokeStyle=`hsla(${hue},90%,65%,${alpha})`;
+      ctx.lineWidth = 2-layer*0.5;
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+// ── Disk rings (Navier-Stokes discretized shell model) ────────────────────────
+function drawDiskRings(tt){
+  const rings = P.ringCount;
+  ctx.save();
+  for(let ri=0;ri<rings;ri++){
+    const t0 = ri/rings;
+    const r = R*(0.12+t0*0.88);
+    const segments = 180;
+    ctx.beginPath();
+    for(let si=0;si<=segments;si++){
+      const ang = (si/segments)*Math.PI*2 + tt*(0.05+ri*0.018);
+      const noise = noise2(
+        Math.cos(ang)*parseFloat(P.noiseFreq)*800+tt*0.05+ri,
+        Math.sin(ang)*parseFloat(P.noiseFreq)*800+ri
+      )*0.06;
+      const rad = r*(1+noise);
+      const p = diskPoint(ang, rad, P.diskTilt);
+      si===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y);
+    }
+    ctx.closePath();
+    const hue = (P.colorSeed*57 + t0*260 + tt*15) % 360;
+    const alpha = (0.06-t0*0.04)*(0.5+0.5*Math.sin(tt*0.3+ri));
+    ctx.strokeStyle=`hsla(${hue},85%,${50+t0*30}%,${alpha})`;
+    ctx.lineWidth=1.2;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// ── Hot spots (orbiting bright blobs) ────────────────────────────────────────
+function drawHotSpots(tt){
+  const count = 8;
+  ctx.save();
+  for(let i=0;i<count;i++){
+    const phase = (i/count)*Math.PI*2;
+    const ang = phase + tt*(0.3+i*0.04);
+    const r = R*(0.15+i*0.09);
+    const p = diskPoint(ang, r, P.diskTilt);
+    const size = R*(0.015+0.02*Math.abs(noise2(tt*0.1+i,i)));
+    const g = ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,size*3);
+    const col = dopplerColor(ang, r/R, tt);
+    g.addColorStop(0,col.replace('hsl','hsla').replace(')',',0.9)'));
+    g.addColorStop(0.5,col.replace('hsl','hsla').replace(')',',0.3)'));
+    g.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle=g;
+    ctx.beginPath();
+    ctx.arc(p.x,p.y,size*3,0,Math.PI*2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+// ── Event horizon / shadow ────────────────────────────────────────────────────
+function drawEventHorizon(tt){
+  const rs = R*0.065; // Schwarzschild radius visualization
+  // Shadow (lensed photon ring silhouette)
+  ctx.save();
+  // Photon capture ring
+  const pc = ctx.createRadialGradient(cx,cy,rs*2.5,cx,cy,rs*4.5);
+  pc.addColorStop(0,'rgba(255,200,80,0)');
+  pc.addColorStop(0.4,'rgba(255,180,60,0.18)');
+  pc.addColorStop(0.7,'rgba(255,120,20,0.08)');
+  pc.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=pc;
+  ctx.beginPath();ctx.arc(cx,cy,rs*4.5,0,Math.PI*2);ctx.fill();
+
+  // ISCO glow
+  const isco = ctx.createRadialGradient(cx,cy,rs*2.8,cx,cy,rs*3.2);
+  isco.addColorStop(0,'rgba(255,255,200,0.22)');
+  isco.addColorStop(0.5,'rgba(255,200,100,0.08)');
+  isco.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=isco;
+  ctx.beginPath();ctx.arc(cx,cy,rs*3.2,0,Math.PI*2);ctx.fill();
+
+  // Singularity shadow
+  const shadow = ctx.createRadialGradient(cx,cy,0,cx,cy,rs*2.8);
+  shadow.addColorStop(0,'rgba(0,0,0,1)');
+  shadow.addColorStop(0.6,'rgba(0,0,0,0.98)');
+  shadow.addColorStop(0.85,'rgba(0,0,0,0.7)');
+  shadow.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=shadow;
+  ctx.beginPath();ctx.arc(cx,cy,rs*2.8,0,Math.PI*2);ctx.fill();
+
+  // Lensed photon ring arc flicker
+  const lf = 0.5+0.5*Math.sin(tt*2.3);
+  ctx.beginPath();
+  ctx.arc(cx,cy,rs*3.05,0,Math.PI*2);
+  ctx.strokeStyle=`rgba(255,220,120,${0.55*lf})`;
+  ctx.lineWidth=rs*0.18;
+  ctx.shadowColor='rgba(255,200,80,0.9)';
+  ctx.shadowBlur=rs*0.8;
+  ctx.stroke();
+  ctx.shadowBlur=0;
+  ctx.restore();
+}
+
+// ── Relativistic jet ──────────────────────────────────────────────────────────
+function drawJets(tt){
+  if(!P.jetsOn) return;
+  ctx.save();
+  const attV = P.attractorType==='LORENZ'
+    ? lorenz.z/50
+    : Math.abs(rossler.z)/10;
+  const jlen = R*(0.8+attV*0.5);
+  for(let jet=0;jet<2;jet++){
+    const dir = jet===0?-1:1;
+    for(let i=0;i<60;i++){
+      const prog = i/60;
+      const xOff = noise2(prog*4+tt*0.15+jet, i+jet*100)*R*0.04;
+      const width = R*(0.01+prog*0.04)*(1+noise2(prog*3,tt*0.1)*0.3);
+      const y = cy + dir*prog*jlen;
+      const alpha = (0.5-prog*0.45)*(0.4+attV*0.3);
+      const hue = (180+prog*40+tt*20+jet*60)%360;
+      const g = ctx.createLinearGradient(cx-width,y,cx+width,y);
+      g.addColorStop(0,'rgba(0,0,0,0)');
+      g.addColorStop(0.4,`hsla(${hue},90%,70%,${alpha})`);
+      g.addColorStop(0.6,`hsla(${hue+20},95%,80%,${alpha*1.3})`);
+      g.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=g;
+      ctx.fillRect(cx-width+xOff, y-1, width*2, 2.5);
+    }
+  }
+  ctx.restore();
+}
+
+// ── Gravitational lensing arcs (conformal map approximation) ─────────────────
+function drawLensingArcs(tt){
+  ctx.save();
+  const kappa = parseFloat(P.lensKappa);
+  const rs = R*0.065;
+  const arcCount = 6;
+  for(let i=0;i<arcCount;i++){
+    const baseAng = (i/arcCount)*Math.PI*2 + tt*0.015;
+    const srcR = R*(0.5+Math.random()*0.05); // source galaxy position
+    // Einstein ring radius ~ sqrt(kappa)
+    const eR = rs*3.1*Math.sqrt(kappa)*(0.9+0.2*Math.sin(tt*0.3+i));
+    ctx.beginPath();
+    const spanAng = Math.PI*0.4*(0.5+0.5*Math.sin(tt*0.1+i));
+    const startAng = baseAng - spanAng/2;
+    ctx.arc(cx, cy, eR*(1+i*0.08), startAng, startAng+spanAng);
+    const hue = (240+i*25+tt*5)%360;
+    const alpha = 0.15+0.1*Math.sin(tt*0.7+i);
+    ctx.strokeStyle=`hsla(${hue},70%,75%,${alpha})`;
+    ctx.lineWidth=1.5;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// ── Disk glow overlay ─────────────────────────────────────────────────────────
+function drawDiskGlow(tt){
+  ctx.save();
+  ctx.globalCompositeOperation='screen';
+  // Tilted ellipse for disk
+  ctx.save();
+  ctx.translate(cx,cy);
+  ctx.rotate(tt*0.02+P.diskTilt);
+  ctx.scale(1, Math.cos(P.diskTilt)+0.15);
+  ctx.fillStyle=diskGrad;
+  ctx.beginPath();ctx.arc(0,0,R,0,Math.PI*2);ctx.fill();
+  ctx.restore();
+  ctx.globalCompositeOperation='source-over';
+  ctx.restore();
+}
+
+// ── Attractor particle trace ──────────────────────────────────────────────────
+const TRAIL = 120;
+let lorenzTrail = [], rosslerTrail = [];
+function updateAttractorTrails(){
+  stepLorenz(0.005);
+  stepRossler(0.008);
+  // Project 3D → disk plane
+  const lp = {
+    x: cx + (lorenz.x/30)*R*0.25 + (lorenz.y/30)*R*0.1,
+    y: cy + (lorenz.z/50-0.5)*R*0.22
+  };
+  const rp = {
+    x: cx + (rossler.x/20)*R*0.25,
+    y: cy + (rossler.y/20)*R*0.2
+  };
+  lorenzTrail.push(lp); if(lorenzTrail.length>TRAIL) lorenzTrail.shift();
+  rosslerTrail.push(rp); if(rosslerTrail.length>TRAIL) rosslerTrail.shift();
+}
+
+function drawAttractorTrail(trail, hue, tt){
+  if(trail.length<2) return;
+  ctx.save();
+  for(let i=1;i<trail.length;i++){
+    const prog=i/trail.length;
+    ctx.beginPath();
+    ctx.moveTo(trail[i-1].x,trail[i-1].y);
+    ctx.lineTo(trail[i].x,trail[i].y);
+    ctx.strokeStyle=`hsla(${(hue+prog*40+tt*8)%360},80%,65%,${prog*0.35})`;
+    ctx.lineWidth=0.8;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// ── Main disk radial scan (Doppler spectral) ──────────────────────────────────
+function drawSpectralDisk(tt){
+  ctx.save();
+  const steps = 300;
+  for(let si=0;si<steps;si++){
+    const ang = (si/steps)*Math.PI*2 + tt*0.08;
+    const n = fbm(
+      Math.cos(ang)*parseFloat(P.noiseFreq)*900+tt*0.05,
+      Math.sin(ang)*parseFloat(P.noiseFreq)*900, 4
+    );
+    const r = R*(0.12+Math.abs(n)*0.6);
+    const p = diskPoint(ang, r, P.diskTilt);
+    const col = dopplerColor(ang, r/R, tt);
+    ctx.fillStyle=col;
+    ctx.beginPath();ctx.arc(p.x,p.y,1.4,0,Math.PI*2);ctx.fill();
+  }
+  ctx.restore();
+}
+
+// ── Sound engine ──────────────────────────────────────────────────────────────
+function initAudio(){
+  if(audioCtx) return;
+  audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+  gainNode = audioCtx.createGain();
+  gainNode.gain.value = 0.06;
+  gainNode.connect(audioCtx.destination);
+
+  // Drone oscillator 1
+  osc1 = audioCtx.createOscillator();
+  osc1.type='sine';
+  osc1.frequency.value=55;
+  const g1=audioCtx.createGain();g1.gain.value=0.4;
+  osc1.connect(g1);g1.connect(gainNode);osc1.start();
+
+  // Drone oscillator 2
+  osc2 = audioCtx.createOscillator();
+  osc2.type='sawtooth';
+  osc2.frequency.value=110.5;
+  const g2=audioCtx.createGain();g2.gain.value=0.08;
+  osc2.connect(g2);g2.connect(gainNode);osc2.start();
+
+  // Noise layer
+  const bufSize=audioCtx.sampleRate*2;
+  const buf=audioCtx.createBuffer(1,bufSize,audioCtx.sampleRate);
+  const d=buf.getChannelData(0);
+  for(let i=0;i<bufSize;i++) d[i]=(Math.random()*2-1);
+  noiseSource=audioCtx.createBufferSource();
+  noiseSource.buffer=buf;noiseSource.loop=true;
+  const bpf=audioCtx.createBiquadFilter();
+  bpf.type='bandpass';bpf.frequency.value=80;bpf.Q.value=0.5;
+  const ng=audioCtx.createGain();ng.gain.value=0.15;
+  noiseSource.connect(bpf);bpf.connect(ng);ng.connect(gainNode);
+  noiseSource.start();
+}
+function updateAudio(tt){
+  if(!audioCtx||!soundOn) return;
+  const attV = P.attractorType==='LORENZ'
+    ? Math.abs(lorenz.x)/25
+    : Math.abs(rossler.x)/15;
+  osc1.frequency.setTargetAtTime(50+attV*30,audioCtx.currentTime,0.3);
+  osc2.frequency.setTargetAtTime(100+attV*50,audioCtx.currentTime,0.5);
+}
+
+// ── HUD update ────────────────────────────────────────────────────────────────
+let hudFrameCount=0;
+function updateHUD(tt){
+  if(!hudOn) return;
+  if(++hudFrameCount%6!==0) return;
+  const attV = P.attractorType==='LORENZ'
+    ? (lorenz.x/25+0.5)
+    : (rossler.x/15+0.5);
+  document.getElementById('b-mass').style.width=(40+parseFloat(P.mass)/14*60)+'%';
+  document.getElementById('v-mass').textContent=(parseFloat(P.mass)).toFixed(1)+'×10⁶ M☉';
+  document.getElementById('b-spin').style.width=(P.spin*100)+'%';
+  document.getElementById('v-spin').textContent='a='+P.spin.toFixed(2);
+  document.getElementById('b-temp').style.width=(parseFloat(P.temp)/2.3*100)+'%';
+  document.getElementById('v-temp').textContent=P.temp+'×10⁹ K';
+  document.getElementById('b-mag').style.width=(P.bfield/7*100)+'%';
+  document.getElementById('v-mag').textContent='10⁴·'+P.bfield+' G';
+  document.getElementById('b-jet').style.width=(Math.abs(attV)*100)+'%';
+  document.getElementById('v-jet').textContent='10'+P.jetPower+' erg/s';
+  document.getElementById('v-att').textContent=P.attractorType;
+  document.getElementById('v-mdot').textContent=P.mdot+' M☉/yr';
+  document.getElementById('v-isco').textContent=P.isco+' r_g';
+  document.getElementById('v-fps').textContent=Math.round(fps);
+  const sec=Math.floor(tt);
+  document.getElementById('v-time').textContent=
+    String(Math.floor(sec/60)).padStart(2,'0')+':'+String(sec%60).padStart(2,'0');
+  document.getElementById('v-frame').textContent=frame;
+  document.getElementById('v-dop').textContent=P.dopplerBeta+'c';
+  document.getElementById('v-lens').textContent=P.lensKappa;
+  document.getElementById('v-noise').textContent=P.noiseScale;
+}
+
+// ── Big Bang ──────────────────────────────────────────────────────────────────
+function bigBang(){
+  const bb=document.getElementById('bigbang');
+  bb.style.transition='none';
+  bb.style.opacity='1';
+  setTimeout(()=>{
+    bb.style.transition='opacity 1.8s ease-out';
+    bb.style.opacity='0';
+  },80);
+  randomizeParams();
+  seedNoise();
+  resetAttractors();
+  genStars();
+  buildGradients();
+  t=0;frame=0;
+}
+
+// ── Render loop ───────────────────────────────────────────────────────────────
+function render(now){
+  requestAnimationFrame(render);
+  const dt = Math.min((now-lastTime)/1000, 0.05);
+  fps = fps*0.95 + (1/Math.max(dt,0.001))*0.05;
+  lastTime=now;
+  t+=dt;
+  frame++;
+
+  updateAttractorTrails();
+  updateAudio(t);
+  updateHUD(t);
+
+  // Clear
+  ctx.fillStyle='rgba(0,0,4,0.18)';
+  ctx.fillRect(0,0,W,H);
+
+  // Layer composition
+  drawStars(t);
+  drawLensingArcs(t);
+  drawJets(t);
+  drawMagneticField(t);
+  drawDiskRings(t);
+  drawSpectralDisk(t);
+  drawPlasmaArms(t);
+  drawHotSpots(t);
+
+  // Attractor trails
+  const att=P.attractorType==='LORENZ';
+  drawAttractorTrail(att?lorenzTrail:rosslerTrail, att?190:280, t);
+
+  drawDiskGlow(t);
+  drawEventHorizon(t);
+
+  // Outer vignette
+  ctx.fillStyle=haloGrad;
+  ctx.fillRect(0,0,W,H);
+}
+
+requestAnimationFrame(render);
+
+// ── Input ─────────────────────────────────────────────────────────────────────
+window.addEventListener('keydown',e=>{
+  const k=e.key.toLowerCase();
+  if(k===' '||k==='spacebar'){e.preventDefault();bigBang();}
+  else if(k==='s'){
+    soundOn=!soundOn;
+    if(soundOn){
+      initAudio();
+      if(audioCtx.state==='suspended') audioCtx.resume();
+      if(gainNode) gainNode.gain.setTargetAtTime(0.06,audioCtx.currentTime,0.3);
+      document.getElementById('sound-icon').textContent='♪ SOUND ON';
+    } else {
+      if(gainNode) gainNode.gain.setTargetAtTime(0,audioCtx.currentTime,0.3);
+      document.getElementById('sound-icon').textContent='';
+    }
+  }
+  else if(k==='h'){
+    hudOn=!hudOn;
+    document.getElementById('hud').style.display=hudOn?'block':'none';
+  }
+});
+
+canvas.addEventListener('click',()=>bigBang());
+canvas.addEventListener('touchstart',e=>{e.preventDefault();bigBang();},{passive:false});
+
+})();
+</script>
+</body>
+</html>

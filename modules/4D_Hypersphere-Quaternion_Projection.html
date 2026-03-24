@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>4D Hypersphere — Quaternion Projection Engine</title>
+<meta name="description" content="Real-time 4D hypersphere stereographic projection engine with Hopf fibration, Clifford torus, SU(2) Lie group orbits, Coxeter kaleidoscopic symmetry, Fourier epicycles, and FM audio synthesis.">
+<meta name="keywords" content="4D visualization, hypersphere, quaternion rotation, Hopf fibration, stereographic projection, Coxeter symmetry, kaleidoscope, WebGL canvas, mathematics visualization">
+<meta name="author" content="Quaternion Projection Engine">
+<meta property="og:title" content="4D Hypersphere Quaternion Projection Engine">
+<meta property="og:description" content="Real-time quaternion-driven 4D-to-2D projection with Hopf fibration, kaleidoscopic Coxeter symmetry, and FM synthesis.">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="4D Hypersphere Quaternion Projection Engine">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "4D Hypersphere Quaternion Projection Engine",
+  "description": "Real-time 4D hypersphere stereographic projection engine driven by quaternion rotation mathematics, featuring Hopf fibration, Clifford torus windings, SU(2) Lie group orbits, Coxeter kaleidoscopic symmetry, Fourier series epicycles, and Web Audio FM synthesis.",
+  "applicationCategory": "Scientific Visualization",
+  "operatingSystem": "Any",
+  "offers": { "@type": "Offer", "price": "0" },
+  "keywords": "4D visualization, quaternion, Hopf fibration, hypersphere, mathematics"
+}
+</script>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;background:#000;overflow:hidden;font-family:'Courier New',monospace}
+  canvas{display:block;position:fixed;top:0;left:0}
+  #hud{
+    position:fixed;top:0;left:0;width:100%;pointer-events:none;
+    color:#0ff;font-size:11px;padding:14px 18px;
+    background:linear-gradient(180deg,rgba(0,0,0,.85) 0%,transparent 100%);
+    display:none;line-height:1.7;text-shadow:0 0 8px #0ff;
+  }
+  #hud h2{font-size:13px;letter-spacing:3px;color:#fff;margin-bottom:6px;text-transform:uppercase}
+  #hud .row{display:flex;gap:24px;flex-wrap:wrap}
+  #hud .col{min-width:200px}
+  #hud .val{color:#ff0;text-shadow:0 0 8px #ff0}
+  #hud .sym{color:#f0f;text-shadow:0 0 8px #f0f}
+  #keys{
+    position:fixed;bottom:16px;left:50%;transform:translateX(-50%);
+    color:rgba(255,255,255,.35);font-size:10px;letter-spacing:2px;
+    text-align:center;pointer-events:none;white-space:nowrap;
+    text-shadow:0 0 6px rgba(255,255,255,.2);
+  }
+  #loading{
+    position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+    color:#fff;font-size:13px;letter-spacing:4px;opacity:1;
+    transition:opacity .8s;pointer-events:none;text-shadow:0 0 20px #fff;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <h2>⬡ Quaternion Projection Engine · HUD</h2>
+  <div class="row">
+    <div class="col">
+      <div>Plane XY ω: <span class="val" id="h-xy">—</span></div>
+      <div>Plane XZ ω: <span class="val" id="h-xz">—</span></div>
+      <div>Plane XW ω: <span class="val" id="h-xw">—</span></div>
+    </div>
+    <div class="col">
+      <div>Plane YZ ω: <span class="val" id="h-yz">—</span></div>
+      <div>Plane YW ω: <span class="val" id="h-yw">—</span></div>
+      <div>Plane ZW ω: <span class="val" id="h-zw">—</span></div>
+    </div>
+    <div class="col">
+      <div>Symmetry: <span class="sym" id="h-sym">—</span></div>
+      <div>Bessel J order: <span class="val" id="h-bes">—</span></div>
+      <div>Hopf winding: <span class="val" id="h-hopf">—</span></div>
+      <div>FPS: <span class="val" id="h-fps">—</span></div>
+      <div>Audio: <span class="val" id="h-audio">OFF</span></div>
+    </div>
+  </div>
+</div>
+<div id="keys">SPACE · CLICK — rerandomize &nbsp;|&nbsp; H — HUD &nbsp;|&nbsp; S — audio</div>
+<div id="loading">INITIALIZING HYPERSPHERE…</div>
+
+<script>
+// ============================================================
+// QUATERNION 4D PROJECTION ENGINE
+// ============================================================
+const TAU = Math.PI * 2;
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const hud = document.getElementById('hud');
+const loading = document.getElementById('loading');
+
+// --- Adaptive resolution ---
+let pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+let W, H, CX, CY;
+let fpsHistory = [], lastFPS = 60, frameCount = 0, lastFPSTime = performance.now();
+
+function resize() {
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = Math.floor(W * pixelRatio);
+  canvas.height = Math.floor(H * pixelRatio);
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.scale(pixelRatio, pixelRatio);
+  CX = W / 2; CY = H / 2;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ============================================================
+// STATE
+// ============================================================
+let state = {};
+function randomize() {
+  const R = () => (Math.random() * 2 - 1) * 0.7 + 0.15;
+  state.omega = { xy: R(), xz: R(), xw: R(), yz: R(), yw: R(), zw: R() };
+  state.hopfN = Math.floor(Math.random() * 5) + 1;
+  state.hopfM = Math.floor(Math.random() * 4) + 1;
+  state.coxeter = ['tetrahedral', 'octahedral', 'icosahedral'][Math.floor(Math.random() * 3)];
+  state.besselOrder = Math.floor(Math.random() * 4);
+  state.colorPhase = Math.random() * TAU;
+  state.colorSpeed = 0.2 + Math.random() * 0.4;
+  // Epicycles
+  const nEpi = 5 + Math.floor(Math.random() * 7);
+  state.epicycles = Array.from({ length: nEpi }, (_, i) => ({
+    amp: (0.03 + Math.random() * 0.09) * Math.min(W, H),
+    freq: (i + 1) * (Math.random() < 0.5 ? 1 : -1) * (0.3 + Math.random() * 1.2),
+    phase: Math.random() * TAU,
+    hue: Math.random()
+  }));
+  state.epicycleTrail = [];
+  state.epicycleAngle = 0;
+  // Rebuild curves
+  buildCurves();
+  updateHUD();
+}
+
+// ============================================================
+// 4D MATH
+// ============================================================
+// Rotate 4D point in given plane by angle θ
+function rot4(p, plane, a) {
+  const [i, j] = plane;
+  const c = Math.cos(a), s = Math.sin(a);
+  const pi = p[i], pj = p[j];
+  p[i] = c * pi - s * pj;
+  p[j] = s * pi + c * pj;
+}
+
+// Stereographic projection S³ → R³ (from north pole x4=1)
+function stereo4to3(p) {
+  const denom = 1 / (1.2 - p[3] + 1e-6);
+  return [p[0] * denom, p[1] * denom, p[2] * denom, p[3]];
+}
+
+// Perspective projection R³ → R²
+function proj3to2(p3) {
+  const fov = 2.5;
+  const z = p3[2] + fov;
+  if (z < 0.01) return null;
+  const s = fov / z * Math.min(CX, CY) * 0.88;
+  return [CX + p3[0] * s, CY + p3[1] * s, s / (Math.min(CX, CY) * 0.88)];
+}
+
+// Bessel J0 approximation (rational Chebyshev)
+function besselJ(n, x) {
+  if (n === 0) {
+    if (Math.abs(x) < 8) {
+      const t = x * x / 64;
+      return 1 - t * (1 - t * (0.25 - t * 0.0277778));
+    }
+    return Math.sqrt(2 / (Math.PI * Math.abs(x) + 1e-9)) * Math.cos(Math.abs(x) - Math.PI / 4);
+  }
+  // Higher orders: recurrence approximation
+  let j0 = besselJ(0, x), j1 = Math.sin(x) / (Math.abs(x) + 1e-9) - Math.cos(x) * Math.sign(x || 1) / (x * x + 1e-9);
+  if (n === 1) return j1;
+  let prev = j0, cur = j1;
+  for (let k = 1; k < n; k++) { let next = 2 * k / (x + 1e-9) * cur - prev; prev = cur; cur = next; }
+  return Math.max(-1, Math.min(1, prev));
+}
+
+// ============================================================
+// CURVE GENERATION
+// ============================================================
+let curves = []; // [{pts: Float32Array(N*4), hue4d: float}]
+const FIBER_N = 70;
+const FIBER_PTS = 80;
+const SU2_N = 30;
+const SU2_PTS = 100;
+const CLIF_N = 25;
+const CLIF_PTS = 90;
+
+function hopfFiber(theta, phi, windN, windM, nPts) {
+  const pts = new Float32Array(nPts * 4);
+  for (let i = 0; i < nPts; i++) {
+    const psi = (i / nPts) * TAU * windN;
+    const eta = (i / nPts) * TAU * windM;
+    const t2 = theta / 2;
+    pts[i * 4 + 0] = Math.cos(t2) * Math.cos(psi);
+    pts[i * 4 + 1] = Math.cos(t2) * Math.sin(psi);
+    pts[i * 4 + 2] = Math.sin(t2) * Math.cos(psi + phi + eta);
+    pts[i * 4 + 3] = Math.sin(t2) * Math.sin(psi + phi + eta);
+  }
+  return pts;
+}
+
+function cliffordTorus(r1, r2, nPts) {
+  const pts = new Float32Array(nPts * 4);
+  const k = r1 / (r1 + r2 + 1e-9);
+  for (let i = 0; i < nPts; i++) {
+    const u = (i / nPts) * TAU;
+    const v = (i / nPts) * TAU * (r2 / r1 + 0.618);
+    const R = 1 / Math.SQRT2;
+    pts[i * 4 + 0] = R * Math.cos(u);
+    pts[i * 4 + 1] = R * Math.sin(u);
+    pts[i * 4 + 2] = R * Math.cos(v);
+    pts[i * 4 + 3] = R * Math.sin(v);
+  }
+  return pts;
+}
+
+function su2Orbit(axis, angle0, nPts) {
+  const pts = new Float32Array(nPts * 4);
+  // SU(2) element: q = (cos t, sin t * axis)
+  // orbit of a base point p0 under q(t)
+  const p0 = [0.5, 0.5, 0.5, 0.5].map(v => v / Math.sqrt(2)); // unit 4-vec
+  const [ax, ay, az] = axis;
+  for (let i = 0; i < nPts; i++) {
+    const t = (i / nPts) * TAU;
+    // left-multiply by quaternion q(t)
+    const qw = Math.cos(t / 2), qx = ax * Math.sin(t / 2), qy = ay * Math.sin(t / 2), qz = az * Math.sin(t / 2);
+    // treat p0 as quaternion (p0[0], p0[1], p0[2], p0[3]) = (w, x, y, z)
+    const pw = p0[0], px = p0[1], py = p0[2], pz = p0[3];
+    // quaternion product q * p
+    pts[i * 4 + 0] = qw * pw - qx * px - qy * py - qz * pz;
+    pts[i * 4 + 1] = qw * px + qx * pw + qy * pz - qz * py;
+    pts[i * 4 + 2] = qw * py - qx * pz + qy * pw + qz * px;
+    pts[i * 4 + 3] = qw * pz + qx * py - qy * px + qz * pw;
+    // normalize
+    const len = Math.sqrt(pts[i*4]*pts[i*4]+pts[i*4+1]*pts[i*4+1]+pts[i*4+2]*pts[i*4+2]+pts[i*4+3]*pts[i*4+3]);
+    pts[i*4]/=len; pts[i*4+1]/=len; pts[i*4+2]/=len; pts[i*4+3]/=len;
+  }
+  return pts;
+}
+
+function buildCurves() {
+  curves = [];
+  const N = state.hopfN, M = state.hopfM;
+  // Hopf fibers
+  for (let i = 0; i < FIBER_N; i++) {
+    const theta = (i / FIBER_N) * Math.PI;
+    const phi = ((i * 1.618) % 1) * TAU;
+    const hue = (i / FIBER_N + state.colorPhase / TAU) % 1;
+    curves.push({ pts: hopfFiber(theta, phi, N, M, FIBER_PTS), hue4d: hue, type: 'hopf' });
+  }
+  // Clifford torus windings
+  for (let i = 0; i < CLIF_N; i++) {
+    const r1 = 0.3 + (i / CLIF_N) * 0.7;
+    const r2 = 1 - r1;
+    const hue = (i / CLIF_N * 0.4 + 0.3 + state.colorPhase / TAU) % 1;
+    curves.push({ pts: cliffordTorus(r1, r2, CLIF_PTS), hue4d: hue, type: 'clifford' });
+  }
+  // SU(2) orbits
+  const axes = [];
+  for (let i = 0; i < SU2_N; i++) {
+    const th = Math.acos(2 * Math.random() - 1), ph = Math.random() * TAU;
+    axes.push([Math.sin(th) * Math.cos(ph), Math.sin(th) * Math.sin(ph), Math.cos(th)]);
+  }
+  for (let i = 0; i < SU2_N; i++) {
+    const hue = (i / SU2_N * 0.5 + 0.6 + state.colorPhase / TAU) % 1;
+    curves.push({ pts: su2Orbit(axes[i], 0, SU2_PTS), hue4d: hue, type: 'su2' });
+  }
+}
+
+// ============================================================
+// COLOR
+// ============================================================
+function hsvToRgb(h, s, v) {
+  const i = Math.floor(h * 6) % 6;
+  const f = h * 6 - Math.floor(h * 6);
+  const p = v * (1 - s), q = v * (1 - f * s), t = v * (1 - (1 - f) * s);
+  const lut = [[v,t,p],[q,v,p],[p,v,t],[p,q,v],[t,p,v],[v,p,q]];
+  return lut[i].map(x => Math.round(x * 255));
+}
+
+function smoothstep(x) { return x * x * (3 - 2 * x); }
+
+function curveColor(hue4d, t, besselAmp, alpha) {
+  // phase-modulated hue sweep
+  const h = (hue4d + t * state.colorSpeed + besselAmp * 0.15) % 1;
+  const sm = smoothstep(Math.max(0, Math.min(1, Math.abs(besselAmp))));
+  const s = 0.7 + sm * 0.3;
+  const v = 0.6 + sm * 0.4;
+  const [r, g, b] = hsvToRgb((h + 1) % 1, s, v);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+// ============================================================
+// ROTATION STATE
+// ============================================================
+let angles = { xy: 0, xz: 0, xw: 0, yz: 0, yw: 0, zw: 0 };
+const PLANES = [
+  ['xy', [0, 1]], ['xz', [0, 2]], ['xw', [0, 3]],
+  ['yz', [1, 2]], ['yw', [1, 3]], ['zw', [2, 3]]
+];
+
+// ============================================================
+// COXETER KALEIDOSCOPE
+// ============================================================
+function getCoxeterFolds(sym) {
+  switch (sym) {
+    case 'tetrahedral':  return 3;
+    case 'octahedral':   return 4;
+    case 'icosahedral':  return 6;
+    default: return 4;
+  }
+}
+
+// Apply kaleidoscope in screen space: draw reflected copies
+function drawKaleidoscope(fn) {
+  const folds = getCoxeterFolds(state.coxeter);
+  const angle = TAU / folds;
+  ctx.save();
+  ctx.translate(CX, CY);
+  for (let i = 0; i < folds; i++) {
+    ctx.save();
+    ctx.rotate(i * angle);
+    fn();
+    // Mirror reflection
+    ctx.save();
+    ctx.scale(1, -1);
+    fn();
+    ctx.restore();
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+// ============================================================
+// OFFSCREEN BUFFER for projection
+// ============================================================
+const oc = document.createElement('canvas');
+const octx = oc.getContext('2d');
+
+// ============================================================
+// MAIN RENDER LOOP
+// ============================================================
+let t = 0;
+let showHUD = false;
+let audioOn = false;
+let audioCtx = null, audioNodes = [];
+let lastTime = performance.now();
+
+function frame(now) {
+  requestAnimationFrame(frame);
+  const dt = Math.min((now - lastTime) / 1000, 0.05);
+  lastTime = now;
+  t += dt;
+
+  // FPS
+  frameCount++;
+  if (now - lastFPSTime > 500) {
+    lastFPS = (frameCount / ((now - lastFPSTime) / 1000)) | 0;
+    frameCount = 0; lastFPSTime = now;
+    if (showHUD) document.getElementById('h-fps').textContent = lastFPS;
+    // Adaptive resolution
+    if (lastFPS < 25 && pixelRatio > 1) { pixelRatio = Math.max(0.75, pixelRatio - 0.25); resize(); }
+    else if (lastFPS > 50 && pixelRatio < (window.devicePixelRatio || 1)) { pixelRatio = Math.min(window.devicePixelRatio || 1, pixelRatio + 0.25); resize(); }
+  }
+
+  // Advance rotation angles
+  for (const [name, _] of PLANES) angles[name] += state.omega[name] * dt;
+
+  // Epicycle angle
+  state.epicycleAngle += dt;
+
+  // Clear
+  ctx.fillStyle = 'rgba(0,0,0,0.18)';
+  ctx.fillRect(0, 0, W, H);
+
+  // --- Draw projected curves with kaleidoscope ---
+  const besN = state.besselOrder;
+  const globalPhase = t * 0.5;
+
+  // Build projected points for each curve
+  const folds = getCoxeterFolds(state.coxeter);
+  const kAngle = TAU / folds;
+
+  for (const curve of curves) {
+    const pts = curve.pts;
+    const N4 = pts.length / 4;
+    const besselArg = curve.hue4d * TAU * 3 + t * 0.8;
+    const besselAmp = besselJ(besN, besselArg);
+    const alpha = 0.55 + besselAmp * 0.3;
+
+    // Project all points
+    const proj = [];
+    const tmpP = [0, 0, 0, 0];
+    for (let i = 0; i < N4; i++) {
+      tmpP[0] = pts[i * 4];
+      tmpP[1] = pts[i * 4 + 1];
+      tmpP[2] = pts[i * 4 + 2];
+      tmpP[3] = pts[i * 4 + 3];
+      // Apply 6-plane 4D rotation
+      for (const [name, plane] of PLANES) rot4(tmpP, plane, angles[name]);
+      const p3 = stereo4to3(tmpP);
+      const p2 = proj3to2(p3);
+      proj.push(p2);
+    }
+
+    // Draw with kaleidoscope folds
+    const strokeW = 1.1 + besselAmp * 0.5;
+    const color = curveColor(curve.hue4d, globalPhase, besselAmp, Math.max(0.15, alpha));
+
+    ctx.save();
+    ctx.translate(CX, CY);
+
+    for (let fold = 0; fold < folds; fold++) {
+      for (let mirror = 0; mirror < 2; mirror++) {
+        ctx.save();
+        ctx.rotate(fold * kAngle);
+        if (mirror) ctx.scale(1, -1);
+
+        ctx.beginPath();
+        let started = false;
+        for (let i = 0; i < proj.length; i++) {
+          const p = proj[i];
+          if (!p) { started = false; continue; }
+          // Translate to origin-centered coords
+          const px = p[0] - CX, py = p[1] - CY;
+          if (!started) { ctx.moveTo(px, py); started = true; }
+          else ctx.lineTo(px, py);
+        }
+        ctx.strokeStyle = color;
+        ctx.lineWidth = strokeW;
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 4 + besselAmp * 6;
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+    ctx.restore();
+  }
+
+  // --- Fourier Epicycles ---
+  drawEpicycles(dt);
+
+  // HUD update
+  if (showHUD) updateHUDValues();
+}
+
+// ============================================================
+// FOURIER EPICYCLES
+// ============================================================
+const TRAIL_MAX = 600;
+
+function drawEpicycles(dt) {
+  const epis = state.epicycles;
+  let x = 0, y = 0;
+  const arms = [];
+  for (const e of epis) {
+    const a = state.epicycleAngle * e.freq + e.phase;
+    const nx = x + e.amp * Math.cos(a);
+    const ny = y + e.amp * Math.sin(a);
+    arms.push({ x1: x, y1: y, x2: nx, y2: ny, hue: e.hue, amp: e.amp });
+    x = nx; y = ny;
+  }
+
+  // Draw arms lightly
+  for (const arm of arms) {
+    const [r, g, b] = hsvToRgb(arm.hue, 0.6, 0.9);
+    ctx.beginPath();
+    ctx.arc(CX + arm.x1, CY + arm.y1, arm.amp, 0, TAU);
+    ctx.strokeStyle = `rgba(${r},${g},${b},0.06)`;
+    ctx.lineWidth = 0.5;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(CX + arm.x1, CY + arm.y1);
+    ctx.lineTo(CX + arm.x2, CY + arm.y2);
+    ctx.strokeStyle = `rgba(${r},${g},${b},0.2)`;
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+  }
+
+  // Trail
+  state.epicycleTrail.push({ x: CX + x, y: CY + y, t: t });
+  if (state.epicycleTrail.length > TRAIL_MAX) state.epicycleTrail.shift();
+
+  if (state.epicycleTrail.length > 2) {
+    ctx.beginPath();
+    ctx.moveTo(state.epicycleTrail[0].x, state.epicycleTrail[0].y);
+    for (let i = 1; i < state.epicycleTrail.length; i++) {
+      const tr = state.epicycleTrail[i];
+      const alpha = i / state.epicycleTrail.length;
+      const hue = (tr.t * state.colorSpeed * 0.3 + state.colorPhase / TAU) % 1;
+      const [r, g, b] = hsvToRgb(hue, 1, 1);
+      // draw segment
+      if (i % 8 === 0 || i === state.epicycleTrail.length - 1) {
+        ctx.strokeStyle = `rgba(${r},${g},${b},${alpha * 0.8})`;
+        ctx.lineWidth = 1.5 * alpha;
+        ctx.shadowColor = `rgba(${r},${g},${b},0.5)`;
+        ctx.shadowBlur = 8 * alpha;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(tr.x, tr.y);
+      }
+      ctx.lineTo(tr.x, tr.y);
+    }
+    ctx.stroke();
+  }
+  ctx.shadowBlur = 0;
+}
+
+// ============================================================
+// HUD
+// ============================================================
+function updateHUD() {
+  if (!showHUD) return;
+  updateHUDValues();
+}
+function updateHUDValues() {
+  document.getElementById('h-xy').textContent  = state.omega.xy.toFixed(3);
+  document.getElementById('h-xz').textContent  = state.omega.xz.toFixed(3);
+  document.getElementById('h-xw').textContent  = state.omega.xw.toFixed(3);
+  document.getElementById('h-yz').textContent  = state.omega.yz.toFixed(3);
+  document.getElementById('h-yw').textContent  = state.omega.yw.toFixed(3);
+  document.getElementById('h-zw').textContent  = state.omega.zw.toFixed(3);
+  document.getElementById('h-sym').textContent  = state.coxeter.toUpperCase();
+  document.getElementById('h-bes').textContent  = state.besselOrder;
+  document.getElementById('h-hopf').textContent = `N=${state.hopfN} M=${state.hopfM}`;
+  document.getElementById('h-audio').textContent = audioOn ? 'ON ♪' : 'OFF';
+}
+
+// ============================================================
+// WEB AUDIO FM SYNTHESIS
+// ============================================================
+function startAudio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  stopAudio();
+  const master = audioCtx.createGain();
+  master.gain.value = 0.15;
+  master.connect(audioCtx.destination);
+
+  const N_VOICES = Math.min(8, state.epicycles.length);
+  for (let i = 0; i < N_VOICES; i++) {
+    const epi = state.epicycles[i];
+    const curve = curves[i * 10 % curves.length];
+    const baseFreq = 80 + curve.hue4d * 400;
+    const modFreq = baseFreq * (1 + Math.abs(state.omega.xy + state.omega.xz));
+
+    // Modulator
+    const mod = audioCtx.createOscillator();
+    const modGain = audioCtx.createGain();
+    mod.frequency.value = modFreq;
+    modGain.gain.value = baseFreq * 1.5;
+    mod.connect(modGain);
+
+    // Carrier
+    const car = audioCtx.createOscillator();
+    car.frequency.value = baseFreq;
+    modGain.connect(car.frequency);
+
+    // Envelope
+    const env = audioCtx.createGain();
+    env.gain.value = 0.03;
+
+    // Pan
+    const pan = audioCtx.createStereoPanner();
+    pan.pan.value = Math.cos(curve.hue4d * TAU) * 0.8;
+
+    car.connect(env);
+    env.connect(pan);
+    pan.connect(master);
+    mod.start();
+    car.start();
+    audioNodes.push(mod, car, env, pan);
+
+    // Slowly modulate pan
+    pan.pan.setValueAtTime(pan.pan.value, audioCtx.currentTime);
+    pan.pan.linearRampToValueAtTime(-pan.pan.value, audioCtx.currentTime + 4 + i);
+  }
+}
+
+function stopAudio() {
+  for (const n of audioNodes) {
+    try { n.stop(); } catch (e) {}
+    try { n.disconnect(); } catch (e) {}
+  }
+  audioNodes = [];
+}
+
+// ============================================================
+// INPUT
+// ============================================================
+function doRandomize() {
+  angles = { xy: 0, xz: 0, xw: 0, yz: 0, yw: 0, zw: 0 };
+  randomize();
+  if (audioOn) { stopAudio(); startAudio(); }
+  // Fade loading back
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(0, 0, W, H);
+}
+
+window.addEventListener('keydown', e => {
+  if (e.code === 'Space') { e.preventDefault(); doRandomize(); }
+  if (e.key === 'h' || e.key === 'H') {
+    showHUD = !showHUD;
+    hud.style.display = showHUD ? 'block' : 'none';
+    updateHUDValues();
+  }
+  if (e.key === 's' || e.key === 'S') {
+    audioOn = !audioOn;
+    if (audioOn) startAudio();
+    else stopAudio();
+    if (showHUD) updateHUDValues();
+  }
+});
+canvas.addEventListener('click', doRandomize);
+
+// ============================================================
+// INIT
+// ============================================================
+randomize();
+setTimeout(() => {
+  loading.style.opacity = '0';
+  setTimeout(() => loading.remove(), 800);
+}, 600);
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

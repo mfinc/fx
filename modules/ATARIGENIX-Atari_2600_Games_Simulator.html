@@ -1,0 +1,852 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>ATARIGENIX-Atari 2600 Games Simulator</title>
+<meta name="description" content="ATARIGENIX generates infinite unique Atari 2600-style retro games as a screensaver. Each restart creates a completely new randomized arcade game with vibrant spectral pixel art, authentic chiptune sound, and classic auto-play gameplay. Press SPACE or click for a new game.">
+<meta name="keywords" content="Atari 2600, retro gaming, pixel art, arcade game generator, screensaver, chiptune, 8-bit, procedural generation, HTML5 canvas, classic arcade, space invaders, breakout, asteroids, centipede, pong, missile command, snake, retro game simulator">
+<meta name="robots" content="index, follow">
+<meta property="og:title" content="ATARIGENIX — Infinite Atari 2600 Game Generator Screensaver">
+<meta property="og:description" content="Infinite procedurally-generated Atari 2600 style games auto-playing in your browser. Every restart is a completely new randomized retro game with vibrant color cycling and chiptune sound.">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#000000">
+<meta name="application-name" content="ATARIGENIX">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000;touch-action:none;-webkit-user-select:none;user-select:none}
+#c{display:block;position:fixed;inset:0;width:100%;height:100%;image-rendering:pixelated;image-rendering:crisp-edges;cursor:none}
+#hud{display:none;position:fixed;top:0;left:0;right:0;padding:5px 10px;background:rgba(0,0,0,.9);color:#0f0;font:bold 10px/1.7 monospace;z-index:10;border-bottom:1px solid rgba(0,255,0,.25);letter-spacing:.8px;pointer-events:none;text-shadow:0 0 6px #0f08}
+#hint{position:fixed;bottom:10px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,.22);font:9px monospace;letter-spacing:1.5px;pointer-events:none;white-space:nowrap;z-index:10}
+#flash{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;z-index:8;opacity:0;transition:opacity .3s}
+#flash span{color:#fff;font:bold 18px monospace;letter-spacing:4px;text-shadow:0 0 20px currentColor,0 0 40px currentColor;image-rendering:pixelated}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<div id="flash"><span id="flashTxt"></span></div>
+<div id="hint">SPACE / CLICK → NEW GAME &nbsp;·&nbsp; H → HUD &nbsp;·&nbsp; S → SOUND</div>
+<script>
+(()=>{
+'use strict';
+
+/* ─── CANVAS SETUP ──────────────────────────────────────── */
+const VW=160,VH=120;
+const C=document.getElementById('c'),G=C.getContext('2d');
+const V=document.createElement('canvas');
+V.width=VW;V.height=VH;
+const X=V.getContext('2d');
+X.imageSmoothingEnabled=false;
+G.imageSmoothingEnabled=false;
+
+let SW=0,SH=0;
+const rz=()=>{SW=C.width=innerWidth;SH=C.height=innerHeight;};
+addEventListener('resize',rz);rz();
+
+/* ─── STATE ──────────────────────────────────────────────── */
+let hudOn=false,sndOn=false;
+let ct=0,fps=60,fpsN=0,fpsT=0,lastTS=0;
+let gIdx=-1,game=null,gScore=0,gName='';
+const HUD=document.getElementById('hud');
+const FLASH=document.getElementById('flash');
+const FLASHTXT=document.getElementById('flashTxt');
+let flashTimer=0;
+
+/* ─── AUDIO ──────────────────────────────────────────────── */
+let AC=null;
+const eAC=()=>{if(!AC&&sndOn)try{AC=new(AudioContext||webkitAudioContext)();}catch(e){}return AC;};
+const tone=(f,w,d,v=0.07,dl=0)=>{
+  if(!sndOn)return;const ac=eAC();if(!ac)return;
+  const t=ac.currentTime+dl,o=ac.createOscillator(),g=ac.createGain();
+  o.connect(g);g.connect(ac.destination);
+  o.type=w;o.frequency.setValueAtTime(f,t);
+  g.gain.setValueAtTime(v,t);g.gain.exponentialRampToValueAtTime(1e-4,t+d);
+  o.start(t);o.stop(t+d+.05);
+};
+const noiz=(d,v=0.05)=>{
+  if(!sndOn)return;const ac=eAC();if(!ac)return;
+  const n=Math.ceil(ac.sampleRate*d),buf=ac.createBuffer(1,n,ac.sampleRate),dat=buf.getChannelData(0);
+  for(let i=0;i<n;i++)dat[i]=Math.random()*2-1;
+  const s=ac.createBufferSource(),g=ac.createGain();
+  s.buffer=buf;s.connect(g);g.connect(ac.destination);
+  g.gain.setValueAtTime(v,ac.currentTime);g.gain.exponentialRampToValueAtTime(1e-4,ac.currentTime+d);
+  s.start();
+};
+
+/* ─── PALETTE / COLOR ────────────────────────────────────── */
+let P={};
+const cl=(v,a,b)=>Math.max(a,Math.min(b,v));
+const hsl=(h,s,l)=>`hsl(${((h%360)+360)%360},${cl(s,0,100)}%,${cl(l,0,100)}%)`;
+
+const iPal=()=>{
+  const b=Math.random()*360;
+  const modes=[
+    [b,(b+180)%360],
+    [b,(b+120)%360,(b+240)%360],
+    [b,(b+30)%360,(b+60)%360],
+    [b,(b+150)%360,(b+210)%360],
+    [b,(b+90)%360,(b+180)%360,(b+270)%360],
+    [0,60,120,180,240,300],
+    [b,(b+72)%360,(b+144)%360,(b+216)%360,(b+288)%360],
+    [b,(b+36)%360,(b+72)%360,(b+108)%360,(b+144)%360,(b+180)%360],
+  ];
+  P={
+    hues:modes[Math.floor(Math.random()*modes.length)],
+    spd:.3+Math.random()*1.8,
+    sat:68+Math.random()*32,
+    lit:42+Math.random()*28,
+    bgH:(b+175+Math.random()*30)%360,
+    bgS:10+Math.random()*40,
+    bgL:2+Math.random()*14,
+    scan:Math.random()>.35,
+    vign:Math.random()>.4,
+    bandBg:Math.random()>.5,
+  };
+};
+const pc=(i,t,br=0)=>{
+  const h=(P.hues[Math.abs(Math.floor(i))%P.hues.length]+t*P.spd)%360;
+  return hsl(h,P.sat+Math.sin(t*.35+i)*.12*P.sat,cl(P.lit+br*18+Math.sin(t*.22+i*.8)*10,10,95));
+};
+const bgc=(t)=>hsl((P.bgH+t*P.spd*.1)%360,P.bgS,P.bgL);
+
+/* ─── SPRITE / DRAW HELPERS ──────────────────────────────── */
+// Draw 8-row bitmask sprite
+const spr=(bmp,ox,oy,s,c)=>{
+  X.fillStyle=c;
+  for(let r=0;r<bmp.length;r++){
+    const row=bmp[r];
+    for(let col=0;col<8;col++){
+      if(row&(0x80>>col))X.fillRect(Math.floor(ox+col*s),Math.floor(oy+r*s),s,s);
+    }
+  }
+};
+
+// Draw banded background (Atari-style color banding)
+const drawBandBg=(t)=>{
+  const bands=6+Math.floor(Math.random()*4)|0;
+  for(let i=0;i<VH;i++){
+    const b=Math.floor(i/(VH/bands));
+    X.fillStyle=hsl((P.bgH+b*18+t*P.spd*.15)%360,P.bgS+10,P.bgL+b*.8);
+    X.fillRect(0,i,VW,1);
+  }
+};
+
+// Starfield
+const drawStars=(t,scroll=0)=>{
+  const starz=[...Array(28)].map((_,i)=>({x:(i*37+i*i*11)%VW,y:(i*29+i*i*7)%VH,b:i*.37}));
+  starz.forEach((s,i)=>{
+    const a=cl(.15+.5*((Math.sin(t*1.2+s.b)+1)*.5),0,1);
+    X.fillStyle=`rgba(255,255,255,${a})`;
+    X.fillRect(Math.floor((s.x+scroll*.15)%VW),s.y,1,1);
+  });
+};
+
+/* ─── EXPLOSION HELPER ───────────────────────────────────── */
+const mkExp=(x,y,n=8)=>({x,y,t:0,n});
+const updExp=(e,dt)=>{e.t+=dt;};
+const drawExp=(e,t)=>{
+  if(e.t>.6)return;
+  const r=e.t*22;
+  for(let i=0;i<e.n;i++){
+    const a=i*Math.PI*2/e.n;
+    X.fillStyle=pc(i%P.hues.length,t,1);
+    X.fillRect(Math.floor(e.x+Math.cos(a)*r),Math.floor(e.y+Math.sin(a)*r),2,2);
+  }
+};
+
+/* ═══════════════════════════════════════════════════════════
+   GAME 1 — SPACE INVADERS
+═══════════════════════════════════════════════════════════ */
+const makeInvaders=()=>{
+  const ROWS=3+Math.floor(Math.random()*2);
+  const COLS=8+Math.floor(Math.random()*4);
+  const INV_W=Math.floor((VW-20)/COLS);
+  const SPR=[
+    [0b00111100,0b01111110,0b11011011,0b11111111,0b10111101,0b00111100,0b01011010,0b10100101],
+    [0b00100100,0b01111110,0b11011011,0b11111111,0b10100101,0b01011010,0b10100101,0b01011010],
+    [0b01111110,0b11111111,0b11011011,0b11111111,0b01111110,0b00111100,0b01100110,0b11000011],
+  ];
+  let aliens=[],gx=0,gy=0,dir=1,mTimer=0,mInt=0.55;
+  let px=VW/2,pBullets=[],aBullets=[],exps=[],score=0;
+  let ufo=null,ufoT=0,anTick=0,sTimer=0;
+  for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++)
+    aliens.push({r,c,alive:true,x:10+c*INV_W,y:12+r*11,ci:r});
+  const lv=()=>aliens.filter(a=>a.alive);
+  return{
+    name:'SPACE INVADERS',
+    init(){score=0;gScore=0;},
+    update(dt){
+      anTick+=dt;sTimer+=dt;mTimer+=dt;ufoT+=dt;
+      const la=lv();
+      if(!la.length){aliens.forEach(a=>{a.alive=true;});gx=0;gy=0;mInt=0.55;score+=100;}
+      // Alien march
+      if(mTimer>mInt){
+        mTimer=0;gx+=dir*4;
+        const xs=la.map(a=>a.x+gx);
+        if(Math.max(...xs)>VW-9||Math.min(...xs)<2){dir*=-1;gy+=5;mInt=Math.max(.07,mInt*.96);}
+        // Alien shoot
+        if(la.length&&Math.random()<.28){
+          const bots=la.filter(a=>!la.some(b=>b.alive&&b.c===a.c&&b.r>a.r));
+          if(bots.length){const sh=bots[Math.floor(Math.random()*bots.length)];
+            aBullets.push({x:sh.x+gx+4,y:sh.y+gy+8});tone(170,'square',.13,.05);}
+        }
+      }
+      // UFO
+      if(!ufo&&ufoT>13+Math.random()*12){ufoT=0;ufo={x:-15,y:6};tone(660,'sawtooth',.4,.04);}
+      if(ufo){ufo.x+=38*dt;if(ufo.x>VW+15)ufo=null;}
+      // AI player
+      if(la.length){const tgt=la[Math.floor(la.length/2)];const tx=tgt.x+gx+4;
+        px+=(tx>px+1?1:tx<px-1?-1:0)*52*dt;px=cl(px,4,VW-4);}
+      // Auto shoot
+      if(sTimer>.5+Math.random()*.3){sTimer=0;pBullets.push({x:px,y:VH-17});tone(460,'square',.07,.06);}
+      // Move bullets
+      pBullets.forEach(b=>b.y-=95*dt);aBullets.forEach(b=>b.y+=48*dt);
+      // Player bullets vs aliens
+      pBullets=pBullets.filter(b=>{
+        if(b.y<0)return false;
+        for(const a of aliens){if(!a.alive)continue;
+          const ax=a.x+gx,ay=a.y+gy;
+          if(b.x>ax&&b.x<ax+8&&b.y>ay&&b.y<ay+8){
+            a.alive=false;score+=10;gScore=score;
+            exps.push(mkExp(ax+4,ay+4));tone(160,'square',.18,.07);noiz(.1,.05);return false;}}
+        // UFO hit
+        if(ufo&&b.x>ufo.x&&b.x<ufo.x+14&&b.y>ufo.y&&b.y<ufo.y+5){
+          exps.push(mkExp(ufo.x+7,ufo.y+2));score+=100;gScore=score;ufo=null;
+          tone(700,'square',.25,.09);noiz(.12,.06);return false;}
+        return true;
+      });
+      // Alien bullets vs player
+      aBullets=aBullets.filter(b=>{
+        if(b.y>VH)return false;
+        if(Math.abs(b.x-px)<5&&b.y>VH-19&&b.y<VH-10){
+          exps.push(mkExp(px,VH-14));px=VW/2;tone(80,'square',.3,.09);noiz(.18,.07);return false;}
+        return true;});
+      exps=exps.filter(e=>{updExp(e,dt);return e.t<.65;});
+      gScore=score;
+    },
+    render(t){
+      if(P.bandBg)drawBandBg(t); else{X.fillStyle=bgc(t);X.fillRect(0,0,VW,VH);}
+      drawStars(t);
+      X.fillStyle=pc(2,t);X.fillRect(0,VH-8,VW,1);
+      // Aliens
+      aliens.forEach(a=>{if(!a.alive)return;
+        spr(SPR[cl(a.ci,0,SPR.length-1)|0],a.x+gx,a.y+gy,1,pc(a.ci,t));});
+      // UFO
+      if(ufo){X.fillStyle=pc(4,t,1);X.fillRect(Math.floor(ufo.x),ufo.y,14,5);
+        X.fillRect(Math.floor(ufo.x)+3,ufo.y-2,8,3);X.fillStyle='#fff';X.fillRect(Math.floor(ufo.x)+5,ufo.y+1,4,2);}
+      // Player cannon
+      const pci=Math.floor(ct*.3)%P.hues.length;
+      X.fillStyle=pc(pci,t,1);
+      X.fillRect(Math.floor(px)-1,VH-18,2,5);X.fillRect(Math.floor(px)-4,VH-13,8,4);
+      // Player bullets
+      X.fillStyle='#fff';pBullets.forEach(b=>X.fillRect(Math.floor(b.x),Math.floor(b.y),1,4));
+      // Alien bullets
+      X.fillStyle=pc(3,t,1);aBullets.forEach(b=>X.fillRect(Math.floor(b.x),Math.floor(b.y),2,5));
+      exps.forEach(e=>drawExp(e,t));
+    }
+  };
+};
+
+/* ═══════════════════════════════════════════════════════════
+   GAME 2 — BREAKOUT
+═══════════════════════════════════════════════════════════ */
+const makeBreakout=()=>{
+  const BROWS=4+Math.floor(Math.random()*4);
+  const BCOLS=10+Math.floor(Math.random()*6);
+  const BW=Math.floor((VW-4)/BCOLS)-1,BH=4;
+  let bricks=[],px=VW/2,pw=22+Math.random()*14;
+  let balls=[],exps=[],score=0,sTimer=0;
+  const mkBricks=()=>{bricks=[];for(let r=0;r<BROWS;r++)for(let c=0;c<BCOLS;c++)
+    bricks.push({x:2+c*(BW+1),y:10+r*(BH+1),ci:r,hp:1+(r>>1)});};
+  mkBricks();
+  balls=[{x:VW/2,y:VH/2,vx:45+Math.random()*20,vy:-55-Math.random()*20}];
+  if(Math.random()>.5)balls.push({x:VW/2+15,y:VH/2-10,vx:-45,vy:-50});
+  const py=VH-12;
+  return{
+    name:'BREAKOUT',
+    init(){score=0;gScore=0;mkBricks();},
+    update(dt){
+      // AI paddle
+      const b0=balls[0]||{x:VW/2};
+      px+=(b0.x>px+2?1:b0.x<px-2?-1:0)*85*dt;px=cl(px,pw/2,VW-pw/2);
+      balls.forEach(b=>{
+        b.x+=b.vx*dt;b.y+=b.vy*dt;
+        if(b.x<1){b.x=1;b.vx=Math.abs(b.vx);tone(220,'square',.04,.05);}
+        if(b.x>VW-1){b.x=VW-1;b.vx=-Math.abs(b.vx);tone(220,'square',.04,.05);}
+        if(b.y<4){b.y=4;b.vy=Math.abs(b.vy);tone(330,'square',.04,.05);}
+        // Paddle
+        if(b.y>py-3&&b.y<py+4&&b.x>px-pw/2-1&&b.x<px+pw/2+1){
+          b.vy=-Math.abs(b.vy)*1.02;b.vx+=(b.x-px)*.35;
+          const sp=Math.hypot(b.vx,b.vy);if(sp>130){b.vx=b.vx/sp*130;b.vy=b.vy/sp*130;}
+          tone(440,'square',.07,.07);exps.push(mkExp(b.x,py,6));}
+        // Floor: reset ball
+        if(b.y>VH+5){b.x=px;b.y=py-8;b.vx=(Math.random()-.5)*80;b.vy=-55-Math.random()*20;
+          tone(110,'square',.22,.07);noiz(.1,.04);}
+        // Bricks
+        bricks=bricks.filter(br=>{
+          if(b.x+1>br.x&&b.x-1<br.x+BW&&b.y+1>br.y&&b.y-1<br.y+BH){
+            br.hp--;
+            if(b.vy<0&&b.y<br.y+BH/2)b.vy=Math.abs(b.vy);
+            else if(b.vy>0&&b.y>br.y+BH/2)b.vy=-Math.abs(b.vy);
+            else b.vx*=-1;
+            score+=5;gScore=score;
+            if(br.hp<=0){exps.push(mkExp(br.x+BW/2,br.y+BH/2,6));
+              tone(300+score*.05,'square',.09,.07);return false;}
+            tone(250,'square',.05,.06);return true;}
+          return true;});
+      });
+      if(!bricks.length){mkBricks();score+=150;gScore=score;tone(660,'square',.3,.09);}
+      exps=exps.filter(e=>{updExp(e,dt);return e.t<.5;});gScore=score;
+    },
+    render(t){
+      X.fillStyle=bgc(t);X.fillRect(0,0,VW,VH);
+      // Color bands top
+      for(let i=0;i<6;i++){X.fillStyle=hsl((P.bgH+i*25+t*10)%360,P.bgS,P.bgL+i*.5);X.fillRect(0,i,VW,1);}
+      bricks.forEach(b=>{X.fillStyle=pc(b.ci,t);X.fillRect(b.x,b.y,BW,BH);
+        X.fillStyle='rgba(255,255,255,.18)';X.fillRect(b.x,b.y,BW,1);X.fillRect(b.x,b.y,1,BH);});
+      X.fillStyle=pc(0,t,1);X.fillRect(Math.floor(px-pw/2),py-2,Math.ceil(pw),4);
+      X.fillStyle='rgba(255,255,255,.3)';X.fillRect(Math.floor(px-pw/2),py-2,Math.ceil(pw),1);
+      balls.forEach(b=>{
+        X.fillStyle='#fff';X.fillRect(Math.floor(b.x)-1,Math.floor(b.y)-1,3,3);
+        X.fillStyle=pc(Math.floor(Math.abs(b.vx))%P.hues.length,t,.5);X.fillRect(Math.floor(b.x),Math.floor(b.y),2,2);});
+      exps.forEach(e=>drawExp(e,t));
+    }
+  };
+};
+
+/* ═══════════════════════════════════════════════════════════
+   GAME 3 — ASTEROIDS
+═══════════════════════════════════════════════════════════ */
+const makeAsteroids=()=>{
+  const wrap=o=>{if(o.x<-25)o.x=VW+25;if(o.x>VW+25)o.x=-25;if(o.y<-25)o.y=VH+25;if(o.y>VH+25)o.y=-25;};
+  const mkRock=(x,y,sz,sp)=>{
+    const n=6+Math.floor(Math.random()*5),pts=[];
+    for(let i=0;i<n;i++){const a=i*Math.PI*2/n+Math.random()*.45-.22;pts.push([Math.cos(a)*sz*(0.55+Math.random()*.45),Math.sin(a)*sz*(0.55+Math.random()*.45)]);}
+    return{x,y,vx:(Math.random()-.5)*sp,vy:(Math.random()-.5)*sp,rot:Math.random()*Math.PI*2,rs:(Math.random()-.5)*.9,pts,sz,ci:Math.floor(Math.random()*P.hues.length)};
+  };
+  let ship={x:VW/2,y:VH/2,vx:0,vy:0,rot:0};
+  let rocks=[],bullets=[],exps=[],score=0,sT=0;
+  const spawnWave=()=>{for(let i=0;i<5+Math.floor(Math.random()*4);i++)
+    rocks.push(mkRock(Math.random()<.5?Math.random()*25:VW-Math.random()*25,Math.random()<.5?Math.random()*20:VH-Math.random()*20,7+Math.random()*9,20+Math.random()*18));};
+  spawnWave();
+  return{
+    name:'ASTEROIDS',
+    init(){score=0;gScore=0;},
+    update(dt){
+      sT+=dt;
+      // AI: rotate toward nearest rock & thrust
+      let near=null,nearD=9999;
+      rocks.forEach(r=>{const d=Math.hypot(r.x-ship.x,r.y-ship.y);if(d<nearD){nearD=d;near=r;}});
+      if(near){
+        const ta=Math.atan2(near.y-ship.y,near.x-ship.x);
+        let da=ta-ship.rot;while(da>Math.PI)da-=Math.PI*2;while(da<-Math.PI)da+=Math.PI*2;
+        ship.rot+=da*4*dt;
+        if(nearD>35){ship.vx+=Math.cos(ship.rot)*.9*dt*60;ship.vy+=Math.sin(ship.rot)*.9*dt*60;}
+        const sp=Math.hypot(ship.vx,ship.vy);if(sp>65){ship.vx=ship.vx/sp*65;ship.vy=ship.vy/sp*65;}
+        if(sT>.35&&nearD<90){sT=0;bullets.push({x:ship.x+Math.cos(ship.rot)*7,y:ship.y+Math.sin(ship.rot)*7,vx:Math.cos(ship.rot)*95,vy:Math.sin(ship.rot)*95,t:0});tone(320,'square',.05,.06);}
+      }
+      ship.x+=ship.vx*dt;ship.y+=ship.vy*dt;wrap(ship);
+      rocks.forEach(r=>{r.x+=r.vx*dt;r.y+=r.vy*dt;r.rot+=r.rs*dt;wrap(r);});
+      bullets.forEach(b=>{b.x+=b.vx*dt;b.y+=b.vy*dt;b.t+=dt;});
+      bullets=bullets.filter(b=>{
+        if(b.t>1.4)return false;
+        for(let i=rocks.length-1;i>=0;i--){const r=rocks[i];
+          if(Math.hypot(b.x-r.x,b.y-r.y)<r.sz){
+            exps.push(mkExp(r.x,r.y,7+r.sz|0));score+=Math.floor(800/r.sz);gScore=score;
+            if(r.sz>5){rocks.push(mkRock(r.x,r.y,r.sz*.55,Math.hypot(r.vx,r.vy)*1.4));rocks.push(mkRock(r.x,r.y,r.sz*.55,Math.hypot(r.vx,r.vy)*1.4));}
+            rocks.splice(i,1);tone(100+r.sz*5,'square',.18,.08);noiz(.1,.05);return false;}}
+        return true;});
+      if(!rocks.length)spawnWave();
+      exps=exps.filter(e=>{updExp(e,dt);return e.t<.6;});gScore=score;
+    },
+    render(t){
+      X.fillStyle=bgc(t);X.fillRect(0,0,VW,VH);
+      drawStars(t);
+      // Rocks
+      rocks.forEach(r=>{
+        X.strokeStyle=pc(r.ci,t);X.lineWidth=1;X.beginPath();
+        r.pts.forEach((p,i)=>{const rx=r.x+Math.cos(r.rot)*p[0]-Math.sin(r.rot)*p[1],ry=r.y+Math.sin(r.rot)*p[0]+Math.cos(r.rot)*p[1];
+          i?X.lineTo(Math.floor(rx),Math.floor(ry)):X.moveTo(Math.floor(rx),Math.floor(ry));});
+        X.closePath();X.stroke();
+      });
+      // Ship
+      const{x,y,rot}=ship;
+      X.strokeStyle=pc(0,t,1);X.lineWidth=1;X.beginPath();
+      X.moveTo(Math.floor(x+Math.cos(rot)*7),Math.floor(y+Math.sin(rot)*7));
+      X.lineTo(Math.floor(x+Math.cos(rot+2.5)*4),Math.floor(y+Math.sin(rot+2.5)*4));
+      X.lineTo(Math.floor(x+Math.cos(rot-2.5)*4),Math.floor(y+Math.sin(rot-2.5)*4));
+      X.closePath();X.stroke();
+      if(Math.random()>.35){X.strokeStyle=pc(2,t,1);X.beginPath();
+        X.moveTo(Math.floor(x+Math.cos(rot+Math.PI)*3),Math.floor(y+Math.sin(rot+Math.PI)*3));
+        X.lineTo(Math.floor(x+Math.cos(rot+Math.PI)*(4+Math.random()*6)),Math.floor(y+Math.sin(rot+Math.PI)*(4+Math.random()*6)));X.stroke();}
+      X.fillStyle=pc(1,t,1);bullets.forEach(b=>X.fillRect(Math.floor(b.x)-1,Math.floor(b.y)-1,2,2));
+      exps.forEach(e=>drawExp(e,t));
+    }
+  };
+};
+
+/* ═══════════════════════════════════════════════════════════
+   GAME 4 — CENTIPEDE
+═══════════════════════════════════════════════════════════ */
+const makeCentipede=()=>{
+  const MN=18+Math.floor(Math.random()*14);
+  let mushs=[],segs=[],bullets=[],exps=[],score=0,sT=0;
+  const SEG_N=10+Math.floor(Math.random()*8);
+  for(let i=0;i<MN;i++)mushs.push({x:3+Math.floor(Math.random()*(VW-6)),y:10+Math.floor(Math.random()*(VH-35)),hp:4});
+  for(let i=0;i<SEG_N;i++)segs.push({x:VW*.6-i*9,y:8,vx:-22-Math.random()*8,vy:0,ci:i%P.hues.length});
+  let px=VW/2;const py=VH-12;
+  return{
+    name:'CENTIPEDE',
+    init(){score=0;gScore=0;},
+    update(dt){
+      sT+=dt;
+      segs.forEach(s=>{
+        s.x+=s.vx*dt;
+        if((s.vx<0&&s.x<4)||(s.vx>0&&s.x>VW-4)){s.vx*=-1;s.y+=6;if(s.y>VH-20)s.y=8;}
+        for(const m of mushs){if(Math.abs(s.x-m.x)<6&&Math.abs(s.y-m.y)<6){s.vx*=-1;s.y+=6;if(s.y>VH-20)s.y=8;break;}}
+      });
+      // AI
+      if(segs.length){const tgt=segs[0];px+=(tgt.x>px+2?1:tgt.x<px-2?-1:0)*62*dt;px=cl(px,4,VW-4);}
+      if(sT>.28+Math.random()*.15){sT=0;bullets.push({x:px,y:py-5});tone(520,'square',.05,.05);}
+      bullets.forEach(b=>b.y-=92*dt);
+      bullets=bullets.filter(b=>{
+        if(b.y<0)return false;
+        for(let i=segs.length-1;i>=0;i--){
+          if(Math.abs(b.x-segs[i].x)<5&&Math.abs(b.y-segs[i].y)<5){
+            mushs.push({x:Math.floor(segs[i].x),y:Math.floor(segs[i].y),hp:4});
+            exps.push(mkExp(segs[i].x,segs[i].y,6));segs.splice(i,1);score+=10;
+            tone(260,'square',.12,.07);return false;}}
+        for(let i=mushs.length-1;i>=0;i--){
+          if(Math.abs(b.x-mushs[i].x)<5&&Math.abs(b.y-mushs[i].y)<5){
+            mushs[i].hp--;
+            if(mushs[i].hp<=0){exps.push(mkExp(mushs[i].x,mushs[i].y,5));mushs.splice(i,1);score+=5;}
+            return false;}}
+        return true;});
+      if(!segs.length){for(let i=0;i<SEG_N;i++)segs.push({x:VW*.6-i*9,y:8,vx:-22,vy:0,ci:i%P.hues.length});score+=120;}
+      exps=exps.filter(e=>{updExp(e,dt);return e.t<.5;});gScore=score;
+    },
+    render(t){
+      X.fillStyle=bgc(t);X.fillRect(0,0,VW,VH);
+      // Ground zone hint
+      X.fillStyle=`rgba(255,255,255,.04)`;X.fillRect(0,VH-25,VW,25);
+      mushs.forEach(m=>{X.fillStyle=pc(3,t);X.fillRect(m.x-2,m.y-2,5,5);
+        X.fillStyle=pc(0,t,.3);X.fillRect(m.x-1,m.y-4,3,3);});
+      segs.forEach((s,i)=>{X.fillStyle=pc(s.ci,t,i===0?.5:0);X.fillRect(Math.floor(s.x)-3,Math.floor(s.y)-3,7,7);
+        if(i===0){X.fillStyle='#fff';X.fillRect(Math.floor(s.x)-1,Math.floor(s.y)-1,1,1);X.fillRect(Math.floor(s.x)+2,Math.floor(s.y)-1,1,1);}});
+      X.fillStyle=pc(0,t,1);X.fillRect(Math.floor(px)-3,py-3,6,6);
+      X.fillStyle='#fff';X.fillRect(Math.floor(px)-1,py-6,2,4);
+      X.fillStyle='#fff';bullets.forEach(b=>X.fillRect(Math.floor(b.x),Math.floor(b.y),2,3));
+      exps.forEach(e=>drawExp(e,t));
+    }
+  };
+};
+
+/* ═══════════════════════════════════════════════════════════
+   GAME 5 — PONG
+═══════════════════════════════════════════════════════════ */
+const makePong=()=>{
+  const PH=14+Math.random()*10,PW=3;
+  const multi=Math.random()>.5;
+  let lp={y:VH/2},rp={y:VH/2};
+  let balls=[{x:VW/2,y:VH/2,vx:(30+Math.random()*20)*(Math.random()<.5?1:-1),vy:(18+Math.random()*12)*(Math.random()<.5?1:-1)}];
+  if(multi)balls.push({x:VW/2,y:VH/3,vx:-35,vy:20});
+  let lScore=0,rScore=0,exps=[];
+  return{
+    name:'PONG',
+    init(){lScore=0;rScore=0;gScore=0;},
+    update(dt){
+      balls.forEach(b=>{
+        lp.y+=(b.y>lp.y+2?1:b.y<lp.y-2?-1:0)*72*dt;
+        rp.y+=(b.y>rp.y+2?1:b.y<rp.y-2?-1:0)*72*dt;
+        lp.y=cl(lp.y,PH/2,VH-PH/2);rp.y=cl(rp.y,PH/2,VH-PH/2);
+        b.x+=b.vx*dt;b.y+=b.vy*dt;
+        if(b.y<2){b.y=2;b.vy=Math.abs(b.vy);tone(440,'square',.05,.05);}
+        if(b.y>VH-2){b.y=VH-2;b.vy=-Math.abs(b.vy);tone(440,'square',.05,.05);}
+        // Paddles
+        if(b.x<PW+5&&b.y>lp.y-PH/2&&b.y<lp.y+PH/2){
+          b.x=PW+5;b.vx=Math.abs(b.vx)*1.04;b.vy+=(b.y-lp.y)*.35;
+          exps.push(mkExp(PW+5,b.y,5));tone(350,'square',.07,.07);}
+        if(b.x>VW-PW-5&&b.y>rp.y-PH/2&&b.y<rp.y+PH/2){
+          b.x=VW-PW-5;b.vx=-Math.abs(b.vx)*1.04;b.vy+=(b.y-rp.y)*.35;
+          exps.push(mkExp(VW-PW-5,b.y,5));tone(350,'square',.07,.07);}
+        const sp=Math.hypot(b.vx,b.vy);if(sp>130){b.vx=b.vx/sp*130;b.vy=b.vy/sp*130;}
+        if(b.x<0){rScore++;gScore=lScore+rScore;b.x=VW/2;b.y=VH/2;b.vx=Math.abs(b.vx);tone(110,'square',.22,.08);noiz(.1,.05);}
+        if(b.x>VW){lScore++;gScore=lScore+rScore;b.x=VW/2;b.y=VH/2;b.vx=-Math.abs(b.vx);tone(110,'square',.22,.08);noiz(.1,.05);}
+      });
+      exps=exps.filter(e=>{updExp(e,dt);return e.t<.4;});
+    },
+    render(t){
+      X.fillStyle=bgc(t);X.fillRect(0,0,VW,VH);
+      // Center line
+      for(let y=0;y<VH;y+=6){X.fillStyle=pc(2,t,.1);X.fillRect(VW/2-1,y,2,4);}
+      // Paddles
+      X.fillStyle=pc(0,t,1);X.fillRect(3,Math.floor(lp.y-PH/2),PW,Math.ceil(PH));
+      X.fillStyle=pc(1,t,1);X.fillRect(VW-3-PW,Math.floor(rp.y-PH/2),PW,Math.ceil(PH));
+      // Ball
+      balls.forEach(b=>{
+        X.fillStyle='#fff';X.fillRect(Math.floor(b.x)-2,Math.floor(b.y)-2,4,4);
+        X.fillStyle=pc(Math.floor(Math.abs(b.vx))%P.hues.length,t,.5);X.fillRect(Math.floor(b.x)-1,Math.floor(b.y)-1,3,3);});
+      // Scores (big pixel art style)
+      X.fillStyle=pc(0,t,1);X.font='7px monospace';X.fillText(lScore,VW/4-3,10);
+      X.fillStyle=pc(1,t,1);X.fillText(rScore,3*VW/4-3,10);
+      exps.forEach(e=>drawExp(e,t));
+    }
+  };
+};
+
+/* ═══════════════════════════════════════════════════════════
+   GAME 6 — MISSILE COMMAND
+═══════════════════════════════════════════════════════════ */
+const makeMissile=()=>{
+  const NC=4+Math.floor(Math.random()*3);
+  let cities=[],missiles=[],exps=[],score=0,lT=0,lInt=2+Math.random(),cursor=VW/2,cT=0;
+  for(let i=0;i<NC;i++)cities.push({x:8+i*(VW-12)/(NC-1),alive:true});
+  const addM=()=>{const live=cities.filter(c=>c.alive);if(!live.length)return;
+    const tgt=live[Math.floor(Math.random()*live.length)];
+    const sx=Math.random()*VW,dx=tgt.x-sx,dy=(VH-14)-2,len=Math.hypot(dx,dy),sp=12+Math.random()*14;
+    missiles.push({x:sx,y:2,vx:dx/len*sp,vy:dy/len*sp,trail:[],tx:tgt.x,ty:VH-14});};
+  return{
+    name:'MISSILE COMMAND',
+    init(){score=0;gScore=0;cities.forEach(c=>c.alive=true);missiles=[];},
+    update(dt){
+      lT+=dt;if(lT>lInt){lT=0;addM();if(missiles.length<7&&Math.random()<.4)addM();}
+      missiles.forEach(m=>{
+        m.trail.push({x:m.x,y:m.y});if(m.trail.length>18)m.trail.shift();
+        m.x+=m.vx*dt;m.y+=m.vy*dt;
+        cities.forEach(c=>{if(c.alive&&Math.abs(m.x-c.x)<8&&m.y>VH-19){
+          c.alive=false;exps.push({x:c.x,y:VH-16,t:0,n:10,r:12});
+          tone(70,'square',.35,.1);noiz(.22,.08);}});});
+      missiles=missiles.filter(m=>m.y<VH);
+      // AI cursor chase nearest missile
+      let nm=null,nd=9999;
+      missiles.forEach(m=>{const d=Math.abs(m.x-cursor);if(d<nd){nd=d;nm=m;}});
+      if(nm){cursor+=(nm.x>cursor+2?1:nm.x<cursor-2?-1:0)*90*dt;cursor=cl(cursor,4,VW-4);
+        cT+=dt;if(cT>.55+Math.random()*.3){cT=0;
+          const ey=nm.y;
+          exps.push({x:cursor,y:ey,t:0,n:8,r:14});score+=50;gScore=score;
+          tone(420,'square',.14,.08);
+          missiles=missiles.filter(m2=>Math.hypot(m2.x-cursor,m2.y-ey)>15);}}
+      if(!cities.some(c=>c.alive)){cities.forEach(c=>c.alive=true);score+=300;gScore=score;}
+      exps=exps.filter(e=>{e.t+=dt;return e.t<.75;});gScore=score;
+    },
+    render(t){
+      if(P.bandBg)drawBandBg(t);else{X.fillStyle=bgc(t);X.fillRect(0,0,VW,VH);}
+      drawStars(t);
+      X.fillStyle=pc(2,t);X.fillRect(0,VH-8,VW,8);
+      // Cities
+      cities.forEach(c=>{if(!c.alive)return;X.fillStyle=pc(1,t,1);
+        X.fillRect(Math.floor(c.x)-5,VH-15,10,7);X.fillRect(Math.floor(c.x)-3,VH-17,6,4);
+        X.fillRect(Math.floor(c.x)-7,VH-13,14,2);});
+      // Missile trails + heads
+      missiles.forEach(m=>{
+        m.trail.forEach((p,i)=>{X.fillStyle=pc(3,t,i/m.trail.length);X.fillRect(Math.floor(p.x),Math.floor(p.y),1,1);});
+        X.fillStyle='#fff';X.fillRect(Math.floor(m.x)-1,Math.floor(m.y)-1,3,3);});
+      // Explosions (circular)
+      exps.forEach(e=>{
+        const r2=(e.r||12)*(e.t/.75);
+        X.strokeStyle=pc(Math.floor(e.t*12)%P.hues.length,t,1);X.lineWidth=1.5;
+        X.beginPath();X.arc(Math.floor(e.x),Math.floor(e.y),r2,0,Math.PI*2);X.stroke();
+        X.strokeStyle=pc((Math.floor(e.t*12)+2)%P.hues.length,t,.5);X.lineWidth=1;
+        X.beginPath();X.arc(Math.floor(e.x),Math.floor(e.y),r2*.55,0,Math.PI*2);X.stroke();});
+      // Cursor crosshair
+      X.strokeStyle='rgba(255,255,255,.6)';X.lineWidth=1;
+      X.beginPath();X.moveTo(Math.floor(cursor)-5,VH*.45);X.lineTo(Math.floor(cursor)+5,VH*.45);
+      X.moveTo(Math.floor(cursor),VH*.45-5);X.lineTo(Math.floor(cursor),VH*.45+5);X.stroke();
+    }
+  };
+};
+
+/* ═══════════════════════════════════════════════════════════
+   GAME 7 — TOP-DOWN RACING
+═══════════════════════════════════════════════════════════ */
+const makeRacing=()=>{
+  const RW=50+Math.random()*28,RX=(VW-RW)/2;
+  let px=VW/2,py=VH-22,scroll=0,score=0,obstacles=[],scenery=[],exps=[];
+  const speed=50+Math.random()*20;
+  for(let i=0;i<6;i++)obstacles.push({x:RX+5+Math.random()*(RW-10),y:-Math.random()*VH,w:8,h:6,ci:Math.floor(Math.random()*P.hues.length)});
+  for(let i=0;i<14;i++){scenery.push({x:2+Math.random()*(RX-6),y:Math.random()*VH,ci:Math.floor(Math.random()*P.hues.length)});
+    scenery.push({x:RX+RW+2+Math.random()*(VW-RX-RW-6),y:Math.random()*VH,ci:Math.floor(Math.random()*P.hues.length)});}
+  return{
+    name:'RACING',
+    init(){score=0;gScore=0;},
+    update(dt){
+      scroll=(scroll+speed*dt)%20;score+=dt*8|0;gScore=score;
+      // AI steer avoid obstacles
+      let nearest=null,nd=9999;
+      obstacles.forEach(o=>{const d=Math.abs(o.x-px);if(o.y>py-35&&o.y<py+10&&d<nd){nd=d;nearest=o;}});
+      if(nearest&&nd<22)px+=(px>nearest.x?1:-1)*70*dt;
+      else px+=(VW/2>px+2?1:VW/2<px-2?-1:0)*35*dt;
+      px=cl(px,RX+6,RX+RW-6);
+      const sc=speed*dt;
+      obstacles.forEach(o=>{o.y+=sc;if(o.y>VH+10){o.y=-Math.random()*30-10;o.x=RX+5+Math.random()*(RW-10);}});
+      scenery.forEach(s=>{s.y+=sc;if(s.y>VH+10)s.y=-Math.random()*20-5;});
+      obstacles.forEach(o=>{if(Math.abs(o.x-px)<7&&Math.abs(o.y-py)<7){
+        exps.push(mkExp(px,py));px=VW/2;tone(90,'square',.3,.1);noiz(.18,.07);}});
+      exps=exps.filter(e=>{updExp(e,dt);return e.t<.5;});
+    },
+    render(t){
+      // Terrain
+      X.fillStyle=hsl((P.bgH+20)%360,P.bgS+10,P.bgL+4);X.fillRect(0,0,VW,VH);
+      // Road
+      X.fillStyle='#2a2a2a';X.fillRect(Math.floor(RX),0,Math.ceil(RW),VH);
+      X.fillStyle=pc(3,t);X.fillRect(Math.floor(RX),0,2,VH);X.fillRect(Math.floor(RX+RW-2),0,2,VH);
+      // Dashes
+      const do2=(-scroll%20+20)%20;
+      for(let y=do2-20;y<VH+20;y+=20){X.fillStyle='rgba(255,255,180,.6)';X.fillRect(VW/2-1,y,2,11);}
+      // Scenery
+      scenery.forEach(s=>{X.fillStyle=pc(s.ci,t);X.fillRect(Math.floor(s.x)-1,Math.floor(s.y)-4,2,7);
+        X.fillStyle=pc((s.ci+1)%P.hues.length,t);X.fillRect(Math.floor(s.x)-2,Math.floor(s.y)-6,5,3);});
+      // Obstacles (other cars)
+      obstacles.forEach(o=>{X.fillStyle=pc(o.ci,t,1);X.fillRect(Math.floor(o.x)-4,Math.floor(o.y)-3,8,7);
+        X.fillStyle='rgba(255,255,100,.9)';X.fillRect(Math.floor(o.x)-3,Math.floor(o.y)-3,2,1);X.fillRect(Math.floor(o.x)+2,Math.floor(o.y)-3,2,1);});
+      // Player
+      X.fillStyle=pc(0,t,1);X.fillRect(Math.floor(px)-4,py-4,8,8);
+      X.fillStyle='rgba(255,255,80,.95)';X.fillRect(Math.floor(px)-3,py-4,2,1);X.fillRect(Math.floor(px)+2,py-4,2,1);
+      if(Math.random()>.5){X.fillStyle=pc(2,t,.5);X.fillRect(Math.floor(px)-2,py+4,2,Math.ceil(2+Math.random()*4));}
+      exps.forEach(e=>drawExp(e,t));
+    }
+  };
+};
+
+/* ═══════════════════════════════════════════════════════════
+   GAME 8 — SNAKE
+═══════════════════════════════════════════════════════════ */
+const makeSnake=()=>{
+  const CELL=4,GW=Math.floor(VW/CELL),GH=Math.floor(VH/CELL);
+  let snake=[],dir={x:1,y:0},nDir={x:1,y:0},food=null,score=0,mT=0;
+  const mInt=.1+Math.random()*.04;
+  const pFood=()=>{food={x:Math.floor(Math.random()*GW),y:Math.floor(Math.random()*GH)};};
+  const reset=()=>{snake=[{x:GW/2|0,y:GH/2|0},{x:(GW/2|0)-1,y:GH/2|0},{x:(GW/2|0)-2,y:GH/2|0}];dir={x:1,y:0};pFood();};
+  reset();
+  return{
+    name:'SNAKE',
+    init(){score=0;gScore=0;reset();},
+    update(dt){
+      mT+=dt;if(mT<mInt)return;mT=0;
+      // AI: greedy toward food with wall/self avoidance
+      if(food){
+        const h=snake[0],dx=food.x-h.x,dy=food.y-h.y;
+        const cands=Math.abs(dx)>Math.abs(dy)?
+          [{x:dx>0?1:-1,y:0},{x:0,y:dy>0?1:-1},{x:0,y:dy<0?1:-1},{x:dx<0?1:-1,y:0}]:
+          [{x:0,y:dy>0?1:-1},{x:dx>0?1:-1,y:0},{x:dx<0?1:-1,y:0},{x:0,y:dy<0?1:-1}];
+        // Filter opposite direction
+        const valid=cands.filter(d=>!(d.x===-dir.x&&d.y===-dir.y));
+        for(const c of valid){
+          const nx=(h.x+c.x+GW)%GW,ny=(h.y+c.y+GH)%GH;
+          if(!snake.slice(0,-1).some(s=>s.x===nx&&s.y===ny)){nDir=c;break;}}
+      }
+      dir=nDir;
+      const nh={x:(snake[0].x+dir.x+GW)%GW,y:(snake[0].y+dir.y+GH)%GH};
+      if(snake.slice(1).some(s=>s.x===nh.x&&s.y===nh.y)){
+        tone(100,'square',.3,.1);noiz(.15,.06);score=Math.max(0,score-20);reset();return;}
+      snake.unshift(nh);
+      if(food&&nh.x===food.x&&nh.y===food.y){score+=10;gScore=score;pFood();tone(600+score,'square',.09,.07);}
+      else snake.pop();
+      gScore=score;
+    },
+    render(t){
+      X.fillStyle=bgc(t);X.fillRect(0,0,VW,VH);
+      // Subtle grid
+      for(let gx=0;gx<GW;gx+=3)for(let gy=0;gy<GH;gy+=3){X.fillStyle='rgba(255,255,255,.04)';X.fillRect(gx*CELL,gy*CELL,1,1);}
+      // Snake
+      snake.forEach((s,i)=>{const ci=Math.floor(i*P.hues.length/Math.max(snake.length,1))%P.hues.length;
+        X.fillStyle=i===0?pc(0,t,1):pc(ci,t);X.fillRect(s.x*CELL,s.y*CELL,CELL-1,CELL-1);});
+      // Eyes on head
+      if(snake.length){const h=snake[0];X.fillStyle='#fff';X.fillRect(h.x*CELL+1,h.y*CELL+1,1,1);}
+      // Food pulse
+      if(food){const pulse=(.7+.3*Math.sin(ct*6));X.fillStyle=pc(3,t,pulse);
+        X.fillRect(food.x*CELL,food.y*CELL,CELL-1,CELL-1);
+        if(pulse>.95){X.fillStyle='rgba(255,255,255,.8)';X.fillRect(food.x*CELL,food.y*CELL-1,1,1);}}
+    }
+  };
+};
+
+/* ═══════════════════════════════════════════════════════════
+   GAME 9 — DEFENDER SCROLLING
+═══════════════════════════════════════════════════════════ */
+const makeDefender=()=>{
+  const WW=VW*3;
+  let worldX=0,ship={x:VW/2,y:VH/2,vy:0},bullets=[],aliens=[],humanoids=[],exps=[],score=0,sT=0;
+  for(let i=0;i<12;i++)aliens.push({x:Math.random()*WW,y:12+Math.random()*(VH-35),vx:(Math.random()-.5)*22,vy:(Math.random()-.5)*10,ci:Math.floor(Math.random()*P.hues.length),alive:true});
+  for(let i=0;i<7;i++)humanoids.push({x:Math.random()*WW,ci:Math.floor(Math.random()*P.hues.length)});
+  const wmod=(v,w)=>((v%w)+w)%w;
+  return{
+    name:'DEFENDER',
+    init(){score=0;gScore=0;},
+    update(dt){
+      sT+=dt;worldX=(worldX+45*dt)%WW;
+      // AI seek alien
+      let near=null,nearD=9999;
+      aliens.filter(a=>a.alive).forEach(a=>{
+        let sx=wmod(a.x-worldX,WW);if(sx>WW/2)sx-=WW;
+        const d=Math.abs(sx);if(d<nearD){nearD=d;near=a;}});
+      if(near){
+        let ax=wmod(near.x-worldX,WW);if(ax>WW/2)ax-=WW;
+        ship.vy+=(near.y>ship.y+4?1:near.y<ship.y-4?-1:0)*28*dt;
+        ship.vy=cl(ship.vy,-55,55);ship.y+=ship.vy*dt;ship.y=cl(ship.y,10,VH-14);
+        if(sT>.4&&Math.abs(ax)<70){sT=0;
+          bullets.push({wx:worldX+ship.x,y:ship.y,vx:85,vy:ship.vy*.25});tone(340,'square',.05,.06);}
+      }
+      aliens.forEach(a=>{if(!a.alive)return;a.x=wmod(a.x+a.vx*dt,WW);a.y+=a.vy*dt;a.y=cl(a.y,8,VH-30);if(Math.random()<.008)a.vy=(Math.random()-.5)*20;});
+      bullets.forEach(b=>{b.wx+=b.vx*dt;b.y+=b.vy*dt;});
+      bullets=bullets.filter(b=>{
+        const sx=wmod(b.wx-worldX,WW);if(sx>VW+10||b.y<0||b.y>VH)return false;
+        for(const a of aliens){if(!a.alive)continue;
+          let ax=wmod(a.x-worldX,WW);
+          if(Math.abs(ax-sx)<9&&Math.abs(b.y-a.y)<8){
+            a.alive=false;score+=50;exps.push(mkExp(sx,a.y));tone(200,'square',.16,.07);noiz(.1,.05);return false;}}
+        return true;});
+      if(!aliens.some(a=>a.alive)){aliens.forEach(a=>{a.alive=true;a.x=Math.random()*WW;a.y=12+Math.random()*(VH-35);});score+=250;}
+      exps=exps.filter(e=>{updExp(e,dt);return e.t<.55;});gScore=score;
+    },
+    render(t){
+      X.fillStyle=bgc(t);X.fillRect(0,0,VW,VH);
+      for(let i=0;i<28;i++){const sx=wmod(i*37+worldX*.08,VW);X.fillStyle=`rgba(255,255,255,${.15+.25*Math.sin(t+i)})`;X.fillRect(Math.floor(sx),(i*23+i*i*5)%VH,1,1);}
+      X.fillStyle=pc(2,t);X.fillRect(0,VH-5,VW,5);
+      humanoids.forEach(h=>{const sx=wmod(h.x-worldX,WW);if(sx>VW+6)return;
+        X.fillStyle=pc(h.ci,t);X.fillRect(Math.floor(sx)-1,VH-12,3,6);X.fillRect(Math.floor(sx)-1,VH-14,3,3);});
+      aliens.forEach(a=>{if(!a.alive)return;const sx=wmod(a.x-worldX,WW);if(sx>VW+10)return;
+        X.fillStyle=pc(a.ci,t,1);X.fillRect(Math.floor(sx)-5,Math.floor(a.y)-2,10,5);X.fillRect(Math.floor(sx)-3,Math.floor(a.y)-4,6,3);
+        if(Math.random()>.55){X.fillStyle='#fff';X.fillRect(Math.floor(sx),Math.floor(a.y)-1,2,2);}});
+      // Ship
+      X.fillStyle=pc(0,t,1);X.fillRect(Math.floor(ship.x)-7,Math.floor(ship.y)-3,14,6);X.fillRect(Math.floor(ship.x)-4,Math.floor(ship.y)-5,8,3);
+      if(Math.random()>.3){X.fillStyle=pc(2,t,1);X.fillRect(Math.floor(ship.x)-7,Math.floor(ship.y)-1,3+Math.floor(Math.random()*5),2);}
+      X.fillStyle='#fff';
+      bullets.forEach(b=>{const sx=wmod(b.wx-worldX,WW);if(sx<VW)X.fillRect(Math.floor(sx),Math.floor(b.y),5,2);});
+      exps.forEach(e=>drawExp(e,t));
+    }
+  };
+};
+
+/* ═══════════════════════════════════════════════════════════
+   GAME 10 — COMBAT TANKS
+═══════════════════════════════════════════════════════════ */
+const makeCombat=()=>{
+  const mkTank=(x,y,ci)=>({x,y,rot:Math.random()*Math.PI*2,ci,sT:0,alive:true});
+  let tanks=[mkTank(25,25,0),mkTank(VW-25,VH-25,1),mkTank(25,VH-25,2),mkTank(VW-25,25,3)];
+  let bullets=[],exps=[],score=0;
+  const walls=[{x:VW/2-12,y:VH/2-2,w:24,h:4},{x:VW/2-2,y:VH/2-18,w:4,h:36},{x:20,y:VH/2-2,w:16,h:4},{x:VW-36,y:VH/2-2,w:16,h:4}];
+  return{
+    name:'COMBAT',
+    init(){score=0;gScore=0;tanks.forEach((t,i)=>{t.alive=true;t.x=[25,VW-25,25,VW-25][i];t.y=[25,VH-25,VH-25,25][i];});},
+    update(dt){
+      tanks.forEach((tk,ti)=>{
+        if(!tk.alive)return;
+        const enemies=tanks.filter((_,i)=>i!==ti&&_.alive);
+        if(!enemies.length)return;
+        const tgt=enemies[Math.floor(enemies.length/2)];
+        let da=Math.atan2(tgt.y-tk.y,tgt.x-tk.x)-tk.rot;
+        while(da>Math.PI)da-=Math.PI*2;while(da<-Math.PI)da+=Math.PI*2;
+        tk.rot+=da*3.5*dt;
+        const d=Math.hypot(tgt.x-tk.x,tgt.y-tk.y);
+        if(d>28){tk.x+=Math.cos(tk.rot)*32*dt;tk.y+=Math.sin(tk.rot)*32*dt;
+          tk.x=cl(tk.x,6,VW-6);tk.y=cl(tk.y,6,VH-6);}
+        tk.sT+=dt;
+        if(tk.sT>.75){tk.sT=0;
+          bullets.push({x:tk.x+Math.cos(tk.rot)*7,y:tk.y+Math.sin(tk.rot)*7,vx:Math.cos(tk.rot)*88,vy:Math.sin(tk.rot)*88,ti,t:0});
+          tone(180+ti*80,'square',.07,.06);}
+      });
+      bullets.forEach(b=>{b.x+=b.vx*dt;b.y+=b.vy*dt;b.t+=dt;
+        for(const w of walls){if(b.x>w.x&&b.x<w.x+w.w&&b.y>w.y&&b.y<w.y+w.h){b.vx*=-1;b.vy*=-1;}}});
+      bullets=bullets.filter(b=>{
+        if(b.t>1.8||b.x<0||b.x>VW||b.y<0||b.y>VH)return false;
+        for(const tk of tanks){if(!tk.alive)continue;
+          if(Math.hypot(b.x-tk.x,b.y-tk.y)<6){
+            tk.alive=false;score+=100;exps.push(mkExp(tk.x,tk.y,10));
+            tone(75,'square',.35,.1);noiz(.2,.08);return false;}}
+        return true;});
+      if(tanks.filter(t=>t.alive).length<2){tanks.forEach((t,i)=>{t.alive=true;t.rot=Math.random()*Math.PI*2;});score+=400;}
+      exps=exps.filter(e=>{updExp(e,dt);return e.t<.65;});gScore=score;
+    },
+    render(t){
+      X.fillStyle=bgc(t);X.fillRect(0,0,VW,VH);
+      // Floor grid
+      for(let gx=0;gx<VW;gx+=12)for(let gy=0;gy<VH;gy+=12){X.fillStyle='rgba(255,255,255,.04)';X.fillRect(gx,gy,1,1);}
+      // Walls
+      walls.forEach(w=>{X.fillStyle=pc(2,t);X.fillRect(w.x,w.y,w.w,w.h);
+        X.fillStyle='rgba(255,255,255,.25)';X.fillRect(w.x,w.y,w.w,1);});
+      // Tanks
+      tanks.forEach(tk=>{if(!tk.alive)return;
+        X.save();X.translate(Math.floor(tk.x),Math.floor(tk.y));X.rotate(tk.rot);
+        X.fillStyle=pc(tk.ci,t,1);X.fillRect(-5,-4,10,8);
+        X.fillStyle=pc((tk.ci+1)%P.hues.length,t);X.fillRect(3,-1,7,2);
+        X.fillStyle='rgba(0,0,0,.35)';X.fillRect(-5,-5,10,2);X.fillRect(-5,4,10,2);X.restore();});
+      X.fillStyle='#ff0';bullets.forEach(b=>X.fillRect(Math.floor(b.x)-1,Math.floor(b.y)-1,3,3));
+      exps.forEach(e=>drawExp(e,t));
+    }
+  };
+};
+
+/* ─── GAME LIST & RESTART ─────────────────────────────────── */
+const GMAKERS=[makeInvaders,makeBreakout,makeAsteroids,makeCentipede,
+  makePong,makeMissile,makeRacing,makeSnake,makeDefender,makeCombat];
+
+const restart=()=>{
+  gScore=0;
+  iPal();
+  // Pick a different game each time
+  let ni;do{ni=Math.floor(Math.random()*GMAKERS.length);}while(ni===gIdx&&GMAKERS.length>1);
+  gIdx=ni;
+  game=GMAKERS[gIdx]();
+  gName=game.name||'ATARI';
+  if(game.init)game.init();
+  // Flash game name
+  FLASHTXT.style.color=pc(0,ct,1);
+  FLASHTXT.textContent=gName;
+  FLASH.style.opacity='1';
+  clearTimeout(restart._ft);
+  restart._ft=setTimeout(()=>FLASH.style.opacity='0',1400);
+};
+
+/* ─── INPUT ───────────────────────────────────────────────── */
+document.addEventListener('keydown',e=>{
+  if(e.code==='Space'){e.preventDefault();restart();}
+  else if(e.key==='h'||e.key==='H'){hudOn=!hudOn;HUD.style.display=hudOn?'block':'none';}
+  else if(e.key==='s'||e.key==='S'){sndOn=!sndOn;if(sndOn)eAC()?.resume?.();}
+});
+C.addEventListener('click',()=>restart());
+C.addEventListener('touchend',e=>{e.preventDefault();restart();},{passive:false});
+
+/* ─── MAIN LOOP ───────────────────────────────────────────── */
+const loop=ts=>{
+  const dt=Math.min((ts-lastTS)/1000,.05);lastTS=ts;
+  ct+=dt;fpsN++;fpsT+=dt;if(fpsT>=1){fps=fpsN;fpsN=0;fpsT=0;}
+
+  if(game){
+    game.update(dt);
+    game.render(ct);
+
+    // Scanlines overlay on virtual canvas
+    if(P.scan){
+      X.fillStyle='rgba(0,0,0,.18)';
+      for(let sy=0;sy<VH;sy+=2)X.fillRect(0,sy,VW,1);
+    }
+
+    // Blit virtual → screen (pixelated scaling)
+    G.imageSmoothingEnabled=false;
+    G.drawImage(V,0,0,SW,SH);
+
+    // CRT vignette on main canvas
+    if(P.vign){
+      const vg=G.createRadialGradient(SW/2,SH/2,SH*.2,SW/2,SH/2,SH*.9);
+      vg.addColorStop(0,'rgba(0,0,0,0)');vg.addColorStop(1,'rgba(0,0,0,.45)');
+      G.fillStyle=vg;G.fillRect(0,0,SW,SH);
+    }
+
+    // HUD
+    if(hudOn){
+      HUD.innerHTML=`&#9646; ${gName} &nbsp;|&nbsp; SCORE: ${gScore} &nbsp;|&nbsp; FPS: ${fps} &nbsp;|&nbsp; GAME: ${gIdx+1}/${GMAKERS.length} &nbsp;|&nbsp; SOUND: ${sndOn?'ON':'OFF'} &nbsp;|&nbsp; PALETTE HUE: ${P.hues.length} &nbsp;|&nbsp; [H] HUD [S] SND [SPC] NEW`;
+    }
+  }
+  requestAnimationFrame(loop);
+};
+
+/* ─── BOOT ────────────────────────────────────────────────── */
+restart();
+requestAnimationFrame(loop);
+
+})();
+</script>
+</body>
+</html>

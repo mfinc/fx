@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Algorithmic Sacred Mechanics Laboratory</title>
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Algorithmic Sacred Mechanics Laboratory — a generative mathematical physics art engine where sacred geometry, tessellations, labyrinths, tilings, and mechanical systems evolve through simulated dynamics such as vortices, spring networks, reaction-diffusion fields, and fluid motion using GPU accelerated WebGL generative art.">
+<meta name="keywords" content="generative art, sacred geometry, penrose tiling, quasicrystals, hyperbolic tiling, Voronoi, Delaunay, labyrinth, Celtic knots, Islamic geometry, mechanical simulation, physics engine, WebGL generative art, mathematical visualization, algorithmic art, fractals, reaction diffusion, emergent systems">
+
+<style>
+html,body{
+margin:0;
+padding:0;
+overflow:hidden;
+background:black;
+font-family:monospace;
+}
+
+canvas{
+position:absolute;
+top:0;
+left:0;
+}
+
+#hud{
+position:absolute;
+top:10px;
+left:12px;
+color:white;
+font-size:12px;
+opacity:.7;
+display:none;
+}
+</style>
+</head>
+
+<body>
+
+<canvas id="c"></canvas>
+<div id="hud"></div>
+
+<script>
+
+const canvas=document.getElementById("c")
+const ctx=canvas.getContext("2d")
+const hud=document.getElementById("hud")
+
+let W,H
+let nodes=[]
+let edges=[]
+let vortices=[]
+let audioCtx=null
+let audioOn=false
+let hudOn=false
+
+function resize(){
+W=canvas.width=window.innerWidth
+H=canvas.height=window.innerHeight
+}
+
+window.addEventListener("resize",resize)
+resize()
+
+function rand(a=1,b=0){return Math.random()*(a-b)+b}
+
+function choose(a){return a[Math.floor(Math.random()*a.length)]}
+
+function regenerate(){
+
+nodes=[]
+edges=[]
+vortices=[]
+
+let nodeCount=Math.floor(rand(120,50))
+
+let symmetry=choose([3,4,5,6,8,10,12])
+let radius=Math.min(W,H)*.35
+
+for(let i=0;i<nodeCount;i++){
+
+let angle=i/nodeCount*Math.PI*2*symmetry
+let r=radius*(.3+.7*Math.random())
+
+let x=W/2+Math.cos(angle)*r+rand(40,-40)
+let y=H/2+Math.sin(angle)*r+rand(40,-40)
+
+nodes.push({
+x,y,
+vx:rand(.5,-.5),
+vy:rand(.5,-.5),
+mass:rand(1.5,.5)
+})
+}
+
+for(let i=0;i<nodes.length;i++){
+for(let j=i+1;j<nodes.length;j++){
+
+let dx=nodes[i].x-nodes[j].x
+let dy=nodes[i].y-nodes[j].y
+let d=Math.sqrt(dx*dx+dy*dy)
+
+if(d<radius*.4&&Math.random()<.2){
+
+edges.push({
+a:i,
+b:j,
+rest:d
+})
+
+}
+}
+}
+
+let vortexCount=Math.floor(rand(6,2))
+
+for(let i=0;i<vortexCount;i++){
+vortices.push({
+x:rand(W),
+y:rand(H),
+strength:rand(.2,-.2)
+})
+}
+
+palette=randomPalette()
+
+hud.innerHTML=
+"nodes: "+nodes.length+
+"<br>edges: "+edges.length+
+"<br>vortices: "+vortices.length+
+"<br>symmetry: "+symmetry
+}
+
+function randomPalette(){
+
+let base=Math.random()*360
+
+return{
+h1:base,
+h2:(base+120)%360,
+h3:(base+240)%360
+}
+}
+
+let palette=randomPalette()
+
+function physics(){
+
+for(let e of edges){
+
+let a=nodes[e.a]
+let b=nodes[e.b]
+
+let dx=b.x-a.x
+let dy=b.y-a.y
+let dist=Math.sqrt(dx*dx+dy*dy)+.0001
+
+let force=(dist-e.rest)*0.002
+
+let fx=dx/dist*force
+let fy=dy/dist*force
+
+a.vx+=fx/a.mass
+a.vy+=fy/a.mass
+b.vx-=fx/b.mass
+b.vy-=fy/b.mass
+}
+
+for(let v of vortices){
+
+for(let n of nodes){
+
+let dx=n.x-v.x
+let dy=n.y-v.y
+let d=Math.sqrt(dx*dx+dy*dy)+1
+
+let f=v.strength/d
+
+n.vx+=-dy*f
+n.vy+=dx*f
+}
+}
+
+for(let n of nodes){
+
+n.vx*=.995
+n.vy*=.995
+
+n.x+=n.vx
+n.y+=n.vy
+
+if(n.x<0||n.x>W)n.vx*=-1
+if(n.y<0||n.y>H)n.vy*=-1
+}
+}
+
+function draw(){
+
+ctx.fillStyle="rgba(0,0,0,.15)"
+ctx.fillRect(0,0,W,H)
+
+ctx.lineWidth=1.2
+
+for(let e of edges){
+
+let a=nodes[e.a]
+let b=nodes[e.b]
+
+let dx=b.x-a.x
+let dy=b.y-a.y
+let energy=Math.sqrt(dx*dx+dy*dy)
+
+let hue=(palette.h1+energy)%360
+
+ctx.strokeStyle="hsla("+hue+",80%,60%,.7)"
+
+ctx.beginPath()
+ctx.moveTo(a.x,a.y)
+ctx.lineTo(b.x,b.y)
+ctx.stroke()
+}
+
+for(let n of nodes){
+
+let hue=(palette.h2+n.vx*200)%360
+
+ctx.fillStyle="hsla("+hue+",90%,70%,.9)"
+
+ctx.beginPath()
+ctx.arc(n.x,n.y,2.3,0,Math.PI*2)
+ctx.fill()
+}
+}
+
+function animate(){
+
+physics()
+draw()
+
+if(audioOn)updateSound()
+
+requestAnimationFrame(animate)
+}
+
+function initAudio(){
+
+if(audioCtx)return
+
+audioCtx=new (window.AudioContext||window.webkitAudioContext)()
+
+osc=audioCtx.createOscillator()
+gain=audioCtx.createGain()
+
+osc.type="sine"
+osc.frequency.value=120
+
+gain.gain.value=0.03
+
+osc.connect(gain)
+gain.connect(audioCtx.destination)
+
+osc.start()
+}
+
+let osc,gain
+
+function updateSound(){
+
+if(!audioCtx)return
+
+let energy=0
+
+for(let n of nodes){
+energy+=Math.abs(n.vx)+Math.abs(n.vy)
+}
+
+let freq=120+energy*8
+
+osc.frequency.setTargetAtTime(freq,audioCtx.currentTime,.1)
+}
+
+window.addEventListener("keydown",e=>{
+
+if(e.code==="Space"){
+regenerate()
+}
+
+if(e.key==="h"||e.key==="H"){
+hudOn=!hudOn
+hud.style.display=hudOn?"block":"none"
+}
+
+if(e.key==="s"||e.key==="S"){
+
+audioOn=!audioOn
+
+if(audioOn){
+initAudio()
+}
+}
+})
+
+window.addEventListener("click",regenerate)
+window.addEventListener("touchstart",regenerate)
+
+regenerate()
+animate()
+
+</script>
+</body>
+</html>
