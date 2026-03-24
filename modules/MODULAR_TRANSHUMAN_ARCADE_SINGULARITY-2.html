@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>MODULAR TRANSHUMAN ARCADE SINGULARITY — Generative Art Engine</title>
+<meta name="description" content="A dependency-free generative art engine merging Atari 2600 vector minimalism with Tron-style neon megastructures, CRISPR-inspired transformations, and category-theory morphisms. An evolving transhuman audiovisual spectacle with procedural noise fields, fractal recursion, graph morphogenesis, and particle signal flows.">
+<meta name="keywords" content="generative art, Atari arcade aesthetics, Tron cyber environment, CRISPR visualization, category theory morphisms, procedural graphics, experimental audiovisual engine, vector minimalism, neon megastructures, transhuman art, particle systems, fractal patterns, noise fields, graph morphogenesis, retro futuristic, arcade soundscape, chromatic gradients, spectral cycling, banded palette, modular computation, singularity art, canvas animation, WebAudio, audiovisual synthesis">
+<meta name="author" content="Modular Transhuman Arcade Singularity Engine">
+<meta property="og:title" content="MODULAR TRANSHUMAN ARCADE SINGULARITY">
+<meta property="og:description" content="Generative audiovisual art engine: Atari minimalism meets Tron neon, CRISPR morphisms, and transhuman dissolution.">
+<meta name="robots" content="index, follow">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Courier New',monospace}
+canvas{display:block;position:fixed;top:0;left:0;width:100%;height:100%}
+#hud{display:none;position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:10}
+#hud.on{display:block}
+#hp{position:absolute;top:14px;left:14px;background:rgba(0,0,0,0.78);border:1px solid rgba(0,255,255,0.25);padding:11px 15px;color:#0ff;font-size:10.5px;line-height:1.75;letter-spacing:.07em;text-transform:uppercase;text-shadow:0 0 7px #0ff;max-width:280px}
+#hp .l{color:rgba(255,255,255,.38);margin-right:4px}
+#hc{position:absolute;bottom:14px;right:14px;background:rgba(0,0,0,0.78);border:1px solid rgba(255,0,255,0.25);padding:9px 13px;color:#f0f;font-size:9.5px;line-height:1.85;letter-spacing:.06em;text-transform:uppercase;text-shadow:0 0 7px #f0f}
+#tip{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,.25);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;pointer-events:none;z-index:9;transition:opacity 1.4s}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"><div id="hp"></div><div id="hc"></div></div>
+<div id="tip">SPACE / TAP = NEW UNIVERSE &nbsp;&middot;&nbsp; H = HUD &nbsp;&middot;&nbsp; S = SOUND</div>
+<script>
+(function(){
+'use strict';
+
+var CV=document.getElementById('c');
+var CX=CV.getContext('2d');
+var HUD=document.getElementById('hud');
+var HP=document.getElementById('hp');
+var HC=document.getElementById('hc');
+var TIP=document.getElementById('tip');
+
+var W=0,H=0,CW=0,CH=0;
+var RAF=0,T0=0,lastT=0,frameN=0,fpsAvg=60;
+var soundOn=false,hudOn=false;
+var AC=null,masterGain=null,oscList=[];
+var U={};
+
+// ── SEEDED LCG RNG ────────────────────────────────────────────
+var _s=1;
+function srng(){_s=(_s*1664525+1013904223)>>>0;return _s/4294967296;}
+function sr(a,b){return a+srng()*(b-a);}
+function si(a,b){var v=Math.floor(a+srng()*(b-a+1));return v>b?b:v<a?a:v;}
+function sc(arr){return arr[si(0,arr.length-1)];}
+function reseed(){_s=(Math.random()*2147483647+1)|0;}
+
+// ── RESIZE ───────────────────────────────────────────────────
+function resize(){
+  W=CV.width=window.innerWidth;
+  H=CV.height=window.innerHeight;
+  CW=W/2;CH=H/2;
+}
+window.addEventListener('resize',resize,{passive:true});
+resize();
+
+// ── PALETTE ──────────────────────────────────────────────────
+var PALS=[
+  {n:'NEON TRON',   c:[[0,255,255],[255,0,255],[0,68,255],[255,68,0],[0,255,136]]},
+  {n:'ATARI FIRE',  c:[[255,102,0],[255,204,0],[255,0,51],[204,0,255],[255,136,0]]},
+  {n:'MATRIX BIO',  c:[[0,255,68],[0,204,34],[0,51,0],[68,255,0],[136,255,68]]},
+  {n:'PLASMA ARC',  c:[[255,0,170],[170,0,255],[0,0,255],[0,170,255],[255,0,85]]},
+  {n:'CHROME FLUX', c:[[255,255,255],[170,187,204],[51,68,85],[0,136,255],[0,204,255]]},
+  {n:'SOLAR CRISPR',c:[[255,255,0],[255,136,0],[255,0,0],[255,68,204],[136,0,255]]},
+  {n:'VOID SIGNAL', c:[[68,0,136],[136,0,255],[0,204,255],[255,0,204],[34,0,68]]},
+  {n:'ARCADE GOLD', c:[[255,204,0],[255,102,0],[204,0,0],[255,255,255],[0,170,255]]}
+];
+
+function palColor(t,a){
+  var pal=U.pal,n=pal.length;
+  t=((t%1)+1)%1;
+  var fi=t*n,i=fi|0,j=(i+1)%n,f=fi-i;
+  var A=pal[i],B=pal[j];
+  return 'rgba('+((A[0]+(B[0]-A[0])*f)|0)+','+((A[1]+(B[1]-A[1])*f)|0)+','+((A[2]+(B[2]-A[2])*f)|0)+','+a+')';
+}
+
+// ── VALUE NOISE (no recursion) ────────────────────────────────
+var NW=256,NW1=255;
+var NTAB=new Float32Array(NW*NW);
+(function(){for(var i=0;i<NW*NW;i++)NTAB[i]=Math.random()*2-1;})();
+
+function vnoise(x,y){
+  var xi=((Math.floor(x)%NW)+NW)&NW1;
+  var yi=((Math.floor(y)%NW)+NW)&NW1;
+  var xf=x-Math.floor(x),yf=y-Math.floor(y);
+  var u=xf*xf*(3-2*xf),v=yf*yf*(3-2*yf);
+  var xi1=(xi+1)&NW1,yi1=(yi+1)&NW1;
+  var a=NTAB[xi +yi *NW];
+  var b=NTAB[xi1+yi *NW];
+  var c2=NTAB[xi +yi1*NW];
+  var d=NTAB[xi1+yi1*NW];
+  return a+(b-a)*u+(c2-a)*v+(a-b-c2+d)*u*v;
+}
+
+function fbm(x,y){
+  return vnoise(x,y)*0.5+vnoise(x*2.1,y*2.1)*0.25+vnoise(x*4.3,y*4.3)*0.125;
+}
+
+// ── NODES ─────────────────────────────────────────────────────
+function makeNode(id){
+  return{id:id,x:sr(40,W-40),y:sr(40,H-40),vx:sr(-.5,.5),vy:sr(-.5,.5),
+    r:sr(4,14),ph:srng()*6.283,fr:sr(.4,1.8),tp:si(0,4),
+    morph:0,morphT:srng(),morphS:sr(.002,.01),dissolved:srng()<.3};
+}
+
+function updateNode(n,t,dt){
+  var nx=fbm(n.x*.005+t*.035+7.3,n.y*.005+U.noff)*U.fstr;
+  var ny=fbm(n.x*.005+U.noff,n.y*.005+t*.035+2.1)*U.fstr;
+  n.vx=(n.vx+nx*dt*.04)*.988;
+  n.vy=(n.vy+ny*dt*.04)*.988;
+  n.x+=n.vx*dt;n.y+=n.vy*dt;
+  if(n.x<-60)n.x=W+50;else if(n.x>W+60)n.x=-50;
+  if(n.y<-60)n.y=H+50;else if(n.y>H+60)n.y=-50;
+  n.morph+=(n.morphT-n.morph)*n.morphS*dt;
+  if(Math.abs(n.morph-n.morphT)<.015){n.morphT=srng();n.morphS=sr(.002,.01);}
+  if(srng()<.0004)n.dissolved=!n.dissolved;
+}
+
+function drawNode(n,t){
+  var pulse=Math.sin(t*n.fr+n.ph)*.5+.5;
+  var rad=n.r*(.75+.25*pulse)*(1+n.morph*.7);
+  var ct=(n.id/Math.max(U.nodes.length,1)+t*U.cspd)%1;
+  var al=n.dissolved?.22+pulse*.18:.55+pulse*.38;
+  CX.save();CX.translate(n.x,n.y);
+  if(n.dissolved){
+    for(var k=0;k<8;k++){
+      var ang=k*.7854+t*.6;
+      var dist=rad*(.4+n.morph)*pulse;
+      CX.beginPath();
+      CX.arc(Math.cos(ang)*dist,Math.sin(ang)*dist,1.4,0,6.283);
+      CX.fillStyle=palColor((ct+k*.125)%1,al);
+      CX.fill();
+    }
+  } else {
+    CX.beginPath();
+    var tp=n.tp%5;
+    if(tp===0){CX.arc(0,0,rad,0,6.283);}
+    else if(tp===1){CX.rect(-rad,-rad,rad*2,rad*2);}
+    else if(tp===2){CX.moveTo(0,-rad);CX.lineTo(rad,0);CX.lineTo(0,rad);CX.lineTo(-rad,0);CX.closePath();}
+    else if(tp===3){CX.moveTo(0,-rad);CX.lineTo(0,rad);CX.moveTo(-rad,0);CX.lineTo(rad,0);}
+    else{
+      for(var k2=0;k2<6;k2++){
+        var a2=k2*1.0472-.5236;
+        if(k2===0)CX.moveTo(Math.cos(a2)*rad,Math.sin(a2)*rad);
+        else CX.lineTo(Math.cos(a2)*rad,Math.sin(a2)*rad);
+      }
+      CX.closePath();
+    }
+    CX.strokeStyle=palColor(ct,al);
+    CX.lineWidth=1.1+pulse;
+    CX.shadowBlur=14+pulse*10;
+    CX.shadowColor=palColor(ct,.75);
+    CX.stroke();
+    CX.beginPath();CX.arc(0,0,rad*.17,0,6.283);
+    CX.fillStyle=palColor((ct+.5)%1,al*.9);CX.fill();
+  }
+  CX.restore();
+}
+
+// ── MORPHISMS ─────────────────────────────────────────────────
+function makeMorphism(a,b){
+  return{a:a,b:b,ph:srng()*6.283,fr:sr(.2,1.1),kind:si(0,2),
+    sig:srng(),sigS:sr(.004,.016)*(srng()<.5?1:-1),
+    cx1:sr(-160,160),cy1:sr(-160,160)};
+}
+
+function updateMorphism(m,dt){
+  m.sig=((m.sig+m.sigS*dt)%1+1)%1;
+}
+
+function drawMorphism(m,t){
+  var na=U.nodes[m.a],nb=U.nodes[m.b];
+  if(!na||!nb)return;
+  var pulse=Math.sin(t*m.fr+m.ph)*.5+.5;
+  var ct=(m.a/Math.max(U.nodes.length,1)+t*U.cspd)%1;
+  var al=.12+pulse*.18;
+  var mx=(na.x+nb.x)*.5,my=(na.y+nb.y)*.5;
+  CX.save();
+  CX.strokeStyle=palColor(ct,al);
+  CX.lineWidth=.7+pulse*.5;
+  CX.shadowBlur=6+pulse*5;
+  CX.shadowColor=palColor(ct,.55);
+  CX.beginPath();
+  if(m.kind===0){CX.moveTo(na.x,na.y);CX.lineTo(nb.x,nb.y);}
+  else if(m.kind===1){CX.moveTo(na.x,na.y);CX.quadraticCurveTo(mx+m.cx1,my+m.cy1,nb.x,nb.y);}
+  else{CX.moveTo(na.x,na.y);CX.bezierCurveTo(na.x+m.cx1,na.y+m.cy1,nb.x-m.cx1,nb.y-m.cy1,nb.x,nb.y);}
+  CX.stroke();
+  // Signal particle
+  var sp=m.sig,q=1-sp;
+  var sx,sy;
+  if(m.kind===0){sx=na.x+(nb.x-na.x)*sp;sy=na.y+(nb.y-na.y)*sp;}
+  else{sx=q*q*na.x+2*q*sp*(mx+m.cx1)+sp*sp*nb.x;sy=q*q*na.y+2*q*sp*(my+m.cy1)+sp*sp*nb.y;}
+  CX.beginPath();CX.arc(sx,sy,2.2,0,6.283);
+  CX.fillStyle=palColor((ct+.5)%1,.92);
+  CX.shadowBlur=12;CX.shadowColor=palColor((ct+.5)%1,.9);
+  CX.fill();
+  // Arrowhead
+  var aa=Math.atan2(nb.y-na.y,nb.x-na.x),as=6+pulse*2.5;
+  CX.beginPath();
+  CX.moveTo(nb.x-Math.cos(aa)*as,nb.y-Math.sin(aa)*as);
+  CX.lineTo(nb.x-Math.cos(aa-.42)*as*.6,nb.y-Math.sin(aa-.42)*as*.6);
+  CX.lineTo(nb.x-Math.cos(aa+.42)*as*.6,nb.y-Math.sin(aa+.42)*as*.6);
+  CX.closePath();
+  CX.fillStyle=palColor(ct,al*2.2);CX.fill();
+  CX.restore();
+}
+
+// ── PARTICLES ────────────────────────────────────────────────
+function makeParticle(){
+  return{x:sr(0,W),y:sr(0,H),vx:sr(-1.5,1.5),vy:sr(-1.5,1.5),
+    life:1,decay:sr(.003,.011),sz:sr(.8,2.8),
+    trail:[],maxTr:si(3,12),co:srng()};
+}
+
+function resetParticle(p){
+  p.x=sr(0,W);p.y=sr(0,H);
+  p.vx=sr(-1.5,1.5);p.vy=sr(-1.5,1.5);
+  p.life=1;p.decay=sr(.003,.011);p.sz=sr(.8,2.8);
+  p.trail.length=0;p.maxTr=si(3,12);p.co=srng();
+}
+
+function updateParticle(p,t,dt){
+  if(p.trail.length>=p.maxTr)p.trail.shift();
+  p.trail.push({x:p.x,y:p.y});
+  var fx=fbm(p.x*.007+t*.022,p.y*.007)*U.fstr*.7;
+  var fy=fbm(p.x*.007,p.y*.007+t*.022)*U.fstr*.7;
+  p.vx=(p.vx+fx*dt*.025)*.973;
+  p.vy=(p.vy+fy*dt*.025)*.973;
+  p.x+=p.vx*dt;p.y+=p.vy*dt;
+  p.life-=p.decay*dt;
+  if(p.life<=0||p.x<-10||p.x>W+10||p.y<-10||p.y>H+10)resetParticle(p);
+}
+
+function drawParticle(p,t){
+  var ct=(p.co+t*U.cspd*.5)%1;
+  var tr=p.trail;
+  for(var i=1;i<tr.length;i++){
+    var af=i/tr.length;
+    CX.beginPath();
+    CX.moveTo(tr[i-1].x,tr[i-1].y);
+    CX.lineTo(tr[i].x,tr[i].y);
+    CX.strokeStyle=palColor((ct+af*.12)%1,p.life*af*.55);
+    CX.lineWidth=p.sz*af;
+    CX.stroke();
+  }
+  CX.beginPath();CX.arc(p.x,p.y,p.sz,0,6.283);
+  CX.fillStyle=palColor(ct,p.life*.88);CX.fill();
+}
+
+// ── LIGHTNING (100% iterative, explicit array stack) ──────────
+function makeBolt(){
+  var ang=srng()*6.283,len=sr(60,260);
+  var x1=sr(20,W-20),y1=sr(20,H-20);
+  return{x1:x1,y1:y1,x2:x1+Math.cos(ang)*len,y2:y1+Math.sin(ang)*len,
+    life:sr(.25,.8),decay:sr(.022,.065),depth:si(2,3),co:srng()};
+}
+
+function resetBolt(b){
+  var ang=srng()*6.283,len=sr(60,260);
+  b.x1=sr(20,W-20);b.y1=sr(20,H-20);
+  b.x2=b.x1+Math.cos(ang)*len;b.y2=b.y1+Math.sin(ang)*len;
+  b.life=sr(.25,.8);b.decay=sr(.022,.065);b.depth=si(2,3);b.co=srng();
+}
+
+// Pre-allocated work arrays to avoid GC pressure
+var _boltStack=new Array(256);
+var _boltSegs=new Array(256);
+
+function drawBolt(b,t){
+  var ct=(b.co+t*U.cspd)%1;
+  var top=0,segN=0;
+  _boltStack[top++]={x1:b.x1,y1:b.y1,x2:b.x2,y2:b.y2,d:b.depth};
+  var guard=0;
+  while(top>0&&guard++<300){
+    var s=_boltStack[--top];
+    var dx=s.x2-s.x1,dy=s.y2-s.y1;
+    var len2=Math.sqrt(dx*dx+dy*dy);
+    if(s.d<=0||len2<4){
+      if(segN<255)_boltSegs[segN++]=s;
+      continue;
+    }
+    var jit=32/s.d;
+    var mx2=(s.x1+s.x2)*.5+(srng()-.5)*jit;
+    var my2=(s.y1+s.y2)*.5+(srng()-.5)*jit;
+    var nd=s.d-1;
+    if(top<250){_boltStack[top++]={x1:s.x1,y1:s.y1,x2:mx2,y2:my2,d:nd};}
+    if(top<250){_boltStack[top++]={x1:mx2,y1:my2,x2:s.x2,y2:s.y2,d:nd};}
+    if(nd>=1&&srng()<.28&&top<248){
+      var ba=Math.atan2(dy,dx)+(srng()-.5)*1.2;
+      var bl=len2*.38;
+      _boltStack[top++]={x1:mx2,y1:my2,x2:mx2+Math.cos(ba)*bl,y2:my2+Math.sin(ba)*bl,d:nd-1};
+    }
+  }
+  CX.save();
+  CX.globalAlpha=b.life*.72;
+  CX.shadowBlur=16;CX.shadowColor=palColor(ct,.8);
+  CX.strokeStyle=palColor(ct,1);CX.lineWidth=.9;
+  CX.beginPath();
+  for(var i=0;i<segN;i++){
+    CX.moveTo(_boltSegs[i].x1,_boltSegs[i].y1);
+    CX.lineTo(_boltSegs[i].x2,_boltSegs[i].y2);
+  }
+  CX.stroke();
+  CX.restore();
+}
+
+// ── TRON GRID ─────────────────────────────────────────────────
+function makeGrid(){
+  return{cols:si(5,12),rows:si(4,8),ph:srng()*6.283,fr:sr(.1,.33),co:srng(),gph:sr(0,100)};
+}
+
+function drawGrid(g,t){
+  var cw=W/g.cols,rh=H/g.rows;
+  var pulse=Math.sin(t*g.fr+g.ph)*.5+.5;
+  var glitch=Math.sin(t*3.9+g.gph);
+  var gj=glitch*glitch>.88;
+  CX.save();CX.globalAlpha=.052+pulse*.052;
+  for(var c=0;c<=g.cols;c++){
+    var x=c*cw+(gj?sr(-6,6):0);
+    var ct=(c/g.cols+t*U.cspd*.28+g.co)%1;
+    CX.strokeStyle=palColor(ct,.8);
+    CX.lineWidth=gj&&c%3===0?1.7:.6;
+    CX.shadowBlur=gj?14:3;CX.shadowColor=palColor(ct,.5);
+    CX.beginPath();CX.moveTo(x,0);CX.lineTo(x,H);CX.stroke();
+  }
+  for(var r=0;r<=g.rows;r++){
+    var y=r*rh+(gj?sr(-6,6):0);
+    var ct2=(r/g.rows+t*U.cspd*.28+g.co+.33)%1;
+    CX.strokeStyle=palColor(ct2,.8);
+    CX.lineWidth=gj&&r%3===0?1.7:.6;
+    CX.beginPath();CX.moveTo(0,y);CX.lineTo(W,y);CX.stroke();
+  }
+  CX.restore();
+}
+
+// ── CRISPR STRANDS ────────────────────────────────────────────
+function makeStrand(){
+  var nc=si(2,7),cuts=[];
+  for(var i=0;i<nc;i++)cuts.push(srng());
+  return{x:sr(0,W),vx:(srng()-.5)*.13,amp:sr(20,72),spacing:si(15,34),
+    ph:srng()*6.283,spd:sr(.3,1.3)*(srng()<.5?1:-1),co:srng(),cuts:cuts};
+}
+
+function updateStrand(s,dt){
+  s.x+=s.vx*dt;s.ph+=s.spd*dt*.02;
+  if(s.x<-110)s.x=W+90;else if(s.x>W+110)s.x=-90;
+}
+
+function drawStrand(s,t){
+  var y0=-110,y1=H+110;
+  var steps=Math.ceil((y1-y0)/s.spacing)|0;
+  if(steps>200)steps=200;
+  var ct=(s.co+t*U.cspd*.43)%1;
+  CX.save();CX.lineWidth=1.1;CX.shadowBlur=8;
+  for(var strand=0;strand<2;strand++){
+    var poff=strand*3.14159;
+    CX.beginPath();
+    for(var i=0;i<=steps;i++){
+      var yp=y0+i*s.spacing;
+      var a=i*.28+s.ph+poff;
+      var xp=s.x+Math.cos(a)*s.amp;
+      var ct2=(ct+i/steps*.3+strand*.14)%1;
+      CX.strokeStyle=palColor(ct2,.48);
+      CX.shadowColor=palColor(ct2,.52);
+      if(i===0)CX.moveTo(xp,yp);else CX.lineTo(xp,yp);
+    }
+    CX.stroke();
+  }
+  for(var i2=0;i2<=steps;i2+=3){
+    var yp2=y0+i2*s.spacing;
+    var a2=i2*.28+s.ph;
+    var xA=s.x+Math.cos(a2)*s.amp;
+    var xB=s.x+Math.cos(a2+3.14159)*s.amp;
+    var frac=i2/Math.max(steps,1);
+    var cut=false;
+    for(var ci=0;ci<s.cuts.length;ci++){if(Math.abs(s.cuts[ci]-frac)<.04){cut=true;break;}}
+    var ct3=(ct+frac*.5)%1;
+    CX.strokeStyle=palColor(ct3,cut?.88:.27);
+    CX.lineWidth=cut?2.1:.7;
+    CX.shadowBlur=cut?16:4;CX.shadowColor=palColor(ct3,cut?.9:.38);
+    CX.beginPath();CX.moveTo(xA,yp2);CX.lineTo(xB,yp2);CX.stroke();
+    if(cut){
+      CX.beginPath();CX.arc((xA+xB)*.5,yp2,3.2,0,6.283);
+      CX.fillStyle=palColor((ct3+.5)%1,.9);CX.fill();
+    }
+  }
+  CX.restore();
+}
+
+// ── CHROMATIC RIVERS ──────────────────────────────────────────
+function drawRivers(t){
+  CX.save();CX.globalAlpha=.026;
+  for(var b=0;b<6;b++){
+    var yBase=((t*.043+b/6)%1)*H;
+    var ct=(b/6+t*U.cspd*.33)%1;
+    var g=CX.createLinearGradient(0,yBase-26,W,yBase+26);
+    g.addColorStop(0,palColor(ct,0));
+    g.addColorStop(.5,palColor(ct,1));
+    g.addColorStop(1,palColor(ct,0));
+    CX.fillStyle=g;CX.fillRect(0,yBase-26,W,52);
+  }
+  CX.restore();
+}
+
+// ── BACKGROUND ───────────────────────────────────────────────
+function drawBG(t){
+  CX.fillStyle='rgba(0,0,0,0.86)';CX.fillRect(0,0,W,H);
+  var g=CX.createRadialGradient(CW,CH,0,CW,CH,Math.max(W,H)*.64);
+  var ct=(t*U.cspd*.14)%1;
+  g.addColorStop(0,palColor(ct,.033));
+  g.addColorStop(.6,palColor((ct+.4)%1,.013));
+  g.addColorStop(1,'rgba(0,0,0,0)');
+  CX.fillStyle=g;CX.fillRect(0,0,W,H);
+}
+
+// ── AUDIO ─────────────────────────────────────────────────────
+function audioInit(){
+  if(AC)return;
+  try{
+    AC=new(window.AudioContext||window.webkitAudioContext)();
+    masterGain=AC.createGain();masterGain.gain.value=.14;
+    masterGain.connect(AC.destination);
+    var clen=Math.floor(AC.sampleRate*1.1);
+    var cbuf=AC.createBuffer(2,clen,AC.sampleRate);
+    for(var ch=0;ch<2;ch++){var d=cbuf.getChannelData(ch);for(var i=0;i<clen;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/clen,2.5);}
+    var conv=AC.createConvolver();conv.buffer=cbuf;
+    var cvg=AC.createGain();cvg.gain.value=.2;
+    masterGain.connect(conv);conv.connect(cvg);cvg.connect(AC.destination);
+    var TYPES=['sawtooth','square','triangle','sine'];
+    var freqs=[U.abase,U.abase*1.498,U.abase*2,U.abase*3.01];
+    oscList=[];
+    for(var fi=0;fi<freqs.length;fi++){
+      var o=AC.createOscillator(),g=AC.createGain();
+      o.type=TYPES[si(0,3)];o.frequency.value=freqs[fi];
+      g.gain.value=.065/(fi+1);
+      o.connect(g);g.connect(masterGain);o.start();
+      oscList.push({o:o,g:g,bf:freqs[fi],lp:srng()*6.283});
+    }
+  }catch(e){AC=null;}
+}
+
+function audioUpdate(t){
+  if(!soundOn||!AC)return;
+  var now=AC.currentTime;
+  for(var i=0;i<oscList.length;i++){
+    var node=oscList[i];
+    node.lp+=.011;
+    var lfo=Math.sin(node.lp)*.27+.73;
+    var ns=vnoise(t*.04+i,i*2.7)*23;
+    node.o.frequency.setTargetAtTime(node.bf*lfo+ns,now,.14);
+    node.g.gain.setTargetAtTime((.052+Math.sin(t*.27+i)*.022)/(i+1),now,.24);
+  }
+}
+
+function toggleSound(){
+  soundOn=!soundOn;
+  if(soundOn){audioInit();if(AC&&AC.state==='suspended')AC.resume();}
+  else{if(AC)AC.suspend();}
+}
+
+function killAudio(){
+  for(var i=0;i<oscList.length;i++){try{oscList[i].o.stop();}catch(e){}}
+  oscList=[];
+  if(AC){try{AC.close();}catch(e){}}
+  AC=null;masterGain=null;
+}
+
+// ── HUD ───────────────────────────────────────────────────────
+var ALGOS=['GRAPH MORPHOGENESIS','VECTOR FIELD LATTICE','NOISE TOPOLOGY FLOW',
+           'PARTICLE SIGNAL MATRIX','CRISPR TOPOLOGY WEAVE','CATEGORY MORPHISM ENGINE'];
+
+function hudUpdate(t){
+  if(!hudOn)return;
+  var el=((performance.now()-T0)*.001).toFixed(1);
+  HP.innerHTML=
+    '<div><span class="l">ENGINE</span>'+U.algo+'</div>'+
+    '<div><span class="l">PALETTE</span>'+U.palName+'</div>'+
+    '<div><span class="l">FPS</span>'+fpsAvg.toFixed(1)+'</div>'+
+    '<div><span class="l">FRAME</span>'+frameN+'</div>'+
+    '<div><span class="l">TIME</span>'+el+'s</div>'+
+    '<div><span class="l">NODES</span>'+U.nodes.length+'</div>'+
+    '<div><span class="l">MORPHISMS</span>'+U.morphisms.length+'</div>'+
+    '<div><span class="l">PARTICLES</span>'+U.particles.length+'</div>'+
+    '<div><span class="l">FIELD STR</span>'+U.fstr.toFixed(2)+'</div>'+
+    '<div><span class="l">COLOR SPD</span>'+U.cspd.toFixed(3)+'</div>'+
+    '<div><span class="l">AUDIO</span>'+(soundOn&&AC?'ON '+U.abase.toFixed(0)+'Hz':'OFF')+'</div>';
+  HC.innerHTML=
+    '<div>&#9672; TRANSHUMAN SINGULARITY</div>'+
+    '<div>SPACE/TAP &rarr; RESTART</div>'+
+    '<div>H = HUD &nbsp; S = SOUND</div>';
+}
+
+// ── UNIVERSE INIT ─────────────────────────────────────────────
+function initUniverse(){
+  reseed();
+  var pal=sc(PALS);
+  U.palName=pal.n;U.pal=pal.c;
+  U.cspd=sr(.014,.057);
+  U.noff=srng()*80;
+  U.fstr=sr(.6,2.1);
+  U.abase=sr(38,112);
+  U.algo=sc(ALGOS);
+
+  var nn=Math.max(2,Math.min(si(14,50),Math.floor(W*H/12000)));
+  U.nodes=[];
+  for(var i=0;i<nn;i++)U.nodes.push(makeNode(i));
+
+  var nm=Math.min(si(nn,nn*3),110);
+  U.morphisms=[];
+  for(var i2=0;i2<nm;i2++){
+    var a=si(0,nn-1),b=si(0,nn-2);
+    if(b>=a)b++;
+    if(b>=nn)b=0;
+    U.morphisms.push(makeMorphism(a,b));
+  }
+
+  var np=Math.min(si(50,170),Math.floor(W*H/3200));
+  U.particles=[];
+  for(var i3=0;i3<np;i3++)U.particles.push(makeParticle());
+
+  U.bolts=[];
+  var nb=si(3,8);
+  for(var i4=0;i4<nb;i4++)U.bolts.push(makeBolt());
+
+  U.grid=makeGrid();
+
+  U.strands=[];
+  var ns=si(2,5);
+  for(var i5=0;i5<ns;i5++)U.strands.push(makeStrand());
+
+  frameN=0;T0=performance.now();lastT=T0;
+  if(soundOn){killAudio();audioInit();if(AC&&AC.state==='suspended')AC.resume();}
+}
+
+// ── MAIN LOOP ─────────────────────────────────────────────────
+function loop(now){
+  RAF=requestAnimationFrame(loop);
+  var dt=now-lastT;
+  lastT=now;
+  if(dt<=0||dt>200)dt=16.667;
+  dt=dt/16.667;
+  if(dt>3.5)dt=3.5;
+  frameN++;
+  fpsAvg+=(Math.min(60/dt,120)-fpsAvg)*.06;
+  var t=(now-T0)*.001;
+
+  drawBG(t);
+  drawGrid(U.grid,t);
+
+  CX.save();CX.globalAlpha=.7;
+  for(var i=0;i<U.bolts.length;i++){
+    var blt=U.bolts[i];
+    blt.life-=blt.decay*dt;
+    if(blt.life<=0)resetBolt(blt);
+    else drawBolt(blt,t);
+  }
+  CX.restore();
+
+  for(var i2=0;i2<U.strands.length;i2++){updateStrand(U.strands[i2],dt);drawStrand(U.strands[i2],t);}
+  for(var i3=0;i3<U.morphisms.length;i3++){updateMorphism(U.morphisms[i3],dt);drawMorphism(U.morphisms[i3],t);}
+  for(var i4=0;i4<U.nodes.length;i4++){updateNode(U.nodes[i4],t,dt);drawNode(U.nodes[i4],t);}
+
+  CX.save();CX.globalCompositeOperation='lighter';
+  for(var i5=0;i5<U.particles.length;i5++){updateParticle(U.particles[i5],t,dt);drawParticle(U.particles[i5],t);}
+  CX.restore();
+
+  drawRivers(t);
+  audioUpdate(t);
+  hudUpdate(t);
+}
+
+// ── CONTROLS ─────────────────────────────────────────────────
+function restart(){
+  cancelAnimationFrame(RAF);
+  initUniverse();
+  RAF=requestAnimationFrame(loop);
+  TIP.style.opacity='0';
+}
+
+document.addEventListener('keydown',function(e){
+  if(e.shiftKey)return;
+  if(e.code==='Space'){e.preventDefault();restart();}
+  else if(e.code==='KeyH'){hudOn=!hudOn;HUD.className=hudOn?'on':'';}
+  else if(e.code==='KeyS')toggleSound();
+},{passive:false});
+
+var _tapT=0;
+document.addEventListener('pointerdown',function(e){_tapT=e.timeStamp;},{passive:true});
+document.addEventListener('pointerup',function(e){if(e.timeStamp-_tapT<280)restart();},{passive:true});
+
+// ── BOOT ─────────────────────────────────────────────────────
+initUniverse();
+RAF=requestAnimationFrame(loop);
+setTimeout(function(){TIP.style.opacity='0';},5500);
+
+})();
+</script>
+</body>
+</html>

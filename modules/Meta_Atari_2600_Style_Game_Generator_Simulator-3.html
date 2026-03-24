@@ -1,0 +1,1099 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Meta Atari 2600 Style Game Generator &amp; Simulator | Procedural Retro Generative Art Engine</title>
+<meta name="description" content="An infinitely generative Meta Atari 2600 Style Game Generator and Simulator — a living procedural art engine. Every regeneration creates a completely unique, fully randomized retro universe: randomly chosen color palettes (triadic, split-complementary, analogous, monochromatic, clash), plasma and tunnel and starfield and voronoi backgrounds, 17 Atari-style pixel entity shapes with 13 distinct motion behaviors (flocking, vortex, orbit, brownian, spiral and more), CRT scanlines, vignette, and fully synchronized chiptune audio derived directly from visual parameters. Press SPACE, click, or tap to regenerate a new universe instantly. H toggles HUD. S toggles synchronized sound.">
+<meta name="keywords" content="Atari 2600, procedural generation, retro game simulator, generative art, 8-bit art, chiptune synthesizer, pixel art, screensaver, color cycling, plasma effect, scanlines, CRT effect, retro computer art, HTML5 canvas, JavaScript generative art, demoscene, procedural animation, randomized retro game, retro arcade, web synthesizer, audio visualization, generative music, pixel animation, retro aesthetic, classic gaming, interactive generative art, Atari game generator, procedural screensaver, retro pixel art generator, 8-bit music, auto-playing game, vortex animation, flocking simulation, brownian motion, spiral animation, tunnel effect, voronoi diagram, starfield animation, color palette generator, hue cycling, retro graphics, oldschool demo, creative coding">
+<meta name="robots" content="index, follow">
+<meta name="author" content="Meta Atari 2600 Generator">
+<meta name="theme-color" content="#000000">
+<meta property="og:title" content="Meta Atari 2600 Style Game Generator &amp; Simulator">
+<meta property="og:description" content="Infinitely procedural retro generative art — every click spawns a new fully randomized Atari-style universe with synchronized chiptune audio.">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Meta Atari 2600 Style Game Generator &amp; Simulator">
+<meta name="twitter:description" content="Infinitely procedural retro generative art engine. Every click = new universe.">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{
+  background:#000;
+  overflow:hidden;
+  width:100%;height:100%;
+  font-family:'Courier New',Courier,monospace;
+  cursor:crosshair;
+  touch-action:none;
+}
+#c{
+  display:block;
+  image-rendering:pixelated;
+  image-rendering:crisp-edges;
+}
+/* HUD overlay */
+#hud{
+  position:fixed;inset:0;
+  pointer-events:none;
+  opacity:0;
+  transition:opacity 0.25s;
+  font-size:clamp(8px,1.1vw,12px);
+  line-height:1.8;
+  letter-spacing:.05em;
+}
+#hud.on{opacity:1;}
+.hc{
+  position:absolute;
+  color:#0f0;
+  text-shadow:0 0 4px #0f0,0 0 10px #0f0,0 0 20px #0a0;
+  white-space:pre;
+}
+#htl{top:14px;left:16px;}
+#htr{top:14px;right:16px;text-align:right;}
+#hbl{bottom:14px;left:16px;}
+#hbr{bottom:14px;right:16px;text-align:right;}
+/* Flash on regen */
+#flash{
+  position:fixed;inset:0;
+  background:#fff;
+  opacity:0;
+  pointer-events:none;
+}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div class="hc" id="htl"></div>
+  <div class="hc" id="htr"></div>
+  <div class="hc" id="hbl"></div>
+  <div class="hc" id="hbr"></div>
+</div>
+<div id="flash"></div>
+
+<script>
+"use strict";
+// ═══════════════════════════════════════════════════════════════════
+//  META ATARI 2600 STYLE GAME GENERATOR — FULL ENGINE
+// ═══════════════════════════════════════════════════════════════════
+
+const CV  = document.getElementById('c');
+const CX  = CV.getContext('2d');
+let W=0, H=0;
+function resize(){ W=CV.width=window.innerWidth; H=CV.height=window.innerHeight; }
+window.addEventListener('resize', resize); resize();
+
+// ── globals ──────────────────────────────────────────────────────
+let SHOW_HUD = false;
+let SOUND_ON = false;
+let AC=null, MASTER=null;                // AudioContext, master gain
+let GEN=0, FRAME=0;
+let T_PREV=0;
+let G={};                                // all gen state lives here
+
+// ── math helpers ─────────────────────────────────────────────────
+const rnd  = (lo=0,hi=1)=> lo + Math.random()*(hi-lo);
+const rint = (lo,hi)    => Math.floor(rnd(lo,hi));
+const pick = a           => a[rint(0,a.length)];
+const clamp= (v,a,b)    => v<a?a:v>b?b:v;
+const wrap = (v,max)    => ((v%max)+max)%max;
+const lerp = (a,b,t)    => a+(b-a)*t;
+const TAU  = Math.PI*2;
+const sin  = Math.sin, cos=Math.cos, sqrt=Math.sqrt, abs=Math.abs, floor=Math.floor;
+
+// ── safe modulo index (always integer, always in-bounds) ──────────
+const si = (n, len) => ((floor(abs(n)) % len) + len) % len;
+
+// ═══════════════════════════════════════════════════════════════════
+//  PALETTE ENGINE — fully randomized every gen
+// ═══════════════════════════════════════════════════════════════════
+function buildPalette(){
+  const MODELS=['triadic','split','analogous','tetradic','mono','clash','dual_split','random'];
+  const model  = pick(MODELS);
+  const base   = rnd(0,360);
+  const sat    = rnd(55,100);
+  const lit    = rnd(30,70);
+  const hues   = [];
+
+  switch(model){
+    case 'triadic':     hues.push(base,base+120,base+240); break;
+    case 'split':       hues.push(base,base+150,base+210); break;
+    case 'analogous':   { const s=rnd(12,45); for(let i=0;i<6;i++) hues.push(base+i*s); } break;
+    case 'tetradic':    hues.push(base,base+90,base+180,base+270); break;
+    case 'mono':        for(let i=0;i<7;i++) hues.push(base+rnd(-18,18)); break;
+    case 'clash':       hues.push(base,base+rnd(80,100)); break;
+    case 'dual_split':  hues.push(base,base+30,base+180,base+210); break;
+    default:            for(let i=0;i<rint(4,9);i++) hues.push(rnd(0,360)); break;
+  }
+
+  const pal = hues.map(h=>({
+    h: wrap(h,360),
+    s: clamp(sat+rnd(-25,25),20,100),
+    l: clamp(lit+rnd(-20,20),15,82)
+  }));
+
+  // Always at least 3
+  while(pal.length<3) pal.push({h:rnd(0,360),s:sat,l:lit});
+
+  // Background base color (darkened palette member)
+  const bgBase = pal[0];
+  const bgDark  = { h:bgBase.h, s:clamp(bgBase.s-20,10,100), l:clamp(bgBase.l*0.18,3,22) };
+
+  return { pal, model, base, bgDark };
+}
+
+// Animated color lookup — wobbles hue/lightness over time
+function gc(palObj, slot, t, alpha=1){
+  const p = palObj.pal;
+  if(!p||!p.length) return '#f0f';
+  const c  = p[si(slot, p.length)];
+  const csp= G.cSpeed||1, cwob=G.cWobble||20;
+  const dh = sin(t*csp*1.1 + slot*1.37) * cwob;
+  const dl = sin(t*csp*1.9 + slot*0.83) * 14;
+  const h  = wrap(c.h+dh,360), s=c.s, l=clamp(c.l+dl,8,92);
+  return alpha<1 ? `hsla(${h},${s}%,${l}%,${alpha})` : `hsl(${h},${s}%,${l}%)`;
+}
+
+// HSL→RGB for raw pixel writes
+function hslToRgb(h,s,l){
+  s/=100; l/=100; h=wrap(h,360)/360;
+  const q = l<.5 ? l*(1+s) : l+s-l*s, p=2*l-q;
+  const hue2=(p,q,t)=>{ t=t<0?t+1:t>1?t-1:t; return t<1/6?p+(q-p)*6*t:t<.5?q:t<2/3?p+(q-p)*(2/3-t)*6:p; };
+  return [ floor(hue2(p,q,h+1/3)*255), floor(hue2(p,q,h)*255), floor(hue2(p,q,h-1/3)*255) ];
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  BACKGROUND RENDERERS — 14 distinct modes
+// ═══════════════════════════════════════════════════════════════════
+const BG_MODES=[
+  'plasma_full','plasma_sine','radial_rings','diagonal_march',
+  'h_stripes','v_stripes','checker','tunnel_rect',
+  'starfield','grid_pulse','scanwave','voronoi_blobs',
+  'radial_sweep','lissajous_field'
+];
+
+// Reusable offscreen buffer for pixel-level operations
+let _pxBuf=null, _pxW=0, _pxH=0;
+function getPxBuf(){
+  if(_pxBuf&&_pxW===W&&_pxH===H) return _pxBuf;
+  _pxBuf=CX.createImageData(W,H); _pxW=W; _pxH=H;
+  return _pxBuf;
+}
+
+function drawBG(t){
+  const m=G.bgMode, p=G.palette, bd=p.bgDark;
+  const bc=G.bandCount, csp=G.cSpeed;
+
+  CX.save();
+  switch(m){
+
+    case 'plasma_full':
+    case 'plasma_sine': {
+      const id=getPxBuf(), d=id.data;
+      const s1=G.ps1,s2=G.ps2,s3=G.ps3,s4=G.ps4;
+      const pl=p.pal, plen=pl.length;
+      for(let y=0;y<H;y+=2){
+        const fy=y/H;
+        for(let x=0;x<W;x+=2){
+          const fx=x/W;
+          let v;
+          if(m==='plasma_full'){
+            v = sin(x*s1+t*csp*1.8)
+              + sin(y*s2+t*csp*1.4)
+              + sin((x+y)*s3+t*csp*1.1)
+              + sin(sqrt((x-W*.5)**2+(y-H*.5)**2)*s4+t*csp*.9);
+          } else {
+            v = sin(x*s1*1.5+sin(y*s2+t)*t*csp)
+              + sin(y*s3*1.5+sin(x*s4+t)*t*csp*1.3)
+              + sin(sqrt((x-W*(.5+sin(t*.3)*.3))**2+(y-H*(.5+cos(t*.4)*.3))**2)*s1*2);
+          }
+          const norm=clamp((v+3.2)/6.4,0,.9999);
+          const ci=floor(norm*plen)%plen;
+          const c=pl[ci];
+          const dh=sin(norm*TAU+t)*G.cWobble, dl=sin(norm*TAU*2)*12;
+          const rgb=hslToRgb(c.h+dh,c.s,clamp(c.l+dl,5,94));
+          const i=(y*W+x)*4;
+          d[i]=rgb[0];d[i+1]=rgb[1];d[i+2]=rgb[2];d[i+3]=255;
+          if(x+1<W){d[i+4]=rgb[0];d[i+5]=rgb[1];d[i+6]=rgb[2];d[i+7]=255;}
+          if(y+1<H){
+            const i2=((y+1)*W+x)*4;
+            d[i2]=rgb[0];d[i2+1]=rgb[1];d[i2+2]=rgb[2];d[i2+3]=255;
+            if(x+1<W){d[i2+4]=rgb[0];d[i2+5]=rgb[1];d[i2+6]=rgb[2];d[i2+7]=255;}
+          }
+        }
+      }
+      CX.putImageData(id,0,0);
+      break;
+    }
+
+    case 'radial_rings': {
+      const maxR=sqrt(W*W+H*H)*.6;
+      // Dark base
+      CX.fillStyle=`hsl(${bd.h},${bd.s}%,${bd.l}%)`;
+      CX.fillRect(0,0,W,H);
+      for(let i=bc;i>=0;i--){
+        const phase=wrap(i/bc+t*csp*.15,1);
+        const rad=phase*maxR;
+        CX.beginPath();
+        CX.arc(W*.5,H*.5,rad,0,TAU);
+        CX.fillStyle=gc(p,i,t);
+        CX.fill();
+      }
+      break;
+    }
+
+    case 'diagonal_march': {
+      CX.fillStyle=gc(p,0,t);
+      CX.fillRect(0,0,W,H);
+      const sw=W/bc, scroll=wrap(t*csp*55,sw*2);
+      for(let i=0;i<bc*2+2;i++){
+        CX.fillStyle=gc(p,i,t,.88);
+        CX.beginPath();
+        const x=i*sw-scroll-H;
+        CX.moveTo(x,0); CX.lineTo(x+H,H);
+        CX.lineTo(x+H+sw,H); CX.lineTo(x+sw,0);
+        CX.closePath(); CX.fill();
+      }
+      break;
+    }
+
+    case 'h_stripes': {
+      const sh=H/bc;
+      const scroll=wrap(t*csp*50,sh);
+      for(let i=0;i<bc+2;i++){
+        const yy=i*sh-scroll;
+        CX.fillStyle=gc(p,i,t);
+        CX.fillRect(0,yy,W,sh+1);
+      }
+      break;
+    }
+
+    case 'v_stripes': {
+      const sw=W/bc;
+      const scroll=wrap(t*csp*50,sw);
+      for(let i=0;i<bc+2;i++){
+        const xx=i*sw-scroll;
+        CX.fillStyle=gc(p,i,t);
+        CX.fillRect(xx,0,sw+1,H);
+      }
+      break;
+    }
+
+    case 'checker': {
+      const cs=G.checkSz;
+      const ox=wrap(t*csp*35,cs), oy=wrap(t*csp*25,cs);
+      for(let y=-cs;y<H+cs;y+=cs){
+        for(let x=-cs;x<W+cs;x+=cs){
+          const ci=si( floor((x+ox)/cs) + floor((y+oy)/cs), p.pal.length );
+          CX.fillStyle=gc(p,ci,t);
+          CX.fillRect(x+ox-cs,y+oy-cs,cs,cs);
+        }
+      }
+      break;
+    }
+
+    case 'tunnel_rect': {
+      const rings=30;
+      CX.fillStyle=`hsl(${bd.h},${bd.s}%,${bd.l}%)`;
+      CX.fillRect(0,0,W,H);
+      const cx=W*.5, cy=H*.5;
+      for(let i=rings;i>=0;i--){
+        const phase=wrap(i/rings+t*csp*.2,1);
+        const sc=phase;
+        const tw=W*sc, th=H*sc;
+        // Slight rotation per ring
+        CX.save();
+        CX.translate(cx,cy);
+        CX.rotate(t*csp*.08*(i%2===0?1:-1));
+        CX.strokeStyle=gc(p,i,t);
+        CX.lineWidth=clamp(H/rings*1.2,1,18);
+        CX.strokeRect(-tw*.5,-th*.5,tw,th);
+        CX.restore();
+      }
+      break;
+    }
+
+    case 'starfield': {
+      CX.fillStyle='#000';
+      CX.fillRect(0,0,W,H);
+      const stars=G.stars;
+      const maxZ=Math.max(W,H)*.55;
+      for(const s of stars){
+        s.z -= csp*35*(1/60);
+        if(s.z<=1){ s.x=rnd(-W*.5,W*.5); s.y=rnd(-H*.5,H*.5); s.z=maxZ; }
+        const sx=s.x/s.z*maxZ+W*.5;
+        const sy=s.y/s.z*maxZ+H*.5;
+        const ss=clamp((1-s.z/maxZ)*7,.5,8);
+        const bright=clamp((1-s.z/maxZ)*1.2,0,1);
+        CX.fillStyle=gc(p,s.ci,t,bright);
+        // Pixelated stars — draw as rect
+        CX.fillRect(floor(sx),floor(sy),floor(ss)||1,floor(ss)||1);
+      }
+      break;
+    }
+
+    case 'grid_pulse': {
+      CX.fillStyle='#000';
+      CX.fillRect(0,0,W,H);
+      const gs=G.gridSz;
+      for(let y=0;y<H;y+=gs){
+        for(let x=0;x<W;x+=gs){
+          const d=sqrt((x-W*.5)**2+(y-H*.5)**2);
+          const ph=sin(d*.018 - t*csp*3.5 + G.gridPhase);
+          const sc=gs*clamp(ph*.5+.55,.05,.98);
+          CX.fillStyle=gc(p, floor(d*.09+t*4), t, clamp(ph*.5+.6,.05,1));
+          CX.fillRect(x+gs*.5-sc*.5, y+gs*.5-sc*.5, sc, sc);
+        }
+      }
+      break;
+    }
+
+    case 'scanwave': {
+      CX.fillStyle='#000';
+      CX.fillRect(0,0,W,H);
+      const freq=G.scanFreq, amp=W*.28;
+      for(let y=0;y<H;y+=3){
+        const xoff=sin(y*freq + t*csp*4)*amp + W*.5 - amp*.8;
+        const ww=W*.48 + sin(y*freq*.7+t)*W*.15;
+        CX.fillStyle=gc(p, floor(y/H*7), t, .9);
+        CX.fillRect(xoff, y, ww, 3);
+      }
+      break;
+    }
+
+    case 'voronoi_blobs': {
+      CX.fillStyle=`hsl(${bd.h},${bd.s}%,${bd.l}%)`;
+      CX.fillRect(0,0,W,H);
+      for(const v of G.vpts){
+        v.x=(v.x+sin(t*v.sp+v.ph)*v.vx*60/60)%W; if(v.x<0)v.x+=W;
+        v.y=(v.y+cos(t*v.sp*.9+v.ph*1.3)*v.vy*60/60)%H; if(v.y<0)v.y+=H;
+        const g2=CX.createRadialGradient(v.x,v.y,0,v.x,v.y,v.r);
+        g2.addColorStop(0,gc(p,v.ci,t,.95));
+        g2.addColorStop(.5,gc(p,v.ci+1,t,.4));
+        g2.addColorStop(1,'rgba(0,0,0,0)');
+        CX.fillStyle=g2;
+        CX.beginPath(); CX.arc(v.x,v.y,v.r,0,TAU); CX.fill();
+      }
+      break;
+    }
+
+    case 'radial_sweep': {
+      const sl=bc*2;
+      const rot=t*csp*.9;
+      for(let i=0;i<sl;i++){
+        const a1=rot+i*(TAU/sl), a2=rot+(i+1)*(TAU/sl);
+        CX.beginPath();
+        CX.moveTo(W*.5,H*.5);
+        CX.arc(W*.5,H*.5,sqrt(W*W+H*H),a1,a2);
+        CX.closePath();
+        CX.fillStyle=gc(p,i,t);
+        CX.fill();
+      }
+      break;
+    }
+
+    case 'lissajous_field': {
+      CX.fillStyle='#000';
+      CX.fillRect(0,0,W,H);
+      const la=G.lissA, lb=G.lissB, ldelta=G.lissDelta;
+      const steps=W*2, rx=W*.42, ry=H*.42;
+      CX.lineWidth=clamp(G.scale*.8,.5,3);
+      CX.beginPath();
+      for(let i=0;i<=steps;i++){
+        const th=i/steps*TAU;
+        const x=W*.5+rx*sin(la*th+ldelta+t*csp*.4);
+        const y=H*.5+ry*sin(lb*th+t*csp*.3);
+        i===0?CX.moveTo(x,y):CX.lineTo(x,y);
+      }
+      CX.strokeStyle=gc(p,0,t);
+      CX.stroke();
+      // Second pass with offset color
+      CX.beginPath();
+      for(let i=0;i<=steps;i++){
+        const th=i/steps*TAU;
+        const x=W*.5+rx*sin(la*th+ldelta+t*csp*.4+1.2);
+        const y=H*.5+ry*sin(lb*th+1.0+t*csp*.25);
+        i===0?CX.moveTo(x,y):CX.lineTo(x,y);
+      }
+      CX.strokeStyle=gc(p,2,t,.8);
+      CX.stroke();
+      break;
+    }
+  }
+
+  // ── CRT scanlines ─────────────────────────────────────────────
+  if(G.scanlineAlpha>0.01){
+    CX.fillStyle=`rgba(0,0,0,${G.scanlineAlpha})`;
+    for(let y=0;y<H;y+=2) CX.fillRect(0,y,W,1);
+  }
+
+  // ── Vignette ─────────────────────────────────────────────────
+  if(G.vigStr>0.05){
+    const vg=CX.createRadialGradient(W*.5,H*.5,Math.min(W,H)*.2,W*.5,H*.5,Math.max(W,H)*.78);
+    vg.addColorStop(0,'rgba(0,0,0,0)');
+    vg.addColorStop(1,`rgba(0,0,0,${G.vigStr})`);
+    CX.fillStyle=vg; CX.fillRect(0,0,W,H);
+  }
+
+  // ── Phosphor glow pulse ───────────────────────────────────────
+    if(G.glowOn && G.palette && G.palette.pal && G.palette.pal.length){
+      const gph=sin(G.time*G.cSpeed*1.3)*.5+.5;
+      const gv=CX.createRadialGradient(W*.5,H*.5,0,W*.5,H*.5,Math.max(W,H)*.4);
+      const gc2=G.palette.pal[0];
+      gv.addColorStop(0,`hsla(${gc2.h},${gc2.s}%,${clamp(gc2.l,30,70)}%,${gph*.07})`);
+      gv.addColorStop(1,'rgba(0,0,0,0)');
+      CX.fillStyle=gv; CX.fillRect(0,0,W,H);
+    }
+
+  CX.restore();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  ENTITY SHAPES — 18 pixel-art shapes
+// ═══════════════════════════════════════════════════════════════════
+function drawShape(sh,x,y,sz,c1,c2){
+  const u=sz/8;
+  CX.fillStyle=c1; CX.strokeStyle=c2; CX.lineWidth=clamp(u*.9,.5,4);
+  switch(sh){
+    case 'sq':     CX.fillRect(x-sz*.5,y-sz*.5,sz,sz); break;
+    case 'rect_h': CX.fillRect(x-sz*.7,y-sz*.2,sz*1.4,sz*.4); break;
+    case 'rect_v': CX.fillRect(x-sz*.2,y-sz*.7,sz*.4,sz*1.4); break;
+    case 'circ':
+      CX.beginPath(); CX.arc(x,y,sz*.5,0,TAU); CX.fill(); break;
+    case 'tri_u':
+      CX.beginPath(); CX.moveTo(x,y-sz*.62); CX.lineTo(x+sz*.5,y+sz*.45);
+      CX.lineTo(x-sz*.5,y+sz*.45); CX.closePath(); CX.fill(); break;
+    case 'tri_d':
+      CX.beginPath(); CX.moveTo(x,y+sz*.62); CX.lineTo(x+sz*.5,y-sz*.45);
+      CX.lineTo(x-sz*.5,y-sz*.45); CX.closePath(); CX.fill(); break;
+    case 'diamond':
+      CX.beginPath(); CX.moveTo(x,y-sz*.65); CX.lineTo(x+sz*.45,y);
+      CX.lineTo(x,y+sz*.65); CX.lineTo(x-sz*.45,y); CX.closePath(); CX.fill(); break;
+    case 'cross':
+      CX.fillRect(x-u*.8,y-sz*.5,u*1.6,sz);
+      CX.fillRect(x-sz*.5,y-u*.8,sz,u*1.6); break;
+    case 'ring':
+      CX.beginPath(); CX.arc(x,y,sz*.5,0,TAU);
+      CX.lineWidth=clamp(sz*.18,1,6); CX.stroke(); break;
+    case 'star5': {
+      CX.beginPath();
+      for(let i=0;i<10;i++){
+        const a=i*TAU/10-TAU/4, r2=i%2===0?sz*.5:sz*.22;
+        i===0?CX.moveTo(x+cos(a)*r2,y+sin(a)*r2):CX.lineTo(x+cos(a)*r2,y+sin(a)*r2);
+      }
+      CX.closePath(); CX.fill(); break;
+    }
+    case 'hex': {
+      CX.beginPath();
+      for(let i=0;i<6;i++){
+        const a=i*TAU/6;
+        i===0?CX.moveTo(x+cos(a)*sz*.5,y+sin(a)*sz*.5):CX.lineTo(x+cos(a)*sz*.5,y+sin(a)*sz*.5);
+      }
+      CX.closePath(); CX.fill(); break;
+    }
+    case 'arrow': {
+      const hw=sz*.5;
+      CX.beginPath();
+      CX.moveTo(x+hw,y); CX.lineTo(x,y-sz*.45); CX.lineTo(x,y-sz*.2);
+      CX.lineTo(x-hw,y-sz*.2); CX.lineTo(x-hw,y+sz*.2); CX.lineTo(x,y+sz*.2);
+      CX.lineTo(x,y+sz*.45); CX.closePath(); CX.fill(); break;
+    }
+    case 'ship': {
+      CX.beginPath();
+      CX.moveTo(x,y-sz*.65); CX.lineTo(x+sz*.42,y+sz*.5);
+      CX.lineTo(x,y+sz*.22); CX.lineTo(x-sz*.42,y+sz*.5);
+      CX.closePath(); CX.fill();
+      CX.fillStyle=c2;
+      CX.beginPath(); CX.arc(x,y-sz*.1,u*1.1,0,TAU); CX.fill();
+      break;
+    }
+    case 'alien': {
+      CX.beginPath(); CX.ellipse(x,y,sz*.5,sz*.38,0,0,TAU); CX.fill();
+      CX.fillStyle=c2;
+      CX.beginPath(); CX.arc(x-sz*.16,y-sz*.08,u*1.2,0,TAU); CX.fill();
+      CX.beginPath(); CX.arc(x+sz*.16,y-sz*.08,u*1.2,0,TAU); CX.fill();
+      CX.strokeStyle=c2; CX.lineWidth=u*.9;
+      CX.beginPath(); CX.moveTo(x-u*1.2,y-sz*.38); CX.lineTo(x-u*2.2,y-sz*.62); CX.stroke();
+      CX.beginPath(); CX.moveTo(x+u*1.2,y-sz*.38); CX.lineTo(x+u*2.2,y-sz*.62); CX.stroke();
+      break;
+    }
+    case 'tank': {
+      CX.fillRect(x-sz*.42,y-sz*.22,sz*.84,sz*.44);
+      CX.fillStyle=c2;
+      CX.fillRect(x-sz*.16,y-sz*.42,sz*.32,sz*.24);
+      CX.fillRect(x-sz*.05,y-sz*.56,sz*.1,sz*.22);
+      CX.fillStyle=c1;
+      CX.fillRect(x-sz*.48,y+sz*.1,sz*.96,sz*.26);
+      break;
+    }
+    case 'pixel_man': {
+      // Head
+      CX.fillRect(x-u*1.5,y-u*4,u*3,u*2.5);
+      // Body
+      CX.fillRect(x-u*2,y-u*1.5,u*4,u*3);
+      // Arms
+      CX.fillStyle=c2;
+      CX.fillRect(x-u*3.5,y-u*1.5,u*1.5,u*2.5);
+      CX.fillRect(x+u*2,y-u*1.5,u*1.5,u*2.5);
+      // Legs
+      CX.fillStyle=c1;
+      CX.fillRect(x-u*1.8,y+u*1.5,u*1.5,u*3);
+      CX.fillRect(x+u*.3,y+u*1.5,u*1.5,u*3);
+      break;
+    }
+    case 'missile': {
+      CX.beginPath();
+      CX.moveTo(x,y-sz*.7); CX.lineTo(x+sz*.18,y+sz*.3);
+      CX.lineTo(x-sz*.18,y+sz*.3); CX.closePath(); CX.fill();
+      CX.fillStyle=c2;
+      CX.beginPath();
+      CX.moveTo(x-sz*.18,y+sz*.28); CX.lineTo(x-sz*.38,y+sz*.65);
+      CX.lineTo(x-sz*.05,y+sz*.28); CX.closePath(); CX.fill();
+      CX.beginPath();
+      CX.moveTo(x+sz*.18,y+sz*.28); CX.lineTo(x+sz*.38,y+sz*.65);
+      CX.lineTo(x+sz*.05,y+sz*.28); CX.closePath(); CX.fill();
+      break;
+    }
+  }
+}
+
+const ALL_SHAPES=[
+  'sq','rect_h','rect_v','circ','tri_u','tri_d','diamond',
+  'cross','ring','star5','hex','arrow','ship','alien','tank','pixel_man','missile'
+];
+
+// ═══════════════════════════════════════════════════════════════════
+//  MOTION MODES — 14 behaviors
+// ═══════════════════════════════════════════════════════════════════
+const MOTION_MODES=[
+  'bounce','orbit_center','lissa_path','sinX','sinY',
+  'spiral_in_out','attract_repel','flock',
+  'vortex','brownian','zigzag','pulse_ring',
+  'rain','scatter_collect'
+];
+
+function stepEntity(e, dt){
+  const mode=G.motionMode, sp=G.speedMult, t=G.time, ents=G.entities;
+  switch(mode){
+
+    case 'bounce':
+      e.x+=e.vx*sp*60*dt; e.y+=e.vy*sp*60*dt;
+      if(e.x<-e.sz||e.x>W+e.sz){e.vx*=-1;e.x=clamp(e.x,-e.sz,W+e.sz);}
+      if(e.y<-e.sz||e.y>H+e.sz){e.vy*=-1;e.y=clamp(e.y,-e.sz,H+e.sz);}
+      break;
+
+    case 'orbit_center': {
+      const dx=e.x-W*.5, dy=e.y-H*.5;
+      const dist=sqrt(dx*dx+dy*dy)||1;
+      const ang=Math.atan2(dy,dx)+sp*.022;
+      const target_r=clamp(e.orbitR*(1+sin(t*.4+e.ph)*.3),40,Math.max(W,H)*.5);
+      const nr=lerp(dist,target_r,.015);
+      e.x=W*.5+cos(ang)*nr; e.y=H*.5+sin(ang)*nr;
+      break;
+    }
+
+    case 'lissa_path': {
+      const tt=t*sp*.45+e.ph;
+      e.x=W*.5+W*.38*sin(e.la*tt+e.ldelta);
+      e.y=H*.5+H*.38*sin(e.lb*tt);
+      break;
+    }
+
+    case 'sinX':
+      e.x+=e.vx*sp*55*dt;
+      e.y=H*.5+sin(e.x*G.ps1*0.5+t*G.cSpeed*1.8+e.ph)*H*.4;
+      if(e.x<0)e.x=W; if(e.x>W)e.x=0;
+      break;
+
+    case 'sinY':
+      e.y+=e.vy*sp*55*dt;
+      e.x=W*.5+sin(e.y*G.ps2*.5+t*G.cSpeed*1.8+e.ph)*W*.4;
+      if(e.y<0)e.y=H; if(e.y>H)e.y=0;
+      break;
+
+    case 'spiral_in_out': {
+      const ang=t*sp*.6+e.ph;
+      const pulse=(sin(t*.35+e.ph*.7)*.5+.5)*.85+.05;
+      e.x=W*.5+cos(ang)*Math.min(W,H)*pulse*.44;
+      e.y=H*.5+sin(ang)*Math.min(W,H)*pulse*.44;
+      break;
+    }
+
+    case 'attract_repel': {
+      const attract=sin(t*G.cSpeed*.5+e.ph)>0;
+      const dx=W*.5-e.x, dy=H*.5-e.y;
+      const d=sqrt(dx*dx+dy*dy)||1;
+      const f=(attract?.00025:-.00018)*d;
+      e.vx+=dx*f; e.vy+=dy*f;
+      e.vx*=.975; e.vy*=.975;
+      e.x+=e.vx*60*dt; e.y+=e.vy*60*dt;
+      if(e.x<0||e.x>W)e.vx*=-1;
+      if(e.y<0||e.y>H)e.vy*=-1;
+      break;
+    }
+
+    case 'flock': {
+      let sx=0,sy=0,avx=0,avy=0,cx2=0,cy2=0,cnt=0;
+      const sep=G.flockSep, view=sep*3.5;
+      for(let j=0;j<ents.length&&j<40;j++){
+        const o=ents[j]; if(o===e) continue;
+        const dx=o.x-e.x, dy=o.y-e.y;
+        const d2=dx*dx+dy*dy;
+        if(d2<sep*sep&&d2>0){const d=sqrt(d2); sx-=dx/d; sy-=dy/d;}
+        if(d2<view*view){avx+=o.vx;avy+=o.vy;cx2+=o.x;cy2+=o.y;cnt++;}
+      }
+      if(cnt){avx/=cnt;avy/=cnt;cx2=cx2/cnt-e.x;cy2=cy2/cnt-e.y;}
+      e.vx+=sx*.025+avx*G.flockAlign+cx2*G.flockCoh;
+      e.vy+=sy*.025+avy*G.flockAlign+cy2*G.flockCoh;
+      const spd=sqrt(e.vx*e.vx+e.vy*e.vy)||1, ms=sp*1.4;
+      if(spd>ms){e.vx=e.vx/spd*ms;e.vy=e.vy/spd*ms;}
+      e.x+=e.vx*60*dt; e.y+=e.vy*60*dt;
+      if(e.x<0)e.x=W; if(e.x>W)e.x=0;
+      if(e.y<0)e.y=H; if(e.y>H)e.y=0;
+      break;
+    }
+
+    case 'vortex': {
+      const dx=e.x-W*.5, dy=e.y-H*.5;
+      const d=sqrt(dx*dx+dy*dy)||1;
+      // Both spin and slow inward pull
+      const ang=Math.atan2(dy,dx)+sp*dt*2.8*(e.vx>0?1:-1);
+      const nr=clamp(d+(sin(t*.3+e.ph)-.1)*sp*20*dt,25,Math.max(W,H)*.65);
+      e.x=W*.5+cos(ang)*nr; e.y=H*.5+sin(ang)*nr;
+      break;
+    }
+
+    case 'brownian':
+      e.vx+=rnd(-.55,.55); e.vy+=rnd(-.55,.55);
+      e.vx=clamp(e.vx,-sp*1.5,sp*1.5);
+      e.vy=clamp(e.vy,-sp*1.5,sp*1.5);
+      e.x+=e.vx*60*dt; e.y+=e.vy*60*dt;
+      if(e.x<0||e.x>W)e.vx*=-1;
+      if(e.y<0||e.y>H)e.vy*=-1;
+      break;
+
+    case 'zigzag':
+      e.x+=e.vx*sp*60*dt;
+      e.y+=sin(t*3.5+e.ph)*sp*2.8;
+      if(e.x<0||e.x>W){e.vx*=-1; e.y=rnd(0,H);}
+      break;
+
+    case 'pulse_ring': {
+      const pulse=1+sin(t*G.cSpeed*2.2+e.ph)*.55;
+      const ang=t*sp*.42+e.ph;
+      e.x=W*.5+cos(ang)*(e.orbitR*pulse*(W/Math.max(W,H)));
+      e.y=H*.5+sin(ang)*(e.orbitR*pulse*(H/Math.max(W,H)));
+      break;
+    }
+
+    case 'rain':
+      e.y+=sp*e.sz*2.2*dt*60*.04+sp*60*dt*.38;
+      e.x+=sin(t*.55+e.ph)*sp*.9;
+      return e.y>H+e.sz*2; // signal removal
+
+    case 'scatter_collect': {
+      const collect=sin(t*G.cSpeed*.4)>0;
+      if(collect){
+        const dx=W*.5-e.x,dy=H*.5-e.y,d=sqrt(dx*dx+dy*dy)||1;
+        e.vx+=dx/d*.18; e.vy+=dy/d*.18;
+      } else {
+        e.vx+=rnd(-.35,.35); e.vy+=rnd(-.35,.35);
+      }
+      e.vx*=.96; e.vy*=.96;
+      e.x+=e.vx*60*dt; e.y+=e.vy*60*dt;
+      if(e.x<0||e.x>W)e.vx*=-1;
+      if(e.y<0||e.y>H)e.vy*=-1;
+      break;
+    }
+  }
+  return false; // keep entity
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  AUDIO ENGINE — derived from + synced to visual state
+// ═══════════════════════════════════════════════════════════════════
+let _oscs=[], _gains=[], _lfo=null, _lfoG=null, _noiseSrc=null, _noiseG=null;
+
+function initAudio(){
+  if(AC) return;
+  AC=new (window.AudioContext||window.webkitAudioContext)();
+  MASTER=AC.createGain(); MASTER.gain.value=0;
+  MASTER.connect(AC.destination);
+}
+
+function teardownAudio(){
+  [..._oscs,_lfo,_noiseSrc].forEach(n=>{try{if(n){n.stop();n.disconnect();}}catch(e){}});
+  [..._gains,_lfoG,_noiseG].forEach(n=>{try{if(n)n.disconnect();}catch(e){}});
+  _oscs=[];_gains=[];_lfo=_lfoG=_noiseSrc=_noiseG=null;
+}
+
+// Build synth from current G params — call after each newGame
+function buildAudio(){
+  if(!AC) return;
+  teardownAudio();
+
+  // Base frequency: derived from palette base hue + colorSpeed
+  // Map hue 0-360 to musical root across 3 octaves
+  const rootFreq = 55 * Math.pow(2, G.audioRoot);  // G.audioRoot set in newGame
+  const waveTypes= ['square','sawtooth','square','triangle'];
+
+  // 4 oscillators: root, 5th, octave, sub-bass
+  const freqs = [
+    rootFreq,
+    rootFreq * G.audioInt1,
+    rootFreq * G.audioInt2,
+    rootFreq * .5
+  ];
+  const vols  = [.38,.22,.14,.12];
+  const waves = [pick(waveTypes), pick(waveTypes), 'triangle', 'square'];
+
+  for(let i=0;i<4;i++){
+    const g=AC.createGain(); g.gain.value=vols[i];
+    g.connect(MASTER);
+    const o=AC.createOscillator();
+    o.type=waves[i]; o.frequency.value=freqs[i];
+    o.connect(g); o.start();
+    _oscs.push(o); _gains.push(g);
+  }
+
+  // Noise layer for bit-crush texture
+  const nBuf=AC.createBuffer(1,AC.sampleRate*.8,AC.sampleRate);
+  const nd=nBuf.getChannelData(0);
+  // Quantized noise for 8-bit feel
+  const bits=rint(2,5), step=2/Math.pow(2,bits);
+  for(let i=0;i<nd.length;i++) nd[i]=floor(rnd(-1,1)/step)*step;
+  _noiseSrc=AC.createBufferSource();
+  _noiseSrc.buffer=nBuf; _noiseSrc.loop=true;
+  _noiseG=AC.createGain(); _noiseG.gain.value=.025;
+  _noiseSrc.connect(_noiseG); _noiseG.connect(MASTER);
+  _noiseSrc.start();
+
+  // LFO — rate tied to colorSpeed so pitch wobble matches visual cycle
+  _lfo=AC.createOscillator();
+  _lfo.frequency.value=clamp(G.cSpeed*.9,.05,8);
+  _lfoG=AC.createGain(); _lfoG.gain.value=rootFreq*.06;
+  _lfo.connect(_lfoG);
+  _lfoG.connect(_oscs[0].frequency);
+  _lfoG.connect(_oscs[1].frequency);
+  _lfo.start();
+}
+
+function syncAudio(t, dt){
+  if(!AC||!SOUND_ON||!_oscs.length) return;
+
+  const rootFreq=55*Math.pow(2,G.audioRoot);
+  const energy=G.audioEnergy||0;
+  const entityRatio=clamp(G.entities.length/G.maxEntities,0,1);
+
+  // Pitch modulated by visual energy + time
+  const fmod=rootFreq*(1+sin(t*G.cSpeed*2.8+energy)*.12+energy*.06);
+  _oscs[0].frequency.setTargetAtTime(fmod,             AC.currentTime,.08);
+  _oscs[1].frequency.setTargetAtTime(fmod*G.audioInt1, AC.currentTime,.1);
+  _oscs[2].frequency.setTargetAtTime(fmod*G.audioInt2, AC.currentTime,.14);
+  _oscs[3].frequency.setTargetAtTime(fmod*.5,          AC.currentTime,.2);
+
+  // Volume envelope follows entity density + energy pulse
+  const masterV=clamp(G.audioVol*(.5+entityRatio*.5+energy*.3),0,.92);
+  MASTER.gain.setTargetAtTime(masterV, AC.currentTime,.07);
+
+  // Per-osc volumes pulse
+  _gains[0].gain.setTargetAtTime(.38*(1+energy*.25), AC.currentTime,.06);
+  _gains[1].gain.setTargetAtTime(.22*(1+energy*.15), AC.currentTime,.08);
+
+  // LFO speed follows cSpeed
+  _lfo.frequency.setTargetAtTime(clamp(G.cSpeed*.9*(1+energy*.4),.05,10), AC.currentTime,.25);
+
+  // Arpeggiate: briefly hit a scale tone
+  G._arpT=(G._arpT||0)+dt;
+  const arpRate=.06+G.cSpeed*.04;
+  if(G._arpT>arpRate&&Math.random()<.45){
+    G._arpT=0;
+    const note=G.audioScale[rint(0,G.audioScale.length)]*rootFreq;
+    _oscs[0].frequency.setValueAtTime(note,AC.currentTime);
+    _oscs[0].frequency.exponentialRampToValueAtTime(fmod,AC.currentTime+arpRate*.8);
+  }
+}
+
+function fadeAudio(to, dur=.35){
+  if(!AC||!MASTER) return;
+  MASTER.gain.cancelScheduledValues(AC.currentTime);
+  MASTER.gain.setTargetAtTime(to,AC.currentTime,dur);
+}
+
+function toggleSound(){
+  SOUND_ON=!SOUND_ON;
+  if(SOUND_ON){
+    initAudio();
+    if(AC.state==='suspended') AC.resume();
+    buildAudio();
+    fadeAudio(G.audioVol||.12,.3);
+  } else {
+    fadeAudio(0,.3);
+    setTimeout(teardownAudio,380);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  ENTITY FACTORY
+// ═══════════════════════════════════════════════════════════════════
+function makeEntity(){
+  const mode=G.motionMode;
+  const e={
+    x: mode==='rain'?rnd(0,W) : rnd(0,W),
+    y: mode==='rain'?rnd(-80,-10) : rnd(0,H),
+    vx: rnd(-1,1),
+    vy: rnd(-1,1),
+    sz: rnd(G.minSz, G.maxSz),
+    ph: rnd(0,TAU),
+    angle: rnd(0,TAU),
+    spin: rnd(-G.spinMax,G.spinMax),
+    shape: pick(G.shapePool),
+    ci1: rint(0,G.palette.pal.length),
+    ci2: rint(0,G.palette.pal.length),
+    orbitR: rnd(40,Math.min(W,H)*.45),
+    la: pick([1,2,3,4,5]), lb: pick([1,2,3,4,5]),
+    ldelta: rnd(0,TAU)
+  };
+  // Normalize velocity
+  const spd=sqrt(e.vx*e.vx+e.vy*e.vy)||1;
+  e.vx=e.vx/spd*(rnd(.3,1));
+  e.vy=e.vy/spd*(rnd(.3,1));
+  return e;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  NEW GAME — full randomization
+// ═══════════════════════════════════════════════════════════════════
+function newGame(){
+  // Flash
+  const fl=document.getElementById('flash');
+  fl.style.transition='opacity 0s';
+  fl.style.opacity='.7';
+  requestAnimationFrame(()=>{ fl.style.transition='opacity .18s'; fl.style.opacity='0'; });
+
+  GEN++; FRAME=0;
+  G={};
+  G.time=0; G.dt=.016;
+
+  // ── Palette (fully random) ─────────────────────────────────────
+  G.palette = buildPalette();
+  G.cSpeed  = rnd(.12, 2.8);
+  G.cWobble = rnd(8, 65);
+
+  // ── Background ────────────────────────────────────────────────
+  G.bgMode      = pick(BG_MODES);
+  G.bandCount   = rint(4,20);
+  G.checkSz     = rint(18,90);
+  G.gridSz      = rint(18,55);
+  G.gridPhase   = rnd(0,TAU);
+  G.scanFreq    = rnd(.003,.045);
+  G.ps1         = rnd(.002,.028);
+  G.ps2         = rnd(.002,.022);
+  G.ps3         = rnd(.001,.016);
+  G.ps4         = rnd(.001,.012);
+  G.scanlineAlpha = rnd(.02,.3);
+  G.vigStr      = rnd(.15,.82);
+  G.glowOn      = Math.random()>.4;
+  G.lissA       = pick([1,2,3,4,5,6]);
+  G.lissB       = pick([1,2,3,4,5,6]);
+  G.lissDelta   = rnd(0,TAU);
+
+  // Stars
+  G.stars=[];
+  const nStars=rint(150,350);
+  for(let i=0;i<nStars;i++) G.stars.push({
+    x:rnd(-W*.5,W*.5), y:rnd(-H*.5,H*.5),
+    z:rnd(1,Math.max(W,H)*.55),
+    ci:rint(0,G.palette.pal.length)
+  });
+
+  // Voronoi blobs
+  G.vpts=[];
+  const nV=rint(4,16);
+  for(let i=0;i<nV;i++) G.vpts.push({
+    x:rnd(0,W), y:rnd(0,H),
+    r:rnd(Math.min(W,H)*.06,Math.min(W,H)*.42),
+    vx:rnd(.1,1.4), vy:rnd(.1,1.4),
+    sp:rnd(.1,1.1), ph:rnd(0,TAU),
+    ci:rint(0,G.palette.pal.length)
+  });
+
+  // ── Entities ───────────────────────────────────────────────────
+  G.motionMode  = pick(MOTION_MODES);
+  const nShapes = rint(1,4);
+  G.shapePool   = [];
+  const shuffled=[...ALL_SHAPES].sort(()=>Math.random()-.5);
+  for(let i=0;i<nShapes;i++) G.shapePool.push(shuffled[i]);
+
+  G.maxEntities = rint(18,110);
+  G.spawnRate   = rnd(.005,.14);
+  G.scale       = Math.min(W,H)/160;
+  G.minSz       = rnd(3,12);
+  G.maxSz       = rnd(G.minSz+6, G.minSz+32);
+  G.speedMult   = rnd(.25,3.2);
+  G.spinMax     = rnd(.003,.25);
+  G.trailAlpha  = Math.random()>.48 ? rnd(.02,.22) : 0;
+
+  // Flock params
+  G.flockSep    = rnd(12,55);
+  G.flockAlign  = rnd(.004,.09);
+  G.flockCoh    = rnd(.00008,.003);
+
+  // ── Audio params — derived from visual params ──────────────────
+  // Map palette base hue to a root note (0–4 octaves above 55Hz)
+  G.audioRoot   = (G.palette.base/360)*3;  // 0..3 — maps hue to octave
+  // Musical intervals from palette model
+  const INT_MAP = {
+    triadic:   [1.5,2],
+    split:     [1.5,1.875],
+    analogous: [1.333,1.667],
+    tetradic:  [1.414,2],
+    mono:      [1.25,1.5],
+    clash:     [1.333,2],
+    dual_split:[1.5,2],
+    random:    [pick([1.25,1.333,1.5,1.667,2]), pick([1.5,1.667,2,2.5])]
+  };
+  const ints=INT_MAP[G.palette.model]||INT_MAP.random;
+  G.audioInt1   = ints[0];
+  G.audioInt2   = ints[1];
+
+  // Scale derived from cSpeed (faster = more notes, more dissonant)
+  const SCALES=[
+    [1,1.125,1.25,1.5,2],
+    [1,1.2,1.4,1.6,2],
+    [1,1.333,1.5,2,2.667],
+    [1,1.0595,1.122,1.498,1.682,2],  // chromatic-ish
+    [1,1.25,1.5,1.875,2]
+  ];
+  G.audioScale  = pick(SCALES);
+  G.audioVol    = rnd(.07,.18);
+  G.audioEnergy = 0;
+  G._arpT       = 0;
+
+  // ── Spawn initial entities ─────────────────────────────────────
+  G.entities=[];
+  const initN=rint(8, G.maxEntities);
+  for(let i=0;i<initN;i++) G.entities.push(makeEntity());
+
+  // Rebuild audio synth for new params
+  if(SOUND_ON && AC){
+    buildAudio();
+    fadeAudio(G.audioVol,.12);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  UPDATE
+// ═══════════════════════════════════════════════════════════════════
+function update(dt){
+  if(!G.entities) return;
+  G.time+=dt; G.dt=dt;
+
+  let totalV=0;
+  const ents=G.entities;
+  for(let i=ents.length-1;i>=0;i--){
+    const e=ents[i];
+    const remove=stepEntity(e,dt);
+    if(remove){ ents.splice(i,1); continue; }
+    e.angle+=e.spin*60*dt;
+    totalV+=abs(e.vx)+abs(e.vy);
+  }
+
+  // Spawn
+  if(Math.random()<G.spawnRate && ents.length<G.maxEntities) ents.push(makeEntity());
+  if(G.motionMode==='rain' && ents.length<G.maxEntities*.65) ents.push(makeEntity());
+
+  // Audio energy metric = normalized average entity speed
+  G.audioEnergy=clamp(totalV/Math.max(ents.length,1)/Math.max(G.speedMult,1),0,1);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  DRAW ENTITIES
+// ═══════════════════════════════════════════════════════════════════
+function drawEntities(t){
+  CX.save();
+  CX.imageSmoothingEnabled=false;
+
+  if(G.trailAlpha>0){
+    CX.globalAlpha=G.trailAlpha;
+    CX.fillStyle='#000';
+    CX.fillRect(0,0,W,H);
+    CX.globalAlpha=1;
+  }
+
+  for(const e of G.entities){
+    const c1=gc(G.palette,e.ci1,t);
+    const c2=gc(G.palette,e.ci2,t);
+    const sz=e.sz*G.scale;
+    if(sz<.5) continue;
+    CX.save();
+    CX.translate(e.x,e.y);
+    CX.rotate(e.angle);
+    drawShape(e.shape,0,0,sz,c1,c2);
+    CX.restore();
+  }
+
+  CX.restore();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  HUD
+// ═══════════════════════════════════════════════════════════════════
+function updateHUD(){
+  const el=document.getElementById('hud');
+  if(!SHOW_HUD){ el.classList.remove('on'); return; }
+  el.classList.add('on');
+
+  const bar=(v,n=8)=>'█'.repeat(round(v*n))+'░'.repeat(n-round(v*n));
+  const round=Math.round;
+  const ents=G.entities?G.entities.length:0;
+  const fps=round(1/Math.max(G.dt,.001));
+
+  document.getElementById('htl').textContent=
+    `GEN ${GEN}\nBG: ${G.bgMode}\nMOTION: ${G.motionMode}\nSHAPES: ${G.shapePool?G.shapePool.join(','):''}`;
+
+  document.getElementById('htr').textContent=
+    `PALETTE: ${G.palette?G.palette.model.toUpperCase():''}\nCOLOR SPD: ${G.cSpeed?G.cSpeed.toFixed(2):''}\nAUDIO: ${SOUND_ON?'ON':'OFF'}\nFPS: ${fps}`;
+
+  document.getElementById('hbl').textContent=
+    `[SPACE / CLICK / TAP] REGENERATE\n[H] TOGGLE HUD   [S] TOGGLE SOUND`;
+
+  const energyRatio=G.audioEnergy||0;
+  document.getElementById('hbr').textContent=
+    `ENTITIES: ${ents}/${G.maxEntities||0}\nENERGY: ${bar(energyRatio)}\nSPEED: ${G.speedMult?G.speedMult.toFixed(2):''}`;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  MAIN LOOP
+// ═══════════════════════════════════════════════════════════════════
+function loop(ts){
+  const dt=clamp((ts-T_PREV)/1000,0,.05);
+  T_PREV=ts; FRAME++;
+
+  update(dt);
+  syncAudio(G.time, dt);
+  try{ drawBG(G.time); }       catch(e){ CX.fillStyle='#000';CX.fillRect(0,0,W,H); }
+  try{ drawEntities(G.time); } catch(e){}
+  updateHUD();
+
+  requestAnimationFrame(loop);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  INPUT
+// ═══════════════════════════════════════════════════════════════════
+window.addEventListener('keydown',e=>{
+  if(e.code==='Space'){e.preventDefault();newGame();}
+  if(e.key==='h'||e.key==='H') SHOW_HUD=!SHOW_HUD;
+  if(e.key==='s'||e.key==='S') toggleSound();
+});
+window.addEventListener('click',()=>newGame());
+window.addEventListener('touchend',e=>{ e.preventDefault(); newGame(); },{passive:false});
+
+// ═══════════════════════════════════════════════════════════════════
+//  BOOT
+// ═══════════════════════════════════════════════════════════════════
+newGame();
+requestAnimationFrame(ts=>{ T_PREV=ts; requestAnimationFrame(loop); });
+</script>
+</body>
+</html>

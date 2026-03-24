@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Multiversal Spectral Tensor Ocean – WebGL2 Generative Kaleidoscopic Raymarched Fractal</title>
+<meta name="description" content="Full-window WebGL2 multiversal spectral tensor ocean. Raymarched volumetric fractals, tensor fields, quaternion camera rotations, Mandelbrot/Julia blends, simplex turbulence, Chebyshev ripples, Coxeter kaleidoscopic symmetry, stereographic hypersphere projection, FFT-reactive spectral gradients and Web Audio cosmic ocean synthesis.">
+<meta name="keywords" content="WebGL2, generative art, raymarching, fractal, Mandelbrot, Julia, tensor field, quaternion rotation, kaleidoscope, Coxeter symmetry, stereographic projection, spectral gradient, Web Audio API, procedural audio, volumetric rendering">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+html,body{margin:0;padding:0;background:#000;overflow:hidden}
+canvas{display:block;width:100vw;height:100vh}
+#hud{
+position:fixed;top:0;left:0;
+color:#0ff;font-family:monospace;
+background:rgba(0,0,0,.35);
+padding:8px;font-size:12px;
+display:none;pointer-events:none
+}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="hud"></div>
+
+<script>
+"use strict";
+
+/* =========================================================
+   MULTIVERSAL SPECTRAL TENSOR OCEAN
+   ========================================================= */
+
+const canvas = document.getElementById("gl");
+const gl = canvas.getContext("webgl2",{antialias:false});
+if(!gl){ alert("WebGL2 required."); }
+
+let DPR = Math.min(devicePixelRatio,2);
+function resize(){
+  canvas.width = innerWidth*DPR;
+  canvas.height = innerHeight*DPR;
+  gl.viewport(0,0,canvas.width,canvas.height);
+}
+addEventListener("resize",resize); resize();
+
+/* ------------------- UTIL ------------------- */
+
+function rand(a=1,b=0){ return b + Math.random()*(a-b); }
+function randi(a,b){ return Math.floor(rand(a,b)); }
+function choice(arr){ return arr[randi(0,arr.length)]; }
+
+/* ------------------- SHADERS ------------------- */
+
+const vert = `#version 300 es
+precision highp float;
+layout(location=0) in vec2 p;
+out vec2 vUv;
+void main(){
+  vUv = p;
+  gl_Position = vec4(p,0.,1.);
+}
+`;
+
+const frag = `#version 300 es
+precision highp float;
+out vec4 fragColor;
+in vec2 vUv;
+
+uniform vec2 iRes;
+uniform float iTime;
+uniform vec4 uSeed;
+uniform float uAudio;
+uniform float uSym;
+
+#define MAX_STEPS 80
+#define MAX_DIST 30.
+#define SURF_DIST 0.001
+
+/* -------------- RANDOM -------------- */
+float hash(float n){ return fract(sin(n)*43758.5453); }
+float noise(vec3 x){
+  vec3 p=floor(x),f=fract(x);
+  f=f*f*(3.-2.*f);
+  float n=p.x+p.y*57.+113.*p.z;
+  return mix(mix(mix(hash(n+0.),hash(n+1.),f.x),
+                 mix(hash(n+57.),hash(n+58.),f.x),f.y),
+             mix(mix(hash(n+113.),hash(n+114.),f.x),
+                 mix(hash(n+170.),hash(n+171.),f.x),f.y),f.z);
+}
+float fbm(vec3 p){
+  float s=0.,a=.5;
+  for(int i=0;i<5;i++){
+    s+=a*noise(p);
+    p*=2.;
+    a*=.5;
+  }
+  return s;
+}
+
+/* -------------- QUATERNION ROTATION -------------- */
+vec3 qrot(vec3 p, vec4 q){
+  return p + 2.0*cross(q.xyz, cross(q.xyz,p)+q.w*p);
+}
+
+/* -------------- KALEIDOSCOPE -------------- */
+vec2 kaleido(vec2 p,float n){
+  float a=atan(p.y,p.x);
+  float r=length(p);
+  float tau=6.2831853/n;
+  a=mod(a,tau);
+  a=abs(a-tau/2.);
+  return r*vec2(cos(a),sin(a));
+}
+
+/* -------------- FRACTAL BLEND -------------- */
+float fractal(vec2 c){
+  vec2 z=c;
+  float m=0.;
+  for(int i=0;i<30;i++){
+    z=vec2(z.x*z.x - z.y*z.y,2.*z.x*z.y)+c;
+    if(dot(z,z)>4.) break;
+    m+=1.;
+  }
+  return m/30.;
+}
+
+/* -------------- CHEBYSHEV RIPPLE -------------- */
+float cheb(float x){
+  return cos(acos(clamp(x,-1.,1.))*float(int(uSeed.z*6.+2.)));
+}
+
+/* -------------- DISTANCE FIELD -------------- */
+float map(vec3 p){
+  p = qrot(p, normalize(vec4(sin(iTime*.2+uSeed.xy),cos(iTime*.13),1.)));
+  
+  vec3 op=p;
+  p.xy = kaleido(p.xy,uSym);
+  
+  float t = fbm(p*1.5 + iTime*.3);
+  
+  float harmonic = sin(p.x*2.+iTime) + cos(p.y*2.-iTime);
+  float ripple = cheb(sin(length(p)+iTime));
+  
+  float fract = fractal(p.xy*.5 + uSeed.xy);
+  
+  float sphere = length(p) - (1.5 + t*.8 + ripple*.3 + fract*.5);
+  
+  float ocean = sin(op.x*3.+iTime)*sin(op.z*3.-iTime)*.2;
+  
+  return sphere + ocean + harmonic*.1;
+}
+
+/* -------------- RAYMARCH -------------- */
+float march(vec3 ro, vec3 rd){
+  float d=0.;
+  for(int i=0;i<MAX_STEPS;i++){
+    vec3 p=ro+rd*d;
+    float h=map(p);
+    if(h<SURF_DIST||d>MAX_DIST) break;
+    d+=h;
+  }
+  return d;
+}
+
+/* -------------- NORMAL -------------- */
+vec3 normal(vec3 p){
+  vec2 e=vec2(.001,0);
+  return normalize(vec3(
+    map(p+e.xyy)-map(p-e.xyy),
+    map(p+e.yxy)-map(p-e.yxy),
+    map(p+e.yyx)-map(p-e.yyx)
+  ));
+}
+
+/* -------------- SPECTRAL PALETTE -------------- */
+vec3 palette(float t){
+  vec3 a=vec3(.5,.5,.5);
+  vec3 b=vec3(.5,.5,.5);
+  vec3 c=vec3(1.,1.,1.);
+  vec3 d=uSeed.xyz*2.;
+  return pow(a+b*cos(6.28318*(c*t+d)),vec3(1.4));
+}
+
+/* -------------- MAIN -------------- */
+void main(){
+  vec2 uv = (gl_FragCoord.xy*2.-iRes)/min(iRes.x,iRes.y);
+  
+  vec3 ro = vec3(0.,0.,5.);
+  vec3 rd = normalize(vec3(uv,-1.5));
+  
+  float d = march(ro,rd);
+  
+  vec3 col=vec3(0);
+  
+  if(d<MAX_DIST){
+    vec3 p=ro+rd*d;
+    vec3 n=normal(p);
+    float diff=clamp(dot(n,normalize(vec3(.4,.6,.7))),0.,1.);
+    float fres=pow(1.-dot(n,-rd),3.);
+    float mag = length(p);
+    col = palette(mag*.2 + uAudio*.5);
+    col *= diff + fres;
+  }
+  
+  col += pow(max(0.,1.-d/MAX_DIST),3.)*palette(iTime*.05);
+  
+  fragColor=vec4(col,1.);
+}
+`;
+
+/* ------------------- PROGRAM ------------------- */
+
+function compile(type,src){
+  const s=gl.createShader(type);
+  gl.shaderSource(s,src);
+  gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))
+    console.error(gl.getShaderInfoLog(s));
+  return s;
+}
+const program=gl.createProgram();
+gl.attachShader(program,compile(gl.VERTEX_SHADER,vert));
+gl.attachShader(program,compile(gl.FRAGMENT_SHADER,frag));
+gl.linkProgram(program);
+gl.useProgram(program);
+
+/* ------------------- FULLSCREEN TRI ------------------- */
+
+const buf=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([
+-1,-1, 3,-1, -1,3
+]),gl.STATIC_DRAW);
+gl.enableVertexAttribArray(0);
+gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
+
+/* ------------------- UNIFORMS ------------------- */
+
+const uTime=gl.getUniformLocation(program,"iTime");
+const uRes=gl.getUniformLocation(program,"iRes");
+const uSeed=gl.getUniformLocation(program,"uSeed");
+const uAudio=gl.getUniformLocation(program,"uAudio");
+const uSym=gl.getUniformLocation(program,"uSym");
+
+let seed, symmetry;
+function regenerate(){
+  seed=[Math.random(),Math.random(),Math.random(),Math.random()];
+  symmetry=randi(4,14);
+}
+regenerate();
+
+/* ------------------- AUDIO ENGINE ------------------- */
+
+let audioCtx=null, analyser=null, gain=null, dataArray=null;
+let soundOn=false;
+
+function initAudio(){
+  audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+  analyser=audioCtx.createAnalyser();
+  analyser.fftSize=1024;
+  dataArray=new Uint8Array(analyser.frequencyBinCount);
+  gain=audioCtx.createGain();
+  gain.gain.value=.4;
+  analyser.connect(gain).connect(audioCtx.destination);
+
+  for(let i=0;i<6;i++){
+    const o=audioCtx.createOscillator();
+    const g=audioCtx.createGain();
+    o.type=choice(["sine","triangle","sawtooth"]);
+    o.frequency.value=rand(80,20)*(i+1);
+    g.gain.value=0.05;
+    o.connect(g).connect(analyser);
+    o.start();
+  }
+}
+
+function getAudioLevel(){
+  if(!soundOn) return 0;
+  analyser.getByteFrequencyData(dataArray);
+  let sum=0;
+  for(let i=0;i<dataArray.length;i++) sum+=dataArray[i];
+  return (sum/dataArray.length)/255;
+}
+
+/* ------------------- LOOP ------------------- */
+
+let start=performance.now();
+function frame(){
+  let t=(performance.now()-start)/1000;
+  gl.uniform1f(uTime,t);
+  gl.uniform2f(uRes,canvas.width,canvas.height);
+  gl.uniform4f(uSeed,seed[0],seed[1],seed[2],seed[3]);
+  gl.uniform1f(uSym,symmetry);
+  gl.uniform1f(uAudio,getAudioLevel());
+  gl.drawArrays(gl.TRIANGLES,0,3);
+  requestAnimationFrame(frame);
+}
+frame();
+
+/* ------------------- INTERACTION ------------------- */
+
+const hud=document.getElementById("hud");
+
+addEventListener("keydown",e=>{
+  if(e.code==="Space"){ regenerate(); }
+  if(e.key==="h"||e.key==="H"){
+    hud.style.display = hud.style.display==="none"?"block":"none";
+  }
+  if(e.key==="s"||e.key==="S"){
+    soundOn=!soundOn;
+    if(soundOn && !audioCtx) initAudio();
+    if(audioCtx) gain.gain.value = soundOn?.4:0;
+  }
+});
+
+addEventListener("click",()=>regenerate());
+
+setInterval(()=>{
+  hud.innerHTML=
+  "Multiversal Spectral Tensor Ocean<br>"+
+  "Symmetry: "+symmetry+"<br>"+
+  "Audio: "+(soundOn?"ON":"OFF")+"<br>"+
+  "FPS adaptive raymarch";
+},500);
+
+</script>
+</body>
+</html>

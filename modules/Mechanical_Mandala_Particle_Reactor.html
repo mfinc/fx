@@ -1,0 +1,837 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Mechanical Mandala Particle Reactor</title>
+<meta name="description" content="A generative audiovisual reactor merging Hindu yantra, Buddhist mandala, Islamic tilings, Celtic knots with particle physics, mechanical systems, and procedural audio.">
+<meta name="keywords" content="generative art, mandala, particle reactor, audiovisual, sacred geometry, fractal, creative coding">
+<meta property="og:title" content="Mechanical Mandala Particle Reactor">
+<meta property="og:description" content="Immersive generative audiovisual experience blending sacred geometry with particle physics and mechanical systems.">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#000000">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Courier New',monospace}
+canvas{display:block;width:100vw;height:100vh}
+#hud{position:fixed;top:16px;left:16px;color:rgba(255,255,200,0.85);font-size:11px;line-height:1.7;pointer-events:none;display:none;text-shadow:0 0 8px rgba(255,200,100,0.8)}
+#hint{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,0.35);font-size:10px;letter-spacing:2px;pointer-events:none;text-align:center}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<div id="hint">SPACE/TAP · NEW UNIVERSE &nbsp;|&nbsp; H · HUD &nbsp;|&nbsp; S · SOUND</div>
+<script>
+(function(){
+"use strict";
+
+// ── Canvas setup ────────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const hud = document.getElementById('hud');
+
+let W, H, CX, CY, scale;
+function resize(){
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  CX = W/2; CY = H/2;
+  scale = Math.min(W,H)/900;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ── State ────────────────────────────────────────────────────────────────────
+let hudOn = false;
+let soundOn = false;
+let audioCtx = null;
+let masterGain = null;
+let reverbNode = null;
+let running = true;
+let frame = 0;
+let universe = {};
+
+// ── Math helpers ─────────────────────────────────────────────────────────────
+const TAU = Math.PI*2;
+const rand = (a,b) => a + Math.random()*(b-a);
+const randi = (a,b) => Math.floor(rand(a,b+1));
+const lerp = (a,b,t) => a+(b-a)*t;
+const clamp = (v,a,b) => Math.max(a,Math.min(b,v));
+const hsl = (h,s,l,a=1) => `hsla(${h|0},${s|0}%,${l|0}%,${a})`;
+const cos = Math.cos, sin = Math.sin, sqrt = Math.sqrt, abs = Math.abs, PI = Math.PI;
+
+function noise2(x,y){
+  // simple value noise
+  const ix=Math.floor(x), iy=Math.floor(y);
+  const fx=x-ix, fy=y-iy;
+  const u=fx*fx*(3-2*fx), v=fy*fy*(3-2*fy);
+  const n=(xi,yi)=>{let h=(xi*374761393+yi*668265263)^((xi+yi)*1274126177);h=Math.imul(h^(h>>>16),0x45d9f3b);h=Math.imul(h^(h>>>16),0x45d9f3b);return(h^(h>>>16))/0x100000000;};
+  return lerp(lerp(n(ix,iy),n(ix+1,iy),u),lerp(n(ix,iy+1),n(ix+1,iy+1),u),v);
+}
+
+// ── Color palettes ───────────────────────────────────────────────────────────
+const PALETTES = [
+  {name:'solar',h:[30,60,20,0],bg:0},
+  {name:'nebula',h:[260,280,200,320],bg:10},
+  {name:'aurora',h:[150,180,200,130],bg:220},
+  {name:'inferno',h:[0,15,45,300],bg:5},
+  {name:'crystal',h:[200,220,180,240],bg:210},
+  {name:'chakra',h:[0,60,120,180,240,300],bg:270},
+  {name:'acid',h:[70,130,80,50],bg:60},
+  {name:'void',h:[250,270,290,220],bg:0},
+];
+
+let pal, palTarget, palT=0;
+function pickPalette(){
+  pal = PALETTES[randi(0,PALETTES.length-1)];
+  palTarget = PALETTES[randi(0,PALETTES.length-1)];
+}
+
+function palColor(t, bright=60, sat=85, alpha=1){
+  const h = pal.h[(t*pal.h.length|0)%pal.h.length];
+  const th = palTarget.h[(t*palTarget.h.length|0)%palTarget.h.length];
+  const hh = lerp(h, th, palT);
+  return hsl((hh + frame*0.08)%360, sat, bright, alpha);
+}
+
+// ── Audio engine ─────────────────────────────────────────────────────────────
+function initAudio(){
+  if(audioCtx) return;
+  audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+  masterGain = audioCtx.createGain();
+  masterGain.gain.value = 0.35;
+
+  // reverb via convolver
+  try{
+    reverbNode = audioCtx.createConvolver();
+    const len = audioCtx.sampleRate*2.5;
+    const buf = audioCtx.createBuffer(2,len,audioCtx.sampleRate);
+    for(let c=0;c<2;c++){const d=buf.getChannelData(c);for(let i=0;i<len;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/len,2);}
+    reverbNode.buffer = buf;
+    const reverbGain = audioCtx.createGain(); reverbGain.gain.value = 0.4;
+    masterGain.connect(reverbGain); reverbGain.connect(reverbNode); reverbNode.connect(audioCtx.destination);
+  }catch(e){}
+  masterGain.connect(audioCtx.destination);
+}
+
+function playTone(freq, dur=0.15, vol=0.12, type='sine'){
+  if(!soundOn||!audioCtx) return;
+  try{
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.connect(g); g.connect(masterGain);
+    o.type = type; o.frequency.value = freq;
+    const now = audioCtx.currentTime;
+    g.gain.setValueAtTime(0,now);
+    g.gain.linearRampToValueAtTime(vol,now+0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001,now+dur);
+    o.start(now); o.stop(now+dur+0.01);
+  }catch(e){}
+}
+
+function granularCloud(baseFreq, count=6){
+  if(!soundOn||!audioCtx) return;
+  for(let i=0;i<count;i++){
+    setTimeout(()=>{
+      const f = baseFreq * (1+rand(-0.1,0.1)) * [1,1.5,2,2.5,3][randi(0,4)];
+      playTone(f, rand(0.05,0.3), rand(0.03,0.08), ['sine','triangle'][randi(0,1)]);
+    }, i*rand(10,80));
+  }
+}
+
+// ── Particles ────────────────────────────────────────────────────────────────
+const MAX_PARTICLES = 600;
+let particles = [];
+
+class Particle {
+  constructor(){this.reset();}
+  reset(cx=CX,cy=CY){
+    const ang = Math.random()*TAU;
+    const spd = rand(0.5,3.5)*scale;
+    const r = rand(0,180)*scale;
+    this.x = cx + cos(ang)*r;
+    this.y = cy + sin(ang)*r;
+    this.vx = cos(ang+PI/2)*spd*rand(0.3,1.2);
+    this.vy = sin(ang+PI/2)*spd*rand(0.3,1.2);
+    this.life = 1;
+    this.decay = rand(0.003,0.012);
+    this.size = rand(1,4)*scale;
+    this.hue = rand(0,360);
+    this.type = randi(0,3); // 0=electro,1=grav,2=vortex,3=langevin
+    this.charge = Math.random()>0.5?1:-1;
+    this.mass = rand(0.5,2);
+    this.trail = [];
+    this.trailMax = randi(4,14);
+  }
+  update(){
+    this.trail.push({x:this.x,y:this.y,life:this.life});
+    if(this.trail.length>this.trailMax) this.trail.shift();
+
+    const dx=this.x-CX, dy=this.y-CY, dist=sqrt(dx*dx+dy*dy)+0.1;
+    const t = frame*0.003;
+
+    if(this.type===0){ // electrostatic swarm
+      const f=80*scale/dist;
+      this.vx -= dx/dist*f*0.005;
+      this.vy -= dy/dist*f*0.005;
+      this.vx += sin(this.y*0.015+t)*0.12;
+      this.vy += cos(this.x*0.015+t)*0.12;
+    } else if(this.type===1){ // gravitational N-body
+      const grav = universe.gravPts||[];
+      for(const g of grav){
+        const gx=g.x-this.x, gy=g.y-this.y, gd=sqrt(gx*gx+gy*gy)+10;
+        const f=g.mass*scale/(gd*gd)*8;
+        this.vx+=gx/gd*f; this.vy+=gy/gd*f;
+      }
+    } else if(this.type===2){ // vortex turbulence
+      const ang2 = Math.atan2(dy,dx) + PI/2 + sin(dist*0.01+t)*0.8;
+      const str = (200/(dist+50))*scale*0.8;
+      this.vx += cos(ang2)*str*0.05;
+      this.vy += sin(ang2)*str*0.05;
+      this.vx += (noise2(this.x*0.008,t)-0.5)*0.4;
+      this.vy += (noise2(this.y*0.008,t+5)-0.5)*0.4;
+    } else { // Langevin dynamics
+      this.vx += (Math.random()-0.5)*0.8 - this.vx*0.05;
+      this.vy += (Math.random()-0.5)*0.8 - this.vy*0.05;
+      const ff = 60*scale/(dist+5);
+      this.vx -= dx/dist*ff*0.008; this.vy -= dy/dist*ff*0.008;
+    }
+
+    const spd=sqrt(this.vx*this.vx+this.vy*this.vy);
+    const maxSpd=5*scale;
+    if(spd>maxSpd){this.vx=this.vx/spd*maxSpd;this.vy=this.vy/spd*maxSpd;}
+    this.x+=this.vx; this.y+=this.vy;
+    this.life-=this.decay;
+    this.hue=(this.hue+0.5)%360;
+    if(this.life<=0||this.x<-50||this.x>W+50||this.y<-50||this.y>H+50) this.reset(CX+rand(-50,50)*scale,CY+rand(-50,50)*scale);
+  }
+  draw(){
+    const a=this.life;
+    ctx.save();
+    // trail
+    if(this.trail.length>1){
+      ctx.beginPath();
+      ctx.moveTo(this.trail[0].x,this.trail[0].y);
+      for(let i=1;i<this.trail.length;i++) ctx.lineTo(this.trail[i].x,this.trail[i].y);
+      ctx.strokeStyle=hsl(this.hue,90,65,a*0.35);
+      ctx.lineWidth=this.size*0.5;
+      ctx.stroke();
+    }
+    ctx.beginPath();
+    ctx.arc(this.x,this.y,this.size,0,TAU);
+    ctx.fillStyle=hsl(this.hue,95,75,a*0.9);
+    ctx.fill();
+    if(this.size>2){
+      ctx.beginPath();
+      ctx.arc(this.x,this.y,this.size*2.5,0,TAU);
+      ctx.fillStyle=hsl(this.hue,80,60,a*0.12);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+}
+
+// ── Mechanical systems ───────────────────────────────────────────────────────
+class StewartPlatform {
+  constructor(cx,cy,r){
+    this.cx=cx; this.cy=cy; this.r=r;
+    this.phase=Math.random()*TAU;
+    this.speed=rand(0.008,0.025);
+    this.legs=6;
+    this.tilt={x:0,y:0,z:0};
+  }
+  update(){
+    const t=frame*this.speed+this.phase;
+    this.tilt={x:sin(t)*0.3,y:cos(t*0.7)*0.3,z:t};
+  }
+  draw(){
+    const t=frame*this.speed+this.phase;
+    const r=this.r;
+    // base hexagon
+    ctx.save();
+    ctx.translate(this.cx,this.cy);
+    const baseColor=palColor(0.2,55,80,0.5);
+    const platColor=palColor(0.5,70,85,0.6);
+
+    ctx.beginPath();
+    for(let i=0;i<6;i++){
+      const a=TAU/6*i+this.tilt.z*0.3;
+      i===0?ctx.moveTo(cos(a)*r,sin(a)*r):ctx.lineTo(cos(a)*r,sin(a)*r);
+    }
+    ctx.closePath();
+    ctx.strokeStyle=baseColor;
+    ctx.lineWidth=1.5*scale;
+    ctx.stroke();
+
+    // top platform (offset)
+    const ox=sin(t)*r*0.3, oy=cos(t*1.3)*r*0.25;
+    ctx.beginPath();
+    for(let i=0;i<6;i++){
+      const a=TAU/6*i+t*0.5;
+      const px=ox+cos(a)*r*0.65, py=oy+sin(a)*r*0.65;
+      i===0?ctx.moveTo(px,py):ctx.lineTo(px,py);
+    }
+    ctx.closePath();
+    ctx.strokeStyle=platColor;
+    ctx.lineWidth=2*scale;
+    ctx.stroke();
+
+    // legs
+    for(let i=0;i<6;i++){
+      const a0=TAU/6*i+this.tilt.z*0.3;
+      const a1=TAU/6*i+t*0.5;
+      ctx.beginPath();
+      ctx.moveTo(cos(a0)*r, sin(a0)*r);
+      ctx.lineTo(ox+cos(a1)*r*0.65, oy+sin(a1)*r*0.65);
+      ctx.strokeStyle=hsl((frame*0.5+i*60)%360,80,65,0.45);
+      ctx.lineWidth=scale;
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+class SliderCrank {
+  constructor(cx,cy,r){
+    this.cx=cx; this.cy=cy; this.r=r;
+    this.phase=Math.random()*TAU;
+    this.speed=rand(0.015,0.04);
+    this.rodLen=r*2.2;
+  }
+  draw(){
+    const t=frame*this.speed+this.phase;
+    const cr=this.r;
+    const ax=cos(t)*cr, ay=sin(t)*cr;
+    // find slider x
+    const dx2=this.rodLen*this.rodLen-ay*ay;
+    if(dx2<0) return;
+    const sx=ax+sqrt(dx2);
+    ctx.save();
+    ctx.translate(this.cx,this.cy);
+    // crank
+    ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(ax,ay);
+    ctx.strokeStyle=palColor(0.3,65,80,0.7); ctx.lineWidth=2.5*scale; ctx.stroke();
+    // connecting rod
+    ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(sx,0);
+    ctx.strokeStyle=palColor(0.6,60,75,0.6); ctx.lineWidth=2*scale; ctx.stroke();
+    // pivot circles
+    for(const [px,py] of [[0,0],[ax,ay],[sx,0]]){
+      ctx.beginPath(); ctx.arc(px,py,3*scale,0,TAU);
+      ctx.fillStyle=palColor(0.8,75,85,0.8); ctx.fill();
+    }
+    // slider
+    ctx.beginPath(); ctx.rect(sx-8*scale,-6*scale,16*scale,12*scale);
+    ctx.strokeStyle=palColor(0.1,70,80,0.6); ctx.lineWidth=1.5*scale; ctx.stroke();
+    ctx.restore();
+  }
+}
+
+class GyroRotor {
+  constructor(cx,cy,r){
+    this.cx=cx; this.cy=cy; this.r=r;
+    this.phase=Math.random()*TAU;
+    this.speed=rand(0.02,0.06);
+    this.wobble=rand(0.005,0.015);
+  }
+  draw(){
+    const t=frame*this.speed+this.phase;
+    const wt=frame*this.wobble;
+    const tiltX=sin(wt)*0.4, tiltY=cos(wt*1.3)*0.3;
+    ctx.save();
+    ctx.translate(this.cx,this.cy);
+    // outer ring
+    ctx.beginPath(); ctx.ellipse(0,0,this.r,this.r*abs(cos(tiltX)),tiltY,0,TAU);
+    ctx.strokeStyle=palColor(0.2,55,75,0.5); ctx.lineWidth=2*scale; ctx.stroke();
+    // inner rings
+    for(let i=0;i<3;i++){
+      const ir=this.r*(0.7-i*0.2);
+      const angle=t*(i+1);
+      ctx.save(); ctx.rotate(angle);
+      ctx.beginPath(); ctx.ellipse(0,0,ir,ir*abs(cos(tiltX+i)),0,0,TAU);
+      ctx.strokeStyle=hsl((frame*0.5+i*120)%360,85,70,0.55);
+      ctx.lineWidth=1.5*scale; ctx.stroke();
+      ctx.restore();
+    }
+    // spin axis
+    ctx.beginPath(); ctx.moveTo(-this.r*1.1,0); ctx.lineTo(this.r*1.1,0);
+    ctx.strokeStyle=palColor(0.7,50,80,0.35); ctx.lineWidth=scale; ctx.stroke();
+    ctx.restore();
+  }
+}
+
+class RoboticArm {
+  constructor(cx,cy){
+    this.cx=cx; this.cy=cy;
+    this.segments=randi(3,5);
+    this.lens=Array.from({length:this.segments},()=>rand(30,60)*scale);
+    this.phases=Array.from({length:this.segments},()=>Math.random()*TAU);
+    this.speeds=Array.from({length:this.segments},(_,i)=>rand(0.01,0.04)*(i%2?1:-1));
+  }
+  draw(){
+    let x=this.cx, y=this.cy;
+    let angle=frame*this.speeds[0]+this.phases[0];
+    ctx.save();
+    for(let i=0;i<this.segments;i++){
+      const nx=x+cos(angle)*this.lens[i];
+      const ny=y+sin(angle)*this.lens[i];
+      ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(nx,ny);
+      ctx.strokeStyle=palColor(i/this.segments,60,75,0.6);
+      ctx.lineWidth=(this.segments-i+1)*scale;
+      ctx.stroke();
+      ctx.beginPath(); ctx.arc(x,y,4*scale,0,TAU);
+      ctx.fillStyle=palColor(i/this.segments+0.1,70,85,0.75); ctx.fill();
+      x=nx; y=ny;
+      if(i<this.segments-1) angle+=sin(frame*this.speeds[i+1]+this.phases[i+1])*1.2;
+    }
+    ctx.restore();
+  }
+}
+
+// ── Sacred geometry ──────────────────────────────────────────────────────────
+function drawYantra(cx,cy,r,t){
+  ctx.save(); ctx.translate(cx,cy);
+  const n=randi(4,9);
+  // nested polygon layers with rotation
+  for(let layer=0;layer<6;layer++){
+    const lr=r*(1-layer*0.14);
+    const rot=t*(layer%2?1:-1)*0.3+layer*PI/n;
+    ctx.save(); ctx.rotate(rot);
+    ctx.beginPath();
+    for(let i=0;i<=n;i++){
+      const a=TAU/n*i;
+      i===0?ctx.moveTo(cos(a)*lr,sin(a)*lr):ctx.lineTo(cos(a)*lr,sin(a)*lr);
+    }
+    ctx.strokeStyle=palColor(layer/6,60+layer*5,65+layer*3,0.35-layer*0.02);
+    ctx.lineWidth=(4-layer*0.5)*scale; ctx.stroke();
+    // inner inverted
+    ctx.save(); ctx.rotate(PI/n);
+    ctx.beginPath();
+    for(let i=0;i<=n;i++){
+      const a=TAU/n*i;
+      i===0?ctx.moveTo(cos(a)*lr*0.85,sin(a)*lr*0.85):ctx.lineTo(cos(a)*lr*0.85,sin(a)*lr*0.85);
+    }
+    ctx.strokeStyle=palColor(layer/6+0.3,55,75,0.25);
+    ctx.lineWidth=scale; ctx.stroke();
+    ctx.restore();
+    ctx.restore();
+  }
+  // bindu (central point)
+  ctx.beginPath(); ctx.arc(0,0,5*scale,0,TAU);
+  ctx.fillStyle=palColor(0.9,90,90,0.9); ctx.fill();
+  ctx.restore();
+}
+
+function drawIslamicTiling(cx,cy,r,t){
+  ctx.save(); ctx.translate(cx,cy);
+  const sym=universe.islamicSym||8;
+  const steps=randi(3,6);
+  for(let s=0;s<steps;s++){
+    const sr=r*(0.3+s*0.15);
+    ctx.save(); ctx.rotate(t*0.1*(s%2?1:-1));
+    for(let i=0;i<sym;i++){
+      const a=TAU/sym*i;
+      // star polygon strokes
+      ctx.save(); ctx.rotate(a);
+      ctx.beginPath();
+      for(let j=0;j<sym;j++){
+        const a2=TAU/sym*j;
+        const ra=j%2?sr*0.7:sr;
+        j===0?ctx.moveTo(cos(a2)*ra,sin(a2)*ra):ctx.lineTo(cos(a2)*ra,sin(a2)*ra);
+      }
+      ctx.closePath();
+      ctx.strokeStyle=palColor(s/steps+i/sym,65,70,0.2);
+      ctx.lineWidth=scale*0.8; ctx.stroke();
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+function drawCelticKnot(cx,cy,r,t){
+  ctx.save(); ctx.translate(cx,cy);
+  const n=universe.celticN||4;
+  const loops=randi(2,4);
+  for(let l=0;l<loops;l++){
+    const lr=r*(0.4+l*0.2);
+    ctx.beginPath();
+    const pts=n*8;
+    for(let i=0;i<=pts;i++){
+      const a=TAU/pts*i;
+      const over=sin(a*n+t+l)*lr*0.18;
+      const rx=(lr+over)*cos(a);
+      const ry=(lr+over)*sin(a);
+      i===0?ctx.moveTo(rx,ry):ctx.lineTo(rx,ry);
+    }
+    ctx.closePath();
+    ctx.strokeStyle=palColor(l/loops,70,75,0.5);
+    ctx.lineWidth=(3-l*0.5)*scale; ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawMandala(cx,cy,r,t){
+  ctx.save(); ctx.translate(cx,cy);
+  const sym=universe.mandalaSym||12;
+  // petals
+  for(let i=0;i<sym;i++){
+    ctx.save();
+    ctx.rotate(TAU/sym*i+t*0.05);
+    for(let p=0;p<4;p++){
+      const pr=r*(0.2+p*0.18);
+      ctx.beginPath();
+      ctx.ellipse(pr*0.5,0,pr*0.5,pr*0.12+sin(t+p)*pr*0.06,0,0,TAU);
+      ctx.strokeStyle=palColor(i/sym+p*0.1,70,72,0.35);
+      ctx.lineWidth=scale; ctx.stroke();
+    }
+    ctx.restore();
+  }
+  // rings with dots
+  for(let ring=1;ring<=5;ring++){
+    const rr=r*ring*0.18;
+    ctx.beginPath(); ctx.arc(0,0,rr,0,TAU);
+    ctx.strokeStyle=palColor(ring/5,50,60,0.2);
+    ctx.lineWidth=scale*0.5; ctx.stroke();
+    for(let d=0;d<sym*ring;d++){
+      const a=TAU/(sym*ring)*d+t*0.03*ring;
+      const dx=cos(a)*rr, dy=sin(a)*rr;
+      ctx.beginPath(); ctx.arc(dx,dy,1.5*scale,0,TAU);
+      ctx.fillStyle=palColor(d/(sym*ring),80,80,0.5); ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+// ── Quasicrystal / hyperbolic ────────────────────────────────────────────────
+function drawQuasicrystal(cx,cy,r,t){
+  ctx.save(); ctx.translate(cx,cy);
+  const n=universe.quasiN||5;
+  const waves=7;
+  // penrose-like wave interference
+  for(let k=0;k<n;k++){
+    const a=TAU/n*k;
+    ctx.save();
+    ctx.rotate(a);
+    for(let w=0;w<waves;w++){
+      const wr=r*(0.15+w*0.12);
+      const phase=t*0.15+k*0.7+w*0.3;
+      ctx.beginPath();
+      const pts=80;
+      for(let i=0;i<=pts;i++){
+        const theta=TAU/pts*i;
+        const rr=wr+sin(theta*n+phase)*wr*0.15;
+        i===0?ctx.moveTo(cos(theta)*rr,sin(theta)*rr):ctx.lineTo(cos(theta)*rr,sin(theta)*rr);
+      }
+      ctx.closePath();
+      ctx.strokeStyle=palColor(k/n+w/waves,65,70,0.12);
+      ctx.lineWidth=scale*0.7; ctx.stroke();
+    }
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+function drawHyperbolicTiling(cx,cy,r,t){
+  ctx.save(); ctx.translate(cx,cy);
+  const p=universe.hypP||4, q=universe.hypQ||5;
+  // simplified Poincaré disk pattern
+  const depth=5;
+  function drawCircle(x,y,rad,d){
+    if(d>depth||rad<1.5*scale) return;
+    ctx.beginPath(); ctx.arc(x,y,rad,0,TAU);
+    ctx.strokeStyle=palColor(d/depth,55,65,0.15+d*0.04);
+    ctx.lineWidth=scale*0.6; ctx.stroke();
+    const children=p;
+    for(let i=0;i<children;i++){
+      const a=TAU/children*i+t*0.02*d;
+      const dist=rad*1.6;
+      const nx=x+cos(a)*dist, ny=y+sin(a)*dist;
+      const nr=rad*0.45;
+      if(sqrt(nx*nx+ny*ny)+nr<r) drawCircle(nx,ny,nr,d+1);
+    }
+  }
+  drawCircle(0,0,r*0.4,0);
+  // boundary
+  ctx.beginPath(); ctx.arc(0,0,r,0,TAU);
+  ctx.strokeStyle=palColor(0.4,45,55,0.3);
+  ctx.lineWidth=scale; ctx.stroke();
+  ctx.restore();
+}
+
+// ── Maze system ──────────────────────────────────────────────────────────────
+class PolarMaze {
+  constructor(r,rings,cells){
+    this.r=r; this.rings=rings; this.cells=cells;
+    this.walls=[]; this.phase=Math.random()*TAU;
+    this.speed=rand(0.003,0.008);
+    this.generate();
+  }
+  generate(){
+    this.walls=[];
+    for(let ring=1;ring<=this.rings;ring++){
+      const n=this.cells*ring;
+      for(let c=0;c<n;c++){
+        if(Math.random()>0.45){
+          const r0=this.r*ring/this.rings;
+          const r1=this.r*(ring+1)/this.rings;
+          const a0=TAU/n*c;
+          const a1=TAU/n*(c+1);
+          this.walls.push({type:'arc',r0,r1,a0,a1});
+        }
+        if(Math.random()>0.5){
+          const rm=this.r*(ring+0.5)/this.rings;
+          const a=TAU/n*c;
+          this.walls.push({type:'radial',r0:this.r*ring/this.rings,r1:this.r*(ring+1)/this.rings,a});
+        }
+      }
+    }
+  }
+  draw(cx,cy,t){
+    ctx.save(); ctx.translate(cx,cy); ctx.rotate(t*this.speed+this.phase);
+    for(const w of this.walls){
+      if(w.type==='arc'){
+        ctx.beginPath();
+        ctx.arc(0,0,(w.r0+w.r1)/2,w.a0,w.a1);
+        ctx.strokeStyle=palColor(w.r0/this.r,50,65,0.3);
+        ctx.lineWidth=scale*0.8; ctx.stroke();
+      } else {
+        ctx.beginPath();
+        ctx.moveTo(cos(w.a)*w.r0,sin(w.a)*w.r0);
+        ctx.lineTo(cos(w.a)*w.r1,sin(w.a)*w.r1);
+        ctx.strokeStyle=palColor(w.a/TAU,50,65,0.3);
+        ctx.lineWidth=scale*0.8; ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+}
+
+// ── Universe initialization ──────────────────────────────────────────────────
+let mechs = {stewarts:[],cranks:[],gyros:[],arms:[]};
+let polarMaze = null;
+let gravPts = [];
+
+function newUniverse(){
+  frame = 0;
+  pickPalette();
+  universe = {
+    mandalaSym: randi(6,16),
+    islamicSym: randi(6,12),
+    celticN: randi(3,7),
+    quasiN: randi(5,8),
+    hypP: randi(3,6), hypQ: randi(4,7),
+    bgHue: randi(0,360),
+    layers: randi(4,7),
+  };
+
+  // particles
+  particles = Array.from({length:MAX_PARTICLES},()=>new Particle());
+
+  // mechanical systems
+  mechs.stewarts = [];
+  mechs.cranks = [];
+  mechs.gyros = [];
+  mechs.arms = [];
+  const isMobile = W<768;
+  const r0 = Math.min(W,H)*0.45;
+  const numS = isMobile?2:3, numC=isMobile?2:3, numG=isMobile?2:4, numA=isMobile?2:3;
+  for(let i=0;i<numS;i++){
+    const a=TAU/numS*i, d=r0*rand(0.4,0.75);
+    mechs.stewarts.push(new StewartPlatform(CX+cos(a)*d,CY+sin(a)*d,rand(40,80)*scale));
+  }
+  for(let i=0;i<numC;i++){
+    const a=TAU/numC*i+PI/numC, d=r0*rand(0.3,0.6);
+    mechs.cranks.push(new SliderCrank(CX+cos(a)*d,CY+sin(a)*d,rand(25,55)*scale));
+  }
+  for(let i=0;i<numG;i++){
+    const a=TAU/numG*i+0.5, d=r0*rand(0.2,0.65);
+    mechs.gyros.push(new GyroRotor(CX+cos(a)*d,CY+sin(a)*d,rand(30,65)*scale));
+  }
+  for(let i=0;i<numA;i++){
+    const a=TAU/numA*i+1, d=r0*rand(0.5,0.85);
+    mechs.arms.push(new RoboticArm(CX+cos(a)*d,CY+sin(a)*d));
+  }
+
+  // gravitational points for particles
+  gravPts = Array.from({length:randi(3,7)},()=>({
+    x:CX+rand(-200,200)*scale,
+    y:CY+rand(-200,200)*scale,
+    mass:rand(50,200)
+  }));
+  universe.gravPts = gravPts;
+
+  // polar maze
+  polarMaze = new PolarMaze(Math.min(W,H)*0.38*scale/scale, randi(4,8), randi(4,7));
+
+  // sound event
+  if(soundOn) granularCloud(rand(60,200), 8);
+}
+
+// ── Background ───────────────────────────────────────────────────────────────
+function drawBackground(t){
+  // deep gradient bg
+  const bg = ctx.createRadialGradient(CX,CY,0,CX,CY,Math.max(W,H)*0.8);
+  const bh=(universe.bgHue+frame*0.04)%360;
+  bg.addColorStop(0, hsl(bh,40,8));
+  bg.addColorStop(0.4, hsl((bh+30)%360,30,5));
+  bg.addColorStop(1, hsl((bh+60)%360,20,2));
+  ctx.fillStyle=bg;
+  ctx.fillRect(0,0,W,H);
+
+  // animated nebula clouds
+  for(let c=0;c<4;c++){
+    const cx2=CX+sin(t*0.07+c*1.3)*W*0.25;
+    const cy2=CY+cos(t*0.05+c*2.1)*H*0.2;
+    const gr=ctx.createRadialGradient(cx2,cy2,0,cx2,cy2,Math.min(W,H)*0.4);
+    gr.addColorStop(0, hsl((bh+c*45+frame*0.1)%360,50,15,0.08));
+    gr.addColorStop(1, hsl(bh,0,0,0));
+    ctx.fillStyle=gr; ctx.fillRect(0,0,W,H);
+  }
+}
+
+// ── Spectral radial wave ─────────────────────────────────────────────────────
+function drawSpectralWaves(t){
+  const n=universe.layers||5;
+  for(let l=0;l<n;l++){
+    const r=Math.min(W,H)*(0.12+l*0.09);
+    const pts=200;
+    ctx.beginPath();
+    for(let i=0;i<=pts;i++){
+      const a=TAU/pts*i;
+      const wave=sin(a*(l+3)+t*(0.4+l*0.12))*r*0.05*sin(t*0.3+l)
+               + cos(a*(l*2+5)-t*0.7)*r*0.03
+               + noise2(cos(a)*3+t*0.1, sin(a)*3+l)*r*0.04;
+      const rr=r+wave;
+      const px=CX+cos(a)*rr, py=CY+sin(a)*rr;
+      i===0?ctx.moveTo(px,py):ctx.lineTo(px,py);
+    }
+    ctx.closePath();
+    ctx.strokeStyle=palColor(l/n, 65, 70, 0.25);
+    ctx.lineWidth=(n-l)*scale*0.7; ctx.stroke();
+  }
+}
+
+// ── HUD update ────────────────────────────────────────────────────────────────
+function updateHUD(){
+  if(!hudOn){hud.style.display='none';return;}
+  hud.style.display='block';
+  hud.innerHTML=`
+    FRAME: ${frame}<br>
+    PARTICLES: ${particles.length}<br>
+    PALETTE: ${pal.name}<br>
+    SYMMETRY: ${universe.mandalaSym}<br>
+    SOUND: ${soundOn?'ON':'OFF'}<br>
+    FPS: ~60
+  `;
+}
+
+// ── Main render loop ─────────────────────────────────────────────────────────
+let lastAudioFrame=0;
+function render(){
+  if(!running) return;
+  requestAnimationFrame(render);
+  frame++;
+  const t=frame*0.016;
+
+  // palette morph
+  palT = (palT+0.0005)%1;
+  if(palT<0.001 && Math.random()<0.1){
+    pal=palTarget;
+    palTarget=PALETTES[randi(0,PALETTES.length-1)];
+    palT=0;
+  }
+
+  drawBackground(t);
+  drawSpectralWaves(t);
+
+  // hyperbolic tiling (outermost layer)
+  const R=Math.min(W,H)*0.46;
+  drawHyperbolicTiling(CX,CY,R,t);
+
+  // quasicrystal
+  drawQuasicrystal(CX,CY,R*0.85,t);
+
+  // islamic tiling
+  drawIslamicTiling(CX,CY,R*0.7,t);
+
+  // celtic knot
+  drawCelticKnot(CX,CY,R*0.55,t);
+
+  // polar maze
+  if(polarMaze) polarMaze.draw(CX,CY,t);
+
+  // mandala
+  drawMandala(CX,CY,R*0.45,t);
+
+  // yantra at center
+  drawYantra(CX,CY,R*0.28,t);
+
+  // mechanical systems
+  for(const s of mechs.stewarts){s.update();s.draw();}
+  for(const c of mechs.cranks) c.draw();
+  for(const g of mechs.gyros) g.draw();
+  for(const a of mechs.arms) a.draw();
+
+  // particles
+  for(const p of particles){p.update();p.draw();}
+
+  // central glow
+  const cg=ctx.createRadialGradient(CX,CY,0,CX,CY,80*scale);
+  cg.addColorStop(0,palColor(0.7,90,95,0.7));
+  cg.addColorStop(0.3,palColor(0.5,80,70,0.2));
+  cg.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=cg; ctx.fillRect(0,0,W,H);
+
+  // periodic audio events
+  if(soundOn && frame-lastAudioFrame > 90+randi(0,60)){
+    lastAudioFrame=frame;
+    const baseFreqs=[55,110,165,220,330,440,550,660];
+    granularCloud(baseFreqs[randi(0,baseFreqs.length-1)], randi(3,8));
+  }
+
+  updateHUD();
+}
+
+// ── Input handling ────────────────────────────────────────────────────────────
+function toggleSound(){
+  soundOn=!soundOn;
+  if(soundOn){
+    initAudio();
+    if(audioCtx&&audioCtx.state==='suspended') audioCtx.resume();
+    granularCloud(220, 5);
+  }
+}
+
+document.addEventListener('keydown',e=>{
+  const k=e.key.toLowerCase();
+  if(k===' '||k==='spacebar'){e.preventDefault();newUniverse();}
+  else if(k==='h') {hudOn=!hudOn;}
+  else if(k==='s') toggleSound();
+});
+
+let lastTap=0;
+canvas.addEventListener('click',()=>{
+  const now=Date.now();
+  if(now-lastTap<300) return; // debounce
+  lastTap=now;
+  newUniverse();
+});
+canvas.addEventListener('touchend',e=>{
+  e.preventDefault();
+  newUniverse();
+},{passive:false});
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+newUniverse();
+render();
+
+// maze regeneration periodically
+setInterval(()=>{
+  if(polarMaze) polarMaze.generate();
+  if(Math.random()<0.15) newUniverse();
+}, 12000);
+
+})();
+</script>
+</body>
+</html>

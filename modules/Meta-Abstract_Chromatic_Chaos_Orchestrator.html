@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Meta-Abstract Chromatic Chaos Orchestrator: a full-screen generative audiovisual engine blending color systems, swatches, gradients, and spectral transformations into a continuously evolving structure.">
+<meta name="keywords" content="generative art, color theory, chromatic systems, audiovisual engine, HTML canvas, procedural animation, color harmony, spectral synthesis">
+<title>Meta-Abstract Chromatic Chaos Orchestrator</title>
+<style>
+html, body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: black;
+  font-family: monospace;
+}
+canvas {
+  display: block;
+}
+#hud {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  color: #0f0;
+  font-size: 12px;
+  background: rgba(0,0,0,0.4);
+  padding: 8px;
+  border-radius: 6px;
+  display: none;
+}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const hud = document.getElementById('hud');
+
+let W, H, DPR;
+function resize() {
+  DPR = window.devicePixelRatio || 1;
+  W = canvas.width = innerWidth * DPR;
+  H = canvas.height = innerHeight * DPR;
+  canvas.style.width = innerWidth + 'px';
+  canvas.style.height = innerHeight + 'px';
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+}
+window.addEventListener('resize', resize);
+resize();
+
+/* =========================
+   GLOBAL STATE
+========================= */
+let params, time = 0;
+let hudVisible = false;
+let audioEnabled = false;
+
+/* =========================
+   AUDIO ENGINE (ZERO COST WHEN OFF)
+========================= */
+let audioCtx = null, gainNode, osc;
+
+function startAudio() {
+  if (audioEnabled) return;
+  audioEnabled = true;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  gainNode = audioCtx.createGain();
+  gainNode.gain.value = 0.02;
+
+  osc = audioCtx.createOscillator();
+  osc.type = 'sine';
+  osc.frequency.value = 220;
+
+  osc.connect(gainNode);
+  gainNode.connect(audioCtx.destination);
+  osc.start();
+}
+
+function stopAudio() {
+  if (!audioEnabled) return;
+  audioEnabled = false;
+  osc.stop();
+  audioCtx.close();
+  audioCtx = null;
+}
+
+/* =========================
+   RANDOMIZATION ENGINE
+========================= */
+function rand(a=1,b=0){return Math.random()*(a-b)+b;}
+
+function randomize() {
+  params = {
+    wheels: Math.floor(rand(3,8)),
+    swatches: Math.floor(rand(20,80)),
+    layers: Math.floor(rand(2,6)),
+    speed: rand(0.2,1.5),
+    chaos: rand(0.3,1.2),
+    harmony: rand(0.2,1.0),
+    spectralShift: rand(0.2,2.0),
+    rotationBias: rand(-1,1),
+    gridScale: rand(40,140),
+    alpha: rand(0.2,0.8)
+  };
+}
+randomize();
+
+/* =========================
+   COLOR SYSTEM HYBRIDIZER
+========================= */
+function chroma(t, i) {
+  const h = (t*params.spectralShift*50 + i*30) % 360;
+  const s = 50 + Math.sin(t+i)*50;
+  const l = 40 + Math.cos(t*0.7+i)*30;
+  return `hsla(${h},${s}%,${l}%,${params.alpha})`;
+}
+
+/* =========================
+   DRAW SYSTEMS
+========================= */
+
+function drawWheels(t) {
+  for (let i=0;i<params.wheels;i++) {
+    const cx = innerWidth/2;
+    const cy = innerHeight/2;
+    const radius = (Math.min(innerWidth,innerHeight)/4) * (1 + i*0.2);
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(t*params.speed*(i+1)*0.2);
+
+    for (let a=0;a<360;a+=5) {
+      ctx.beginPath();
+      ctx.strokeStyle = chroma(t, a+i);
+      ctx.moveTo(0,0);
+      const rad = a*Math.PI/180;
+      ctx.lineTo(Math.cos(rad)*radius, Math.sin(rad)*radius);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+}
+
+function drawSwatches(t) {
+  const size = params.gridScale;
+  for (let x=0;x<innerWidth;x+=size) {
+    for (let y=0;y<innerHeight;y+=size) {
+      const n = Math.sin(x*0.01 + y*0.01 + t);
+      ctx.fillStyle = chroma(t, n*10);
+      ctx.fillRect(x,y,size,size);
+    }
+  }
+}
+
+function drawSpectralFlows(t) {
+  ctx.globalCompositeOperation = 'lighter';
+
+  for (let i=0;i<params.layers;i++) {
+    ctx.beginPath();
+    for (let x=0;x<innerWidth;x+=10) {
+      const y = innerHeight/2 + Math.sin(x*0.01 + t*(i+1))*100*params.chaos;
+      ctx.lineTo(x,y);
+    }
+    ctx.strokeStyle = chroma(t,i*10);
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+
+  ctx.globalCompositeOperation = 'source-over';
+}
+
+function drawIllusions(t) {
+  ctx.globalCompositeOperation = 'overlay';
+  for (let i=0;i<20;i++) {
+    const r = rand(20,200);
+    ctx.beginPath();
+    ctx.arc(rand(innerWidth), rand(innerHeight), r, 0, Math.PI*2);
+    ctx.strokeStyle = chroma(t,i);
+    ctx.stroke();
+  }
+  ctx.globalCompositeOperation = 'source-over';
+}
+
+/* =========================
+   MAIN LOOP
+========================= */
+function animate() {
+  time += 0.01 * params.speed;
+
+  ctx.fillStyle = 'rgba(0,0,0,0.15)';
+  ctx.fillRect(0,0,innerWidth,innerHeight);
+
+  drawSwatches(time);
+  drawWheels(time);
+  drawSpectralFlows(time);
+  drawIllusions(time);
+
+  if (audioEnabled && osc) {
+    const complexity = params.wheels + params.layers + params.chaos*10;
+    osc.frequency.value = 100 + complexity * 20 + Math.sin(time)*50;
+  }
+
+  if (hudVisible) {
+    hud.style.display = 'block';
+    hud.innerText =
+`META-CHROMATIC CHAOS
+Wheels: ${params.wheels}
+Swatches: ${params.swatches}
+Layers: ${params.layers}
+Chaos: ${params.chaos.toFixed(2)}
+Harmony: ${params.harmony.toFixed(2)}
+Speed: ${params.speed.toFixed(2)}
+Audio: ${audioEnabled ? "ON" : "OFF"}`;
+  } else {
+    hud.style.display = 'none';
+  }
+
+  requestAnimationFrame(animate);
+}
+animate();
+
+/* =========================
+   CONTROLS
+========================= */
+function trigger() {
+  randomize();
+}
+
+window.addEventListener('keydown', e=>{
+  if (e.code === 'Space') trigger();
+  if (e.key === 'h' || e.key === 'H') hudVisible = !hudVisible;
+  if (e.key === 's' || e.key === 'S') {
+    audioEnabled ? stopAudio() : startAudio();
+  }
+});
+
+window.addEventListener('click', trigger);
+window.addEventListener('touchstart', trigger);
+
+</script>
+</body>
+</html>

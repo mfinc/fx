@@ -1,0 +1,736 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>MODULAR TRANSHUMAN ARCADE SINGULARITY — Generative Art Engine</title>
+<meta name="description" content="A dependency-free generative art engine merging Atari 2600 vector minimalism with Tron-style neon megastructures, CRISPR-inspired transformations, and category-theory morphisms. An evolving transhuman audiovisual spectacle with procedural noise fields, fractal recursion, graph morphogenesis, and particle signal flows.">
+<meta name="keywords" content="generative art, Atari arcade aesthetics, Tron cyber environment, CRISPR visualization, category theory morphisms, procedural graphics, experimental audiovisual engine, vector minimalism, neon megastructures, transhuman art, particle systems, fractal patterns, noise fields, graph morphogenesis, retro futuristic, arcade soundscape, chromatic gradients, spectral cycling, banded palette, modular computation, singularity art, canvas animation, WebAudio, audiovisual synthesis">
+<meta name="author" content="Modular Transhuman Arcade Singularity Engine">
+<meta property="og:title" content="MODULAR TRANSHUMAN ARCADE SINGULARITY">
+<meta property="og:description" content="Generative audiovisual art engine: Atari minimalism meets Tron neon, CRISPR morphisms, and transhuman dissolution.">
+<meta name="robots" content="index, follow">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Courier New',monospace}
+  canvas{display:block;width:100vw;height:100vh}
+  #hud{
+    display:none;position:fixed;top:0;left:0;width:100%;height:100%;
+    pointer-events:none;z-index:10;
+    padding:16px;
+  }
+  #hud.visible{display:block}
+  .hud-panel{
+    position:absolute;top:16px;left:16px;
+    background:rgba(0,0,0,0.72);
+    border:1px solid rgba(255,255,255,0.18);
+    padding:12px 16px;color:#0ff;font-size:11px;line-height:1.7;
+    letter-spacing:0.08em;text-transform:uppercase;
+    max-width:300px;
+    text-shadow:0 0 8px currentColor;
+  }
+  .hud-panel .lbl{color:rgba(255,255,255,0.45);margin-right:4px}
+  .hud-panel .val{color:#0ff}
+  .hud-corner{
+    position:absolute;bottom:16px;right:16px;
+    background:rgba(0,0,0,0.72);
+    border:1px solid rgba(255,255,255,0.18);
+    padding:10px 14px;color:#f0f;font-size:10px;line-height:1.8;
+    letter-spacing:0.06em;text-transform:uppercase;
+    text-shadow:0 0 8px currentColor;
+  }
+  #tip{
+    position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
+    color:rgba(255,255,255,0.28);font-size:10px;letter-spacing:0.15em;
+    text-transform:uppercase;pointer-events:none;z-index:9;
+    transition:opacity 1s;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div class="hud-panel" id="hudMain"></div>
+  <div class="hud-corner" id="hudCorner"></div>
+</div>
+<div id="tip">SPACE / TAP = NEW UNIVERSE &nbsp;·&nbsp; H = HUD &nbsp;·&nbsp; S = SOUND</div>
+<script>
+// ============================================================
+// MODULAR TRANSHUMAN ARCADE SINGULARITY ENGINE
+// ============================================================
+(function(){
+'use strict';
+
+// ── GLOBALS ──────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx    = canvas.getContext('2d');
+const hud    = document.getElementById('hud');
+const hudMain = document.getElementById('hudMain');
+const hudCorner = document.getElementById('hudCorner');
+const tip    = document.getElementById('tip');
+
+let W, H, cx, cy;
+let RAF, startTime, lastTime=0, frame=0, fps=0, fpsSmooth=60;
+let soundOn = false, hudOn = false;
+let audioCtx = null;
+// seed / rng
+let SEED = Math.random()*1e9|0;
+// Universe state
+let U = {}; // universe config rebuilt on restart
+
+// ── RNG (seeded) ─────────────────────────────────────────────
+function rng(){ SEED=(SEED*1664525+1013904223)&0xffffffff; return (SEED>>>0)/0xffffffff; }
+function rr(a,b){return a+rng()*(b-a)}
+function ri(a,b){return Math.floor(rr(a,b+1))}
+function rc(arr){return arr[ri(0,arr.length-1)]}
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=ri(0,i);[a[i],a[j]]=[a[j],a[i]];}return a;}
+
+// ── RESIZE ───────────────────────────────────────────────────
+function resize(){
+  W=canvas.width=window.innerWidth;
+  H=canvas.height=window.innerHeight;
+  cx=W/2; cy=H/2;
+}
+window.addEventListener('resize',resize);
+resize();
+
+// ── COLOR SYSTEM ─────────────────────────────────────────────
+function hsl(h,s,l,a=1){return `hsla(${h%360},${s}%,${l}%,${a})`}
+function hex2rgb(hex){
+  const n=parseInt(hex.replace('#',''),16);
+  return[(n>>16)&255,(n>>8)&255,n&255];
+}
+// Palette archetypes
+const PALETTE_ARCHETYPES=[
+  {name:'NEON TRON',   bands:['#00ffff','#ff00ff','#0044ff','#ff4400','#00ff88']},
+  {name:'ATARI FIRE',  bands:['#ff6600','#ffcc00','#ff0033','#cc00ff','#ff8800']},
+  {name:'MATRIX BIO',  bands:['#00ff44','#00cc22','#003300','#44ff00','#88ff44']},
+  {name:'PLASMA ARC',  bands:['#ff00aa','#aa00ff','#0000ff','#00aaff','#ff0055']},
+  {name:'CHROME FLUX', bands:['#ffffff','#aabbcc','#334455','#0088ff','#00ccff']},
+  {name:'SOLAR CRISPR',bands:['#ffff00','#ff8800','#ff0000','#ff44cc','#8800ff']},
+  {name:'VOID SIGNAL', bands:['#440088','#8800ff','#00ccff','#ff00cc','#220044']},
+  {name:'ARCADE GOLD', bands:['#ffcc00','#ff6600','#cc0000','#ffffff','#00aaff']},
+];
+function buildPalette(){
+  const arch=rc(PALETTE_ARCHETYPES);
+  U.palName=arch.name;
+  U.pal=arch.bands.map(h=>hex2rgb(h));
+  U.palLen=U.pal.length;
+}
+function palColor(t,alpha=1){
+  t=((t%1)+1)%1;
+  const idx=t*U.palLen;
+  const i=Math.floor(idx)%U.palLen;
+  const j=(i+1)%U.palLen;
+  const f=idx-Math.floor(idx);
+  const a=U.pal[i], b=U.pal[j];
+  const r=a[0]+(b[0]-a[0])*f|0;
+  const g=a[1]+(b[1]-a[1])*f|0;
+  const bv=a[2]+(b[2]-a[2])*f|0;
+  return `rgba(${r},${g},${bv},${alpha})`;
+}
+
+// ── NOISE (value noise, lightweight) ─────────────────────────
+const NB=256, NM=NB-1;
+const NP=new Float32Array(NB*NB);
+(function initNoise(){for(let i=0;i<NB*NB;i++)NP[i]=Math.random()*2-1;})();
+function snoise(x,y){
+  const xi=Math.floor(x)&NM, yi=Math.floor(y)&NM;
+  const xf=x-Math.floor(x), yf=y-Math.floor(y);
+  const u=xf*xf*(3-2*xf), v=yf*yf*(3-2*yf);
+  const a=NP[((xi  )&NM)+((yi  )&NM)*NB];
+  const b=NP[((xi+1)&NM)+((yi  )&NM)*NB];
+  const c=NP[((xi  )&NM)+((yi+1)&NM)*NB];
+  const d=NP[((xi+1)&NM)+((yi+1)&NM)*NB];
+  return a+(b-a)*u+(c-a)*v+(a-b-c+d)*u*v;
+}
+function fbm(x,y,oct){
+  let v=0,amp=1,freq=1,max=0;
+  for(let i=0;i<oct;i++){v+=snoise(x*freq,y*freq)*amp;max+=amp;amp*=0.5;freq*=2;}
+  return v/max;
+}
+
+// ── GRAPH / MORPHISM NODES ────────────────────────────────────
+class GraphNode{
+  constructor(x,y,id){
+    this.id=id;
+    this.x=x; this.y=y;
+    this.vx=(rng()-0.5)*0.4;
+    this.vy=(rng()-0.5)*0.4;
+    this.r=rr(4,16);
+    this.phase=rng()*Math.PI*2;
+    this.freq=rr(0.3,1.8);
+    this.type=ri(0,4); // 0=circle,1=square,2=diamond,3=cross,4=hex
+    this.morph=0; // 0..1 transformation state
+    this.morphTarget=rng();
+    this.morphSpeed=rr(0.002,0.012);
+    this.dissolved=rng()<0.3;
+  }
+  update(t,dt){
+    const nx=fbm(this.x*0.004+t*0.04,this.y*0.004+U.noiseOff,3)*U.fieldStrength;
+    const ny=fbm(this.x*0.004+U.noiseOff,this.y*0.004+t*0.04,3)*U.fieldStrength;
+    this.vx+=nx*dt*0.05; this.vy+=ny*dt*0.05;
+    this.vx*=0.985; this.vy*=0.985;
+    this.x+=this.vx*dt; this.y+=this.vy*dt;
+    // Wrap
+    if(this.x<-50)this.x=W+40; if(this.x>W+50)this.x=-40;
+    if(this.y<-50)this.y=H+40; if(this.y>H+50)this.y=-40;
+    // Morph
+    this.morph+=(this.morphTarget-this.morph)*this.morphSpeed*dt;
+    if(Math.abs(this.morph-this.morphTarget)<0.01){this.morphTarget=rng();this.morphSpeed=rr(0.002,0.012);}
+    // Dissolve toggle
+    if(rng()<0.0003)this.dissolved=!this.dissolved;
+  }
+  draw(t){
+    const pulse=Math.sin(t*this.freq+this.phase)*0.5+0.5;
+    const rad=this.r*(0.7+0.3*pulse)*(1+this.morph*0.8);
+    const colorT=(this.id/U.nodes.length+t*U.colorSpeed)%1;
+    const alpha=this.dissolved?0.25+pulse*0.2:0.6+pulse*0.35;
+    ctx.save();
+    ctx.translate(this.x,this.y);
+    if(this.dissolved){
+      // Dissolution: scatter particles
+      const nPts=8;
+      for(let i=0;i<nPts;i++){
+        const ang=i/nPts*Math.PI*2+t*0.5;
+        const dist=rad*(0.5+this.morph)*pulse;
+        const px2=Math.cos(ang)*dist, py2=Math.sin(ang)*dist;
+        ctx.beginPath();
+        ctx.arc(px2,py2,1.5,0,Math.PI*2);
+        ctx.fillStyle=palColor(colorT+i/nPts,alpha);
+        ctx.fill();
+      }
+    } else {
+      ctx.beginPath();
+      ctx.strokeStyle=palColor(colorT,alpha);
+      ctx.lineWidth=1.2+pulse;
+      ctx.shadowBlur=16+pulse*12;
+      ctx.shadowColor=palColor(colorT,0.8);
+      switch(this.type%5){
+        case 0: ctx.arc(0,0,rad,0,Math.PI*2); break;
+        case 1:{const s=rad;ctx.rect(-s,-s,s*2,s*2);break;}
+        case 2:{ctx.moveTo(0,-rad);ctx.lineTo(rad,0);ctx.lineTo(0,rad);ctx.lineTo(-rad,0);ctx.closePath();break;}
+        case 3:{ctx.moveTo(0,-rad);ctx.lineTo(0,rad);ctx.moveTo(-rad,0);ctx.lineTo(rad,0);break;}
+        case 4:{for(let i=0;i<6;i++){const a=i/6*Math.PI*2-Math.PI/6;const nx2=Math.cos(a)*rad,ny2=Math.sin(a)*rad;i===0?ctx.moveTo(nx2,ny2):ctx.lineTo(nx2,ny2);}ctx.closePath();break;}
+      }
+      ctx.stroke();
+      // Inner glow dot
+      ctx.beginPath();
+      ctx.arc(0,0,rad*0.18,0,Math.PI*2);
+      ctx.fillStyle=palColor(colorT+0.5,alpha*0.9);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+}
+
+// ── MORPHISM EDGES (category-theory arrows) ───────────────────
+class Morphism{
+  constructor(a,b){
+    this.a=a; this.b=b;
+    this.phase=rng()*Math.PI*2;
+    this.freq=rr(0.2,1.2);
+    this.kind=ri(0,3); // 0=line,1=bezier,2=arc,3=double
+    this.signalPos=rng();
+    this.signalSpeed=rr(0.003,0.015)*rc([-1,1]);
+    this.ctrl1x=rr(-200,200); this.ctrl1y=rr(-200,200);
+  }
+  update(t,dt){
+    this.signalPos=(this.signalPos+this.signalSpeed*dt+1)%1;
+  }
+  draw(t){
+    const na=U.nodes[this.a], nb=U.nodes[this.b];
+    if(!na||!nb)return;
+    const pulse=Math.sin(t*this.freq+this.phase)*0.5+0.5;
+    const colorT=(this.a/U.nodes.length+t*U.colorSpeed)%1;
+    const alpha=0.15+pulse*0.2;
+    ctx.save();
+    ctx.strokeStyle=palColor(colorT,alpha);
+    ctx.lineWidth=0.8+pulse*0.5;
+    ctx.shadowBlur=8+pulse*6;
+    ctx.shadowColor=palColor(colorT,0.6);
+    ctx.setLineDash(this.kind===3?[4,6]:[]);
+    const mx=(na.x+nb.x)/2, my=(na.y+nb.y)/2;
+    ctx.beginPath();
+    switch(this.kind%4){
+      case 0: ctx.moveTo(na.x,na.y); ctx.lineTo(nb.x,nb.y); break;
+      case 1:
+      case 3: ctx.moveTo(na.x,na.y); ctx.quadraticCurveTo(mx+this.ctrl1x,my+this.ctrl1y,nb.x,nb.y); break;
+      case 2: ctx.moveTo(na.x,na.y); ctx.bezierCurveTo(na.x+this.ctrl1x,na.y+this.ctrl1y,nb.x-this.ctrl1x,nb.y-this.ctrl1y,nb.x,nb.y); break;
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // Signal particle travelling along edge
+    const sp=this.signalPos;
+    let sx,sy;
+    if(this.kind===0){sx=na.x+(nb.x-na.x)*sp;sy=na.y+(nb.y-na.y)*sp;}
+    else{const t2=sp;const it=1-t2;sx=it*it*na.x+2*it*t2*(mx+(this.kind===1||this.kind===3?this.ctrl1x:this.ctrl1x))+t2*t2*nb.x;sy=it*it*na.y+2*it*t2*(my+(this.kind===1||this.kind===3?this.ctrl1y:this.ctrl1y))+t2*t2*nb.y;}
+    ctx.beginPath();
+    ctx.arc(sx,sy,2.5,0,Math.PI*2);
+    ctx.fillStyle=palColor(colorT+0.5,0.9);
+    ctx.shadowBlur=14;
+    ctx.shadowColor=palColor(colorT+0.5,1);
+    ctx.fill();
+    // Arrowhead
+    const dx=nb.x-na.x, dy=nb.y-na.y;
+    const angle=Math.atan2(dy,dx);
+    const aSize=7+pulse*3;
+    ctx.beginPath();
+    ctx.moveTo(nb.x-Math.cos(angle)*aSize,nb.y-Math.sin(angle)*aSize);
+    ctx.lineTo(nb.x-Math.cos(angle-0.4)*aSize*0.6,nb.y-Math.sin(angle-0.4)*aSize*0.6);
+    ctx.lineTo(nb.x-Math.cos(angle+0.4)*aSize*0.6,nb.y-Math.sin(angle+0.4)*aSize*0.6);
+    ctx.closePath();
+    ctx.fillStyle=palColor(colorT,alpha*2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+// ── PARTICLES (signal flows) ──────────────────────────────────
+class Particle{
+  constructor(){this.reset();}
+  reset(){
+    this.x=rr(0,W); this.y=rr(0,H);
+    this.vx=(rng()-0.5)*2; this.vy=(rng()-0.5)*2;
+    this.life=1; this.decay=rr(0.003,0.012);
+    this.size=rr(0.8,3);
+    this.trail=[];
+    this.maxTrail=ri(3,15);
+    this.colorOffset=rng();
+  }
+  update(t,dt){
+    this.trail.push({x:this.x,y:this.y});
+    if(this.trail.length>this.maxTrail)this.trail.shift();
+    const fx=fbm(this.x*0.006+t*0.02,this.y*0.006,3)*U.fieldStrength*0.8;
+    const fy=fbm(this.x*0.006,this.y*0.006+t*0.02,3)*U.fieldStrength*0.8;
+    this.vx+=fx*dt*0.03; this.vy+=fy*dt*0.03;
+    this.vx*=0.97; this.vy*=0.97;
+    this.x+=this.vx*dt; this.y+=this.vy*dt;
+    this.life-=this.decay*dt;
+    if(this.life<=0||this.x<0||this.x>W||this.y<0||this.y>H)this.reset();
+  }
+  draw(t){
+    const colorT=(this.colorOffset+t*U.colorSpeed*0.5)%1;
+    if(this.trail.length>1){
+      ctx.save();
+      for(let i=1;i<this.trail.length;i++){
+        const a=i/this.trail.length;
+        ctx.beginPath();
+        ctx.moveTo(this.trail[i-1].x,this.trail[i-1].y);
+        ctx.lineTo(this.trail[i].x,this.trail[i].y);
+        ctx.strokeStyle=palColor(colorT+a*0.1,this.life*a*0.6);
+        ctx.lineWidth=this.size*a;
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+    ctx.beginPath();
+    ctx.arc(this.x,this.y,this.size,0,Math.PI*2);
+    ctx.fillStyle=palColor(colorT,this.life*0.9);
+    ctx.fill();
+  }
+}
+
+// ── FRACTAL LIGHTNING ─────────────────────────────────────────
+class LightningBolt{
+  constructor(){this.reset();}
+  reset(){
+    this.x1=rr(0,W);this.y1=rr(0,H);
+    const ang=rng()*Math.PI*2;
+    const len=rr(80,300);
+    this.x2=this.x1+Math.cos(ang)*len;
+    this.y2=this.y1+Math.sin(ang)*len;
+    this.life=rr(0.3,0.9);
+    this.decay=rr(0.025,0.07);
+    this.depth=ri(2,4);
+    this.colorOffset=rng();
+  }
+  update(dt){this.life-=this.decay*dt;if(this.life<=0)this.reset();}
+  draw(t){
+    const colorT=(this.colorOffset+t*U.colorSpeed)%1;
+    ctx.save();
+    ctx.globalAlpha=this.life*0.8;
+    ctx.shadowBlur=20;ctx.shadowColor=palColor(colorT,0.9);
+    ctx.lineWidth=1.2;
+    // Iterative lightning — no recursion, no stack overflow
+    const stack=[{x1:this.x1,y1:this.y1,x2:this.x2,y2:this.y2,depth:this.depth,ct:colorT}];
+    let safety=0;
+    while(stack.length>0&&safety++<400){
+      const seg=stack.pop();
+      if(seg.depth<=0||Math.hypot(seg.x2-seg.x1,seg.y2-seg.y1)<4){
+        ctx.beginPath();ctx.moveTo(seg.x1,seg.y1);ctx.lineTo(seg.x2,seg.y2);
+        ctx.strokeStyle=palColor(seg.ct,1);ctx.stroke();
+        continue;
+      }
+      const jitter=40/Math.max(seg.depth,1);
+      const mx=(seg.x1+seg.x2)/2+(rng()-0.5)*jitter;
+      const my=(seg.y1+seg.y2)/2+(rng()-0.5)*jitter;
+      const nd=seg.depth-1;
+      stack.push({x1:seg.x1,y1:seg.y1,x2:mx,y2:my,depth:nd,ct:seg.ct});
+      stack.push({x1:mx,y1:my,x2:seg.x2,y2:seg.y2,depth:nd,ct:seg.ct});
+      if(nd>=1&&rng()<0.35){
+        const ang=Math.atan2(seg.y2-seg.y1,seg.x2-seg.x1)+(rng()-0.5)*1.2;
+        const bl=Math.hypot(seg.x2-seg.x1,seg.y2-seg.y1)*0.45;
+        stack.push({x1:mx,y1:my,x2:mx+Math.cos(ang)*bl,y2:my+Math.sin(ang)*bl,depth:nd-1,ct:(seg.ct+0.2)%1});
+      }
+    }
+    ctx.restore();
+  }
+}
+
+// ── MEGASTRUCTURE GRID ────────────────────────────────────────
+class MegaGrid{
+  constructor(){
+    this.cols=ri(4,12);
+    this.rows=ri(3,8);
+    this.phase=rng()*Math.PI*2;
+    this.freq=rr(0.1,0.4);
+    this.colorOffset=rng();
+    this.glitchPhase=rr(0,100);
+  }
+  draw(t){
+    const cw=W/this.cols, rh=H/this.rows;
+    const pulse=Math.sin(t*this.freq+this.phase)*0.5+0.5;
+    const glitch=Math.sin(t*3.7+this.glitchPhase);
+    ctx.save();
+    ctx.globalAlpha=0.06+pulse*0.06;
+    for(let c=0;c<=this.cols;c++){
+      const x=c*cw+(glitch*glitch>0.85?rr(-8,8):0);
+      const colorT=(c/this.cols+t*U.colorSpeed*0.3+this.colorOffset)%1;
+      ctx.strokeStyle=palColor(colorT,0.7);
+      ctx.lineWidth=glitch*glitch>0.9?2:0.7;
+      ctx.shadowBlur=glitch*glitch>0.9?20:4;
+      ctx.shadowColor=palColor(colorT,0.5);
+      ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();
+    }
+    for(let r=0;r<=this.rows;r++){
+      const y=r*rh+(glitch*glitch>0.85?rr(-8,8):0);
+      const colorT=(r/this.rows+t*U.colorSpeed*0.3+this.colorOffset+0.3)%1;
+      ctx.strokeStyle=palColor(colorT,0.7);
+      ctx.lineWidth=glitch*glitch>0.9?2:0.7;
+      ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+// ── CRISPR HELIX STRANDS ──────────────────────────────────────
+class CrisprStrand{
+  constructor(){
+    this.x=rr(0,W);
+    this.startY=-200;
+    this.endY=H+200;
+    this.spacing=rr(18,40);
+    this.amp=rr(20,80);
+    this.phase=rng()*Math.PI*2;
+    this.speed=rr(0.3,1.5)*rc([-1,1]);
+    this.colorOffset=rng();
+    this.vx=(rng()-0.5)*0.15;
+    this.cuts=[];
+    const nCuts=ri(2,8);
+    for(let i=0;i<nCuts;i++)this.cuts.push(rr(0,1));
+  }
+  update(dt){
+    this.x+=this.vx*dt;
+    if(this.x<-100)this.x=W+90;
+    if(this.x>W+100)this.x=-90;
+    this.phase+=this.speed*dt*0.02;
+  }
+  draw(t){
+    const steps=Math.ceil((this.endY-this.startY)/this.spacing);
+    const colorT=(this.colorOffset+t*U.colorSpeed*0.5)%1;
+    ctx.save();
+    ctx.lineWidth=1.2;
+    ctx.shadowBlur=10;
+    // Double helix
+    for(let strand=0;strand<2;strand++){
+      const phaseOff=strand*Math.PI;
+      ctx.beginPath();
+      for(let i=0;i<=steps;i++){
+        const y=this.startY+i*this.spacing;
+        const angle=i*0.3+this.phase+phaseOff;
+        const x=this.x+Math.cos(angle)*this.amp;
+        const ct2=(colorT+i/steps*0.3+strand*0.15)%1;
+        ctx.strokeStyle=palColor(ct2,0.55);
+        ctx.shadowColor=palColor(ct2,0.6);
+        if(i===0){ctx.moveTo(x,y);}else{ctx.lineTo(x,y);}
+      }
+      ctx.stroke();
+    }
+    // Cross-links (base pairs)
+    for(let i=0;i<=steps;i+=3){
+      const y=this.startY+i*this.spacing;
+      const angle=i*0.3+this.phase;
+      const x1=this.x+Math.cos(angle)*this.amp;
+      const x2=this.x+Math.cos(angle+Math.PI)*this.amp;
+      // Check if cut site
+      const frac=i/steps;
+      const isCut=this.cuts.some(c=>Math.abs(c-frac)<0.04);
+      const ct2=(colorT+frac*0.5)%1;
+      ctx.strokeStyle=palColor(ct2,isCut?0.9:0.3);
+      ctx.lineWidth=isCut?2.5:0.8;
+      ctx.shadowBlur=isCut?20:5;
+      ctx.shadowColor=palColor(ct2,isCut?1:0.4);
+      ctx.beginPath();ctx.moveTo(x1,y);ctx.lineTo(x2,y);ctx.stroke();
+      if(isCut){
+        // Scissors glyph
+        ctx.fillStyle=palColor((ct2+0.5)%1,0.9);
+        ctx.beginPath();ctx.arc((x1+x2)/2,y,4,0,Math.PI*2);ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+}
+
+// ── AUDIO SYSTEM ─────────────────────────────────────────────
+let audioNodes={};
+function initAudio(){
+  if(audioCtx)return;
+  audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+  const master=audioCtx.createGain();
+  master.gain.value=0.18;
+  master.connect(audioCtx.destination);
+  audioNodes.master=master;
+  audioNodes.oscs=[];
+  // Base drone
+  const freqs=[U.audioBase, U.audioBase*1.5, U.audioBase*2, U.audioBase*3];
+  freqs.forEach((f,i)=>{
+    const o=audioCtx.createOscillator();
+    const g=audioCtx.createGain();
+    o.type=rc(['sawtooth','square','triangle','sine']);
+    o.frequency.value=f;
+    g.gain.value=0.08/(i+1);
+    o.connect(g);g.connect(master);
+    o.start();
+    audioNodes.oscs.push({o,g,baseFreq:f,lfoPhase:rng()*Math.PI*2});
+  });
+  // Reverb (convolver with noise)
+  const conv=audioCtx.createConvolver();
+  const len=audioCtx.sampleRate*1.5;
+  const buf=audioCtx.createBuffer(2,len,audioCtx.sampleRate);
+  for(let c=0;c<2;c++){const d=buf.getChannelData(c);for(let i=0;i<len;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/len,2);}
+  conv.buffer=buf;
+  const convGain=audioCtx.createGain();convGain.gain.value=0.3;
+  master.connect(conv);conv.connect(convGain);convGain.connect(audioCtx.destination);
+  audioNodes.conv=conv;
+}
+function updateAudio(t){
+  if(!soundOn||!audioCtx)return;
+  audioNodes.oscs.forEach((node,i)=>{
+    node.lfoPhase+=0.012;
+    const lfo=Math.sin(node.lfoPhase)*0.3+0.7;
+    const noiseShift=fbm(t*0.05+i,i*3,2)*30;
+    node.o.frequency.setTargetAtTime(node.baseFreq*lfo+noiseShift,audioCtx.currentTime,0.1);
+    const envGain=(0.06+Math.sin(t*0.3+i)*0.03)/(i+1);
+    node.g.gain.setTargetAtTime(envGain,audioCtx.currentTime,0.2);
+  });
+}
+function toggleSound(){
+  soundOn=!soundOn;
+  if(soundOn){
+    initAudio();
+    if(audioCtx.state==='suspended')audioCtx.resume();
+  } else {
+    if(audioCtx)audioCtx.suspend();
+  }
+}
+function disposeAudio(){
+  if(!audioCtx)return;
+  audioNodes.oscs.forEach(n=>{try{n.o.stop();}catch(e){}});
+  audioCtx.close();
+  audioCtx=null;
+  audioNodes={};
+}
+
+// ── UNIVERSE INIT ─────────────────────────────────────────────
+function initUniverse(){
+  // Rebuild RNG from new seed
+  SEED=Math.random()*1e9|0;
+  buildPalette();
+  U.colorSpeed=rr(0.015,0.06);
+  U.noiseOff=rng()*100;
+  U.fieldStrength=rr(0.5,2.5);
+  U.audioBase=rr(40,120);
+
+  // Nodes
+  const nNodes=Math.min(ri(12,55), Math.floor(W*H/14000));
+  U.nodes=[];
+  for(let i=0;i<nNodes;i++){
+    U.nodes.push(new GraphNode(rr(50,W-50),rr(50,H-50),i));
+  }
+  // Morphisms (edges)
+  U.morphisms=[];
+  const nMorphisms=ri(nNodes,nNodes*3);
+  for(let i=0;i<nMorphisms;i++){
+    const a=ri(0,nNodes-1);
+    let b=ri(0,nNodes-2); if(b>=a)b++;
+    U.morphisms.push(new Morphism(a,b));
+  }
+  // Particles
+  const nParts=Math.min(ri(60,220),Math.floor(W*H/3500));
+  U.particles=[];
+  for(let i=0;i<nParts;i++)U.particles.push(new Particle());
+  // Fractal lightning
+  const nBolts=ri(3,10);
+  U.bolts=[];
+  for(let i=0;i<nBolts;i++)U.bolts.push(new LightningBolt());
+  // Grid
+  U.grid=new MegaGrid();
+  // CRISPR strands
+  const nStrands=ri(2,7);
+  U.strands=[];
+  for(let i=0;i<nStrands;i++)U.strands.push(new CrisprStrand());
+  // Algorithm display name
+  const algos=['GRAPH MORPHOGENESIS','VECTOR FIELD LATTICE','RECURSIVE FRACTAL FLOW',
+                'PARTICLE SIGNAL MATRIX','CRISPR TOPOLOGY WEAVE','CATEGORY MORPHISM ENGINE'];
+  U.algoName=rc(algos);
+  frame=0; startTime=performance.now(); lastTime=startTime;
+
+  // Rebuild audio on restart if sound on
+  if(soundOn){
+    disposeAudio();
+    initAudio();
+    if(audioCtx&&audioCtx.state==='suspended')audioCtx.resume();
+  }
+}
+
+// ── BACKGROUND ───────────────────────────────────────────────
+let bgPhase=0;
+function drawBackground(t){
+  bgPhase+=0.0003;
+  // Deep scanline void
+  ctx.fillStyle='rgba(0,0,0,0.88)';
+  ctx.fillRect(0,0,W,H);
+  // Subtle radial vignette
+  const g=ctx.createRadialGradient(cx,cy,0,cx,cy,Math.max(W,H)*0.7);
+  const colorT=(t*U.colorSpeed*0.2)%1;
+  g.addColorStop(0,palColor(colorT,0.04));
+  g.addColorStop(0.5,palColor((colorT+0.3)%1,0.02));
+  g.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=g;
+  ctx.fillRect(0,0,W,H);
+  // Scanlines
+  if(W<2000){
+    ctx.save();
+    ctx.globalAlpha=0.03;
+    ctx.strokeStyle='#ffffff';
+    ctx.lineWidth=1;
+    for(let y=0;y<H;y+=4){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
+    ctx.restore();
+  }
+}
+
+// ── HUD ───────────────────────────────────────────────────────
+function updateHUD(t){
+  if(!hudOn)return;
+  const elapsed=((performance.now()-startTime)/1000).toFixed(1);
+  hudMain.innerHTML=`
+    <div><span class="lbl">ENGINE</span><span class="val">${U.algoName}</span></div>
+    <div><span class="lbl">PALETTE</span><span class="val">${U.palName}</span></div>
+    <div><span class="lbl">FPS</span><span class="val">${fpsSmooth.toFixed(1)}</span></div>
+    <div><span class="lbl">FRAME</span><span class="val">${frame}</span></div>
+    <div><span class="lbl">TIME</span><span class="val">${elapsed}s</span></div>
+    <div><span class="lbl">NODES</span><span class="val">${U.nodes.length}</span></div>
+    <div><span class="lbl">MORPHISMS</span><span class="val">${U.morphisms.length}</span></div>
+    <div><span class="lbl">PARTICLES</span><span class="val">${U.particles.length}</span></div>
+    <div><span class="lbl">STRANDS</span><span class="val">${U.strands.length}</span></div>
+    <div><span class="lbl">FIELD STR</span><span class="val">${U.fieldStrength.toFixed(2)}</span></div>
+    <div><span class="lbl">COLOR SPD</span><span class="val">${U.colorSpeed.toFixed(3)}</span></div>
+    <div><span class="lbl">AUDIO</span><span class="val">${soundOn?'ON ['+U.audioBase.toFixed(0)+'Hz]':'OFF'}</span></div>
+  `;
+  hudCorner.innerHTML=`
+    <div>◈ TRANSHUMAN SINGULARITY v1.0</div>
+    <div>SPACE/TAP = RESTART</div>
+    <div>H = HUD &nbsp; S = SOUND</div>
+  `;
+}
+
+// ── MAIN LOOP ─────────────────────────────────────────────────
+function loop(now){
+  RAF=requestAnimationFrame(loop);
+  const dt=Math.min((now-lastTime)/16.667,3);
+  lastTime=now;
+  frame++;
+  const t=(now-startTime)*0.001;
+  // FPS
+  const rawFps=1000/Math.max((now-lastTime+0.01),1);
+  fpsSmooth+=(60/(frame||1)*0 + 1/dt - fpsSmooth)*0.05;
+  // ── DRAW ──
+  drawBackground(t);
+  // Grid
+  U.grid.draw(t);
+  // CRISPR strands
+  U.strands.forEach(s=>{s.update(dt);s.draw(t);});
+  // Fractal lightning
+  ctx.save();ctx.globalAlpha=0.7;
+  U.bolts.forEach(b=>{b.update(dt);b.draw(t);});
+  ctx.restore();
+  // Morphisms first (behind nodes)
+  U.morphisms.forEach(m=>{m.update(t,dt);m.draw(t);});
+  // Nodes
+  U.nodes.forEach(n=>{n.update(t,dt);n.draw(t);});
+  // Particles on top
+  ctx.save();ctx.globalCompositeOperation='lighter';
+  U.particles.forEach(p=>{p.update(t,dt);p.draw(t);});
+  ctx.restore();
+  // Chromatic river overlay (global wave)
+  drawChromaticRiver(t);
+  // Audio
+  updateAudio(t);
+  // HUD
+  updateHUD(t);
+}
+
+function drawChromaticRiver(t){
+  ctx.save();
+  ctx.globalAlpha=0.03;
+  const nBands=6;
+  for(let b=0;b<nBands;b++){
+    const yBase=((t*0.05+b/nBands)%1)*H;
+    const colorT=(b/nBands+t*U.colorSpeed*0.4)%1;
+    const g=ctx.createLinearGradient(0,yBase-30,W,yBase+30);
+    g.addColorStop(0,palColor(colorT,0));
+    g.addColorStop(0.5,palColor(colorT,1));
+    g.addColorStop(1,palColor(colorT,0));
+    ctx.fillStyle=g;
+    ctx.fillRect(0,yBase-30,W,60);
+  }
+  ctx.restore();
+}
+
+// ── CONTROLS ─────────────────────────────────────────────────
+function restart(){
+  if(RAF)cancelAnimationFrame(RAF);
+  initUniverse();
+  lastTime=performance.now();
+  RAF=requestAnimationFrame(loop);
+  // Hide tip after first restart
+  tip.style.opacity='0';
+}
+
+document.addEventListener('keydown',e=>{
+  if(e.shiftKey)return; // never use SHIFT
+  switch(e.code){
+    case 'Space':   e.preventDefault(); restart(); break;
+    case 'KeyH':    hudOn=!hudOn; hud.classList.toggle('visible',hudOn); break;
+    case 'KeyS':    toggleSound(); break;
+  }
+});
+
+let tapStart=0;
+document.addEventListener('pointerdown',e=>{tapStart=e.timeStamp;});
+document.addEventListener('pointerup',e=>{
+  if(e.timeStamp-tapStart<300)restart();
+});
+
+// ── BOOT ─────────────────────────────────────────────────────
+initUniverse();
+RAF=requestAnimationFrame(loop);
+
+// Fade tip
+setTimeout(()=>{tip.style.opacity='0';},5000);
+
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,831 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Mathematical Cosmos — Generative Audiovisual Engine</title>
+<meta name="description" content="A fully procedural generative audiovisual engine where geometry becomes machinery and ornament becomes physics. Penrose quasicrystal tilings, Ammann-Beenker tilings, hyperbolic geometry, Islamic star patterns, Celtic knots, fractal subdivision, Voronoi diagrams, Apollonian packings, reaction-diffusion chemistry, Hamiltonian mechanics, 4D-12D polytope projections, and mechanical linkages evolve in real time with GPU-accelerated WebGL rendering and synchronized procedural audio synthesis.">
+<meta name="keywords" content="generative art,mathematical visualization,Penrose tiling,quasicrystal,Ammann Beenker,hyperbolic geometry,Islamic geometry,Celtic knots,fractal,WebGL,GLSL,procedural audio,reaction diffusion,Voronoi,Delaunay,cellular automata,space filling curves,Hilbert curve,Apollonian gasket,4D polytope,5D polytope,hypercube,non-Euclidean geometry,audiovisual,generative music,Web Audio API,Hamiltonian mechanics,Lagrangian,knot theory,torus knot,braid group,Mobius transformation,Julia set,Mandelbrot,Islamic rosette,arabesque,Mughal ornament,Germanic interlace,Chinese lattice,Korean lattice,gear mechanism,four-bar linkage,Stewart platform,gyroscope,spring mass network,wave interference,lattice Boltzmann,Rayleigh Benard,vortex particle,GPU shader,single file">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000;touch-action:none}
+#c{display:block;width:100vw;height:100vh;cursor:crosshair}
+#hud{position:fixed;inset:0;pointer-events:none;font-family:'Courier New',monospace;font-size:10.5px;color:rgba(255,255,255,.75);display:none}
+#hi{position:absolute;top:14px;left:14px;background:rgba(0,0,0,.65);padding:10px 14px;border:1px solid rgba(255,255,255,.18);border-radius:3px;line-height:1.8;min-width:260px;max-width:320px;backdrop-filter:blur(4px)}
+#hi b{color:rgba(255,210,80,.95)}
+#hi .dim{opacity:.5;font-size:9.5px}
+#hint{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);font-family:'Courier New',monospace;font-size:10px;color:rgba(255,255,255,.3);pointer-events:none;white-space:nowrap;letter-spacing:.08em;transition:opacity 3s ease}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"><div id="hi"></div></div>
+<div id="hint">SPACE · TAP — rebirth &nbsp;·&nbsp; H — hud &nbsp;·&nbsp; S — sound</div>
+<script>
+/* ═══════════════════════════════════════════════════════════════════════
+   MATHEMATICAL COSMOS  ·  Single-file Generative Audiovisual Engine
+   GPU-accelerated procedural universe in WebGL GLSL
+   ═══════════════════════════════════════════════════════════════════════ */
+'use strict';
+
+// ── Globals ────────────────────────────────────────────────────────────
+const CVS=document.getElementById('c');
+const HUD=document.getElementById('hud');
+const HI =document.getElementById('hi');
+const HINT=document.getElementById('hint');
+
+let W,H,GL,PROG,QUAD;
+let LOC={};          // uniform locations
+let UNI={};          // current uniform values
+let UNV={};          // universe config
+let soundOn=false;   // sound OFF by default
+let hudOn=false;
+let ACX=null,OSCS=[],LFOS=[],MASTER_GAIN=null;
+let t0=performance.now();
+let frame=0,fps=0,fpsT=0;
+let morphPhase=0;
+
+// ── Math helpers ───────────────────────────────────────────────────────
+const rnd=(a=0,b=1)=>a+Math.random()*(b-a);
+const rndI=(a,b)=>Math.floor(rnd(a,b+1));
+const pick=a=>a[Math.floor(Math.random()*a.length)];
+const TAU=Math.PI*2;
+
+// ── Resize ─────────────────────────────────────────────────────────────
+function resize(){
+  W=CVS.width=window.innerWidth;
+  H=CVS.height=window.innerHeight;
+  if(GL)GL.viewport(0,0,W,H);
+}
+window.addEventListener('resize',resize);
+
+// ─────────────────────────────────────────────────────────────────────
+//  VERTEX SHADER
+// ─────────────────────────────────────────────────────────────────────
+const VS=`
+attribute vec2 a;
+void main(){gl_Position=vec4(a,0.,1.);}
+`;
+
+// ─────────────────────────────────────────────────────────────────────
+//  FRAGMENT SHADER  — The Mathematical Cosmos
+// ─────────────────────────────────────────────────────────────────────
+const FS=`
+#ifdef GL_ES
+precision highp float;
+#endif
+
+uniform float T;
+uniform vec2  R;
+uniform vec4  SEED;
+uniform float MODE;
+uniform vec4  PAL;
+uniform vec4  P;
+uniform vec4  M;
+uniform vec4  X;
+uniform vec4  DYN;
+
+#define PI  3.14159265358979
+#define TAU 6.28318530717959
+#define PHI 1.61803398874989
+
+float h11(float n){return fract(sin(n)*43758.5453);}
+float h21(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+vec2  h22(vec2 p){p=vec2(dot(p,vec2(127.1,311.7)),dot(p,vec2(269.5,183.3)));return fract(sin(p)*43758.5453);}
+
+float vnoise(vec2 p){
+  vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
+  return mix(mix(h21(i),h21(i+vec2(1,0)),f.x),mix(h21(i+vec2(0,1)),h21(i+vec2(1,1)),f.x),f.y);
+}
+float fbm(vec2 p){
+  float v=0.,a=.5;
+  for(int i=0;i<5;i++){v+=a*vnoise(p);p=p*2.+vec2(1.7,.9);a*=.5;}
+  return v;
+}
+vec2 cmul(vec2 a,vec2 b){return vec2(a.x*b.x-a.y*b.y,a.x*b.y+a.y*b.x);}
+vec2 rot2(vec2 p,float a){float c=cos(a),s=sin(a);return vec2(c*p.x-s*p.y,s*p.x+c*p.y);}
+float sdSeg(vec2 p,vec2 a,vec2 b){vec2 pa=p-a,ba=b-a;float h=clamp(dot(pa,ba)/(dot(ba,ba)+1e-6),0.,1.);return length(pa-ba*h);}
+float sdCirc(vec2 p,float r){return length(p)-r;}
+float sdBox(vec2 p,vec2 b){vec2 d=abs(p)-b;return length(max(d,0.))+min(max(d.x,d.y),0.);}
+float sdHex(vec2 p,float r){p=abs(p);p-=2.*min(dot(vec2(-.5,.866),p),0.)*vec2(-.5,.866);p-=vec2(clamp(p.x,-.866*r,.866*r),r);return length(p)*sign(p.y);}
+float sdTri(vec2 p,float r){float k=sqrt(3.);p.x=abs(p.x)-r;p.y=p.y+r/k;if(p.x+k*p.y>0.)p=vec2(p.x-k*p.y,-k*p.x-p.y)*.5;p.x-=clamp(p.x,-2.*r,0.);return -length(p)*sign(p.y);}
+
+// 1. Penrose quasicrystal 5-fold
+float penrose(vec2 p,float sc,float t){
+  p/=sc;float a=0.,b=0.;
+  for(int k=0;k<5;k++){
+    float ang=float(k)*TAU/5.;
+    float v=dot(p,vec2(cos(ang),sin(ang)))*PHI;
+    a+=cos(v*TAU+t*.08);b+=sin(v*TAU*PHI-t*.06+float(k));
+  }
+  return clamp(exp(-abs(a)*(3.+P.x*2.))+exp(-abs(b)*2.)*.5,0.,1.);
+}
+
+// 2. Ammann-Beenker 8-fold
+float ammann(vec2 p,float sc,float t){
+  p/=sc;float a=0.;
+  for(int k=0;k<4;k++){
+    float ang=float(k)*PI*.5;
+    a+=cos(dot(p,vec2(cos(ang),sin(ang)))*TAU);
+    a+=cos(dot(p,vec2(cos(ang+PI*.25),sin(ang+PI*.25)))*TAU*1.414)*.7;
+  }
+  return clamp(exp(-abs(sin(a+t*.07))*3.)+exp(-abs(a)*.4)*.3,0.,1.);
+}
+
+// 3. Voronoi
+vec3 voronoi3(vec2 p,float t){
+  vec2 ip=floor(p),fp=fract(p);
+  float md=8.,md2=8.;vec2 mg=vec2(0.);
+  for(int j=-2;j<=2;j++)for(int i=-2;i<=2;i++){
+    vec2 g=vec2(float(i),float(j));
+    vec2 o=h22(ip+g);o=.5+.45*sin(TAU*o+t*.25);
+    vec2 r=g+o-fp;float d=dot(r,r);
+    if(d<md){md2=md;md=d;mg=g;}else if(d<md2)md2=d;
+  }
+  return vec3(sqrt(md),sqrt(md2),h21(ip+mg));
+}
+
+// 4. Apollonian gasket
+float apollonian(vec2 p,float t){
+  vec2 z=p;float orbit=0.;
+  vec2 off=vec2(.5+.07*sin(t*.19),.3+.06*cos(t*.23));
+  for(int i=0;i<8;i++){
+    z=abs(z);float r2=dot(z,z)+1e-6;
+    float k=max(1.3/r2,1.);z*=k;z-=off;
+    orbit+=exp(-length(z)*.7);
+    if(length(z)>4.)break;
+  }
+  return clamp(orbit*.12,0.,1.);
+}
+
+// 5. Hyperbolic tiling
+float hyperbolicTile(vec2 p,float t,float sym){
+  float r=length(p);if(r>=.97)return 0.;
+  float n=max(3.,sym);float cr=cos(PI/n)/sin(PI/n);
+  vec2 z=p;float acc=0.;
+  for(int iter=0;iter<5;iter++){
+    float minD=8.;
+    for(int k=0;k<8;k++){
+      if(float(k)>=n)break;
+      float ang=float(k)*TAU/n+t*.04;
+      vec2 gc=cr*vec2(cos(ang),sin(ang));
+      float rad=sqrt(max(cr*cr-1.,0.));
+      minD=min(minD,abs(length(z-gc)-rad));
+    }
+    acc+=exp(-minD*5.);
+    vec2 gc=cr*vec2(cos(t*.04),sin(t*.04));
+    float gr=sqrt(max(cr*cr-1.,0.));
+    vec2 dz=z-gc;z=gc+gr*gr/(dot(dz,dz)+1e-6)*dz;
+    if(length(z)>1.)break;
+  }
+  return clamp(acc*.2*(1.-r),0.,1.);
+}
+
+// 6. Islamic star tiling
+float islamicStar(vec2 p,float sc,float t,float npts){
+  p/=sc;float n=npts;float acc=0.;
+  for(int dy=-2;dy<=2;dy++)for(int dx=-2;dx<=2;dx++){
+    vec2 cell=vec2(float(dx),float(dy));
+    vec2 center=cell.x*vec2(1.,0.)+cell.y*vec2(.5,.866);
+    vec2 rp=p-center;
+    float ang=atan(rp.y,rp.x)+t*.04;float lr=length(rp);
+    float starAng=mod(ang,TAU/n)*n/TAU;
+    float star=.25+.08*cos(PI*2.*(starAng-.5));
+    acc+=exp(-abs(lr-star)*16.)+exp(-abs(lr-.14)*20.)*.5;
+    for(int k=0;k<16;k++){
+      if(float(k)>=n)break;
+      float a=float(k)*TAU/n+t*.04;
+      acc+=exp(-sdSeg(p,center,center+.25*vec2(cos(a),sin(a)))*25.)*.2;
+    }
+  }
+  return clamp(acc,0.,1.);
+}
+
+// 7. Celtic knot
+float celticKnot(vec2 p,float sc,float t){
+  p/=sc;float acc=0.;float sw=.06;
+  vec2 cell=floor(p);vec2 f=fract(p)-.5;
+  float crossing=step(h21(cell+SEED.xy),.5);
+  for(float k=0.;k<4.;k++){
+    float off=(k/3.-.5)*.5;
+    acc+=exp(-max(abs(f.y-off)-sw,0.)*35.);
+    acc+=crossing*exp(-max(abs(f.y-off)-sw*.5,0.)*60.)*.3;
+  }
+  for(float k=0.;k<4.;k++){
+    float off=(k/3.-.5)*.5;
+    acc+=(1.-crossing)*exp(-max(abs(f.x-off)-sw,0.)*35.);
+  }
+  return clamp(acc,0.,1.);
+}
+
+// 8. Reaction-diffusion
+float reactionDiff(vec2 p,float t){
+  vec2 q=p*.01+SEED.xy*.5;float acc=0.;
+  for(int i=0;i<3;i++){
+    float fi=float(i);vec2 sq=q*(1.+fi*2.)+fi*vec2(.7,1.3);
+    float u=.5+.5*sin(dot(sq,vec2(3.1,2.7))+t*.3);
+    float v=.5+.5*cos(dot(sq,vec2(2.3,3.9))-t*.25);
+    for(int j=0;j<4;j++){
+      float nu=vnoise(sq+t*.015);float nv=vnoise(sq*1.3-t*.013);
+      u+=(.2*(nu-u)+u-u*v*v)*.08;v+=(.1*(nv-v)+u*v*v-.06*v)*.08;
+      sq+=.007*vec2(sin(v*6.+t*.07),cos(u*6.-t*.09));
+    }
+    acc+=abs(u-v)/(1.5+fi);
+  }
+  return clamp(acc*.5,0.,1.);
+}
+
+// 9. Vortex fluid
+float vortex(vec2 p,float t){
+  float acc=0.;
+  for(int k=0;k<7;k++){
+    float fk=float(k);float ang=fk*TAU/7.+SEED.z*TAU+t*.06;
+    float orb=.25+.15*sin(t*.11+fk*.7);
+    vec2 d=p-orb*vec2(cos(ang),sin(ang));float dl=length(d)+1e-4;
+    float swirl=atan(d.y,d.x)+t*(1.2+fk*.15)*(fk<3.5?.5:-.5)-dl*4.;
+    acc+=exp(-dl*dl*9.)*(.6+.4*abs(cos(swirl*2.+fk)));
+  }
+  return clamp(acc*.3,0.,1.);
+}
+
+// 10. 4D tesseract projection
+float polytope4D(vec2 p,float t){
+  float acc=0.;
+  float c1=cos(t*.18),s1=sin(t*.18);
+  float c2=cos(t*.11+M.y*TAU),s2=sin(t*.11+M.y*TAU);
+  float c3=cos(t*.14+M.z),s3=sin(t*.14+M.z);
+  float c4=cos(t*.07),s4=sin(t*.07);
+  // 16 vertices, iterate and draw edges
+  for(int i=0;i<16;i++){
+    float x=mod(float(i),2.)*2.-1.;float y=mod(floor(float(i)/2.),2.)*2.-1.;
+    float z=mod(floor(float(i)/4.),2.)*2.-1.;float w=mod(floor(float(i)/8.),2.)*2.-1.;
+    float nx=x*c1-w*s1;w=x*s1+w*c1;x=nx;
+    float ny=y*c2-z*s2;z=y*s2+z*c2;y=ny;
+    float nx2=x*c3-z*s3;z=x*s3+z*c3;x=nx2;
+    float ny2=y*c4-w*s4;w=y*s4+w*c4;y=ny2;
+    vec2 proj=vec2(x,y)/(2.8-w*.6)*.4;
+    for(int j=0;j<16;j++){
+      if(j<=i)continue;
+      float diff=abs(float(i)-float(j));
+      if(diff!=1.&&diff!=2.&&diff!=4.&&diff!=8.)continue;
+      float x2=mod(float(j),2.)*2.-1.;float y2=mod(floor(float(j)/2.),2.)*2.-1.;
+      float z2=mod(floor(float(j)/4.),2.)*2.-1.;float w2=mod(floor(float(j)/8.),2.)*2.-1.;
+      float nx_=x2*c1-w2*s1;w2=x2*s1+w2*c1;x2=nx_;
+      float ny_=y2*c2-z2*s2;z2=y2*s2+z2*c2;y2=ny_;
+      float nx2_=x2*c3-z2*s3;z2=x2*s3+z2*c3;x2=nx2_;
+      float ny2_=y2*c4-w2*s4;w2=y2*s4+w2*c4;y2=ny2_;
+      vec2 proj2=vec2(x2,y2)/(2.8-w2*.6)*.4;
+      float d=sdSeg(p,proj,proj2);
+      acc+=exp(-d*d*100.)*.06;
+    }
+  }
+  return clamp(acc,0.,1.);
+}
+
+// 11. Torus knot
+float torusKnot(vec2 p,float t,float kp,float kq){
+  float acc=0.;
+  float ca=cos(t*.12+M.y),sa=sin(t*.12+M.y);
+  float cb=cos(t*.09),sb=sin(t*.09);
+  for(int i=0;i<80;i++){
+    float u=float(i)/80.*TAU;
+    float r=2.+cos(kq*u+t*.08);
+    float x=r*cos(kp*u);float y=r*sin(kp*u);float z=sin(kq*u+t*.08);
+    float px=x*ca-z*sa;float pz=x*sa+z*ca;float py=y*cb-pz*sb;
+    vec2 proj=vec2(px,py)*.18;
+    acc+=exp(-dot(p-proj,p-proj)*70.)*.07;
+  }
+  return clamp(acc,0.,1.);
+}
+
+// 12. Mechanical linkage
+float linkage(vec2 p,float t,float narms){
+  float acc=0.;
+  for(float k=0.;k<8.;k++){
+    if(k>=narms)break;
+    float phase=k*TAU/narms+SEED.z*TAU;float a1=t*(1.+k*.09)+phase;
+    float l1=.12+.03*cos(k*1.7);float l2=.22+.05*sin(k*2.3);
+    vec2 B=l1*vec2(cos(a1),sin(a1));vec2 D=vec2(.25,0.);
+    vec2 BD=D-B;float bd=length(BD)+1e-4;
+    float cosA=clamp((l2*l2+bd*bd-.18*.18)/(2.*l2*bd),-1.,1.);
+    vec2 C=B+l2*vec2(cos(atan(BD.y,BD.x)+acos(cosA)),sin(atan(BD.y,BD.x)+acos(cosA)));
+    acc+=exp(-sdSeg(p,vec2(0.),B)*30.)*.07+exp(-sdSeg(p,B,C)*30.)*.07+exp(-sdSeg(p,C,D)*30.)*.06;
+  }
+  return clamp(acc,0.,1.);
+}
+
+// 13. Gear train
+float gears(vec2 p,float t,float n){
+  float acc=0.;
+  float sa=atan(p.y,p.x)-t*1.5;
+  acc+=exp(-abs(length(p)-(.12+.015*cos(sa*12.)))*20.);
+  for(float k=0.;k<6.;k++){
+    if(k>=n)break;
+    float ang=k*TAU/n+t*.5;vec2 pc=.22*vec2(cos(ang),sin(ang));
+    float pa=atan(p.y-pc.y,p.x-pc.x)-t*1.5;
+    acc+=exp(-abs(length(p-pc)-(.08+.01*cos(pa*9.)))*23.)*.9;
+    acc+=exp(-sdSeg(p,vec2(0.),pc)*26.)*.2;
+  }
+  acc+=exp(-abs(length(p)-(.32+.012*cos((atan(p.y,p.x)+t*.15)*28.)))*16.)*.7;
+  return clamp(acc*.15,0.,1.);
+}
+
+// 14. Fractal subdivision
+float subdivTile(vec2 p,float sc,float t,float mode){
+  float acc=0.;p/=sc;
+  for(int i=0;i<5;i++){
+    float s=pow(2.,float(i));vec2 c=floor(p*s);vec2 f=fract(p*s)-.5;
+    float h=h21(c+float(i)*vec2(13.7,9.1)+SEED.xy);
+    vec2 fr=rot2(f,h*PI+t*.03*sign(h-.5));
+    float d;
+    if(mode<1.)d=sdTri(fr,.42);else if(mode<2.)d=sdHex(fr,.38);else d=sdBox(fr,vec2(.38));
+    acc+=exp(-abs(d)*18./(float(i)+1.))/(float(i)+1.3);
+  }
+  return clamp(acc,0.,1.);
+}
+
+// 15. Wave interference
+float waveInterf(vec2 p,float t,float freq){
+  float acc=0.;
+  for(int k=0;k<6;k++){
+    float fk=float(k);vec2 src=.32*vec2(cos(fk*TAU/6.+t*.07),sin(fk*TAU/6.+t*.05));
+    float dist=length(p-src)+1e-4;
+    acc+=sin(dist*freq-t*(1.8+fk*.1)+fk*.8)*.04/dist;
+  }
+  acc+=sin(p.x*freq+t)*cos(p.y*freq-t*.9)*.25;
+  return exp(-abs(acc)*10.)+pow(abs(acc)+.01,1.5)*.4;
+}
+
+// 16. Julia set
+float juliaSet(vec2 p,float t){
+  vec2 c=.7885*vec2(cos(t*.07+SEED.x*TAU),sin(t*.07+SEED.y*TAU));
+  vec2 z=p*1.4;float i=0.;
+  for(int k=0;k<60;k++){
+    z=vec2(z.x*z.x-z.y*z.y,2.*z.x*z.y)+c;
+    if(dot(z,z)>4.){i=float(k);break;}i+=1.;
+  }
+  return clamp((i-log2(max(log2(dot(z,z)+.001),.0001))+4.)/60.,0.,1.);
+}
+
+// ── COLOR ─────────────────────────────────────────────────────────────
+vec3 hsv2rgb(vec3 c){
+  vec3 p=abs(fract(c.xxx+vec3(1.,.667,.333))*6.-3.);
+  return c.z*mix(vec3(1.),clamp(p-1.,0.,1.),c.y);
+}
+vec3 cosmicCol(float val,float energy,float t){
+  float h=PAL.x+val*PAL.y+energy*.07;
+  vec3 base=hsv2rgb(vec3(h,PAL.z,PAL.w*(val*.8+.2+energy*.3)));
+  vec3 glow=hsv2rgb(vec3(h+.15,PAL.z*.7,PAL.w*1.4));
+  return mix(base,glow,pow(energy,1.5)*.7);
+}
+vec3 neonCol(float val,float energy,float t){
+  float h=PAL.x+val*PAL.y*2.;
+  return hsv2rgb(vec3(h,.9+.1*energy,pow(val,1.2)*1.5*PAL.w))
+        +hsv2rgb(vec3(h+.1,.5,pow(val,1.2)*.5*PAL.w))*pow(energy,2.)*2.;
+}
+
+// ── MAIN ──────────────────────────────────────────────────────────────
+void main(){
+  vec2 uv=(gl_FragCoord.xy-.5*R)/min(R.x,R.y);
+  vec2 p=uv;float t=T;
+
+  p+=.04*vec2(sin(t*.016+SEED.x*TAU),cos(t*.019+SEED.y*TAU));
+  p=rot2(p,t*.003+SEED.w*.5);
+
+  float hk=X.x;
+  if(hk>.02){
+    float r=length(p)+1e-6;
+    float er=exp(min(r*(1.+hk)*2.,10.));
+    p*=(er-1.)/(er+1.)/r;
+  }
+
+  p+=M.w*.25*vec2(
+    sin(p.y*PI*3.+t*.13+SEED.z*TAU)*cos(p.x*PI*2.+t*.09),
+    cos(p.x*PI*3.-t*.11)*sin(p.y*PI*2.-t*.07)
+  );
+
+  float cA=cos(t*.06+M.y*TAU),sA=sin(t*.06+M.y*TAU);
+  p=mix(p,vec2(p.x*cA-p.y*sA,p.x*sA+p.y*cA),X.z*.35);
+
+  float sc=.22+P.x*.18;
+  float l1=0.,l2=0.,edge=0.;
+  float mode=mod(floor(MODE),16.);
+
+  if(mode<1.){      l1=penrose(p,sc,t);          l2=islamicStar(p,sc*.6,t,8.+P.y*4.);
+  }else if(mode<2.){
+    vec3 vv=voronoi3(p/sc*2.,t);
+    l1=smoothstep(.05,.0,vv.x-.08);edge=1.-smoothstep(.0,.07,vv.y-vv.x);
+    l2=penrose(p,sc*.9,t);
+  }else if(mode<3.){ l1=hyperbolicTile(p*.85,t,5.+P.y*5.); l2=islamicStar(p,sc*.6,t,12.);
+  }else if(mode<4.){ l1=celticKnot(p,sc*.55,t);   l2=torusKnot(p,t,2.+floor(P.y*4.),3.+floor(P.z*3.));
+  }else if(mode<5.){ l1=reactionDiff(p,t);          l2=vortex(p,t);
+  }else if(mode<6.){ l1=gears(p,t,3.+floor(P.y*4.)); l2=linkage(p,t,3.+floor(P.z*4.));
+  }else if(mode<7.){ l1=polytope4D(p,t);             l2=ammann(p,sc*.8,t);
+  }else if(mode<8.){ l1=subdivTile(p,sc,t,P.w*3.);   l2=waveInterf(p,t,6.+P.x*8.);
+  }else if(mode<9.){ l1=juliaSet(p*.85,t);           l2=apollonian(p*1.3,t);
+  }else if(mode<10.){l1=waveInterf(p,t,8.+P.x*8.);  l2=reactionDiff(p,t);
+  }else if(mode<11.){l1=ammann(p,sc*.8,t);           l2=islamicStar(p,sc*.55,t,10.+P.w*4.);
+  }else if(mode<12.){l1=torusKnot(p,t,2.,3.);        l2=torusKnot(p+vec2(.1),t,3.,5.);
+  }else if(mode<13.){l1=juliaSet(p,t);               l2=hyperbolicTile(p*.7,t,7.+P.y*5.);
+  }else if(mode<14.){l1=apollonian(rot2(p,.2+t*.02)*1.2,t); l2=vortex(p,t);
+  }else if(mode<15.){l1=celticKnot(p,sc*.5,t);       l2=gears(p,t,4.);
+  }else{
+    l1=penrose(p,sc,t)*.4+islamicStar(p,sc*.6,t,8.)*.35+ammann(p,sc*.7,t)*.25;
+    l2=juliaSet(p*.6,t)*.5+reactionDiff(p,t)*.5;
+  }
+
+  float val=clamp(mix(l1,l2,M.x*.7),0.,1.);
+  float energy=clamp(abs(l1-l2)*2.5+abs(val-.5)*.5,0.,1.);
+  edge=max(edge,energy);
+
+  float cm=floor(X.y);
+  vec3 col;
+  if(cm<1.){
+    col=cosmicCol(val,energy,t);col+=cosmicCol(edge,.5,t+.5)*.5*edge;
+  }else if(cm<2.){
+    vec3 vv=voronoi3(p/.25+t*.012,t);
+    float ch=vv.z;
+    vec3 fill=hsv2rgb(vec3(PAL.x+ch*PAL.y,PAL.z*.9+.1,PAL.w*1.2));
+    vec3 lead=hsv2rgb(vec3(PAL.x+.5,.1,PAL.w*1.5));
+    col=mix(fill,lead,smoothstep(0.,.05,edge));
+    col+=cosmicCol(val,energy,t)*.3;
+  }else if(cm<3.){
+    vec3 c1=hsv2rgb(vec3(PAL.x+val*PAL.y,PAL.z,PAL.w));
+    vec3 c2=hsv2rgb(vec3(PAL.x+.333+l2*PAL.y,PAL.z*.9,PAL.w));
+    col=c1*l1+c2*l2+vec3(edge*.3);
+  }else{
+    col=neonCol(val,energy,t);
+  }
+
+  col*=DYN.w*(1.+.05*sin(t*.5+val*TAU));
+  col*=1.-smoothstep(.55,1.3,length(uv)*1.4);
+  col+=vec3(h21(gl_FragCoord.xy+T*60.)-.5)*.022;
+  col=col/(col+.5);
+  col=pow(max(col,vec3(0.)),vec3(.42));
+  gl_FragColor=vec4(clamp(col,0.,1.),1.);
+}
+`
+// ── GL Init ────────────────────────────────────────────────────────────
+function initGL(){
+  GL = CVS.getContext('webgl2',{antialias:false,alpha:false,powerPreference:'high-performance',failIfMajorPerformanceCaveat:false})
+      || CVS.getContext('webgl',{antialias:false,alpha:false});
+  if(!GL){document.body.innerHTML='<div style="color:#fff;padding:40px;font-family:monospace">WebGL not supported.</div>';return;}
+  
+  const ext=['OES_standard_derivatives'];
+  ext.forEach(e=>{try{GL.getExtension(e);}catch(err){}});
+  
+  resize();
+  buildProg();
+  
+  QUAD=GL.createBuffer();
+  GL.bindBuffer(GL.ARRAY_BUFFER,QUAD);
+  GL.bufferData(GL.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),GL.STATIC_DRAW);
+}
+
+function compileShader(type,src){
+  const s=GL.createShader(type);
+  GL.shaderSource(s,src);
+  GL.compileShader(s);
+  if(!GL.getShaderParameter(s,GL.COMPILE_STATUS)){
+    console.error('Shader error:',GL.getShaderInfoLog(s));
+    console.error('Source (first 500):', src.slice(0,500));
+  }
+  return s;
+}
+
+function buildProg(){
+  PROG=GL.createProgram();
+  GL.attachShader(PROG,compileShader(GL.VERTEX_SHADER,VS));
+  GL.attachShader(PROG,compileShader(GL.FRAGMENT_SHADER,FS));
+  GL.linkProgram(PROG);
+  if(!GL.getProgramParameter(PROG,GL.LINK_STATUS))
+    console.error('Link error:',GL.getProgramInfoLog(PROG));
+  
+  // Cache uniform locations
+  ['T','R','SEED','MODE','PAL','P','M','X','DYN'].forEach(n=>{
+    LOC[n]=GL.getUniformLocation(PROG,n);
+  });
+}
+
+// ── Universe generation ────────────────────────────────────────────────
+const MODE_NAMES=[
+  'Penrose Quasicrystal','Apollonian Cosmos','Hyperbolic Cathedral','Celtic-Knot Topology',
+  'Reaction-Diffusion Chemistry','Mechanical Clockwork','Polytope Veil',
+  'Labyrinthine Subdivision','Julia-Apollonian Fractal','Spring-Wave Membrane',
+  'Chinese Lattice & Socolar','Torus Knot Triad','Voronoi Gears','Ammann-Islamic Linkage',
+  'Apollonian Hilbert','Maze & Cellular Automata','Julia-Hyperbolic Hybrid',
+  'Gear-Linkage Polytope','Spherical Celtic Braid','Rayleigh-Bénard Storm',
+  'Islamic Lattice Penrose','Dual Polytope Gyroid','Fractal Fern Subdivision',
+  'Hamiltonian Tensegrity','Socolar Quasicrystal Triad','Julia-Apollonian-RD',
+  'Peano-Hilbert Automata','Torus-Knot-Braid Gyroid','Lattice-Boltzmann Vortex',
+  'Spherical-Hyperbolic Mughal','Polygon Cascade','GRAND HYBRID — All Systems'
+];
+const COLOR_NAMES=['Cosmic Glow','Stained Glass','Spectral Interference','Dark Neon','Golden Metal'];
+const GEOM_FAMILIES=[
+  'Quasicrystal','Non-Euclidean','Topological','Organic Chemistry','Mechanical',
+  'Higher-Dimensional','Space-Filling','Fractal IFS','Islamic Ornament',
+  'Celtic & Braid','Fluid Dynamics','Hybrid Multi-System'
+];
+
+function newUniverse(){
+  t0=performance.now();
+  morphPhase=0;
+  
+  const mode=rnd(0,32);
+  const mi=Math.floor(mode);
+  
+  UNV={
+    mode,
+    seed:[rnd(),rnd(),rnd(),rnd()],
+    pal:[rnd(),rnd(.25,1.3),rnd(.5,1.),rnd(.55,1.25)],
+    P:[rnd(),rnd(),rnd(),rnd()],
+    M:[rnd(),rnd(),rnd(),rnd(.08,.55)],
+    X:[rnd(0,.7),Math.floor(rnd(0,5)),rnd(0,.6),rnd()],
+    DYN:[.5,.5,.5,1.],
+    morphSpeed:rnd(.025,.12),
+    colorDrift:rnd(.003,.02),
+    rotSpeed:rnd(.008,.04),
+    dimAnim:rnd(.006,.03),
+    name:MODE_NAMES[mi]||'Mathematical Cosmos',
+    colorName:COLOR_NAMES[Math.floor(UNV&&UNV.X?UNV.X[1]:Math.floor(rnd(0,5)))||0]||'Cosmic Glow',
+    family:pick(GEOM_FAMILIES),
+  };
+  // Fix colorName after setting X
+  UNV.colorName=COLOR_NAMES[Math.floor(UNV.X[1])]||'Cosmic Glow';
+  
+  updateHUD();
+}
+
+// ── Audio synthesis ────────────────────────────────────────────────────
+function initAudio(){
+  if(ACX)return;
+  try{ACX=new(window.AudioContext||window.webkitAudioContext)();}
+  catch(e){console.warn('AudioContext unavailable');return;}
+}
+
+function buildReverb(){
+  if(!ACX)return null;
+  const len=Math.floor(ACX.sampleRate*3);
+  const buf=ACX.createBuffer(2,len,ACX.sampleRate);
+  for(let ch=0;ch<2;ch++){
+    const d=buf.getChannelData(ch);
+    for(let i=0;i<len;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/len,1.8);
+  }
+  const conv=ACX.createConvolver();
+  conv.buffer=buf;
+  return conv;
+}
+
+function stopAudio(){
+  OSCS.forEach(o=>{try{o.stop();o.disconnect();}catch(e){}});
+  OSCS=[];LFOS=[];
+  if(MASTER_GAIN){MASTER_GAIN.disconnect();MASTER_GAIN=null;}
+}
+
+function startAudio(){
+  if(!ACX)initAudio();
+  if(!ACX)return;
+  stopAudio();
+  
+  // Resume context if suspended (autoplay policy)
+  if(ACX.state==='suspended')ACX.resume();
+  
+  MASTER_GAIN=ACX.createGain();
+  MASTER_GAIN.gain.setValueAtTime(0,ACX.currentTime);
+  MASTER_GAIN.gain.linearRampToValueAtTime(.22,ACX.currentTime+2.5);
+  
+  // Reverb
+  const reverb=buildReverb();
+  const reverbGain=ACX.createGain();
+  reverbGain.gain.value=.4;
+  if(reverb){
+    MASTER_GAIN.connect(reverb);
+    reverb.connect(reverbGain);
+    reverbGain.connect(ACX.destination);
+  }
+  MASTER_GAIN.connect(ACX.destination);
+  
+  // Master filter
+  const masterFilter=ACX.createBiquadFilter();
+  masterFilter.type='lowpass';
+  masterFilter.frequency.value=6000;
+  masterFilter.Q.value=.7;
+  
+  // Scale degrees for the current mode (choose modal scale)
+  const mi=Math.floor(UNV.mode);
+  const scales=[
+    [1,9/8,5/4,3/2,5/3,15/8],       // Ionian
+    [1,9/8,6/5,3/2,8/5,9/5],        // Dorian
+    [1,16/15,5/4,3/2,8/5,16/9],     // Phrygian
+    [1,9/8,45/32,3/2,27/16,15/8],   // Lydian
+    [1,9/8,5/4,3/2,5/3,9/5],        // Mixolydian
+    [1,9/8,6/5,4/3,3/2,9/5],        // Aeolian
+    [1,16/15,6/5,4/3,3/2,8/5],      // Locrian
+    [1,PHI,PHI*PHI,PHI*PHI*PHI],   // Golden ratio scale
+    [1,2,3,4,5,6,7,8].map(x=>x*.5+.5), // Harmonic series
+  ];
+  const scale=scales[mi%scales.length];
+  const rootFreq=[55,65.4,73.4,82.4,98,110,130.8][mi%7];
+  
+  // Drone voices
+  scale.forEach((ratio,i)=>{
+    const osc=ACX.createOscillator();
+    const gain=ACX.createGain();
+    const filter=ACX.createBiquadFilter();
+    const pan=ACX.createStereoPanner?ACX.createStereoPanner():null;
+    
+    const types=['sine','triangle','sine','sawtooth','sine','triangle'];
+    osc.type=types[i%types.length];
+    
+    // Slight detuning for warmth
+    const freq=rootFreq*ratio*(1+.001*(Math.random()-.5));
+    osc.frequency.value=freq;
+    
+    filter.type='bandpass';
+    filter.frequency.value=freq*(1.5+i*.3);
+    filter.Q.value=2+i*1.5;
+    
+    const amp=.12/(1+i*.6)*(Math.random()*.4+.6);
+    gain.gain.setValueAtTime(0,ACX.currentTime);
+    gain.gain.linearRampToValueAtTime(amp,ACX.currentTime+1.5+i*.4);
+    
+    // Volume LFO
+    const vLFO=ACX.createOscillator();
+    const vLFOGain=ACX.createGain();
+    vLFO.frequency.value=.08+i*.03+Math.random()*.05;
+    vLFOGain.gain.value=amp*.25;
+    vLFO.connect(vLFOGain);
+    vLFOGain.connect(gain.gain);
+    
+    // Pitch LFO (vibrato)
+    const pLFO=ACX.createOscillator();
+    const pLFOGain=ACX.createGain();
+    pLFO.frequency.value=5+Math.random()*2;
+    pLFOGain.gain.value=freq*.002;
+    pLFO.connect(pLFOGain);
+    pLFOGain.connect(osc.frequency);
+    
+    osc.connect(filter);
+    filter.connect(gain);
+    if(pan){
+      pan.pan.value=(i/(scale.length-1))*.8-.4;
+      gain.connect(pan);
+      pan.connect(MASTER_GAIN);
+    } else {
+      gain.connect(MASTER_GAIN);
+    }
+    
+    osc.start();vLFO.start();pLFO.start();
+    OSCS.push(osc,vLFO,pLFO);
+    LFOS.push({osc,vLFO,pLFO,vLFOGain,pLFOGain,freq,gain,filter});
+  });
+  
+  // Sub bass
+  const bass=ACX.createOscillator();
+  const bassGain=ACX.createGain();
+  const bassFilter=ACX.createBiquadFilter();
+  bass.type='sine';
+  bass.frequency.value=rootFreq*.5;
+  bassFilter.type='lowpass';
+  bassFilter.frequency.value=180;
+  bassGain.gain.setValueAtTime(0,ACX.currentTime);
+  bassGain.gain.linearRampToValueAtTime(.3,ACX.currentTime+3);
+  bass.connect(bassFilter);
+  bassFilter.connect(bassGain);
+  bassGain.connect(MASTER_GAIN);
+  bass.start();
+  OSCS.push(bass);
+  
+  // Noise texture (very quiet)
+  try{
+    const bufNode=ACX.createBuffer(1,ACX.sampleRate*.5,ACX.sampleRate);
+    const bd=bufNode.getChannelData(0);
+    for(let i=0;i<bd.length;i++)bd[i]=(Math.random()*2-1);
+    const src=ACX.createBufferSource();
+    src.buffer=bufNode;src.loop=true;
+    const noiseFilter=ACX.createBiquadFilter();
+    noiseFilter.type='bandpass';
+    noiseFilter.frequency.value=800+rootFreq*2;
+    noiseFilter.Q.value=8;
+    const noiseGain=ACX.createGain();
+    noiseGain.gain.value=.006;
+    src.connect(noiseFilter);
+    noiseFilter.connect(noiseGain);
+    noiseGain.connect(MASTER_GAIN);
+    src.start();
+    OSCS.push(src);
+  }catch(e){}
+}
+
+function updateAudio(t){
+  if(!soundOn||!ACX||LFOS.length===0)return;
+  const blend=UNV.M[0];
+  const chaos=UNV.M[3];
+  LFOS.forEach((n,i)=>{
+    const drift=Math.sin(t*.08+i*1.3)*12*blend;
+    const target=n.freq+drift+chaos*20*Math.sin(t*.3+i);
+    n.osc.frequency.setTargetAtTime(Math.max(target,20),ACX.currentTime,.8);
+    n.vLFO.frequency.setTargetAtTime(.04+blend*.3+i*.02,ACX.currentTime,2);
+    n.filter.frequency.setTargetAtTime(n.freq*(1.3+blend*.7),ACX.currentTime,.5);
+  });
+}
+
+// ── HUD ────────────────────────────────────────────────────────────────
+function updateHUD(){
+  if(!HUD.style.display||HUD.style.display==='none')return;
+  const u=UNV;
+  HI.innerHTML=
+    `<b>MATHEMATICAL COSMOS</b><br>`+
+    `<span class="dim">──────────────────────</span><br>`+
+    `Mode <b>${Math.floor(u.mode)}</b>: <b>${u.name}</b><br>`+
+    `Family: <b>${u.family}</b><br>`+
+    `Color: <b>${u.colorName}</b><br>`+
+    `Morph: <b>${(u.M[0]*100).toFixed(0)}%</b> &nbsp; Chaos: <b>${(u.M[3]*100).toFixed(0)}%</b><br>`+
+    `Hyp: <b>${(u.X[0]*100).toFixed(0)}%</b> &nbsp; Dim: <b>${(u.X[2]*100).toFixed(0)}%</b><br>`+
+    `FPS: <b>${fps}</b> &nbsp; Sound: <b>${soundOn?'ON':'OFF'}</b><br>`+
+    `<span class="dim">──────────────────────<br>`+
+    `SPACE/TAP — new universe<br>`+
+    `H — toggle HUD &nbsp; S — sound</span>`;
+}
+
+// ── Render loop ────────────────────────────────────────────────────────
+function render(){
+  requestAnimationFrame(render);
+  const now=performance.now();
+  const t=(now-t0)*.001;
+  
+  // FPS counter
+  frame++;
+  if(now-fpsT>1000){fps=frame;frame=0;fpsT=now;updateHUD();}
+  
+  // Evolve universe dynamically
+  morphPhase+=.016;
+  const u=UNV;
+  u.M[0]=.5+.5*Math.sin(morphPhase*u.morphSpeed);
+  u.pal[0]+=u.colorDrift*.001;
+  u.M[1]=Math.sin(morphPhase*u.rotSpeed*.9+.5);
+  u.M[2]=Math.cos(morphPhase*u.rotSpeed*.7+1.);
+  u.X[2]=.3+.3*Math.sin(morphPhase*u.dimAnim*.8);
+  u.DYN[0]=.4+.6*Math.abs(Math.sin(morphPhase*.11));
+  u.DYN[2]=.3+.3*Math.sin(morphPhase*.07);
+  u.DYN[3]=.8+.2*Math.sin(morphPhase*.19);
+  
+  GL.useProgram(PROG);
+  GL.bindBuffer(GL.ARRAY_BUFFER,QUAD);
+  const a=GL.getAttribLocation(PROG,'a');
+  GL.enableVertexAttribArray(a);
+  GL.vertexAttribPointer(a,2,GL.FLOAT,false,0,0);
+  
+  GL.uniform1f(LOC.T,t);
+  GL.uniform2f(LOC.R,W,H);
+  GL.uniform4fv(LOC.SEED,u.seed);
+  GL.uniform1f(LOC.MODE,u.mode);
+  GL.uniform4fv(LOC.PAL,u.pal);
+  GL.uniform4fv(LOC.P,u.P);
+  GL.uniform4fv(LOC.M,u.M);
+  GL.uniform4fv(LOC.X,u.X);
+  GL.uniform4fv(LOC.DYN,u.DYN);
+  
+  GL.drawArrays(GL.TRIANGLE_STRIP,0,4);
+  
+  updateAudio(t);
+}
+
+// ── Input ──────────────────────────────────────────────────────────────
+function rebirth(){
+  newUniverse();
+  if(soundOn)startAudio();
+}
+
+let _tapT=0;
+document.addEventListener('keydown',e=>{
+  if(e.key===' '){e.preventDefault();rebirth();return;}
+  if(e.key==='h'||e.key==='H'){
+    hudOn=!hudOn;
+    HUD.style.display=hudOn?'block':'none';
+    updateHUD();
+  }
+  if(e.key==='s'||e.key==='S'){
+    soundOn=!soundOn;
+    if(soundOn){initAudio();startAudio();}
+    else stopAudio();
+    updateHUD();
+  }
+});
+
+CVS.addEventListener('pointerdown',e=>{
+  e.preventDefault();
+  rebirth();
+});
+
+// ── Boot ───────────────────────────────────────────────────────────────
+initGL();
+if(!GL)throw new Error('WebGL unavailable');
+newUniverse();
+render();
+
+setTimeout(()=>{HINT.style.opacity='0';},6000);
+setTimeout(()=>{HINT.style.display='none';},9000);
+</script>
+</body>
+</html>

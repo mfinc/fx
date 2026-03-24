@@ -1,0 +1,1002 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Infinite Mathematical Art Machine</title>
+<meta name="description" content="An infinite generative mathematical physics art machine that endlessly evolves animated universes where mathematics, physics, sacred geometry, tessellations, tilings, knot theory, mechanical linkages, fluid dynamics, reaction-diffusion systems, and ornamental symmetries merge into a living computational cosmos rendered in real-time WebGL with synchronized generative audio.">
+<meta name="keywords" content="generative art, mathematical art, infinite art machine, WebGL art, Penrose tiling, Voronoi diagram, Apollonian packing, hyperbolic tiling, Islamic geometry, Celtic knots, fractal art, reaction diffusion, fluid simulation, linkage mechanism, sacred geometry, tessellation, quasicrystal, Hilbert curve, cellular automata, procedural generation, computational art, physics simulation, particle system, wave interference, generative audio, audiovisual art, mathematical visualization, ornamental geometry, arabesque, Mughal geometry, Korean celadon, Chinese lattice, recursive maze, knot topology, braid theory, higher dimensional projection, 4D polytope, living mathematics">
+<meta property="og:title" content="Infinite Mathematical Art Machine">
+<meta property="og:description" content="A self-evolving mathematical universe — tessellations, linkages, fluids, and ornament merge into endless generative art.">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Courier New',monospace}
+  canvas{display:block;width:100vw;height:100vh;cursor:crosshair}
+  #hud{position:fixed;top:0;left:0;width:100%;pointer-events:none;display:none;z-index:10;padding:14px 18px;color:rgba(255,255,200,0.85);font-size:11px;letter-spacing:.08em;text-shadow:0 0 8px rgba(255,200,100,0.8)}
+  #hud.visible{display:block}
+  #hud .row{margin-bottom:3px}
+  #controls{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,0.3);font-size:10px;letter-spacing:.12em;text-align:center;pointer-events:none;z-index:10;transition:opacity 1s}
+  #controls.fade{opacity:0}
+  #flash{position:fixed;top:0;left:0;width:100%;height:100%;background:#fff;opacity:0;pointer-events:none;z-index:20;transition:opacity .15s}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div class="row" id="h1"></div>
+  <div class="row" id="h2"></div>
+  <div class="row" id="h3"></div>
+  <div class="row" id="h4"></div>
+</div>
+<div id="controls">SPACE / TAP = new universe &nbsp;|&nbsp; H = hud &nbsp;|&nbsp; S = sound</div>
+<div id="flash"></div>
+
+<script>
+'use strict';
+// ═══════════════════════════════════════════════════════
+//  INFINITE MATHEMATICAL ART MACHINE
+//  WebGL2 generative engine — mathematics × physics × ornament
+// ═══════════════════════════════════════════════════════
+
+const canvas = document.getElementById('c');
+const flash = document.getElementById('flash');
+const hud = document.getElementById('hud');
+const controls = document.getElementById('controls');
+
+let gl, W, H, T = 0, uT, uR, universe = null;
+let soundOn = false, audioCtx = null, masterGain = null;
+let hudVisible = false;
+let animId;
+let lastTap = 0;
+
+// ── WebGL setup ──────────────────────────────────────────
+function initGL() {
+  gl = canvas.getContext('webgl2', {antialias:false, alpha:false, powerPreference:'high-performance'});
+  if (!gl) { gl = canvas.getContext('webgl', {antialias:false, alpha:false}); }
+  resize();
+}
+
+function resize() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = Math.floor(window.innerWidth * dpr);
+  H = Math.floor(window.innerHeight * dpr);
+  canvas.width = W; canvas.height = H;
+  if (gl) gl.viewport(0, 0, W, H);
+  if (universe) universe.onResize(W, H);
+}
+
+// ── Shader compiler ──────────────────────────────────────
+function compileShader(src, type) {
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS))
+    console.error('Shader error:', gl.getShaderInfoLog(s), src.slice(0,200));
+  return s;
+}
+function makeProgram(vsrc, fsrc) {
+  const p = gl.createProgram();
+  gl.attachShader(p, compileShader(vsrc, gl.VERTEX_SHADER));
+  gl.attachShader(p, compileShader(fsrc, gl.FRAGMENT_SHADER));
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS))
+    console.error('Link error:', gl.getProgramInfoLog(p));
+  return p;
+}
+
+// ── Math utilities ───────────────────────────────────────
+const R = (a,b) => a + Math.random()*(b-a);
+const Ri = (a,b) => Math.floor(R(a,b+1));
+const pick = arr => arr[Ri(0,arr.length-1)];
+const TAU = Math.PI*2;
+const cos = Math.cos, sin = Math.sin, sqrt = Math.sqrt, abs = Math.abs, floor = Math.floor;
+
+function hsl2rgb(h,s,l) {
+  h%=1; s=Math.max(0,Math.min(1,s)); l=Math.max(0,Math.min(1,l));
+  const c=(1-abs(2*l-1))*s, x=c*(1-abs((h*6)%2-1)), m=l-c/2;
+  let r=0,g=0,b=0;
+  if(h<1/6){r=c;g=x}else if(h<2/6){r=x;g=c}else if(h<3/6){g=c;b=x}
+  else if(h<4/6){g=x;b=c}else if(h<5/6){r=x;b=c}else{r=c;b=x}
+  return [r+m,g+m,b+m];
+}
+
+// ── Random palette generator ─────────────────────────────
+function makePalette() {
+  const mode = pick(['spectral','analogous','triadic','complementary','monochrome','neon','ember','ice','earth','void']);
+  const base = Math.random();
+  const palettes = {
+    spectral: ()=>[[0,.9,.6],[.15,.9,.55],[.3,.85,.5],[.5,.9,.5],[.65,.8,.55],[.8,.9,.6]],
+    analogous: ()=>[[base,.9,.5],[base+.05,.85,.45],[base+.1,.9,.55],[base+.15,.8,.5],[base-.05,.85,.6],[base-.1,.9,.45]],
+    triadic: ()=>[[base,.9,.5],[base+.333,.9,.5],[base+.667,.9,.5],[base+.1,.7,.6],[base+.433,.7,.6],[base+.767,.7,.6]],
+    complementary: ()=>[[base,.9,.5],[base,.7,.35],[base+.5,.9,.55],[base+.5,.7,.4],[base+.25,.6,.6],[base+.75,.6,.6]],
+    monochrome: ()=>[[base,.9,.3],[base,.85,.45],[base,.8,.6],[base,.75,.7],[base,.6,.8],[base,.5,.9]],
+    neon: ()=>[[base,.99,.6],[base+.2,.99,.55],[base+.4,.99,.65],[base+.6,.95,.6],[base+.8,.99,.5],[base+.1,.8,.7]],
+    ember: ()=>[[.02,.95,.5],[.05,.9,.45],[.08,.85,.55],[.12,.8,.5],[.0,.99,.4],[.15,.7,.6]],
+    ice: ()=>[[.55,.85,.7],[.58,.8,.75],[.52,.9,.65],[.6,.75,.8],[.5,.7,.85],[.62,.65,.9]],
+    earth: ()=>[[.08,.7,.4],[.12,.65,.5],[.06,.75,.35],[.1,.6,.55],[.15,.55,.6],[.04,.8,.45]],
+    void: ()=>[[base,.5,.15],[base+.1,.7,.2],[base+.2,.9,.3],[base+.3,.5,.1],[base+.5,.8,.25],[base+.6,.6,.2]],
+  };
+  return (palettes[mode]||palettes.spectral)().map(c=>hsl2rgb(...c));
+}
+
+// ═══════════════════════════════════════════════════════
+//  MAIN VERTEX SHADER (fullscreen quad)
+// ═══════════════════════════════════════════════════════
+const VS = `attribute vec2 aP; void main(){gl_Position=vec4(aP,0,1);}`;
+
+// ═══════════════════════════════════════════════════════
+//  FRAGMENT SHADER — The Mathematical Art Engine
+//  One giant shader that procedurally composes everything
+// ═══════════════════════════════════════════════════════
+function buildFS(u) {
+  // u = universe parameters object
+  return `
+precision highp float;
+uniform float uT;
+uniform vec2 uR;
+uniform vec3 uC0,uC1,uC2,uC3,uC4,uC5;
+uniform float uMode, uSym, uScale, uDepth, uTurb, uSpeed;
+uniform float uLinkage, uFluid, uReact, uOsc, uCurv;
+uniform float uTileType, uOrnament, uFractal, uParticle;
+uniform float uSeed, uEnergy, uPalShift;
+
+#define PI 3.14159265358979
+#define TAU 6.28318530718
+
+// ── PRNG / noise ──
+float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+float hash3(vec3 p){return fract(sin(dot(p,vec3(127.1,311.7,74.7)))*43758.5453);}
+vec2 hash2(vec2 p){return fract(sin(vec2(dot(p,vec2(127.1,311.7)),dot(p,vec2(269.5,183.3))))*43758.5453);}
+
+float noise(vec2 p){
+  vec2 i=floor(p),f=fract(p);
+  f=f*f*(3.-2.*f);
+  float a=hash(i),b=hash(i+vec2(1,0)),c=hash(i+vec2(0,1)),d=hash(i+vec2(1,1));
+  return mix(mix(a,b,f.x),mix(c,d,f.x),f.y);
+}
+float fbm(vec2 p,int oct){
+  float v=0.,a=.5;
+  for(int i=0;i<8;i++){
+    if(i>=oct)break;
+    v+=a*noise(p); p=p*2.1+vec2(1.7,9.2); a*=.5;
+  }
+  return v;
+}
+
+// ── Rotation ──
+vec2 rot(vec2 p,float a){float c=cos(a),s=sin(a);return vec2(c*p.x-s*p.y,s*p.x+c*p.y);}
+
+// ── Complex multiply ──
+vec2 cmul(vec2 a,vec2 b){return vec2(a.x*b.x-a.y*b.y,a.x*b.y+a.y*b.x);}
+
+// ── Polar coordinates ──
+vec2 toPolar(vec2 p){return vec2(length(p),atan(p.y,p.x));}
+
+// ── Kaleidoscope ──
+vec2 kaleido(vec2 p,float n){
+  float a=PI/n;
+  vec2 po=toPolar(p);
+  po.y=abs(mod(po.y,2.*a)-a);
+  return vec2(cos(po.y),sin(po.y))*po.x;
+}
+
+// ── Penrose / Quasicrystal ──
+float penrose(vec2 p,float t){
+  float v=0.;
+  for(int k=0;k<5;k++){
+    float a=PI*.4*float(k)+t*.05;
+    v+=cos(dot(p,vec2(cos(a),sin(a)))*3.14159);
+  }
+  return v/5.;
+}
+
+float ammannBeenker(vec2 p,float t){
+  float v=0.;
+  for(int k=0;k<4;k++){
+    float a=PI*.25*float(k)+t*.03;
+    v+=cos(dot(p,vec2(cos(a),sin(a)))*2.);
+    v+=cos(dot(p,vec2(cos(a+PI*.5),sin(a+PI*.5)))*2.83);
+  }
+  return v/8.;
+}
+
+// ── Islamic star tiling ──
+float islamicStar(vec2 p,float n,float t){
+  p=kaleido(p,n);
+  float r=length(p),a=atan(p.y,p.x);
+  float star=cos(a*n+t*.04)*(.3+.2*cos(r*6.));
+  float ring=cos(r*8.-t*.1);
+  return star+ring*.5;
+}
+
+// ── Voronoi ──
+float voronoi(vec2 p,float t){
+  vec2 i=floor(p),f=fract(p);
+  float d=8.;
+  for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){
+    vec2 n=vec2(float(x),float(y));
+    vec2 r=hash2(i+n)+.5*sin(t*.2+vec2(hash(i+n)*TAU,hash(i+n+1.)*TAU))-f+n;
+    d=min(d,dot(r,r));
+  }
+  return sqrt(d);
+}
+
+float voronoiEdge(vec2 p,float t){
+  vec2 i=floor(p),f=fract(p);
+  float d1=8.,d2=8.;
+  vec2 m1;
+  for(int y=-2;y<=2;y++)for(int x=-2;x<=2;x++){
+    vec2 n=vec2(float(x),float(y));
+    vec2 r=hash2(i+n)+.4*sin(t*.15+hash(i+n)*TAU)-f+n;
+    float d=dot(r,r);
+    if(d<d1){d2=d1;d1=d;m1=r;}
+    else if(d<d2)d2=d;
+  }
+  return abs(d2-d1)/max(d1,.001);
+}
+
+// ── Apollonian circles ──
+float apollonian(vec2 p,float iter){
+  float scale=1.;
+  for(int i=0;i<12;i++){
+    if(float(i)>=iter)break;
+    p=abs(p);
+    p-=2.*clamp(p,.0,1.)-1.;
+    float r2=dot(p,p);
+    p/=r2; scale/=r2;
+    p=2.*p-1.;
+  }
+  return .5+.5*sin(length(p)*scale*.05);
+}
+
+// ── Hyperbolic tiling (Poincare disk) ──
+float hyperbolic(vec2 p,float n,float t){
+  float r2=dot(p,p);
+  if(r2>=.95)return 0.;
+  // Mobius transform iteration
+  for(int i=0;i<4;i++){
+    float a=TAU/n*float(i)+t*.02;
+    vec2 c=vec2(cos(a),sin(a))*.55;
+    // Reflect in circle centered at c
+    vec2 d=p-c;
+    float r=dot(d,d);
+    p=c+d*pow(.09,1.)/r;
+    p=p/(1.+dot(p,p)*.5);
+  }
+  return .5+.5*sin(length(p)*20.);
+}
+
+// ── Hilbert / space filling curve approximation ──
+float hilbert(vec2 p,float depth){
+  vec2 q=p;
+  float v=0.;
+  for(int i=0;i<6;i++){
+    if(float(i)>=depth)break;
+    q=abs(fract(q*2.)-0.5);
+    v+=noise(q*float(i+1)*3.14+float(i));
+  }
+  return v;
+}
+
+// ── Celtic knot lattice ──
+float celticKnot(vec2 p,float t){
+  p=fract(p)-.5;
+  float d1=length(p-vec2(.25,0));
+  float d2=length(p-vec2(-.25,0));
+  float d3=length(p-vec2(0,.25));
+  float d4=length(p-vec2(0,-.25));
+  float k=min(min(d1,d2),min(d3,d4));
+  float over=cos(k*TAU*4.+t*.2);
+  float strand=smoothstep(.22,.18,k);
+  return strand*(.5+.5*over);
+}
+
+// ── Arabesque / Mughal rosette ──
+float arabesque(vec2 p,float n,float t){
+  vec2 po=toPolar(p);
+  float a=po.y;
+  float r=po.x;
+  float petal=cos(a*n+t*.05)*(.5+.3*cos(r*8.-t*.1));
+  float ring=cos(r*12.+t*.07)*.3;
+  float geo=cos(a*n*2.+PI/n)*.3;
+  return petal+ring+geo;
+}
+
+// ── Reaction diffusion (Gray-Scott approximation) ──
+float reactDiff(vec2 p,float t){
+  float u=fbm(p+t*.03,4);
+  float v=fbm(p*1.3-t*.02,4);
+  float kill=.055+.01*sin(p.x*.5+t*.01);
+  float feed=.035+.01*cos(p.y*.5+t*.008);
+  float uv2=u*v*v;
+  float du=uv2-u*(feed+kill);
+  return u+du*sin(t*.05)*10.;
+}
+
+// ── Linkage / mechanical motion ──
+vec2 fourBarLinkage(float t,float a,float b,float c,float d){
+  float th=t*a;
+  vec2 p1=vec2(cos(th)*b,sin(th)*b);
+  float th2=t*a*.73+b*1.3;
+  vec2 p2=p1+vec2(cos(th2)*c,sin(th2)*c);
+  float th3=-t*a*.5+d;
+  p2+=vec2(cos(th3)*d,sin(th3)*d)*.3;
+  return p2;
+}
+
+float linkageField(vec2 p,float t){
+  float v=0.;
+  for(int i=0;i<6;i++){
+    float fi=float(i);
+    vec2 lp=fourBarLinkage(t+fi*.5,
+      .8+fi*.1,
+      .3+fi*.05,
+      .4+fi*.03,
+      .2+fi*.04);
+    v+=1./(1.+dot(p-lp,p-lp)*30.);
+  }
+  return v;
+}
+
+// ── Wave interference ──
+float waveInterference(vec2 p,float t,float n){
+  float v=0.;
+  for(int i=0;i<8;i++){
+    if(float(i)>=n)break;
+    float a=TAU*float(i)/n;
+    vec2 src=vec2(cos(a)*.5,sin(a)*.5)*(.5+.3*sin(t*.1+float(i)));
+    float d=length(p-src);
+    v+=cos(d*12.-t*.8+float(i)*1.3)/(1.+d*2.);
+  }
+  return v/n;
+}
+
+// ── Gyroscopic / rotor ──
+float gyroField(vec2 p,float t){
+  float v=0.;
+  for(int i=0;i<4;i++){
+    float fi=float(i);
+    float a=t*.3*(1.+fi*.2)+fi*TAU*.25;
+    float b=t*.5*(1.-fi*.15);
+    vec2 c=vec2(cos(a)*.3,sin(b)*.3);
+    vec2 q=rot(p-c,a+t*.1);
+    float r=length(q);
+    float ang=atan(q.y,q.x);
+    v+=cos(ang*3.+r*8.-t*(1.+fi*.3))/(1.+r*4.);
+  }
+  return v;
+}
+
+// ── Lattice Boltzmann / vortex flow ──
+float vortexFlow(vec2 p,float t){
+  float v=0.;
+  for(int i=0;i<5;i++){
+    float fi=float(i);
+    float a=t*.12+fi*TAU/5.;
+    vec2 c=vec2(cos(a+sin(t*.07)*2.)*.35,sin(a+cos(t*.05)*2.)*.35);
+    vec2 d=p-c;
+    float r=length(d)+.01;
+    float ang=atan(d.y,d.x);
+    float sign=mod(fi,2.)<1.?1.:-1.;
+    v+=sign*(.1-r*r*.5)/(r+.05)*cos(ang+t*.5-r*6.+fi);
+  }
+  return v*.3;
+}
+
+// ── Cellular automata texture ──
+float cellAuto(vec2 p,float t){
+  vec2 c=floor(p*8.)/8.;
+  float s=hash(c+floor(t*.5));
+  float neighbors=0.;
+  for(int dy=-1;dy<=1;dy++)for(int dx=-1;dx<=1;dx++){
+    if(dx==0&&dy==0)continue;
+    vec2 n=c+vec2(float(dx),float(dy))*.125;
+    neighbors+=step(.5,hash(n+floor(t*.5)));
+  }
+  float alive=step(.5,s);
+  float next=alive*(step(2.,neighbors)*step(neighbors,3.))+
+             (1.-alive)*step(3.,neighbors)*step(neighbors,3.);
+  return mix(next,hash(c+floor(t*.5+1.)),
+    smoothstep(0.,.3,fract(t*.5)));
+}
+
+// ── Fractal (Mandelbrot-like) field ──
+float fractalField(vec2 p,float t){
+  vec2 c=p*.8+vec2(cos(t*.03)*.3,sin(t*.021)*.3);
+  vec2 z=vec2(0);
+  float v=0.;
+  for(int i=0;i<32;i++){
+    z=vec2(z.x*z.x-z.y*z.y+c.x,2.*z.x*z.y+c.y);
+    if(dot(z,z)>4.)break;
+    v+=1.;
+  }
+  return v/32.;
+}
+
+// ── Spring-mass lattice ──
+float springLattice(vec2 p,float t){
+  vec2 g=fract(p*4.)-0.5;
+  vec2 id=floor(p*4.);
+  float phase=hash(id)*TAU;
+  float freq=.5+hash(id+.1)*.5;
+  vec2 disp=vec2(sin(t*freq+phase),cos(t*freq*.73+phase+1.))*.12;
+  float d=length(g-disp);
+  return smoothstep(.18,.0,d)+smoothstep(.08,.0,d)*.5;
+}
+
+// ── Sliding puzzle / Rubik rotation ──
+float puzzleGrid(vec2 p,float t){
+  float cell=floor(t*.2)/3.;
+  vec2 id=floor(p*3.)/3.;
+  float a=cell==id.x?t*.5:0.;
+  vec2 q=fract(p*3.)-.5;
+  if(abs(id.x-cell)<.1)q=rot(q,a);
+  float sq=max(abs(q.x),abs(q.y));
+  return smoothstep(.5,.42,sq)*(.5+.5*cos(a*6.+hash(id)*TAU));
+}
+
+// ── Chinese window / Korean celadon lattice ──
+float windowLattice(vec2 p,float t){
+  vec2 g=fract(p)-.5;
+  float v=0.;
+  // Concentric squares with rotated inner grid
+  float sq=max(abs(g.x),abs(g.y));
+  v+=smoothstep(.04,0.,abs(sq-.4));
+  v+=smoothstep(.04,0.,abs(sq-.28));
+  v+=smoothstep(.04,0.,abs(sq-.16));
+  // Diagonal cross
+  vec2 rg=rot(g,PI*.25);
+  float dq=max(abs(rg.x),abs(rg.y));
+  v+=smoothstep(.04,0.,abs(dq-.22))*.7;
+  // Center circle
+  v+=smoothstep(.06,.0,abs(length(g)-.1));
+  return v;
+}
+
+// ── Knot/braid topology ──
+float knotBraid(vec2 p,float t){
+  float v=0.;
+  for(int i=0;i<3;i++){
+    float fi=float(i);
+    float phase=fi*TAU/3.+t*.15;
+    float y=sin(p.x*2.+phase)*(.3+fi*.1);
+    float strand=smoothstep(.05,.0,abs(p.y-y));
+    float over=sin(p.x*4.+phase+fi*1.2)>.3?1.:.6;
+    v+=strand*over;
+  }
+  return v;
+}
+
+// ── Higher-dimensional projection (4D tesseract rotation) ──
+float hypercubeProject(vec2 p,float t){
+  // Rotating 4D cube projected to 2D
+  float v=0.;
+  for(int i=0;i<16;i++){
+    float fi=float(i);
+    // Extract 4 bits of i using float math (GLSL ES 1.00 compatible)
+    float b3=step(8.,fi);
+    float r3=fi-b3*8.;
+    float b2=step(4.,r3);
+    float r2=r3-b2*4.;
+    float b1=step(2.,r2);
+    float b0=r2-b1*2.;
+    vec4 q=vec4(
+      b3*2.-1.,
+      b2*2.-1.,
+      b1*2.-1.,
+      b0*2.-1.
+    );
+    // 4D rotation (XW and YZ planes)
+    float a1=t*.07, a2=t*.05;
+    vec4 r;
+    r.x=cos(a1)*q.x-sin(a1)*q.w;
+    r.w=sin(a1)*q.x+cos(a1)*q.w;
+    r.y=cos(a2)*q.y-sin(a2)*q.z;
+    r.z=sin(a2)*q.y+cos(a2)*q.z;
+    // Perspective project to 2D
+    float w=1./(2.-r.w);
+    vec2 proj=vec2(r.x,r.y)*w;
+    float d=length(p-proj*.4);
+    v+=.02/(d*d+.002);
+  }
+  return clamp(v,0.,1.);
+}
+
+// ── Labyrinth / recursive maze ──
+float labyrinth(vec2 p,float t){
+  float v=0.;
+  vec2 q=p;
+  float s=1.;
+  for(int i=0;i<5;i++){
+    q=fract(q*2.)-.5;
+    s*=2.;
+    float id=hash(floor(q*s)+float(i)*17.3+floor(t*.1));
+    float wall=id>.4?max(abs(q.x),abs(q.y)):min(abs(q.x),abs(q.y));
+    v+=smoothstep(.04,.0,abs(wall-.4/s))/float(i+1);
+  }
+  return v;
+}
+
+// ── Color mixer ──
+vec3 palette(float t,float shift){
+  t=mod(t+shift,1.);
+  float i=t*5.;
+  float f=fract(i);
+  float s=floor(i);
+  float sm=smoothstep(0.,1.,f);
+  vec3 c0=uC0,c1=uC1;
+  if(s<1.){c0=uC0;c1=uC1;}
+  else if(s<2.){c0=uC1;c1=uC2;}
+  else if(s<3.){c0=uC2;c1=uC3;}
+  else if(s<4.){c0=uC3;c1=uC4;}
+  else{c0=uC4;c1=uC5;}
+  return mix(c0,c1,sm);
+}
+
+// ── Main ──────────────────────────────────────────────────
+void main(){
+  vec2 uv=(gl_FragCoord.xy/uR)*2.-1.;
+  uv.x*=uR.x/uR.y;
+  
+  float t=uT*uSpeed;
+  float seed=uSeed;
+  
+  // Apply global transform: scale + slow drift
+  float globalScale=uScale*(1.+.05*sin(t*.03+seed));
+  vec2 drift=vec2(sin(t*.011+seed)*0.3, cos(t*.013+seed*1.3)*0.3);
+  vec2 p=(uv+drift)*globalScale;
+  
+  // Curvature / hyperbolic distortion
+  if(uCurv>.1){
+    float r2=dot(p,p);
+    p=p*(1.+uCurv*r2*.2);
+  }
+  
+  // Kaleidoscope fold (optional)
+  float sym=uSym;
+  if(sym>1.5){
+    p=kaleido(p,sym);
+  }
+  
+  // ── Layer accumulation ──
+  float layer1=0., layer2=0., layer3=0., layer4=0.;
+  float energy=0.;
+  
+  // Primary tiling layer
+  float tt=uTileType;
+  if(tt<1.){
+    layer1=penrose(p*2.,t);
+  } else if(tt<2.){
+    layer1=ammannBeenker(p*1.5,t);
+  } else if(tt<3.){
+    layer1=islamicStar(p*1.2,floor(sym)<2.?8.:sym,t);
+  } else if(tt<4.){
+    layer1=voronoi(p*3.,t)*.7+voronoiEdge(p*3.,t)*.3;
+  } else if(tt<5.){
+    layer1=apollonian(p*.8,uDepth*4.+4.);
+  } else if(tt<6.){
+    layer1=hyperbolic(p*.9,floor(sym)<3.?5.:sym,t);
+  } else if(tt<7.){
+    layer1=hilbert(p*.5,uDepth*5.+2.);
+  } else if(tt<8.){
+    layer1=celticKnot(p*2.,t);
+  } else if(tt<9.){
+    layer1=arabesque(p*1.5,floor(sym)<2.?6.:sym,t);
+  } else if(tt<10.){
+    layer1=windowLattice(p*2.,t);
+  } else if(tt<11.){
+    layer1=knotBraid(p*2.,t);
+  } else if(tt<12.){
+    layer1=hypercubeProject(p,t);
+  } else if(tt<13.){
+    layer1=labyrinth(p,t);
+  } else {
+    layer1=fractalField(p*.6,t);
+  }
+  
+  // Ornament overlay
+  if(uOrnament>.2){
+    layer2=mix(
+      islamicStar(p*1.5,floor(sym)<2.?6.:sym,t*.7),
+      arabesque(p*2.,floor(sym)<2.?8.:sym,t*.8),
+      uOrnament-.2
+    )*uOrnament;
+  }
+  
+  // Physics/dynamics layer
+  float physics=0.;
+  physics+=linkageField(p,t)*uLinkage;
+  physics+=waveInterference(p,t,6.)*uOsc;
+  physics+=gyroField(p,t)*uFluid*.5;
+  physics+=vortexFlow(p,t)*uFluid;
+  layer3=physics;
+  
+  // Reaction diffusion / cellular
+  if(uReact>.1){
+    layer4=mix(
+      reactDiff(p*1.5,t),
+      cellAuto(p*2.,t),
+      uReact
+    )*uReact*.7;
+  }
+  
+  // Spring mass
+  float springs=springLattice(p*2.,t)*uOsc*.5;
+  
+  // Particle / puzzle
+  float particles=puzzleGrid(p*1.5,t)*uParticle;
+  
+  // ── Compose layers ──
+  float base=layer1*.5+layer2*.25+layer3*.35+layer4*.2+springs*.15+particles*.1;
+  energy=abs(base);
+  
+  // ── Interference/beat pattern ──
+  float beat=sin(t*.31)*sin(t*.47)*sin(t*.19);
+  base+=beat*.05;
+  
+  // ── Colorize ──
+  float palT=base*.5+.5+uPalShift+t*.01;
+  vec3 col=palette(palT,.0);
+  
+  // Secondary color layer
+  float palT2=layer1*.3+layer3*.4+t*.007+.333;
+  vec3 col2=palette(palT2,.5);
+  
+  // Mix by energy
+  float emix=smoothstep(0.,1.,(base+1.)*.5);
+  col=mix(col,col2,emix*.6);
+  
+  // Luminosity boost on peaks
+  float lum=pow(max(0.,abs(base)-.2)/.8,1.5);
+  col+=lum*palette(palT+.2,.1)*.8;
+  
+  // Edge glow (sacred geometry outline effect)
+  float edge=abs(fract(base*4.+t*.05)-.5)*2.;
+  edge=pow(1.-edge,.5+uEnergy*3.)*uEnergy;
+  col+=edge*palette(palT+.4,.25)*1.5;
+  
+  // Vignette
+  float vig=1.-dot(uv,uv)*.4;
+  col*=vig;
+  
+  // Tone map
+  col=col/(col+.5);
+  col=pow(max(col,vec3(0.)),vec3(.45));
+  
+  // Subtle scanline shimmer
+  col*=.98+.02*sin(gl_FragCoord.y*.7+t*.3);
+  
+  gl_FragColor=vec4(col,1.);
+}
+`;
+}
+
+// ═══════════════════════════════════════════════════════
+//  UNIVERSE CLASS
+// ═══════════════════════════════════════════════════════
+class Universe {
+  constructor() {
+    this.params = this.randomize();
+    this.prog = null;
+    this.buf = null;
+    this.locs = {};
+    this.build();
+  }
+
+  randomize() {
+    const p = {
+      palette: makePalette(),
+      mode:     Math.random(),
+      sym:      pick([1,2,3,4,5,6,7,8,10,12]),
+      scale:    R(0.4, 2.2),
+      depth:    R(0.3, 1.0),
+      turb:     R(0.0, 1.0),
+      speed:    R(0.08, 0.35),
+      linkage:  R(0.0, 1.2),
+      fluid:    R(0.0, 1.2),
+      react:    R(0.0, 1.0),
+      osc:      R(0.0, 1.2),
+      curv:     R(0.0, 0.8),
+      tileType: R(0, 14),
+      ornament: R(0.0, 1.0),
+      fractal:  R(0.0, 1.0),
+      particle: R(0.0, 1.0),
+      seed:     R(0, 100),
+      energy:   R(0.1, 0.9),
+      palShift: Math.random(),
+      // names for HUD
+      tileName: pick(['Penrose','Ammann-Beenker','Islamic Star','Voronoi','Apollonian','Hyperbolic','Hilbert','Celtic Knot','Arabesque','Chinese Lattice','Knot Braid','Tesseract','Labyrinth','Fractal']),
+      physName: pick(['Four-Bar Linkage','Wave Interference','Gyroscopic','Vortex Flow','Reaction-Diffusion','Spring Lattice','Cellular Automata','Boltzmann Flow']),
+      ornName:  pick(['Mughal Rosette','Persian Arabesque','Korean Celadon','Penrose Quasicrystal','Hilbert Curve','Celtic Interlace','Islamic Girih','Sacred Geometry']),
+    };
+    return p;
+  }
+
+  build() {
+    if (this.prog) { gl.deleteProgram(this.prog); }
+    if (this.buf) { gl.deleteBuffer(this.buf); }
+
+    this.prog = makeProgram(VS, buildFS(this.params));
+    gl.useProgram(this.prog);
+
+    const verts = new Float32Array([-1,-1, 1,-1, -1,1, 1,1]);
+    this.buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.buf);
+    gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STATIC_DRAW);
+
+    const aP = gl.getAttribLocation(this.prog, 'aP');
+    gl.enableVertexAttribArray(aP);
+    gl.vertexAttribPointer(aP, 2, gl.FLOAT, false, 0, 0);
+
+    const L = n => gl.getUniformLocation(this.prog, n);
+    this.locs = {
+      uT: L('uT'), uR: L('uR'),
+      uC0:L('uC0'),uC1:L('uC1'),uC2:L('uC2'),uC3:L('uC3'),uC4:L('uC4'),uC5:L('uC5'),
+      uMode:L('uMode'), uSym:L('uSym'), uScale:L('uScale'), uDepth:L('uDepth'),
+      uTurb:L('uTurb'), uSpeed:L('uSpeed'), uLinkage:L('uLinkage'), uFluid:L('uFluid'),
+      uReact:L('uReact'), uOsc:L('uOsc'), uCurv:L('uCurv'), uTileType:L('uTileType'),
+      uOrnament:L('uOrnament'), uFractal:L('uFractal'), uParticle:L('uParticle'),
+      uSeed:L('uSeed'), uEnergy:L('uEnergy'), uPalShift:L('uPalShift'),
+    };
+
+    this.setUniforms();
+  }
+
+  setUniforms() {
+    const {params: p, locs: L} = this;
+    gl.useProgram(this.prog);
+    gl.uniform2f(L.uR, W, H);
+    gl.uniform1f(L.uMode, p.mode);
+    gl.uniform1f(L.uSym, p.sym);
+    gl.uniform1f(L.uScale, p.scale);
+    gl.uniform1f(L.uDepth, p.depth);
+    gl.uniform1f(L.uTurb, p.turb);
+    gl.uniform1f(L.uSpeed, p.speed);
+    gl.uniform1f(L.uLinkage, p.linkage);
+    gl.uniform1f(L.uFluid, p.fluid);
+    gl.uniform1f(L.uReact, p.react);
+    gl.uniform1f(L.uOsc, p.osc);
+    gl.uniform1f(L.uCurv, p.curv);
+    gl.uniform1f(L.uTileType, p.tileType);
+    gl.uniform1f(L.uOrnament, p.ornament);
+    gl.uniform1f(L.uFractal, p.fractal);
+    gl.uniform1f(L.uParticle, p.particle);
+    gl.uniform1f(L.uSeed, p.seed);
+    gl.uniform1f(L.uEnergy, p.energy);
+    gl.uniform1f(L.uPalShift, p.palShift);
+    p.palette.forEach((c,i) => gl.uniform3f(L['uC'+i], c[0], c[1], c[2]));
+  }
+
+  onResize(w, h) {
+    gl.useProgram(this.prog);
+    gl.uniform2f(this.locs.uR, w, h);
+  }
+
+  draw(t) {
+    gl.useProgram(this.prog);
+    gl.uniform1f(this.locs.uT, t);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.buf);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  }
+
+  getInfo() {
+    const p = this.params;
+    return [
+      `TILING: ${p.tileName}  |  SYMMETRY: ${p.sym}-fold  |  SCALE: ${p.scale.toFixed(2)}`,
+      `PHYSICS: ${p.physName}  |  ORNAMENT: ${p.ornName}`,
+      `LINKAGE: ${p.linkage.toFixed(2)}  FLUID: ${p.fluid.toFixed(2)}  REACT: ${p.react.toFixed(2)}  ENERGY: ${p.energy.toFixed(2)}`,
+      `SOUND: ${soundOn?'ON':'OFF'}  |  SPACE/TAP=NEW  H=HUD  S=SOUND`,
+    ];
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  AUDIO ENGINE
+// ═══════════════════════════════════════════════════════
+function initAudio() {
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  masterGain = audioCtx.createGain();
+  masterGain.gain.value = 0;
+  masterGain.connect(audioCtx.destination);
+  buildAudioGraph();
+}
+
+let osc1, osc2, osc3, lfo1, lfo2, noiseNode, filterNode, delayNode;
+
+function buildAudioGraph() {
+  if (!audioCtx) return;
+
+  const p = universe ? universe.params : {};
+  const baseFreq = 60 + (p.sym || 6) * 12;
+
+  // Drone oscillator
+  osc1 = audioCtx.createOscillator();
+  osc1.type = pick(['sine','triangle','sawtooth']);
+  osc1.frequency.value = baseFreq;
+
+  osc2 = audioCtx.createOscillator();
+  osc2.type = 'sine';
+  osc2.frequency.value = baseFreq * (p.osc||0.5 > 0.5 ? 1.5 : 2.0);
+
+  osc3 = audioCtx.createOscillator();
+  osc3.type = 'triangle';
+  osc3.frequency.value = baseFreq * 3;
+
+  // LFOs
+  lfo1 = audioCtx.createOscillator();
+  lfo1.frequency.value = 0.07 + (p.fluid||0.3) * 0.2;
+  const lfoGain1 = audioCtx.createGain();
+  lfoGain1.gain.value = baseFreq * 0.08;
+  lfo1.connect(lfoGain1);
+  lfoGain1.connect(osc1.frequency);
+
+  lfo2 = audioCtx.createOscillator();
+  lfo2.frequency.value = 0.13 + (p.react||0.3) * 0.15;
+  const lfoGain2 = audioCtx.createGain();
+  lfoGain2.gain.value = baseFreq * 0.04;
+  lfo2.connect(lfoGain2);
+  lfoGain2.connect(osc2.frequency);
+
+  // Filter
+  filterNode = audioCtx.createBiquadFilter();
+  filterNode.type = 'lowpass';
+  filterNode.frequency.value = 400 + (p.energy||0.5) * 1200;
+  filterNode.Q.value = 3 + (p.turb||0.5) * 10;
+
+  // Delay
+  delayNode = audioCtx.createDelay(2.0);
+  delayNode.delayTime.value = 0.3 + (p.linkage||0.5) * 0.5;
+  const delayFb = audioCtx.createGain();
+  delayFb.gain.value = 0.35;
+  delayNode.connect(delayFb);
+  delayFb.connect(delayNode);
+
+  // Gains
+  const g1 = audioCtx.createGain(); g1.gain.value = 0.3;
+  const g2 = audioCtx.createGain(); g2.gain.value = 0.15;
+  const g3 = audioCtx.createGain(); g3.gain.value = 0.05;
+
+  osc1.connect(g1); g1.connect(filterNode);
+  osc2.connect(g2); g2.connect(filterNode);
+  osc3.connect(g3); g3.connect(filterNode);
+  filterNode.connect(delayNode);
+  filterNode.connect(masterGain);
+  delayNode.connect(masterGain);
+
+  [osc1, osc2, osc3, lfo1, lfo2].forEach(o => o.start());
+}
+
+function toggleSound() {
+  soundOn = !soundOn;
+  if (soundOn) {
+    initAudio();
+    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+    if (masterGain) masterGain.gain.setTargetAtTime(0.18, audioCtx.currentTime, 0.5);
+  } else {
+    if (masterGain) masterGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.3);
+  }
+}
+
+function updateAudio() {
+  if (!soundOn || !audioCtx || !universe) return;
+  const p = universe.params;
+  const t2 = audioCtx.currentTime;
+  if (filterNode) {
+    const fc = 200 + p.energy * 2000 + Math.sin(T * p.speed * 0.3) * 300;
+    filterNode.frequency.setTargetAtTime(fc, t2, 0.5);
+  }
+  if (lfo1) lfo1.frequency.setTargetAtTime(0.05 + p.fluid * 0.3 + Math.sin(T * 0.01) * 0.05, t2, 1.0);
+}
+
+// ═══════════════════════════════════════════════════════
+//  FLASH TRANSITION
+// ═══════════════════════════════════════════════════════
+function doFlash(cb) {
+  flash.style.transition = 'opacity 0.12s';
+  flash.style.opacity = '0.7';
+  setTimeout(() => {
+    cb();
+    flash.style.transition = 'opacity 0.5s';
+    flash.style.opacity = '0';
+  }, 130);
+}
+
+// ═══════════════════════════════════════════════════════
+//  SPAWN NEW UNIVERSE
+// ═══════════════════════════════════════════════════════
+function newUniverse() {
+  doFlash(() => {
+    if (universe) {
+      gl.deleteProgram(universe.prog);
+      gl.deleteBuffer(universe.buf);
+    }
+    T = 0;
+    universe = new Universe();
+    updateHUD();
+
+    // Rebuild audio for new params
+    if (soundOn && audioCtx) {
+      [osc1, osc2, osc3, lfo1, lfo2].forEach(o => { try { o.stop(); o.disconnect(); } catch(e){} });
+      buildAudioGraph();
+    }
+  });
+}
+
+// ═══════════════════════════════════════════════════════
+//  HUD
+// ═══════════════════════════════════════════════════════
+function updateHUD() {
+  if (!universe) return;
+  const info = universe.getInfo();
+  ['h1','h2','h3','h4'].forEach((id,i) => {
+    document.getElementById(id).textContent = info[i] || '';
+  });
+}
+
+function toggleHUD() {
+  hudVisible = !hudVisible;
+  hud.classList.toggle('visible', hudVisible);
+  updateHUD();
+}
+
+// ═══════════════════════════════════════════════════════
+//  RENDER LOOP
+// ═══════════════════════════════════════════════════════
+let lastFrameTime = 0;
+function frame(now) {
+  animId = requestAnimationFrame(frame);
+  const dt = Math.min((now - lastFrameTime) / 1000, 0.05);
+  lastFrameTime = now;
+  T += dt;
+
+  gl.clearColor(0, 0, 0, 1);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+
+  if (universe) universe.draw(T);
+
+  updateAudio();
+}
+
+// ═══════════════════════════════════════════════════════
+//  INPUT
+// ═══════════════════════════════════════════════════════
+document.addEventListener('keydown', e => {
+  if (e.key === ' ' || e.code === 'Space') { e.preventDefault(); newUniverse(); }
+  if (e.key === 'h' || e.key === 'H') toggleHUD();
+  if (e.key === 's' || e.key === 'S') toggleSound();
+});
+
+canvas.addEventListener('click', e => {
+  const now = Date.now();
+  if (now - lastTap < 300) return; // debounce
+  lastTap = now;
+  newUniverse();
+});
+
+canvas.addEventListener('touchend', e => {
+  e.preventDefault();
+  const now = Date.now();
+  if (now - lastTap < 500) return;
+  lastTap = now;
+  newUniverse();
+}, { passive: false });
+
+window.addEventListener('resize', () => { resize(); if (universe) universe.onResize(W, H); });
+
+// ── Controls fade ────────────────────────────────────────
+setTimeout(() => controls.classList.add('fade'), 5000);
+
+// ═══════════════════════════════════════════════════════
+//  BOOT
+// ═══════════════════════════════════════════════════════
+initGL();
+universe = new Universe();
+updateHUD();
+requestAnimationFrame(t => { lastFrameTime = t; frame(t); });
+
+console.log('%c∞ INFINITE MATHEMATICAL ART MACHINE', 'color:#f0a;font-size:16px;font-weight:bold');
+console.log('%cSPACE/TAP=new universe  H=HUD  S=sound', 'color:#0af;font-size:12px');
+</script>
+</body>
+</html>

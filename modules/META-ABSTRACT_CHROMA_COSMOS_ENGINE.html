@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>META-ABSTRACT CHROMA COSMOS ENGINE — Living Color Universe</title>
+<meta name="description" content="An immersive full-screen chromatic universe fusing all color systems — RYB, RGB, CMYK, HSV, HSL, CIELAB — into a living, breathing cosmos of rotating wheels, gradient nebulae, spectral flows, and polytope mappings with emergent audiovisual phenomena.">
+<meta name="keywords" content="color theory, generative art, chromatic cosmos, color wheel, RGB, CMYK, HSL, HSV, CIELAB, RYB, abstract art, generative visuals, audiovisual, interactive art, color systems, spectral visualization">
+<meta name="author" content="Chroma Cosmos Engine">
+<meta name="robots" content="index, follow">
+<meta property="og:title" content="META-ABSTRACT CHROMA COSMOS ENGINE">
+<meta property="og:description" content="A living chromatic universe — all color systems fused into one extraordinary audiovisual cosmos.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="https://og-image-placeholder.example.com/chroma-cosmos.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="META-ABSTRACT CHROMA COSMOS ENGINE">
+<meta name="twitter:description" content="Rotating wheels, gradient nebulae, spectral flows — all color systems unified in one immersive cosmos.">
+<meta name="theme-color" content="#000010">
+<link rel="canonical" href="https://chroma-cosmos.example.com/">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000;cursor:crosshair}
+  canvas{display:block;position:fixed;top:0;left:0;width:100%;height:100%}
+  #hud{
+    position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;
+    display:none;font-family:'Courier New',monospace;font-size:11px;color:rgba(255,255,255,0.75);
+    text-shadow:0 0 8px rgba(0,200,255,0.8);z-index:10;
+  }
+  #hud.visible{display:block}
+  #hud-top{position:absolute;top:16px;left:20px;line-height:1.7}
+  #hud-br{position:absolute;bottom:16px;right:20px;text-align:right;line-height:1.7}
+  #hud-bl{position:absolute;bottom:16px;left:20px;line-height:1.7}
+  #hud-tr{position:absolute;top:16px;right:20px;text-align:right;line-height:1.7}
+  .hud-label{color:rgba(0,255,200,0.6);font-size:9px;letter-spacing:2px;text-transform:uppercase}
+  #toast{
+    position:fixed;bottom:40px;left:50%;transform:translateX(-50%) translateY(20px);
+    background:rgba(0,0,0,0.7);border:1px solid rgba(255,255,255,0.15);
+    color:rgba(255,255,255,0.9);padding:8px 20px;border-radius:20px;
+    font-family:'Courier New',monospace;font-size:12px;letter-spacing:1px;
+    opacity:0;transition:opacity 0.4s,transform 0.4s;pointer-events:none;z-index:20;
+    backdrop-filter:blur(8px);
+  }
+  #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  #corner-hint{
+    position:fixed;bottom:16px;left:50%;transform:translateX(-50%);
+    font-family:'Courier New',monospace;font-size:10px;letter-spacing:2px;
+    color:rgba(255,255,255,0.25);pointer-events:none;z-index:5;
+    animation:fadeHint 6s ease forwards;
+  }
+  @keyframes fadeHint{0%{opacity:0}10%{opacity:1}70%{opacity:1}100%{opacity:0}}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="hud">
+  <div id="hud-top">
+    <div class="hud-label">System</div>
+    <div id="h-system">—</div>
+    <div class="hud-label" style="margin-top:8px">Polytope</div>
+    <div id="h-poly">—</div>
+    <div class="hud-label" style="margin-top:8px">Oscillators</div>
+    <div id="h-osc">—</div>
+  </div>
+  <div id="hud-tr">
+    <div class="hud-label">Entropy</div>
+    <div id="h-entropy">—</div>
+    <div class="hud-label" style="margin-top:8px">Wheels</div>
+    <div id="h-wheels">—</div>
+    <div class="hud-label" style="margin-top:8px">Nebulae</div>
+    <div id="h-neb">—</div>
+  </div>
+  <div id="hud-bl">
+    <div class="hud-label">Color Space</div>
+    <div id="h-cspace">—</div>
+    <div class="hud-label" style="margin-top:8px">Topology</div>
+    <div id="h-topo">—</div>
+  </div>
+  <div id="hud-br">
+    <div class="hud-label">SPACE/Click = randomize</div>
+    <div class="hud-label">H = HUD toggle</div>
+    <div class="hud-label">S = sound toggle</div>
+    <div id="h-sound" style="margin-top:4px;color:rgba(255,100,100,0.7)">SOUND OFF</div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<div id="corner-hint">SPACE · CLICK · TAP — RANDOMIZE &nbsp;|&nbsp; H — HUD &nbsp;|&nbsp; S — SOUND</div>
+
+<script>
+(function(){
+'use strict';
+
+// ─── CANVAS SETUP ────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H, CX, CY, DPR;
+
+function resize(){
+  DPR = Math.min(window.devicePixelRatio||1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = W * DPR; canvas.height = H * DPR;
+  canvas.style.width = W+'px'; canvas.style.height = H+'px';
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  CX = W/2; CY = H/2;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ─── STATE ────────────────────────────────────────────────────────────
+let t = 0, frame = 0, hudVisible = false, soundOn = false;
+let entropy = 0, toastTimer = 0;
+let state = {};
+
+// ─── AUDIO ENGINE ────────────────────────────────────────────────────
+let audioCtx = null, masterGain = null, nodes = [];
+
+function initAudio(){
+  if(audioCtx) return;
+  audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+  masterGain = audioCtx.createGain();
+  masterGain.gain.setValueAtTime(0.0, audioCtx.currentTime);
+  masterGain.connect(audioCtx.destination);
+}
+
+function buildSoundscape(){
+  if(!audioCtx) return;
+  nodes.forEach(n=>{try{n.stop&&n.stop();n.disconnect&&n.disconnect()}catch(e){}});
+  nodes=[];
+  const now = audioCtx.currentTime;
+  const freqs = state.soundFreqs || [55,110,165,220,330,440];
+  freqs.forEach((f,i)=>{
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    const lfo = audioCtx.createOscillator();
+    const lfoG = audioCtx.createGain();
+    o.type = ['sine','triangle','sawtooth','square'][i%4];
+    o.frequency.setValueAtTime(f, now);
+    lfo.frequency.setValueAtTime(0.05+i*0.03, now);
+    lfoG.gain.setValueAtTime(f*0.3, now);
+    g.gain.setValueAtTime(0.04/(i+1), now);
+    lfo.connect(lfoG); lfoG.connect(o.frequency);
+    o.connect(g); g.connect(masterGain);
+    o.start(now); lfo.start(now);
+    nodes.push(o,lfo);
+  });
+  // pad: filtered noise
+  const buf = audioCtx.createBuffer(1, audioCtx.sampleRate*2, audioCtx.sampleRate);
+  const d = buf.getChannelData(0);
+  for(let i=0;i<d.length;i++) d[i]=(Math.random()*2-1)*0.3;
+  const src = audioCtx.createBufferSource();
+  src.buffer = buf; src.loop = true;
+  const filt = audioCtx.createBiquadFilter();
+  filt.type='bandpass'; filt.frequency.setValueAtTime(state.padFreq||200, now);
+  filt.Q.setValueAtTime(2, now);
+  const padG = audioCtx.createGain(); padG.gain.setValueAtTime(0.015, now);
+  src.connect(filt); filt.connect(padG); padG.connect(masterGain);
+  src.start(now); nodes.push(src);
+}
+
+function enableSound(){
+  initAudio();
+  if(audioCtx.state==='suspended') audioCtx.resume();
+  buildSoundscape();
+  masterGain.gain.cancelScheduledValues(audioCtx.currentTime);
+  masterGain.gain.linearRampToValueAtTime(0.35, audioCtx.currentTime+1.5);
+}
+function disableSound(){
+  if(!audioCtx) return;
+  masterGain.gain.cancelScheduledValues(audioCtx.currentTime);
+  masterGain.gain.linearRampToValueAtTime(0.0, audioCtx.currentTime+1.0);
+}
+
+function updateAudioDynamic(){
+  if(!audioCtx||!soundOn) return;
+  const f = state.soundFreqs||[];
+  nodes.forEach((n,i)=>{
+    if(n.frequency&&f[Math.floor(i/2)]){
+      const drift = Math.sin(t*0.003+i)*f[Math.floor(i/2)]*0.05;
+      n.frequency.linearRampToValueAtTime(f[Math.floor(i/2)]+drift, audioCtx.currentTime+0.5);
+    }
+  });
+}
+
+// ─── MATH HELPERS ────────────────────────────────────────────────────
+const TAU = Math.PI*2;
+const rand = (a,b)=>a+(b-a)*Math.random();
+const randInt = (a,b)=>Math.floor(rand(a,b+1));
+const lerp = (a,b,t)=>a+(b-a)*t;
+const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
+const mod = (v,m)=>((v%m)+m)%m;
+
+function hslStr(h,s,l,a=1){return`hsla(${h},${s}%,${l}%,${a})`}
+function hsvToHsl(h,s,v){const l=v*(1-s/2);const sl=l===0||l===1?0:(v-l)/Math.min(l,1-l);return[h,sl*100,l*100]}
+function labToRGB(L,a,b){
+  let y=(L+16)/116,x=a/500+y,z=y-b/200;
+  x=0.95047*(x*x*x>0.008856?x*x*x:(x-16/116)/7.787);
+  y=1.00000*(y*y*y>0.008856?y*y*y:(y-16/116)/7.787);
+  z=1.08883*(z*z*z>0.008856?z*z*z:(z-16/116)/7.787);
+  let r=x*3.2406+y*-1.5372+z*-0.4986;
+  let g=x*-0.9689+y*1.8758+z*0.0415;
+  let bl=x*0.0557+y*-0.2040+z*1.0570;
+  r=r>0.0031308?1.055*Math.pow(r,1/2.4)-0.055:12.92*r;
+  g=g>0.0031308?1.055*Math.pow(g,1/2.4)-0.055:12.92*g;
+  bl=bl>0.0031308?1.055*Math.pow(bl,1/2.4)-0.055:12.92*bl;
+  return[clamp(r,0,1)*255,clamp(g,0,1)*255,clamp(bl,0,1)*255];
+}
+function cmykToRgb(c,m,y,k){return[(1-c)*(1-k)*255,(1-m)*(1-k)*255,(1-y)*(1-k)*255]}
+function rybToRgb(r,y,b){
+  const iR=1-r,iY=1-y,iB=1-b;
+  let R=iR*iY*iB*255;let G=iR*y*iB*255;let B=iR*iY*b*255;
+  return[clamp(R+r*255*0.5+y*255*0.2,0,255),clamp(G+y*255*0.5,0,255),clamp(B+b*255*0.7,0,255)];
+}
+
+function polytope(sides,cx,cy,r,rot,t){
+  const pts=[];
+  for(let i=0;i<sides;i++){
+    const a=TAU*i/sides+rot;
+    const rr=r*(1+0.08*Math.sin(t*0.7+i*1.3));
+    pts.push([cx+Math.cos(a)*rr,cy+Math.sin(a)*rr]);
+  }
+  return pts;
+}
+
+function topologicalWarp(x,y,type,t){
+  switch(type){
+    case 0:{// Klein-bottle-ish
+      const u=x/W*TAU,v=y/H*TAU;
+      const nx=(Math.cos(u)*(Math.cos(u/2)*Math.cos(v)*0.15-Math.sin(u/2)*Math.sin(v)*0.5)+2)*W/4;
+      return[nx,y+Math.sin(u+t*0.002)*20];
+    }
+    case 1:{// Möbius-ish
+      const s=x/W*TAU;const warp=Math.sin(s*2+t*0.003)*H*0.03;
+      return[x+Math.cos(y/H*Math.PI+t*0.002)*15,y+warp];
+    }
+    case 2:{// Torus projection
+      const u=x/W*TAU,v=y/H*TAU;
+      const R=0.4,r2=0.15;
+      return[x+(R+r2*Math.cos(v))*Math.cos(u)*10,y+r2*Math.sin(v)*10];
+    }
+    default: return[x,y];
+  }
+}
+
+// ─── RANDOMIZE STATE ─────────────────────────────────────────────────
+const COLOR_SYSTEMS = ['RGB','RYB','CMYK','HSV','HSL','CIELAB'];
+const POLYTOPES = ['Hexadecagon','Dodecagon','Decagon','Octagon','Heptagon','Pentagon','Triangle','Star'];
+const TOPOLOGIES = ['Klein','Möbius','Torus','Flat','Hyperbolic'];
+const OSCILLATOR_TYPES = ['Lissajous','Roto-orbital','Harmonic series','Quasiperiodic','Chaotic'];
+
+function randomize(){
+  entropy = (entropy+1)%999;
+  const baseHue = rand(0,360);
+  const wheelCount = randInt(3,7);
+  const nebCount = randInt(4,9);
+  const swatchCount = randInt(40,90);
+
+  const wheels = [];
+  for(let i=0;i<wheelCount;i++){
+    wheels.push({
+      x: rand(W*0.1,W*0.9), y: rand(H*0.1,H*0.9),
+      r: rand(Math.min(W,H)*0.06, Math.min(W,H)*0.22),
+      speed: rand(-0.008,0.008),
+      phase: rand(0,TAU),
+      segments: randInt(6,24),
+      colorOffset: rand(0,360),
+      system: COLOR_SYSTEMS[randInt(0,COLOR_SYSTEMS.length-1)],
+      alpha: rand(0.3,0.8),
+      sides: randInt(3,16),
+      glow: rand(5,40),
+      innerRatio: rand(0.3,0.7),
+      drift: [rand(-0.3,0.3),rand(-0.3,0.3)],
+      driftAmp: rand(20,80),
+      driftFreq: rand(0.001,0.005),
+    });
+  }
+
+  const nebulae = [];
+  for(let i=0;i<nebCount;i++){
+    nebulae.push({
+      x: rand(0,W), y: rand(0,H),
+      rx: rand(W*0.1,W*0.5), ry: rand(H*0.08,H*0.4),
+      rot: rand(0,TAU),
+      hue1: rand(0,360), hue2: rand(0,360), hue3: rand(0,360),
+      alpha: rand(0.05,0.25),
+      speed: rand(0.0005,0.003),
+      pulse: rand(0.5,2),
+      type: randInt(0,3),
+    });
+  }
+
+  const swatches = [];
+  for(let i=0;i<swatchCount;i++){
+    const angle = rand(0,TAU);
+    const dist = rand(0,Math.min(W,H)*0.45);
+    swatches.push({
+      x: CX+Math.cos(angle)*dist, y: CY+Math.sin(angle)*dist,
+      size: rand(4,22),
+      hue: (baseHue+rand(-120,120)+360)%360,
+      sat: rand(60,100), lit: rand(30,70),
+      speed: rand(0.001,0.006),
+      orbitR: dist, orbitAngle: angle,
+      orbitSpeed: rand(-0.004,0.004),
+      shape: randInt(0,3),
+      alpha: rand(0.4,1),
+      pulse: rand(0.5,3),
+    });
+  }
+
+  const flows = [];
+  const flowCount = randInt(3,7);
+  for(let i=0;i<flowCount;i++){
+    flows.push({
+      pts: Array.from({length:randInt(6,12)},()=>({
+        x:rand(0,W),y:rand(0,H),
+        vx:rand(-1,1),vy:rand(-1,1),
+      })),
+      hue: rand(0,360),
+      width: rand(2,12),
+      alpha: rand(0.2,0.7),
+      speed: rand(0.5,2),
+      wave: rand(0.02,0.1),
+    });
+  }
+
+  const spectral = [];
+  const specCount = randInt(2,5);
+  for(let i=0;i<specCount;i++){
+    spectral.push({
+      y: rand(H*0.1,H*0.9),
+      height: rand(20,80),
+      speed: rand(0.001,0.004),
+      direction: Math.random()<0.5?1:-1,
+      alpha: rand(0.15,0.5),
+      system: COLOR_SYSTEMS[randInt(0,COLOR_SYSTEMS.length-1)],
+    });
+  }
+
+  const soundFreqs = [
+    rand(30,60),rand(55,120),rand(100,200),
+    rand(150,300),rand(200,500),rand(300,700),
+  ].map(f=>f*(Math.random()<0.3?2:1));
+
+  state = {
+    baseHue, wheels, nebulae, swatches, flows, spectral,
+    system: COLOR_SYSTEMS[randInt(0,COLOR_SYSTEMS.length-1)],
+    polytope: POLYTOPES[randInt(0,POLYTOPES.length-1)],
+    topology: TOPOLOGIES[randInt(0,TOPOLOGIES.length-1)],
+    oscillator: OSCILLATOR_TYPES[randInt(0,OSCILLATOR_TYPES.length-1)],
+    topoType: randInt(0,2),
+    bgHue: rand(0,360),
+    bgSat: rand(5,30),
+    centralSides: randInt(3,12),
+    centralR: rand(Math.min(W,H)*0.08,Math.min(W,H)*0.2),
+    soundFreqs, padFreq: rand(80,400),
+    bgMode: randInt(0,2),
+    starfield: Array.from({length:randInt(80,200)},()=>({
+      x:rand(0,W),y:rand(0,H),
+      r:rand(0.5,2.5),hue:rand(0,360),speed:rand(0.1,1),
+      twinkle:rand(0,TAU),twinkleSpeed:rand(0.01,0.05),
+    })),
+    lissajousA: randInt(1,6),lissajousB: randInt(1,6),
+    lissajousDelta: rand(0,TAU),
+    harmonicCount: randInt(4,12),
+    chaosK: rand(2.5,4.0),
+    entropy,
+  };
+
+  if(soundOn) buildSoundscape();
+  updateHUD();
+}
+
+// ─── HUD ─────────────────────────────────────────────────────────────
+function updateHUD(){
+  if(!hudVisible||!state.system) return;
+  document.getElementById('h-system').textContent = state.system;
+  document.getElementById('h-poly').textContent = state.polytope;
+  document.getElementById('h-osc').textContent = state.oscillator;
+  document.getElementById('h-entropy').textContent = String(state.entropy).padStart(3,'0');
+  document.getElementById('h-wheels').textContent = state.wheels?.length||0;
+  document.getElementById('h-neb').textContent = state.nebulae?.length||0;
+  document.getElementById('h-cspace').textContent = COLOR_SYSTEMS.join(' · ');
+  document.getElementById('h-topo').textContent = state.topology||'—';
+  document.getElementById('h-sound').textContent = soundOn?'SOUND ON':'SOUND OFF';
+  document.getElementById('h-sound').style.color = soundOn?'rgba(0,255,150,0.8)':'rgba(255,100,100,0.7)';
+}
+
+// ─── TOAST ────────────────────────────────────────────────────────────
+let toastTimeout;
+function showToast(msg){
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.classList.add('show');
+  clearTimeout(toastTimeout);
+  toastTimeout = setTimeout(()=>el.classList.remove('show'),2000);
+}
+
+// ─── DRAWING FUNCTIONS ───────────────────────────────────────────────
+
+function drawBackground(){
+  const bgHue  = state.bgHue  ?? 220;
+  const bgSat  = state.bgSat  ?? 15;
+  const bgMode = state.bgMode ?? 0;
+  if(bgMode===0){
+    const g = ctx.createRadialGradient(CX,CY,0,CX,CY,Math.max(W,H)*0.8);
+    g.addColorStop(0,  hslStr(bgHue,              bgSat,      6, 1));
+    g.addColorStop(0.5,hslStr((bgHue+60)%360,     bgSat*0.6,  3, 1));
+    g.addColorStop(1,  hslStr((bgHue+120)%360,    bgSat*0.3,  2, 1));
+    ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  } else if(bgMode===1){
+    ctx.fillStyle=`hsl(${bgHue},${bgSat}%,4%)`; ctx.fillRect(0,0,W,H);
+    const g2=ctx.createLinearGradient(0,0,W,H);
+    g2.addColorStop(0,hslStr((bgHue+180)%360, bgSat*1.5, 2, 0.5));
+    g2.addColorStop(1,hslStr(bgHue,           bgSat,     6, 0.5));
+    ctx.fillStyle=g2; ctx.fillRect(0,0,W,H);
+  } else {
+    ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
+    for(let i=0;i<3;i++){
+      const gx=ctx.createRadialGradient(rand(0,W),rand(0,H),0,CX,CY,Math.max(W,H));
+      gx.addColorStop(0,hslStr((bgHue+i*80)%360, 40, 8, 0.2));
+      gx.addColorStop(1,'transparent');
+      ctx.fillStyle=gx; ctx.fillRect(0,0,W,H);
+    }
+  }
+}
+
+function drawStarfield(){
+  const {starfield} = state;
+  starfield.forEach(s=>{
+    const tw = 0.5+0.5*Math.sin(t*s.twinkleSpeed+s.twinkle);
+    ctx.beginPath();
+    ctx.arc(s.x,s.y,s.r*tw,0,TAU);
+    ctx.fillStyle=hslStr(s.hue,80,90,tw*0.8);
+    ctx.fill();
+  });
+}
+
+function drawSpectralBand(sp){
+  const {y,height,speed,direction,alpha,system} = sp;
+  const yOff = Math.sin(t*speed)*H*0.05;
+  const g = ctx.createLinearGradient(0,0,W,0);
+  if(system==='RGB'||system==='HSL'){
+    for(let i=0;i<=12;i++) g.addColorStop(i/12,hslStr(i/12*360+t*30*direction,95,55,alpha));
+  } else if(system==='RYB'){
+    const ryb=[[0,255,0],[255,255,0],[255,150,0],[255,0,0],[200,0,200],[0,0,255],[0,200,200]];
+    ryb.forEach((c,i)=>g.addColorStop(i/(ryb.length-1),`rgba(${c[0]},${c[1]},${c[2]},${alpha})`));
+  } else if(system==='CMYK'){
+    const pairs=[[0,255,255],[255,0,255],[255,255,0],[0,0,0],[255,255,255]];
+    pairs.forEach((c,i)=>g.addColorStop(i/(pairs.length-1),`rgba(${c[0]},${c[1]},${c[2]},${alpha})`));
+  } else {
+    for(let i=0;i<=8;i++){
+      const [r2,g2,b2]=labToRGB(60,Math.cos(i/8*TAU)*80,Math.sin(i/8*TAU+t*0.01)*80);
+      g.addColorStop(i/8,`rgba(${r2},${g2},${b2},${alpha})`);
+    }
+  }
+  ctx.beginPath();
+  ctx.rect(0,y+yOff-height/2,W,height);
+  ctx.fillStyle=g; ctx.fill();
+}
+
+function drawNebula(neb){
+  const {x,y,rx,ry,rot,hue1,hue2,hue3,alpha,speed,pulse,type} = neb;
+  const sc = 1+0.1*Math.sin(t*pulse*speed*100);
+  ctx.save();
+  ctx.translate(x,y);
+  ctx.rotate(rot+t*speed);
+  ctx.scale(sc,sc*0.7);
+  if(type===0){
+    const g = ctx.createRadialGradient(0,0,0,0,0,rx);
+    g.addColorStop(0,hslStr(hue1+t*10,100,70,alpha));
+    g.addColorStop(0.4,hslStr(hue2+t*7,90,50,alpha*0.6));
+    g.addColorStop(0.8,hslStr(hue3+t*5,80,40,alpha*0.3));
+    g.addColorStop(1,'transparent');
+    ctx.beginPath();ctx.ellipse(0,0,rx,ry,0,0,TAU);
+    ctx.fillStyle=g;ctx.fill();
+  } else if(type===1){
+    for(let i=0;i<8;i++){
+      const a=i/8*TAU+t*speed;
+      const g2=ctx.createRadialGradient(Math.cos(a)*rx*0.3,Math.sin(a)*ry*0.3,0,0,0,rx*0.6);
+      g2.addColorStop(0,hslStr((hue1+i*45)%360,100,70,alpha*0.8));
+      g2.addColorStop(1,'transparent');
+      ctx.beginPath();ctx.ellipse(Math.cos(a)*rx*0.3,Math.sin(a)*ry*0.3,rx*0.4,ry*0.25,a,0,TAU);
+      ctx.fillStyle=g2;ctx.fill();
+    }
+  } else if(type===2){
+    const g3=ctx.createLinearGradient(-rx,-ry,rx,ry);
+    g3.addColorStop(0,hslStr(hue1,100,60,alpha));
+    g3.addColorStop(0.5,hslStr(hue2,90,50,alpha*0.7));
+    g3.addColorStop(1,hslStr(hue3,100,60,alpha));
+    ctx.beginPath();ctx.ellipse(0,0,rx,ry,0,0,TAU);
+    ctx.fillStyle=g3;ctx.fill();
+  } else {
+    for(let r2=rx;r2>0;r2-=rx/12){
+      ctx.beginPath();ctx.ellipse(0,0,r2,ry*(r2/rx),0,0,TAU);
+      ctx.fillStyle=hslStr((hue1+r2/rx*180)%360,100,60,alpha*0.08);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+function drawColorWheel(w){
+  const {segments,colorOffset,system,alpha,glow,innerRatio,sides} = w;
+  const x=w.x+Math.cos(t*w.driftFreq*0.7)*w.driftAmp;
+  const y=w.y+Math.sin(t*w.driftFreq)*w.driftAmp;
+  const r=w.r;
+  const rot=w.phase+t*w.speed;
+  ctx.save();
+  ctx.shadowBlur=glow;
+  for(let i=0;i<segments;i++){
+    const a1=TAU*i/segments+rot, a2=TAU*(i+1)/segments+rot;
+    const hue=(colorOffset+i/segments*360)%360;
+    let col;
+    if(system==='RGB'||system==='HSL'){col=hslStr(hue,100,55,alpha)}
+    else if(system==='HSV'){const[h2,s2,l2]=hsvToHsl(hue,0.9,0.9);col=hslStr(h2,s2,l2,alpha)}
+    else if(system==='RYB'){const[r2,g2,b2]=rybToRgb(Math.cos(hue/360*TAU)*0.5+0.5,Math.sin(hue/360*TAU)*0.5+0.5,0.5);col=`rgba(${r2},${g2},${b2},${alpha})`}
+    else if(system==='CMYK'){const[r2,g2,b2]=cmykToRgb(Math.cos(hue/360*TAU)*0.5+0.5,Math.sin(hue/360*TAU+1)*0.5+0.5,Math.cos(hue/360*TAU+2)*0.5+0.5,0.1);col=`rgba(${r2},${g2},${b2},${alpha})`}
+    else{const[r2,g2,b2]=labToRGB(65,Math.cos(hue/360*TAU)*80,Math.sin(hue/360*TAU)*80);col=`rgba(${r2},${g2},${b2},${alpha})`}
+    ctx.shadowColor=col;
+    const g=ctx.createRadialGradient(x,y,r*innerRatio,x,y,r);
+    g.addColorStop(0,col.replace(/,[^,]+\)$/,`,${alpha*0.4})`));
+    g.addColorStop(1,col);
+    ctx.beginPath();ctx.moveTo(x,y);ctx.arc(x,y,r,a1,a2);ctx.closePath();
+    ctx.fillStyle=g;ctx.fill();
+  }
+  // polytope overlay
+  const pts=polytope(sides,x,y,r*0.92,rot,t);
+  ctx.beginPath();ctx.moveTo(pts[0][0],pts[0][1]);
+  pts.forEach(p=>ctx.lineTo(p[0],p[1]));ctx.closePath();
+  ctx.strokeStyle=hslStr((colorOffset+t*20)%360,100,85,0.4);
+  ctx.lineWidth=1.5;ctx.stroke();
+  ctx.restore();
+}
+
+function drawSwatch(s,i){
+  const angle=s.orbitAngle+t*s.orbitSpeed;
+  const x=CX+Math.cos(angle)*s.orbitR;
+  const y=CY+Math.sin(angle)*s.orbitR;
+  const pulse=s.size*(1+0.25*Math.sin(t*s.pulse*0.05+i));
+  ctx.save();
+  ctx.shadowBlur=pulse*1.5;
+  ctx.shadowColor=hslStr(s.hue,s.sat,s.lit,0.8);
+  ctx.fillStyle=hslStr(s.hue+t*2,s.sat,s.lit,s.alpha);
+  if(s.shape===0){
+    ctx.beginPath();ctx.arc(x,y,pulse,0,TAU);ctx.fill();
+  } else if(s.shape===1){
+    ctx.fillRect(x-pulse/2,y-pulse/2,pulse,pulse);
+  } else if(s.shape===2){
+    ctx.beginPath();ctx.moveTo(x,y-pulse);ctx.lineTo(x+pulse,y+pulse);ctx.lineTo(x-pulse,y+pulse);ctx.closePath();ctx.fill();
+  } else {
+    ctx.beginPath();
+    for(let k=0;k<5;k++){
+      const a=TAU*k/5-Math.PI/2+t*0.01;
+      k===0?ctx.moveTo(x+Math.cos(a)*pulse,y+Math.sin(a)*pulse):ctx.lineTo(x+Math.cos(a)*pulse,y+Math.sin(a)*pulse);
+    }ctx.closePath();ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawSpectralFlow(fl){
+  const {pts,hue,width,alpha,wave} = fl;
+  ctx.save();
+  ctx.lineWidth=width;
+  ctx.lineCap='round';ctx.lineJoin='round';
+  // update pts
+  pts.forEach(p=>{
+    p.x+=p.vx*fl.speed; p.y+=p.vy*fl.speed;
+    if(p.x<0||p.x>W) p.vx*=-1;
+    if(p.y<0||p.y>H) p.vy*=-1;
+  });
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x,pts[0].y);
+  for(let i=1;i<pts.length;i++){
+    const mx=(pts[i-1].x+pts[i].x)/2+Math.sin(t*wave+i)*20;
+    const my=(pts[i-1].y+pts[i].y)/2+Math.cos(t*wave+i)*20;
+    ctx.quadraticCurveTo(pts[i-1].x,pts[i-1].y,mx,my);
+  }
+  const g=ctx.createLinearGradient(pts[0].x,pts[0].y,pts[pts.length-1].x,pts[pts.length-1].y);
+  for(let i=0;i<=10;i++) g.addColorStop(i/10,hslStr((hue+i*30+t*20)%360,100,60,alpha));
+  ctx.strokeStyle=g;
+  ctx.shadowBlur=width*2;ctx.shadowColor=hslStr(hue,100,70,0.5);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawLissajous(){
+  const {lissajousA,lissajousB,lissajousDelta,harmonicCount} = state;
+  const r=Math.min(W,H)*0.18;
+  ctx.save();
+  ctx.translate(CX,CY);
+  ctx.globalCompositeOperation='screen';
+  for(let h=0;h<harmonicCount;h++){
+    ctx.beginPath();
+    const hue=(state.baseHue+h*30+t*5)%360;
+    for(let i=0;i<=400;i++){
+      const tt=i/400*TAU;
+      const x=r*Math.sin(lissajousA*(h+1)*0.5*tt+lissajousDelta+t*0.002*(h+1));
+      const y=r*Math.sin(lissajousB*(h+1)*0.5*tt+t*0.003*(h+1));
+      i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+    }
+    ctx.strokeStyle=hslStr(hue,100,65,0.25/(h+1)*3);
+    ctx.lineWidth=1.5;ctx.stroke();
+  }
+  ctx.restore();
+  ctx.globalCompositeOperation='source-over';
+}
+
+function drawCentralPolytope(){
+  const {centralSides,centralR,baseHue} = state;
+  const r=centralR*(1+0.1*Math.sin(t*0.007));
+  const rot=t*0.005;
+  ctx.save();
+  ctx.translate(CX,CY);
+  ctx.globalCompositeOperation='screen';
+  for(let layer=0;layer<4;layer++){
+    const pts2=polytope(centralSides+layer,0,0,r*(1-layer*0.15),rot+layer*0.3,t);
+    ctx.beginPath();ctx.moveTo(pts2[0][0],pts2[0][1]);
+    pts2.forEach(p=>ctx.lineTo(p[0],p[1]));ctx.closePath();
+    ctx.strokeStyle=hslStr((baseHue+layer*30+t*10)%360,100,75,0.5-layer*0.1);
+    ctx.lineWidth=2-layer*0.3;
+    ctx.shadowBlur=20;ctx.shadowColor=hslStr((baseHue+layer*30)%360,100,80,0.6);
+    ctx.stroke();
+  }
+  // inner glow
+  const g=ctx.createRadialGradient(0,0,0,0,0,r*0.8);
+  g.addColorStop(0,hslStr(baseHue+t*5,100,80,0.12));
+  g.addColorStop(1,'transparent');
+  ctx.beginPath();ctx.arc(0,0,r*0.8,0,TAU);
+  ctx.fillStyle=g;ctx.fill();
+  ctx.restore();
+  ctx.globalCompositeOperation='source-over';
+}
+
+function drawHarmonicRings(){
+  const {baseHue,harmonicCount} = state;
+  ctx.save();
+  ctx.translate(CX,CY);
+  ctx.globalCompositeOperation='screen';
+  for(let i=0;i<harmonicCount;i++){
+    const r2=Math.min(W,H)*(0.1+i*0.04)*(1+0.05*Math.sin(t*0.01*(i+1)));
+    const a=(t*0.003*(i%2?1:-1)+i*0.7)%TAU;
+    const hue=(baseHue+i*360/harmonicCount+t*3)%360;
+    ctx.beginPath();
+    ctx.arc(Math.cos(a)*r2*0.1,Math.sin(a)*r2*0.1,r2,0,TAU);
+    ctx.strokeStyle=hslStr(hue,100,60,0.12);
+    ctx.lineWidth=1.5;ctx.stroke();
+  }
+  ctx.restore();
+  ctx.globalCompositeOperation='source-over';
+}
+
+function drawTopologicalField(){
+  const {topoType,baseHue} = state;
+  const step=Math.ceil(Math.max(W,H)/60);
+  ctx.save();
+  ctx.globalCompositeOperation='screen';
+  for(let gx=0;gx<W;gx+=step){
+    for(let gy=0;gy<H;gy+=step){
+      const [nx,ny]=topologicalWarp(gx,gy,topoType,t);
+      const hue=(baseHue+(nx/W+ny/H)*180+t*2)%360;
+      ctx.fillStyle=hslStr(hue,100,60,0.025);
+      ctx.fillRect(gx,gy,step,step);
+    }
+  }
+  ctx.restore();
+  ctx.globalCompositeOperation='source-over';
+}
+
+// ─── MAIN RENDER LOOP ─────────────────────────────────────────────────
+function render(){
+  requestAnimationFrame(render);
+  t+=1; frame++;
+
+  // Fade
+  ctx.fillStyle='rgba(0,0,0,0.18)';
+  ctx.fillRect(0,0,W,H);
+
+  if(!state.wheels) return;
+
+  // Background repaint every 120 frames
+  if(frame%120===0) drawBackground();
+
+  // Starfield
+  drawStarfield();
+
+  // Topological field (subtle)
+  if(frame%3===0) drawTopologicalField();
+
+  // Spectral bands
+  state.spectral.forEach(drawSpectralBand);
+
+  // Nebulae
+  ctx.globalCompositeOperation='screen';
+  state.nebulae.forEach(drawNebula);
+  ctx.globalCompositeOperation='source-over';
+
+  // Harmonic rings
+  drawHarmonicRings();
+
+  // Lissajous
+  drawLissajous();
+
+  // Spectral flows
+  state.flows.forEach(drawSpectralFlow);
+
+  // Color wheels
+  ctx.globalCompositeOperation='screen';
+  state.wheels.forEach(drawColorWheel);
+  ctx.globalCompositeOperation='source-over';
+
+  // Swatches/constellations
+  state.swatches.forEach(drawSwatch);
+
+  // Central polytope
+  drawCentralPolytope();
+
+  // Audio update
+  if(frame%60===0) updateAudioDynamic();
+
+  // HUD update
+  if(frame%30===0 && hudVisible) updateHUD();
+}
+
+// ─── EVENTS ───────────────────────────────────────────────────────────
+function doRandomize(){
+  randomize();
+  showToast('⬡ COSMOS REBORN · ENTROPY '+String(entropy).padStart(3,'0'));
+}
+
+function toggleHUD(){
+  hudVisible=!hudVisible;
+  document.getElementById('hud').classList.toggle('visible',hudVisible);
+  updateHUD();
+  showToast(hudVisible?'HUD ONLINE':'HUD OFFLINE');
+}
+
+function toggleSound(){
+  soundOn=!soundOn;
+  if(soundOn){enableSound();showToast('◉ SOUNDSCAPE ACTIVE');}
+  else{disableSound();showToast('◎ SOUND MUTED');}
+  updateHUD();
+}
+
+window.addEventListener('keydown',e=>{
+  if(e.code==='Space'){e.preventDefault();doRandomize();}
+  if(e.key==='h'||e.key==='H') toggleHUD();
+  if(e.key==='s'||e.key==='S') toggleSound();
+});
+canvas.addEventListener('click',doRandomize);
+canvas.addEventListener('touchstart',e=>{e.preventDefault();doRandomize();},{passive:false});
+
+// ─── INIT ─────────────────────────────────────────────────────────────
+randomize();      // populate state first
+drawBackground(); // now safe — state.bgHue etc. exist
+render();
+
+// Remove hint after 8s
+setTimeout(()=>{const h=document.getElementById('corner-hint');if(h)h.remove();},8000);
+
+})();
+</script>
+</body>
+</html>

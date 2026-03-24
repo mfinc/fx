@@ -1,0 +1,1521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="description" content="Computational Generative Art Engine - Living Mechanical Universe with Geometric Organisms, Quasicrystals, and Dynamic Tessellations">
+    <meta name="keywords" content="generative art, WebGL, computational art, quasicrystals, Penrose tiling, Voronoi diagrams, procedural generation, mathematical art, geometric patterns, tessellations">
+    <meta name="author" content="Generative Art Engine">
+    <meta name="theme-color" content="#000000">
+    <title>Living Mechanical Universe | Computational Generative Art</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { 
+            width: 100%; 
+            height: 100%; 
+            overflow: hidden; 
+            background: #000; 
+            touch-action: none;
+        }
+        canvas { 
+            display: block; 
+            width: 100vw; 
+            height: 100vh;
+        }
+        #hud {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            color: rgba(0, 255, 200, 0.8);
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            pointer-events: none;
+            z-index: 100;
+            display: none;
+            text-shadow: 0 0 10px rgba(0, 255, 200, 0.5);
+            line-height: 1.6;
+        }
+        #controls {
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            color: rgba(255, 255, 255, 0.5);
+            font-family: 'Courier New', monospace;
+            font-size: 10px;
+            pointer-events: none;
+            z-index: 100;
+            text-align: right;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <div id="hud">
+        <div>SYSTEM: <span id="systemName"></span></div>
+        <div>ENTITIES: <span id="entityCount"></span></div>
+        <div>FPS: <span id="fps"></span></div>
+        <div>PHASE: <span id="phase"></span></div>
+        <div>SYMMETRY: <span id="symmetry"></span></div>
+    </div>
+    <div id="controls">
+        [SPACE/CLICK] Regenerate | [H] HUD | [S] Sound
+    </div>
+
+<script>
+(function() {
+    'use strict';
+
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const hud = document.getElementById('hud');
+
+    let width, height, centerX, centerY;
+    let animationId;
+    let frameCount = 0;
+    let lastTime = performance.now();
+    let showHud = false;
+    let soundEnabled = false;
+    let audioContext = null;
+    let currentSystem = 0;
+    let time = 0;
+
+    // Universe parameters
+    let params = {
+        systemType: 0,
+        colorPalette: 0,
+        speed: 1,
+        complexity: 1,
+        symmetry: 5,
+        turbulence: 0.5
+    };
+
+    const systemNames = [
+        'Penrose Quasicrystal',
+        'Ammann-Beenker Aperiodic',
+        'Voronoi Cellular',
+        'Hyperbolic Tiling',
+        'Islamic Star Geometry',
+        'Celtic Interlace',
+        'Hamiltonian Networks',
+        'Reaction-Diffusion',
+        'Apollonian Packing',
+        '4D Polytope Projection'
+    ];
+
+    // Resize handling
+    function resize() {
+        width = canvas.width = window.innerWidth;
+        height = canvas.height = window.innerHeight;
+        centerX = width / 2;
+        centerY = height / 2;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // Audio synthesis
+    function initAudio() {
+        if (!audioContext) {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        }
+    }
+
+    function createDrone(frequency, harmonics = 3) {
+        if (!soundEnabled || !audioContext) return;
+
+        const masterGain = audioContext.createGain();
+        masterGain.gain.value = 0.1;
+        masterGain.connect(audioContext.destination);
+
+        for (let i = 0; i < harmonics; i++) {
+            const osc = audioContext.createOscillator();
+            const gain = audioContext.createGain();
+
+            osc.type = ['sine', 'triangle', 'sawtooth'][i % 3];
+            osc.frequency.value = frequency * (i + 1) * (1 + Math.random() * 0.1);
+
+            gain.gain.value = 0.3 / (i + 1);
+
+            osc.connect(gain);
+            gain.connect(masterGain);
+            osc.start();
+
+            // Modulate
+            const lfo = audioContext.createOscillator();
+            lfo.frequency.value = 0.1 + Math.random() * 0.5;
+            const lfoGain = audioContext.createGain();
+            lfoGain.gain.value = 5;
+            lfo.connect(lfoGain);
+            lfoGain.connect(osc.frequency);
+            lfo.start();
+
+            setTimeout(() => {
+                osc.stop();
+                lfo.stop();
+            }, 5000);
+        }
+    }
+
+    function triggerSound() {
+        if (!soundEnabled) return;
+        initAudio();
+        const baseFreq = 55 * Math.pow(2, Math.floor(Math.random() * 3));
+        createDrone(baseFreq, 4);
+    }
+
+    // Color palettes
+    const palettes = [
+        ['#FF006E', '#FB5607', '#FFBE0B', '#8338EC', '#3A86FF'],
+        ['#000428', '#004e92', '#009ffd', '#00d2ff', '#ffffff'],
+        ['#ff00cc', '#333399', '#00ffcc', '#ffff00', '#ff0066'],
+        ['#1a1a2e', '#16213e', '#0f3460', '#e94560', '#533483'],
+        ['#0f0f23', '#1a1a3e', '#252550', '#00ffff', '#ff00ff'],
+        ['#2d00f7', '#6a00f4', '#8900f2', '#a100f2', '#b100e8'],
+        ['#ff9a9e', '#fecfef', '#fecfef', '#a8edea', '#fed6e3'],
+        ['#000000', '#434343', '#666666', '#ffffff', '#00ff88']
+    ];
+
+    function getColor(index, alpha = 1) {
+        const palette = palettes[params.colorPalette % palettes.length];
+        const color = palette[index % palette.length];
+        if (alpha < 1) {
+            const r = parseInt(color.slice(1, 3), 16);
+            const g = parseInt(color.slice(3, 5), 16);
+            const b = parseInt(color.slice(5, 7), 16);
+            return `rgba(${r},${g},${b},${alpha})`;
+        }
+        return color;
+    }
+
+    // Utility functions
+    const rand = (min, max) => Math.random() * (max - min) + min;
+    const randInt = (min, max) => Math.floor(rand(min, max));
+    const dist = (x1, y1, x2, y2) => Math.hypot(x2 - x1, y2 - y1);
+
+    // Geometric systems
+    class GeometricSystem {
+        constructor() {
+            this.entities = [];
+            this.connections = [];
+            this.particles = [];
+        }
+        update(dt) {}
+        render(ctx) {}
+    }
+
+    // 1. Penrose Quasicrystal
+    class PenroseSystem extends GeometricSystem {
+        constructor() {
+            super();
+            this.tiles = [];
+            this.rotation = 0;
+            this.generate();
+        }
+
+        generate() {
+            this.tiles = [];
+            const phi = (1 + Math.sqrt(5)) / 2;
+            const count = 12;
+            const radius = Math.min(width, height) * 0.4;
+
+            for (let i = 0; i < count; i++) {
+                const angle = (Math.PI * 2 * i) / count + this.rotation;
+                const r = radius * (0.5 + Math.random() * 0.5);
+                this.tiles.push({
+                    x: centerX + Math.cos(angle) * r,
+                    y: centerY + Math.sin(angle) * r,
+                    size: rand(20, 80),
+                    angle: angle,
+                    type: i % 2,
+                    color: randInt(0, 5),
+                    phase: rand(0, Math.PI * 2)
+                });
+            }
+        }
+
+        update(dt) {
+            this.rotation += dt * 0.1 * params.speed;
+            this.tiles.forEach((tile, i) => {
+                tile.phase += dt * params.speed;
+                tile.x += Math.cos(tile.phase + i) * 0.5;
+                tile.y += Math.sin(tile.phase + i) * 0.5;
+            });
+        }
+
+        render(ctx) {
+            ctx.save();
+            ctx.translate(centerX, centerY);
+            ctx.rotate(this.rotation * 0.1);
+            ctx.translate(-centerX, -centerY);
+
+            const phi = (1 + Math.sqrt(5)) / 2;
+
+            this.tiles.forEach((tile, i) => {
+                ctx.save();
+                ctx.translate(tile.x, tile.y);
+                ctx.rotate(tile.angle + time * 0.2);
+
+                const alpha = 0.3 + Math.sin(tile.phase) * 0.2;
+                ctx.strokeStyle = getColor(tile.color, alpha);
+                ctx.lineWidth = 2;
+                ctx.fillStyle = getColor(tile.color, 0.1);
+
+                ctx.beginPath();
+                if (tile.type === 0) {
+                    // Kite
+                    const a = tile.size;
+                    const b = tile.size / phi;
+                    ctx.moveTo(0, -a);
+                    ctx.lineTo(b * Math.cos(Math.PI/10), -b * Math.sin(Math.PI/10));
+                    ctx.lineTo(0, b);
+                    ctx.lineTo(-b * Math.cos(Math.PI/10), -b * Math.sin(Math.PI/10));
+                } else {
+                    // Dart
+                    const a = tile.size;
+                    const b = tile.size / phi;
+                    ctx.moveTo(0, a);
+                    ctx.lineTo(b, 0);
+                    ctx.lineTo(0, -b);
+                    ctx.lineTo(-b, 0);
+                }
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+
+                // Glow effect
+                ctx.shadowBlur = 20;
+                ctx.shadowColor = getColor(tile.color, 0.8);
+                ctx.stroke();
+                ctx.shadowBlur = 0;
+
+                ctx.restore();
+            });
+
+            // Connect nearby tiles
+            ctx.strokeStyle = getColor(4, 0.15);
+            ctx.lineWidth = 0.5;
+            ctx.beginPath();
+            for (let i = 0; i < this.tiles.length; i++) {
+                for (let j = i + 1; j < this.tiles.length; j++) {
+                    const d = dist(this.tiles[i].x, this.tiles[i].y, this.tiles[j].x, this.tiles[j].y);
+                    if (d < 150) {
+                        ctx.moveTo(this.tiles[i].x, this.tiles[i].y);
+                        ctx.lineTo(this.tiles[j].x, this.tiles[j].y);
+                    }
+                }
+            }
+            ctx.stroke();
+
+            ctx.restore();
+        }
+    }
+
+    // 2. Voronoi Cellular
+    class VoronoiSystem extends GeometricSystem {
+        constructor() {
+            super();
+            this.sites = [];
+            this.cells = [];
+            this.initSites();
+        }
+
+        initSites() {
+            this.sites = [];
+            const numSites = 20 + params.complexity * 30;
+            for (let i = 0; i < numSites; i++) {
+                this.sites.push({
+                    x: rand(0, width),
+                    y: rand(0, height),
+                    vx: rand(-1, 1) * params.speed,
+                    vy: rand(-1, 1) * params.speed,
+                    color: randInt(0, 5),
+                    energy: rand(0.5, 2)
+                });
+            }
+        }
+
+        update(dt) {
+            this.sites.forEach(site => {
+                site.x += site.vx * site.energy;
+                site.y += site.vy * site.energy;
+
+                if (site.x < 0 || site.x > width) site.vx *= -1;
+                if (site.y < 0 || site.y > height) site.vy *= -1;
+
+                site.x = Math.max(0, Math.min(width, site.x));
+                site.y = Math.max(0, Math.min(height, site.y));
+            });
+        }
+
+        render(ctx) {
+            // Approximate Voronoi with distance fields
+            const imageData = ctx.createImageData(width, height);
+            const data = imageData.data;
+
+            // Simplified cellular rendering
+            ctx.globalCompositeOperation = 'screen';
+
+            this.sites.forEach(site => {
+                const gradient = ctx.createRadialGradient(site.x, site.y, 0, site.x, site.y, 200);
+                const color = getColor(site.color, 0.3);
+                gradient.addColorStop(0, color);
+                gradient.addColorStop(0.5, getColor(site.color, 0.1));
+                gradient.addColorStop(1, 'transparent');
+
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.arc(site.x, site.y, 200, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            // Draw cell boundaries
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.strokeStyle = getColor(3, 0.4);
+            ctx.lineWidth = 1;
+
+            for (let x = 0; x < width; x += 20) {
+                for (let y = 0; y < height; y += 20) {
+                    let minDist = Infinity;
+                    let secondMinDist = Infinity;
+
+                    for (const site of this.sites) {
+                        const d = dist(x, y, site.x, site.y);
+                        if (d < minDist) {
+                            secondMinDist = minDist;
+                            minDist = d;
+                        } else if (d < secondMinDist) {
+                            secondMinDist = d;
+                        }
+                    }
+
+                    if (secondMinDist - minDist < 5) {
+                        ctx.fillStyle = getColor(4, 0.8);
+                        ctx.fillRect(x, y, 2, 2);
+                    }
+                }
+            }
+
+            // Draw sites
+            this.sites.forEach(site => {
+                ctx.fillStyle = getColor(site.color, 0.8);
+                ctx.beginPath();
+                ctx.arc(site.x, site.y, 3 + site.energy * 2, 0, Math.PI * 2);
+                ctx.fill();
+            });
+        }
+    }
+
+    // 3. Hyperbolic Tiling
+    class HyperbolicSystem extends GeometricSystem {
+        constructor() {
+            super();
+            this.polygons = [];
+            this.radius = Math.min(width, height) * 0.35;
+            this.generate();
+        }
+
+        generate() {
+            this.polygons = [];
+            const n = params.symmetry;
+            const layers = 3 + params.complexity;
+
+            for (let layer = 0; layer < layers; layer++) {
+                const count = n * (layer + 1);
+                const r = (this.radius * (layer + 1)) / layers;
+
+                for (let i = 0; i < count; i++) {
+                    const angle = (Math.PI * 2 * i) / count;
+                    this.polygons.push({
+                        x: centerX + Math.cos(angle) * r,
+                        y: centerY + Math.sin(angle) * r,
+                        radius: 20 + 10 * layer,
+                        sides: 3 + (i % 5),
+                        angle: angle + time,
+                        color: (layer + i) % 5,
+                        layer: layer,
+                        phase: rand(0, Math.PI * 2)
+                    });
+                }
+            }
+        }
+
+        update(dt) {
+            this.polygons.forEach(poly => {
+                poly.phase += dt * params.speed * (poly.layer + 1) * 0.1;
+                const r = (this.radius * (poly.layer + 1)) / 4;
+                poly.x = centerX + Math.cos(poly.angle + time * 0.1 * (poly.layer % 2 === 0 ? 1 : -1)) * r;
+                poly.y = centerY + Math.sin(poly.angle + time * 0.1 * (poly.layer % 2 === 0 ? 1 : -1)) * r;
+                poly.rotation = poly.phase;
+            });
+        }
+
+        render(ctx) {
+            ctx.save();
+
+            // Draw Poincare disk boundary
+            ctx.strokeStyle = getColor(0, 0.5);
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, this.radius, 0, Math.PI * 2);
+            ctx.stroke();
+
+            this.polygons.forEach(poly => {
+                ctx.save();
+                ctx.translate(poly.x, poly.y);
+                ctx.rotate(poly.rotation);
+
+                ctx.fillStyle = getColor(poly.color, 0.2);
+                ctx.strokeStyle = getColor(poly.color, 0.6);
+                ctx.lineWidth = 1.5;
+
+                ctx.beginPath();
+                for (let i = 0; i < poly.sides; i++) {
+                    const angle = (Math.PI * 2 * i) / poly.sides;
+                    const px = Math.cos(angle) * poly.radius;
+                    const py = Math.sin(angle) * poly.radius;
+                    if (i === 0) ctx.moveTo(px, py);
+                    else ctx.lineTo(px, py);
+                }
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+
+                // Inner detail
+                ctx.beginPath();
+                for (let i = 0; i < poly.sides; i++) {
+                    const angle = (Math.PI * 2 * i) / poly.sides;
+                    const px = Math.cos(angle) * poly.radius * 0.5;
+                    const py = Math.sin(angle) * poly.radius * 0.5;
+                    if (i === 0) ctx.moveTo(px, py);
+                    else ctx.lineTo(px, py);
+                }
+                ctx.closePath();
+                ctx.strokeStyle = getColor(poly.color, 0.4);
+                ctx.stroke();
+
+                ctx.restore();
+            });
+
+            // Escher-style connections
+            ctx.strokeStyle = getColor(1, 0.2);
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            for (let i = 0; i < this.polygons.length; i++) {
+                for (let j = i + 1; j < this.polygons.length; j++) {
+                    const p1 = this.polygons[i];
+                    const p2 = this.polygons[j];
+                    if (p1.layer === p2.layer && Math.abs(p1.angle - p2.angle) < 0.3) {
+                        ctx.moveTo(p1.x, p1.y);
+                        ctx.lineTo(p2.x, p2.y);
+                    }
+                }
+            }
+            ctx.stroke();
+
+            ctx.restore();
+        }
+    }
+
+    // 4. Islamic Star Geometry
+    class IslamicSystem extends GeometricSystem {
+        constructor() {
+            super();
+            this.stars = [];
+            this.rosettes = [];
+            this.generate();
+        }
+
+        generate() {
+            this.stars = [];
+            this.rosettes = [];
+            const gridSize = 6 + params.complexity * 2;
+            const cellW = width / gridSize;
+            const cellH = height / gridSize;
+
+            for (let i = 0; i < gridSize; i++) {
+                for (let j = 0; j < gridSize; j++) {
+                    if ((i + j) % 2 === 0) {
+                        this.stars.push({
+                            x: i * cellW + cellW / 2,
+                            y: j * cellH + cellH / 2,
+                            points: 8 + (i + j) % 8,
+                            outerR: Math.min(cellW, cellH) * 0.4,
+                            innerR: Math.min(cellW, cellH) * 0.2,
+                            color: (i + j) % 5,
+                            phase: rand(0, Math.PI * 2),
+                            rotationSpeed: rand(-0.5, 0.5)
+                        });
+                    } else {
+                        this.rosettes.push({
+                            x: i * cellW + cellW / 2,
+                            y: j * cellH + cellH / 2,
+                            petals: 6 + (i * j) % 6,
+                            radius: Math.min(cellW, cellH) * 0.35,
+                            color: (i * j) % 5,
+                            phase: rand(0, Math.PI * 2)
+                        });
+                    }
+                }
+            }
+        }
+
+        update(dt) {
+            [...this.stars, ...this.rosettes].forEach(s => {
+                s.phase += dt * params.speed * (s.rotationSpeed || 0.3);
+            });
+        }
+
+        render(ctx) {
+            ctx.save();
+
+            // Background pattern
+            ctx.fillStyle = getColor(0, 0.05);
+            ctx.fillRect(0, 0, width, height);
+
+            // Draw stars
+            this.stars.forEach(star => {
+                ctx.save();
+                ctx.translate(star.x, star.y);
+                ctx.rotate(star.phase);
+
+                ctx.strokeStyle = getColor(star.color, 0.8);
+                ctx.lineWidth = 2;
+                ctx.fillStyle = getColor(star.color, 0.1);
+
+                ctx.beginPath();
+                for (let i = 0; i < star.points * 2; i++) {
+                    const angle = (Math.PI * i) / star.points;
+                    const r = i % 2 === 0 ? star.outerR : star.innerR;
+                    const x = Math.cos(angle) * r;
+                    const y = Math.sin(angle) * r;
+                    if (i === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                }
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+
+                // Interlacing effect
+                ctx.strokeStyle = getColor((star.color + 1) % 5, 0.5);
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                for (let i = 0; i < star.points; i++) {
+                    const angle = (Math.PI * 2 * i) / star.points;
+                    const x = Math.cos(angle) * star.outerR * 0.7;
+                    const y = Math.sin(angle) * star.outerR * 0.7;
+                    ctx.arc(x, y, 3, 0, Math.PI * 2);
+                }
+                ctx.stroke();
+
+                ctx.restore();
+            });
+
+            // Draw rosettes
+            this.rosettes.forEach(r => {
+                ctx.save();
+                ctx.translate(r.x, r.y);
+                ctx.rotate(r.phase * 0.5);
+
+                for (let p = 0; p < r.petals; p++) {
+                    ctx.save();
+                    ctx.rotate((Math.PI * 2 * p) / r.petals);
+
+                    ctx.fillStyle = getColor(r.color, 0.3);
+                    ctx.strokeStyle = getColor(r.color, 0.6);
+
+                    ctx.beginPath();
+                    ctx.ellipse(r.radius * 0.5, 0, r.radius * 0.5, r.radius * 0.2, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.stroke();
+
+                    ctx.restore();
+                }
+
+                // Center
+                ctx.fillStyle = getColor((r.color + 2) % 5, 0.8);
+                ctx.beginPath();
+                ctx.arc(0, 0, r.radius * 0.15, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.restore();
+            });
+
+            // Connecting arabesque curves
+            ctx.strokeStyle = getColor(3, 0.3);
+            ctx.lineWidth = 2;
+            ctx.globalCompositeOperation = 'screen';
+
+            for (let i = 0; i < this.stars.length - 1; i++) {
+                const s1 = this.stars[i];
+                const s2 = this.stars[i + 1];
+
+                ctx.beginPath();
+                ctx.moveTo(s1.x, s1.y);
+                const cx = (s1.x + s2.x) / 2 + Math.sin(time + i) * 50;
+                const cy = (s1.y + s2.y) / 2 + Math.cos(time + i) * 50;
+                ctx.quadraticCurveTo(cx, cy, s2.x, s2.y);
+                ctx.stroke();
+            }
+
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.restore();
+        }
+    }
+
+    // 5. Celtic Interlace
+    class CelticSystem extends GeometricSystem {
+        constructor() {
+            super();
+            this.knots = [];
+            this.braids = [];
+            this.generate();
+        }
+
+        generate() {
+            this.knots = [];
+            this.braids = [];
+            const numKnots = 5 + params.complexity * 3;
+
+            for (let i = 0; i < numKnots; i++) {
+                this.knots.push({
+                    x: rand(width * 0.1, width * 0.9),
+                    y: rand(height * 0.1, height * 0.9),
+                    size: rand(50, 150),
+                    strands: 3 + randInt(0, 4),
+                    color: randInt(0, 5),
+                    phase: rand(0, Math.PI * 2),
+                    rotationSpeed: rand(-0.3, 0.3)
+                });
+            }
+
+            // Create interlacing braids
+            for (let i = 0; i < 3; i++) {
+                this.braids.push({
+                    points: [],
+                    color: randInt(0, 5),
+                    thickness: 5 + i * 2
+                });
+
+                for (let j = 0; j < 10; j++) {
+                    this.braids[i].points.push({
+                        x: rand(0, width),
+                        y: rand(0, height),
+                        vx: rand(-0.5, 0.5),
+                        vy: rand(-0.5, 0.5)
+                    });
+                }
+            }
+        }
+
+        update(dt) {
+            this.knots.forEach(k => {
+                k.phase += dt * params.speed * k.rotationSpeed;
+                k.x += Math.sin(k.phase * 0.5) * 0.5;
+                k.y += Math.cos(k.phase * 0.5) * 0.5;
+            });
+
+            this.braids.forEach(braid => {
+                braid.points.forEach(p => {
+                    p.x += p.vx * params.speed;
+                    p.y += p.vy * params.speed;
+
+                    if (p.x < 0 || p.x > width) p.vx *= -1;
+                    if (p.y < 0 || p.y > height) p.vy *= -1;
+                });
+            });
+        }
+
+        render(ctx) {
+            ctx.save();
+
+            // Draw braids with over/under effect
+            this.braids.forEach((braid, bi) => {
+                ctx.strokeStyle = getColor(braid.color, 0.6);
+                ctx.lineWidth = braid.thickness;
+                ctx.lineCap = 'round';
+
+                ctx.beginPath();
+                ctx.moveTo(braid.points[0].x, braid.points[0].y);
+
+                for (let i = 1; i < braid.points.length; i++) {
+                    const p = braid.points[i];
+                    const prev = braid.points[i - 1];
+                    const cx = (prev.x + p.x) / 2;
+                    const cy = (prev.y + p.y) / 2;
+                    ctx.quadraticCurveTo(prev.x, prev.y, cx, cy);
+                }
+
+                ctx.stroke();
+
+                // Strand shadows
+                ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+                ctx.lineWidth = braid.thickness * 0.5;
+                ctx.stroke();
+            });
+
+            // Draw knotworks
+            this.knots.forEach(knot => {
+                ctx.save();
+                ctx.translate(knot.x, knot.y);
+                ctx.rotate(knot.phase);
+
+                for (let s = 0; s < knot.strands; s++) {
+                    ctx.save();
+                    ctx.rotate((Math.PI * 2 * s) / knot.strands);
+
+                    ctx.strokeStyle = getColor((knot.color + s) % 5, 0.7);
+                    ctx.lineWidth = 3;
+                    ctx.lineCap = 'round';
+
+                    // Celtic loop
+                    ctx.beginPath();
+                    for (let t = 0; t <= Math.PI * 2; t += 0.1) {
+                        const r = knot.size * (0.5 + 0.3 * Math.sin(t * 3));
+                        const x = Math.cos(t) * r;
+                        const y = Math.sin(t) * r * 0.3;
+
+                        if (t === 0) ctx.moveTo(x, y);
+                        else ctx.lineTo(x, y);
+                    }
+                    ctx.stroke();
+
+                    ctx.restore();
+                }
+
+                // Center triquetra-like design
+                ctx.strokeStyle = getColor(knot.color, 0.9);
+                ctx.lineWidth = 4;
+                ctx.beginPath();
+                for (let i = 0; i < 3; i++) {
+                    ctx.save();
+                    ctx.rotate((Math.PI * 2 * i) / 3);
+                    ctx.arc(knot.size * 0.3, 0, knot.size * 0.2, 0, Math.PI * 2);
+                    ctx.restore();
+                }
+                ctx.stroke();
+
+                ctx.restore();
+            });
+
+            ctx.restore();
+        }
+    }
+
+    // 6. Reaction-Diffusion
+    class ReactionDiffusionSystem extends GeometricSystem {
+        constructor() {
+            super();
+            this.grid = [];
+            this.gridSize = 100;
+            this.initGrid();
+        }
+
+        initGrid() {
+            this.grid = [];
+            for (let i = 0; i < this.gridSize; i++) {
+                this.grid[i] = [];
+                for (let j = 0; j < this.gridSize; j++) {
+                    this.grid[i][j] = {
+                        a: 1,
+                        b: Math.random() < 0.01 ? 1 : 0,
+                        nextA: 1,
+                        nextB: 0
+                    };
+                }
+            }
+        }
+
+        update(dt) {
+            const dA = 1.0;
+            const dB = 0.5;
+            const feed = 0.055;
+            const k = 0.062;
+
+            for (let i = 1; i < this.gridSize - 1; i++) {
+                for (let j = 1; j < this.gridSize - 1; j++) {
+                    const cell = this.grid[i][j];
+
+                    const laplaceA = this.laplace(i, j, 'a');
+                    const laplaceB = this.laplace(i, j, 'b');
+
+                    cell.nextA = cell.a + (dA * laplaceA - cell.a * cell.b * cell.b + feed * (1 - cell.a)) * dt * params.speed;
+                    cell.nextB = cell.b + (dB * laplaceB + cell.a * cell.b * cell.b - (k + feed) * cell.b) * dt * params.speed;
+
+                    cell.nextA = Math.max(0, Math.min(1, cell.nextA));
+                    cell.nextB = Math.max(0, Math.min(1, cell.nextB));
+                }
+            }
+
+            // Swap
+            for (let i = 0; i < this.gridSize; i++) {
+                for (let j = 0; j < this.gridSize; j++) {
+                    const cell = this.grid[i][j];
+                    cell.a = cell.nextA;
+                    cell.b = cell.nextB;
+                }
+            }
+
+            // Occasional perturbation
+            if (Math.random() < 0.01 * params.turbulence) {
+                const i = randInt(10, this.gridSize - 10);
+                const j = randInt(10, this.gridSize - 10);
+                for (let di = -3; di < 3; di++) {
+                    for (let dj = -3; dj < 3; dj++) {
+                        this.grid[i + di][j + dj].b = 1;
+                    }
+                }
+            }
+        }
+
+        laplace(i, j, prop) {
+            let sum = 0;
+            sum += this.grid[i][j][prop] * -1;
+            sum += this.grid[i - 1][j][prop] * 0.2;
+            sum += this.grid[i + 1][j][prop] * 0.2;
+            sum += this.grid[i][j - 1][prop] * 0.2;
+            sum += this.grid[i][j + 1][prop] * 0.2;
+            sum += this.grid[i - 1][j - 1][prop] * 0.05;
+            sum += this.grid[i + 1][j - 1][prop] * 0.05;
+            sum += this.grid[i - 1][j + 1][prop] * 0.05;
+            sum += this.grid[i + 1][j + 1][prop] * 0.05;
+            return sum;
+        }
+
+        render(ctx) {
+            const cellW = width / this.gridSize;
+            const cellH = height / this.gridSize;
+
+            for (let i = 0; i < this.gridSize; i++) {
+                for (let j = 0; j < this.gridSize; j++) {
+                    const cell = this.grid[i][j];
+                    const c = Math.floor((cell.a - cell.b) * 255);
+
+                    if (c > 50) {
+                        const colorIdx = Math.floor((c / 255) * 5);
+                        ctx.fillStyle = getColor(colorIdx % 5, c / 255 * 0.5);
+                        ctx.fillRect(i * cellW, j * cellH, cellW + 1, cellH + 1);
+                    }
+                }
+            }
+
+            // Overlay pattern
+            ctx.globalCompositeOperation = 'screen';
+            const gradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, Math.min(width, height) * 0.5);
+            gradient.addColorStop(0, getColor(2, 0.3));
+            gradient.addColorStop(0.5, getColor(4, 0.1));
+            gradient.addColorStop(1, 'transparent');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, width, height);
+            ctx.globalCompositeOperation = 'source-over';
+        }
+    }
+
+    // 7. Ammann-Beenker Aperiodic
+    class AmmannBeenkerSystem extends GeometricSystem {
+        constructor() {
+            super();
+            this.tiles = [];
+            this.generate();
+        }
+
+        generate() {
+            this.tiles = [];
+            const count = 15 + params.complexity * 10;
+
+            for (let i = 0; i < count; i++) {
+                this.tiles.push({
+                    x: centerX + rand(-300, 300),
+                    y: centerY + rand(-300, 300),
+                    size: rand(30, 80),
+                    angle: rand(0, Math.PI / 4),
+                    type: i % 3,
+                    color: randInt(0, 5),
+                    phase: rand(0, Math.PI * 2)
+                });
+            }
+        }
+
+        update(dt) {
+            this.tiles.forEach(tile => {
+                tile.phase += dt * params.speed;
+                tile.angle += Math.sin(tile.phase * 0.1) * 0.01;
+            });
+        }
+
+        render(ctx) {
+            ctx.save();
+            ctx.translate(centerX, centerY);
+            ctx.rotate(time * 0.05);
+            ctx.translate(-centerX, -centerY);
+
+            this.tiles.forEach(tile => {
+                ctx.save();
+                ctx.translate(tile.x, tile.y);
+                ctx.rotate(tile.angle);
+
+                ctx.strokeStyle = getColor(tile.color, 0.7);
+                ctx.fillStyle = getColor(tile.color, 0.15);
+                ctx.lineWidth = 2;
+
+                ctx.beginPath();
+                if (tile.type === 0) {
+                    // Square with notches (Ammann-Beenker style)
+                    const s = tile.size;
+                    ctx.moveTo(-s, -s);
+                    ctx.lineTo(s, -s);
+                    ctx.lineTo(s, s);
+                    ctx.lineTo(-s, s);
+                    ctx.closePath();
+
+                    // Internal decoration
+                    ctx.moveTo(-s * 0.5, -s * 0.5);
+                    ctx.lineTo(s * 0.5, s * 0.5);
+                    ctx.moveTo(s * 0.5, -s * 0.5);
+                    ctx.lineTo(-s * 0.5, s * 0.5);
+                } else if (tile.type === 1) {
+                    // Rhombus
+                    const s = tile.size;
+                    ctx.moveTo(0, -s);
+                    ctx.lineTo(s * 0.7, 0);
+                    ctx.lineTo(0, s);
+                    ctx.lineTo(-s * 0.7, 0);
+                    ctx.closePath();
+
+                    // Ammann bars
+                    ctx.moveTo(0, -s);
+                    ctx.lineTo(0, s);
+                } else {
+                    // Octagon approximation
+                    for (let i = 0; i < 8; i++) {
+                        const angle = (Math.PI * i) / 4;
+                        const r = i % 2 === 0 ? tile.size : tile.size * 0.7;
+                        const x = Math.cos(angle) * r;
+                        const y = Math.sin(angle) * r;
+                        if (i === 0) ctx.moveTo(x, y);
+                        else ctx.lineTo(x, y);
+                    }
+                    ctx.closePath();
+                }
+
+                ctx.fill();
+                ctx.stroke();
+
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = getColor(tile.color, 0.5);
+                ctx.stroke();
+                ctx.shadowBlur = 0;
+
+                ctx.restore();
+            });
+
+            ctx.restore();
+        }
+    }
+
+    // 8. Apollonian Gasket
+    class ApollonianSystem extends GeometricSystem {
+        constructor() {
+            super();
+            this.circles = [];
+            this.generate();
+        }
+
+        generate() {
+            this.circles = [];
+            this.addCircle(centerX, centerY, 200, 0, 0);
+        }
+
+        addCircle(x, y, r, depth, color) {
+            if (r < 5 || depth > 4 + params.complexity) return;
+
+            this.circles.push({
+                x, y, r, depth, color: color % 5,
+                phase: rand(0, Math.PI * 2)
+            });
+
+            if (depth < 4) {
+                const newR = r * 0.4;
+                const offset = r * 0.6;
+
+                for (let i = 0; i < 3; i++) {
+                    const angle = (Math.PI * 2 * i) / 3 + depth;
+                    this.addCircle(
+                        x + Math.cos(angle) * offset,
+                        y + Math.sin(angle) * offset,
+                        newR,
+                        depth + 1,
+                        color + 1
+                    );
+                }
+            }
+        }
+
+        update(dt) {
+            this.circles.forEach(c => {
+                c.phase += dt * params.speed * (0.5 + c.depth * 0.2);
+                c.x += Math.sin(c.phase + c.depth) * (1 - c.depth * 0.15);
+                c.y += Math.cos(c.phase + c.depth) * (1 - c.depth * 0.15);
+            });
+        }
+
+        render(ctx) {
+            ctx.save();
+
+            this.circles.forEach(c => {
+                ctx.save();
+                ctx.translate(c.x, c.y);
+
+                const pulse = 1 + Math.sin(c.phase) * 0.1;
+                const r = c.r * pulse;
+
+                ctx.strokeStyle = getColor(c.color, 0.6 - c.depth * 0.1);
+                ctx.lineWidth = 3 - c.depth * 0.5;
+
+                ctx.beginPath();
+                ctx.arc(0, 0, Math.abs(r), 0, Math.PI * 2);
+                ctx.stroke();
+
+                // Inner glow
+                if (c.depth < 2) {
+                    ctx.fillStyle = getColor(c.color, 0.1);
+                    ctx.fill();
+
+                    ctx.shadowBlur = 20 - c.depth * 5;
+                    ctx.shadowColor = getColor(c.color, 0.8);
+                    ctx.stroke();
+                    ctx.shadowBlur = 0;
+                }
+
+                // Recursive pattern inside
+                if (c.depth < 3) {
+                    ctx.strokeStyle = getColor((c.color + 1) % 5, 0.3);
+                    ctx.lineWidth = 1;
+                    for (let i = 0; i < 4; i++) {
+                        ctx.beginPath();
+                        ctx.arc(0, 0, r * (0.25 + i * 0.2), 0, Math.PI * 2);
+                        ctx.stroke();
+                    }
+                }
+
+                ctx.restore();
+            });
+
+            ctx.restore();
+        }
+    }
+
+    // 9. Hamiltonian Networks
+    class HamiltonianSystem extends GeometricSystem {
+        constructor() {
+            super();
+            this.nodes = [];
+            this.path = [];
+            this.generate();
+        }
+
+        generate() {
+            this.nodes = [];
+            const gridSize = 5 + params.complexity * 2;
+            const spacingX = width / (gridSize + 1);
+            const spacingY = height / (gridSize + 1);
+
+            for (let i = 0; i < gridSize; i++) {
+                for (let j = 0; j < gridSize; j++) {
+                    this.nodes.push({
+                        x: spacingX * (i + 1),
+                        y: spacingY * (j + 1),
+                        gridI: i,
+                        gridJ: j,
+                        color: (i + j) % 5,
+                        connections: []
+                    });
+                }
+            }
+
+            // Create snake-like Hamiltonian path
+            this.path = [];
+            for (let j = 0; j < gridSize; j++) {
+                if (j % 2 === 0) {
+                    for (let i = 0; i < gridSize; i++) {
+                        this.path.push(this.nodes[j * gridSize + i]);
+                    }
+                } else {
+                    for (let i = gridSize - 1; i >= 0; i--) {
+                        this.path.push(this.nodes[j * gridSize + i]);
+                    }
+                }
+            }
+        }
+
+        update(dt) {
+            // Nodes pulse
+            this.nodes.forEach((node, i) => {
+                node.pulse = Math.sin(time * 2 + i * 0.1) * 0.5 + 0.5;
+            });
+        }
+
+        render(ctx) {
+            ctx.save();
+
+            // Draw Hamiltonian path
+            ctx.strokeStyle = getColor(4, 0.5);
+            ctx.lineWidth = 3;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+
+            ctx.beginPath();
+            this.path.forEach((node, i) => {
+                const offset = Math.sin(time + i * 0.05) * 5;
+                if (i === 0) {
+                    ctx.moveTo(node.x + offset, node.y + offset);
+                } else {
+                    const cpX = (this.path[i - 1].x + node.x) / 2 + Math.cos(time * 2 + i) * 20;
+                    const cpY = (this.path[i - 1].y + node.y) / 2 + Math.sin(time * 2 + i) * 20;
+                    ctx.quadraticCurveTo(cpX, cpY, node.x + offset, node.y + offset);
+                }
+            });
+            ctx.stroke();
+
+            // Glow effect on path
+            ctx.strokeStyle = getColor(1, 0.2);
+            ctx.lineWidth = 8;
+            ctx.stroke();
+
+            // Draw nodes
+            this.nodes.forEach((node, i) => {
+                const r = 4 + node.pulse * 4;
+
+                ctx.fillStyle = getColor(node.color, 0.9);
+                ctx.beginPath();
+                ctx.arc(node.x, node.y, r, 0, Math.PI * 2);
+                ctx.fill();
+
+                if (node.pulse > 0.7) {
+                    ctx.strokeStyle = getColor(node.color, 0.5);
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.arc(node.x, node.y, r + 5, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+            });
+
+            // Traveling particle on path
+            const particleIndex = Math.floor((time * 5) % this.path.length);
+            const p = this.path[particleIndex];
+            ctx.fillStyle = getColor(0, 1);
+            ctx.shadowBlur = 20;
+            ctx.shadowColor = getColor(0, 1);
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, 8, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+
+            ctx.restore();
+        }
+    }
+
+    // 10. 4D Polytope Projection
+    class PolytopeSystem extends GeometricSystem {
+        constructor() {
+            super();
+            this.vertices = [];
+            this.edges = [];
+            this.rotation4D = { xy: 0, zw: 0, xw: 0 };
+            this.initPolytope();
+        }
+
+        initPolytope() {
+            // 16-cell (4D simplex) vertices
+            this.vertices = [];
+            const r = 150;
+
+            // Generate 4D hypercube vertices
+            for (let x = -1; x <= 1; x += 2) {
+                for (let y = -1; y <= 1; y += 2) {
+                    for (let z = -1; z <= 1; z += 2) {
+                        for (let w = -1; w <= 1; w += 2) {
+                            if (Math.abs(x) + Math.abs(y) + Math.abs(z) + Math.abs(w) === 4) {
+                                this.vertices.push({ x: x * r, y: y * r, z: z * r, w: w * r });
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Add 24-cell vertices
+            const permutations = [
+                [1, 1, 0, 0], [1, -1, 0, 0], [-1, 1, 0, 0], [-1, -1, 0, 0],
+                [1, 0, 1, 0], [1, 0, -1, 0], [-1, 0, 1, 0], [-1, 0, -1, 0],
+                [1, 0, 0, 1], [1, 0, 0, -1], [-1, 0, 0, 1], [-1, 0, 0, -1],
+                [0, 1, 1, 0], [0, 1, -1, 0], [0, -1, 1, 0], [0, -1, -1, 0],
+                [0, 1, 0, 1], [0, 1, 0, -1], [0, -1, 0, 1], [0, -1, 0, -1],
+                [0, 0, 1, 1], [0, 0, 1, -1], [0, 0, -1, 1], [0, 0, -1, -1]
+            ];
+
+            permutations.forEach(p => {
+                this.vertices.push({
+                    x: p[0] * r * 0.7,
+                    y: p[1] * r * 0.7,
+                    z: p[2] * r * 0.7,
+                    w: p[3] * r * 0.7
+                });
+            });
+        }
+
+        rotate4D(v, angle) {
+            // Rotate in XY plane (affects x, y)
+            const cosXY = Math.cos(angle.xy);
+            const sinXY = Math.sin(angle.xy);
+            const x1 = v.x * cosXY - v.y * sinXY;
+            const y1 = v.x * sinXY + v.y * cosXY;
+
+            // Rotate in ZW plane (affects z, w)
+            const cosZW = Math.cos(angle.zw);
+            const sinZW = Math.sin(angle.zw);
+            const z1 = v.z * cosZW - v.w * sinZW;
+            const w1 = v.z * sinZW + v.w * cosZW;
+
+            // Rotate in XW plane (affects x, w)
+            const cosXW = Math.cos(angle.xw);
+            const sinXW = Math.sin(angle.xw);
+            const x2 = x1 * cosXW - w1 * sinXW;
+            const w2 = x1 * sinXW + w1 * cosXW;
+
+            return { x: x2, y: y1, z: z1, w: w2 };
+        }
+
+        project4DTo2D(v) {
+            // Stereographic-like projection from 4D to 3D to 2D
+            const w = 400;
+            const scale3D = w / (w - v.w * 0.5);
+            const x3D = v.x * scale3D;
+            const y3D = v.y * scale3D;
+            const z3D = v.z * scale3D;
+
+            // Project 3D to 2D with rotation
+            const scale2D = 800 / (800 + z3D);
+            return {
+                x: centerX + x3D * scale2D,
+                y: centerY + y3D * scale2D,
+                depth: z3D
+            };
+        }
+
+        update(dt) {
+            this.rotation4D.xy += dt * 0.2 * params.speed;
+            this.rotation4D.zw += dt * 0.15 * params.speed;
+            this.rotation4D.xw += dt * 0.1 * params.speed;
+        }
+
+        render(ctx) {
+            ctx.save();
+
+            // Project all vertices
+            const projected = this.vertices.map(v => {
+                const rotated = this.rotate4D(v, this.rotation4D);
+                return this.project4DTo2D(rotated);
+            });
+
+            // Draw edges between nearby vertices
+            ctx.strokeStyle = getColor(2, 0.4);
+            ctx.lineWidth = 1;
+
+            for (let i = 0; i < projected.length; i++) {
+                for (let j = i + 1; j < projected.length; j++) {
+                    const dx = this.vertices[i].x - this.vertices[j].x;
+                    const dy = this.vertices[i].y - this.vertices[j].y;
+                    const dz = this.vertices[i].z - this.vertices[j].z;
+                    const dw = this.vertices[i].w - this.vertices[j].w;
+                    const dist4D = Math.sqrt(dx*dx + dy*dy + dz*dz + dw*dw);
+
+                    if (dist4D < 250) {
+                        const alpha = 1 - (dist4D / 250);
+                        ctx.strokeStyle = getColor((i + j) % 5, alpha * 0.5);
+                        ctx.beginPath();
+                        ctx.moveTo(projected[i].x, projected[i].y);
+                        ctx.lineTo(projected[j].x, projected[j].y);
+                        ctx.stroke();
+                    }
+                }
+            }
+
+            // Draw vertices
+            projected.forEach((p, i) => {
+                const size = 3 + (p.depth + 200) / 100;
+                const alpha = 0.5 + (p.depth + 200) / 400;
+
+                ctx.fillStyle = getColor(i % 5, alpha);
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, size, 0, Math.PI * 2);
+                ctx.fill();
+
+                if (i % 8 === 0) {
+                    ctx.shadowBlur = 15;
+                    ctx.shadowColor = getColor(i % 5, 1);
+                    ctx.stroke();
+                    ctx.shadowBlur = 0;
+                }
+            });
+
+            ctx.restore();
+        }
+    }
+
+    // Particle system overlay
+    class ParticleSystem {
+        constructor() {
+            this.particles = [];
+            this.maxParticles = 50;
+        }
+
+        update(dt) {
+            // Add new particles
+            if (this.particles.length < this.maxParticles && Math.random() < 0.1) {
+                this.particles.push({
+                    x: rand(0, width),
+                    y: rand(0, height),
+                    vx: rand(-2, 2) * params.speed,
+                    vy: rand(-2, 2) * params.speed,
+                    life: 1,
+                    decay: rand(0.005, 0.02),
+                    color: randInt(0, 5),
+                    size: rand(1, 4)
+                });
+            }
+
+            // Update particles
+            this.particles = this.particles.filter(p => {
+                p.x += p.vx;
+                p.y += p.vy;
+                p.life -= p.decay;
+
+                // Boundary wrap
+                if (p.x < 0) p.x = width;
+                if (p.x > width) p.x = 0;
+                if (p.y < 0) p.y = height;
+                if (p.y > height) p.y = 0;
+
+                return p.life > 0;
+            });
+        }
+
+        render(ctx) {
+            ctx.save();
+            ctx.globalCompositeOperation = 'screen';
+
+            this.particles.forEach(p => {
+                ctx.fillStyle = getColor(p.color, p.life * 0.6);
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            ctx.restore();
+        }
+    }
+
+    // Main systems
+    let systems = [];
+    let particles = new ParticleSystem();
+    let systemTransition = 0;
+    let nextSystemIndex = 0;
+
+    function createSystem(index) {
+        switch(index % 10) {
+            case 0: return new PenroseSystem();
+            case 1: return new AmmannBeenkerSystem();
+            case 2: return new VoronoiSystem();
+            case 3: return new HyperbolicSystem();
+            case 4: return new IslamicSystem();
+            case 5: return new CelticSystem();
+            case 6: return new HamiltonianSystem();
+            case 7: return new ReactionDiffusionSystem();
+            case 8: return new ApollonianSystem();
+            case 9: return new PolytopeSystem();
+            default: return new PenroseSystem();
+        }
+    }
+
+    function randomizeParams() {
+        params.systemType = randInt(0, 10);
+        params.colorPalette = randInt(0, palettes.length);
+        params.speed = rand(0.5, 2);
+        params.complexity = randInt(1, 5);
+        params.symmetry = [5, 6, 7, 8, 10, 12][randInt(0, 6)];
+        params.turbulence = rand(0.2, 1);
+    }
+
+    function regenerate() {
+        randomizeParams();
+        systems = [createSystem(params.systemType)];
+        if (soundEnabled) triggerSound();
+
+        if (showHud) {
+            document.getElementById('systemName').textContent = systemNames[params.systemType];
+            document.getElementById('symmetry').textContent = params.symmetry;
+        }
+    }
+
+    // Input handling
+    window.addEventListener('keydown', (e) => {
+        if (e.code === 'Space') {
+            e.preventDefault();
+            regenerate();
+        } else if (e.code === 'KeyH') {
+            showHud = !showHud;
+            hud.style.display = showHud ? 'block' : 'none';
+        } else if (e.code === 'KeyS') {
+            soundEnabled = !soundEnabled;
+            if (soundEnabled) {
+                initAudio();
+                triggerSound();
+            }
+        }
+    });
+
+    canvas.addEventListener('click', regenerate);
+    canvas.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        regenerate();
+    });
+
+    // Main loop
+    function animate() {
+        const now = performance.now();
+        const dt = Math.min((now - lastTime) / 1000, 0.1);
+        lastTime = now;
+        time += dt * params.speed;
+        frameCount++;
+
+        // Clear with fade
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
+        ctx.fillRect(0, 0, width, height);
+
+        // Update and render systems
+        systems.forEach(sys => {
+            sys.update(dt);
+            sys.render(ctx);
+        });
+
+        // Particle overlay
+        particles.update(dt);
+        particles.render(ctx);
+
+        // Update HUD
+        if (showHud && frameCount % 30 === 0) {
+            document.getElementById('fps').textContent = Math.round(1 / dt);
+            document.getElementById('entityCount').textContent = systems[0] ? systems[0].tiles?.length || systems[0].sites?.length || systems[0].nodes?.length || 'N/A' : 'N/A';
+            document.getElementById('phase').textContent = (time % 10).toFixed(2);
+        }
+
+        animationId = requestAnimationFrame(animate);
+    }
+
+    // Initialize
+    randomizeParams();
+    regenerate();
+    animate();
+
+})();
+</script>
+</body>
+</html>

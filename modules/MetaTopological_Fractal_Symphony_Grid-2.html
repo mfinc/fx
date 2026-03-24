@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>MetaTopological Fractal Symphony Grid</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000}
+canvas{display:block;position:fixed;top:0;left:0;width:100%;height:100%}
+#hud{position:fixed;top:14px;left:14px;display:none;
+  font:11px/2 'Courier New',monospace;color:rgba(200,240,255,.75);
+  pointer-events:none;
+  text-shadow:0 0 10px rgba(80,180,255,.9),0 0 20px rgba(80,180,255,.4)}
+#hud.on{display:block}
+#hint{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);
+  font:10px/1 'Courier New',monospace;color:rgba(255,255,255,.28);
+  pointer-events:none;letter-spacing:3px;transition:opacity 3s ease}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<div id="hint">SPACE / CLICK / TAP — REGENERATE &nbsp;&nbsp; H — HUD &nbsp;&nbsp; S — SOUND</div>
+<script>
+(()=>{
+'use strict';
+const R=()=>Math.random();
+const rng=(a,b)=>a+(b-a)*R();
+const rni=(a,b)=>Math.floor(a+(b-a+1)*R());
+const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+const lerp=(a,b,t)=>a+(b-a)*t;
+const TAU=Math.PI*2;
+
+// ── State ─────────────────────────────────────────────────────────
+let S={};
+function mkState(){
+  const rp=()=>[R(),R(),R()];
+  // Three cosine palettes, pick one at random
+  const palettes=Array.from({length:3},()=>({a:rp(),b:rp(),c:rp(),d:rp()}));
+  return {
+    seed:R()*9999, t:0,
+    // fractal
+    fracMode:rni(0,4),
+    julRe:rng(-0.85,0.85), julIm:rng(-0.85,0.85),
+    julDX:rng(-1,1)*0.00018, julDY:rng(-1,1)*0.00018,
+    iterCount:rni(52,92),
+    // symmetry
+    symN:rni(2,11),
+    symRotSpeed:rng(-0.035,0.035), symRotOff:R()*TAU,
+    mirrorMode:rni(0,2),
+    // warp
+    warpA:rng(0.4,2.4), warpB:rng(0.4,2.4),
+    warpC:rng(-1.8,1.8), warpD:rng(-1.8,1.8),
+    warpStyle:rni(0,2), warpStr:rng(0.06,0.38),
+    // domain
+    domBands:rng(4,18), domStyle:rni(0,2),
+    phaseSpd:rng(-0.07,0.07),
+    // polynomials
+    hermOrd:rni(2,5), lagOrd:rni(1,4), bessOrd:rni(0,5),
+    // chaos
+    logR:rng(3.58,3.99), logSpd:rng(0.005,0.022),
+    // hyperbolic
+    hypN:rni(3,7), hypD:rng(0.45,0.95),
+    // voronoi
+    vSeeds:Array.from({length:rni(4,8)},()=>[rng(-1.3,1.3),rng(-1.3,1.3)]),
+    vSpd:rng(0.006,0.04),
+    // modular
+    modD:rng(0.15,0.85), modSpd:rng(0.02,0.09),
+    barnsleyT:R(), ifsMix:rng(0.05,0.28),
+    // color — fully random every time
+    palettes, palIdx:rni(0,2),
+    hBase:R()*TAU, hSpread:rng(0.2,1.4),
+    hueSpd:rng(-0.018,0.018),
+    satBase:rng(0.55,1.0), briBase:rng(0.65,1.1),
+    gammaV:rng(1.5,2.7), contrast:rng(0.85,1.9),
+    palMorphSpd:rng(0.003,0.014),
+    // post
+    vigStr:rng(0.3,0.9), glowPow:rng(1.0,3.2), bloom:rng(0.0,0.45),
+    // transform
+    globalRot:R()*TAU, globalRotSpd:rng(-0.009,0.009),
+    zoomBase:rng(0.85,1.65), zoomAmp:rng(0.0,0.28), zoomFreq:rng(0.03,0.13),
+    stereoMix:rng(0.0,0.55), stereoScl:rng(0.5,1.6),
+    // energy (JS side, syncs to audio)
+    energy:0.5, energySmooth:0.5,
+    fracDensity:0.5, chaosLevel:0.5,
+  };
+}
+
+// ── WebGL setup ───────────────────────────────────────────────────
+const canvas=document.getElementById('c');
+const gl=canvas.getContext('webgl',{antialias:false,alpha:false,powerPreference:'high-performance'});
+let W=0,H=0;
+function resize(){
+  W=canvas.width=window.innerWidth;
+  H=canvas.height=window.innerHeight;
+  gl.viewport(0,0,W,H);
+}
+window.addEventListener('resize',resize);
+
+// ── Shaders ───────────────────────────────────────────────────────
+const VERT=`attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}`;
+
+const FRAG=`
+precision highp float;
+uniform vec2  res;
+uniform float time,seed;
+uniform float julRe,julIm;
+uniform int   fracMode;
+uniform float iterMax;
+uniform int   symN;
+uniform float symRot;
+uniform int   mirrorMode;
+uniform float warpA,warpB,warpC,warpD;
+uniform int   warpStyle;
+uniform float warpStr;
+uniform float domBands;
+uniform int   domStyle;
+uniform float phaseOff;
+uniform int   hermOrd,lagOrd,bessOrd;
+uniform float logR,logSeed;
+uniform int   hypN;
+uniform float hypD;
+uniform vec2  vs[8];
+uniform int   vCount;
+uniform float modD,modSpd;
+uniform float barnsleyT,ifsMix;
+uniform vec3  palA,palB,palC,palD;
+uniform float hBase,hSpread,satBase,briBase;
+uniform float gammaV,contrast;
+uniform float vigStr,glowPow,bloom;
+uniform float globalRot,zoom;
+uniform float stereoMix,stereoScl;
+uniform float energy;
+
+#define PI  3.14159265358979
+#define TAU 6.28318530718
+
+// ── math ──────────────────────────────────────────────────────────
+float ccosh(float x){float e=exp(clamp(abs(x),0.,16.));return (e+1./e)*.5;}
+float csinh(float x){float e=exp(clamp(x,-16.,16.));return (e-1./e)*.5;}
+vec2 cm(vec2 a,vec2 b){return vec2(a.x*b.x-a.y*b.y,a.x*b.y+a.y*b.x);}
+vec2 cdiv(vec2 a,vec2 b){float d=max(dot(b,b),1e-8);return vec2(dot(a,b),a.y*b.x-a.x*b.y)/d;}
+vec2 cpow(vec2 z,float n){float r=length(z);if(r<1e-8)return vec2(0.);float th=atan(z.y,z.x);return pow(r,n)*vec2(cos(th*n),sin(th*n));}
+vec2 cexp(vec2 z){return exp(clamp(z.x,-16.,16.))*vec2(cos(z.y),sin(z.y));}
+vec2 clog(vec2 z){return vec2(log(max(length(z),1e-8)),atan(z.y,z.x));}
+vec2 csin(vec2 z){return vec2(sin(z.x)*ccosh(z.y),cos(z.x)*csinh(z.y));}
+vec2 cabs2(vec2 z){return vec2(abs(z.x),abs(z.y));}
+
+// ── noise ─────────────────────────────────────────────────────────
+float h21(vec2 p){p=fract(p*vec2(127.1,311.7));p+=dot(p,p+19.19);return fract(p.x*p.y);}
+float vnoise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
+  return mix(mix(h21(i),h21(i+vec2(1,0)),f.x),mix(h21(i+vec2(0,1)),h21(i+vec2(1,1)),f.x),f.y);}
+float fbm(vec2 p){float v=0.,a=.5;for(int o=0;o<5;o++){v+=a*vnoise(p);p*=2.1;a*=.5;}return v;}
+
+// ── palette ───────────────────────────────────────────────────────
+vec3 cosPal(float t){return clamp(palA+palB*cos(TAU*(palC*t+palD)),0.,1.);}
+vec3 hsv(float h,float s,float v){
+  vec3 c=abs(fract(h+vec3(0.,2./3.,1./3.))*6.-3.);
+  return v*mix(vec3(1.),clamp(c-1.,0.,1.),s);}
+
+// ── kaleidoscope ──────────────────────────────────────────────────
+vec2 kaleido(vec2 uv,int n,float rot,int mode){
+  float cr=cos(rot),sr=sin(rot);
+  uv=vec2(cr*uv.x-sr*uv.y,sr*uv.x+cr*uv.y);
+  float a=atan(uv.y,uv.x),r=length(uv);
+  if(mode==0){float s=TAU/float(n);a=mod(a,s);if(a>s*.5)a=s-a;}
+  else if(mode==1){float s=PI/float(n);a=mod(a,s);if(a>s*.5)a=s-a;r=mod(r,1.);}
+  else{float s=TAU/float(n);a=mod(a+log(max(r,.01))*.3,s);if(a>s*.5)a=s-a;}
+  return r*vec2(cos(a),sin(a));}
+
+// ── warp ──────────────────────────────────────────────────────────
+vec2 warp(vec2 p,float a,float b,float c,float d,int style){
+  if(style==0) return vec2(sin(a*p.y)+c*cos(a*p.x),sin(b*p.x)+d*cos(b*p.y));
+  if(style==1) return vec2(sin(a*p.y)-cos(b*p.x),sin(c*p.x)-cos(d*p.y));
+  float t1=.4-6./(dot(p,p)+1.);
+  return vec2(1.+a*(p.x*cos(t1)-p.y*sin(t1)),a*(p.x*sin(t1)+p.y*cos(t1)));}
+
+// ── modular distortion ────────────────────────────────────────────
+vec2 modDist(vec2 z,float t,float depth){
+  vec2 r=z;float amp=depth;
+  for(int k=1;k<=8;k++){
+    float kf=float(k),q=exp(-kf*.65),ph=kf*t+seed*.005*kf;
+    r+=q*amp*vec2(sin(kf*z.x+ph)*cos(kf*z.y*.8+ph*.3),cos(kf*z.y+ph)*sin(kf*z.x*.8+ph*.7));
+    amp*=.5;}
+  return r;}
+
+// ── hyperbolic tiling ─────────────────────────────────────────────
+vec2 hypWarp(vec2 z,int n,float depth){
+  float r=length(z);if(r>=.999)return z;
+  float a=TAU/float(n);vec2 w=z;
+  for(int i=0;i<4;i++){
+    float ph=atan(w.y,w.x),rw=length(w);
+    ph=mod(ph,a);if(ph>a*.5)ph=a-ph;
+    float rd=tan(PI/float(n)*.5);
+    if(rw>rd){float k2=rd*rd;w=k2/dot(w,w)*w;}
+    w=length(w)*vec2(cos(ph),sin(ph));}
+  return mix(z,w,depth);}
+
+// ── voronoi ───────────────────────────────────────────────────────
+vec2 voroF(vec2 p){
+  float d1=1e5,d2=1e5;vec2 near=p;
+  for(int i=0;i<8;i++){
+    float act=step(float(i),float(vCount)-.5);
+    float d=mix(1e5,distance(p,vs[i]),act);
+    if(d<d1){d2=d1;d1=d;near=vs[i];}else if(d<d2)d2=d;}
+  return vec2(d2-d1,atan(p.y-near.y,p.x-near.x));}
+
+// ── polynomials ───────────────────────────────────────────────────
+float hermP(int n,float x){
+  float h0=1.,h1=2.*x,h2=4.*x*x-2.,h3=8.*x*x*x-12.*x,h4=16.*x*x*x*x-48.*x*x+12.,h5=32.*x*x*x*x*x-160.*x*x*x+120.*x;
+  if(n==0)return h0;if(n==1)return h1;if(n==2)return h2;if(n==3)return h3;if(n==4)return h4;return h5;}
+float lagP(int n,float x){
+  if(n==0)return 1.;if(n==1)return 1.-x;if(n==2)return 1.-2.*x+.5*x*x;
+  if(n==3)return 1.-3.*x+1.5*x*x-(1./6.)*x*x*x;
+  return 1.-4.*x+1.5*x*x-.667*x*x*x+(1./24.)*x*x*x*x;}
+float bessJ(int n,float x){
+  float h=x*.5,h2=h*h,hn=1.;
+  if(n==1)hn=h;else if(n==2)hn=h2;else if(n==3)hn=h2*h;else if(n==4)hn=h2*h2;else if(n>=5)hn=h2*h2*h;
+  float nd=1.;
+  if(n==1)nd=1.;else if(n==2)nd=2.;else if(n==3)nd=6.;else if(n==4)nd=24.;else if(n>=5)nd=120.;
+  float prev=hn/nd,s=prev;
+  for(int k=1;k<9;k++){prev*=(-h2)/(float(k)*(float(k)+float(n)));s+=prev;}
+  return s;}
+
+// ── logistic ──────────────────────────────────────────────────────
+float logF(float x0,float r){float x=x0;for(int i=0;i<60;i++)x=r*x*(1.-x);return x;}
+
+// ── main ──────────────────────────────────────────────────────────
+void main(){
+  vec2 uv=(gl_FragCoord.xy/res)*2.-1.;
+  uv.x*=res.x/res.y;
+  float T=time;
+
+  // Global rotation + zoom breathe
+  float cr=cos(globalRot),sr=sin(globalRot);
+  uv=vec2(cr*uv.x-sr*uv.y,sr*uv.x+cr*uv.y)*zoom;
+
+  // Stereographic
+  vec2 sUV=stereoScl*2.*uv/(dot(uv,uv)+1.);
+  uv=mix(uv,sUV,stereoMix);
+
+  // Modular distortion of input space
+  vec2 muv=modDist(uv,T*modSpd,modD*.18);
+
+  // Warp attractor bends coords
+  vec2 wf=warp(muv,warpA,warpB,warpC,warpD,warpStyle);
+  vec2 wuv=muv+wf*warpStr;
+
+  // Kaleidoscope
+  vec2 kuv=kaleido(wuv,symN,symRot,mirrorMode);
+
+  // Hyperbolic warp
+  vec2 huv=hypWarp(kuv*hypD,hypN,.7);
+  kuv=mix(kuv,huv/max(hypD,.01),.5);
+
+  // Voronoi
+  vec2 vf=voroF(kuv*1.35);
+  float vEdge=vf.x,vAng=vf.y;
+
+  // Polynomials
+  float hx=kuv.x*2.5,hy=kuv.y*2.5;
+  float polyF=hermP(hermOrd,hx)*hermP(hermOrd-1,hy)*.08
+             +lagP(lagOrd,abs(hx)+abs(hy))*.12
+             +bessJ(bessOrd,length(kuv)*4.)*.25;
+
+  // Logistic chaos field
+  float lx=logF(fract(abs(kuv.x)*.5+.01+logSeed),logR);
+  float ly=logF(fract(abs(kuv.y)*.5+.23+logSeed),logR);
+  float logField=(lx*ly-.25)*2.;
+
+  // FBM texture
+  float fbmV=fbm(kuv*3.+T*.05);
+
+  // ── fractal iteration ──────────────────────────────────────────
+  vec2 z=kuv*1.45;
+  vec2 c=vec2(julRe,julIm);
+  float smooth_i=0.,trap=1e5;
+  int iMax=int(iterMax); if(iMax>92)iMax=92;
+  for(int i=0;i<92;i++){
+    if(i>=iMax)break;
+    if(fracMode==0){z=cm(z,z)+c;}
+    else if(fracMode==1){z=cm(cabs2(z),z)+c;}
+    else if(fracMode==2){z=cpow(z,3.)+c;}
+    else if(fracMode==3){z=csin(z)+c;}
+    else{
+      vec2 z2=cm(z,z),z3=cm(z2,z);
+      z=z-cdiv(z3-vec2(1,0),3.*z2)*.5+c*.01;}
+    float lz=length(z);
+    trap=min(trap,abs(lz-1.));
+    if(lz>256.){smooth_i=float(i)+1.-log2(log2(max(lz,1.0001)));break;}
+    smooth_i=float(i);}
+  float iter=smooth_i/iterMax;
+  float fAng=atan(z.y,z.x);
+
+  // ── domain coloring ───────────────────────────────────────────
+  vec2 wz=kuv+wf*.1;
+  float mag=length(wz);
+  float ph=atan(wz.y,wz.x)+phaseOff;
+  float magG=.5+.5*sin(log(max(mag,1e-5))*domBands*PI);
+  float phG =.5+.5*sin(ph*domBands);
+  float reG =.5+.5*sin(wz.x*domBands);
+  float imG =.5+.5*sin(wz.y*domBands);
+  float grid;
+  if(domStyle==0)grid=magG*phG;
+  else if(domStyle==1)grid=reG*imG;
+  else grid=sqrt(magG*phG*reG*imG);
+  grid=pow(max(grid,0.),0.35);
+
+  // ── color synthesis ───────────────────────────────────────────
+  float t1=fract(iter+trap*.3+polyF*.4+vEdge*.5+fbmV*.2);
+  float t2=fract(t1+logField*.25+bessJ(bessOrd,length(kuv)*2.)*.3+sin(fAng+T*.07)*.2);
+  float t3=fract(t1*1.5+T*.008+hBase*.1);
+
+  vec3 c1=cosPal(t1), c2=cosPal(t2+.33), c3=cosPal(t3+.67);
+
+  // HSV domain layer
+  float hue=fract(ph/TAU+hBase+T*.012+iter*hSpread);
+  vec3 domCol=hsv(hue,clamp(satBase*(.7+.3*iter),0.,1.),clamp(briBase*iter,0.,1.))*grid;
+
+  // Voronoi edge glow
+  vec3 vCol=hsv(fract(vAng/TAU+T*.03),.9,1.)*exp(-vEdge*8.)*.4;
+
+  // IFS fern field
+  float bfern=exp(-pow(fract(barnsleyT*length(kuv)*8.+T*.04),2.)*6.)*ifsMix;
+  vec3 ifsC=hsv(fract(hue+.5),1.,1.)*bfern;
+
+  // Softmax blend
+  float e0=exp(iter*3.),e1=exp(trap*2.),e2=exp(abs(polyF)*4.),e3=exp(abs(logField)*3.),e4=exp(fbmV*2.);
+  float es=e0+e1+e2+e3+e4+.001;
+  vec3 base=(e0*c1+e1*c2+e2*c3+e3*domCol+e4*(c1+c2)*.5)/es;
+  base+=vCol+ifsC;
+
+  // Glow
+  float lum=dot(base,vec3(.213,.715,.072));
+  base+=base*pow(clamp(lum,0.,1.),glowPow)*bloom;
+
+  // Contrast + gamma
+  base=(base-.5)*contrast+.5;
+  base=clamp(base,0.,1.);
+  base=pow(base,vec3(1./gammaV));
+
+  // Chromatic fringe
+  float fr=.014*energy;
+  base=vec3(cosPal(fract(t1+fr)).r, base.g, cosPal(fract(t1-fr)).b);
+  base=mix(cosPal(t1),base,.85);
+
+  // Scanline
+  base*=1.-.025*sin(gl_FragCoord.y*1.8+T*2.3);
+
+  // Vignette
+  base*=1.-smoothstep(.5,1.5,length(uv/zoom)*vigStr);
+
+  gl_FragColor=vec4(clamp(base,0.,1.),1.);
+}
+`;
+
+function mkShader(type,src){
+  const s=gl.createShader(type);
+  gl.shaderSource(s,src);gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))
+    console.error('Shader:',gl.getShaderInfoLog(s));
+  return s;
+}
+const prog=gl.createProgram();
+gl.attachShader(prog,mkShader(gl.VERTEX_SHADER,VERT));
+gl.attachShader(prog,mkShader(gl.FRAGMENT_SHADER,FRAG));
+gl.linkProgram(prog);
+if(!gl.getProgramParameter(prog,gl.LINK_STATUS))
+  console.error('Link:',gl.getProgramInfoLog(prog));
+gl.useProgram(prog);
+
+const qb=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,qb);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+const pL=gl.getAttribLocation(prog,'p');
+gl.enableVertexAttribArray(pL);gl.vertexAttribPointer(pL,2,gl.FLOAT,false,0,0);
+
+function u(n){return gl.getUniformLocation(prog,n);}
+const U={
+  res:u('res'),time:u('time'),seed:u('seed'),
+  julRe:u('julRe'),julIm:u('julIm'),fracMode:u('fracMode'),iterMax:u('iterMax'),
+  symN:u('symN'),symRot:u('symRot'),mirrorMode:u('mirrorMode'),
+  warpA:u('warpA'),warpB:u('warpB'),warpC:u('warpC'),warpD:u('warpD'),
+  warpStyle:u('warpStyle'),warpStr:u('warpStr'),
+  domBands:u('domBands'),domStyle:u('domStyle'),phaseOff:u('phaseOff'),
+  hermOrd:u('hermOrd'),lagOrd:u('lagOrd'),bessOrd:u('bessOrd'),
+  logR:u('logR'),logSeed:u('logSeed'),
+  hypN:u('hypN'),hypD:u('hypD'),
+  vs:u('vs'),vCount:u('vCount'),
+  modD:u('modD'),modSpd:u('modSpd'),barnsleyT:u('barnsleyT'),ifsMix:u('ifsMix'),
+  palA:u('palA'),palB:u('palB'),palC:u('palC'),palD:u('palD'),
+  hBase:u('hBase'),hSpread:u('hSpread'),satBase:u('satBase'),briBase:u('briBase'),
+  gammaV:u('gammaV'),contrast:u('contrast'),
+  vigStr:u('vigStr'),glowPow:u('glowPow'),bloom:u('bloom'),
+  globalRot:u('globalRot'),zoom:u('zoom'),
+  stereoMix:u('stereoMix'),stereoScl:u('stereoScl'),
+  energy:u('energy'),
+};
+
+function setUniforms(){
+  const s=S;
+  gl.uniform2f(U.res,W,H);
+  gl.uniform1f(U.time,s.t);
+  gl.uniform1f(U.seed,s.seed);
+  gl.uniform1f(U.julRe,s.julRe);gl.uniform1f(U.julIm,s.julIm);
+  gl.uniform1i(U.fracMode,s.fracMode);gl.uniform1f(U.iterMax,s.iterCount);
+  gl.uniform1i(U.symN,s.symN);
+  gl.uniform1f(U.symRot,s.symRotOff+s.t*s.symRotSpeed);
+  gl.uniform1i(U.mirrorMode,s.mirrorMode);
+  gl.uniform1f(U.warpA,s.warpA);gl.uniform1f(U.warpB,s.warpB);
+  gl.uniform1f(U.warpC,s.warpC);gl.uniform1f(U.warpD,s.warpD);
+  gl.uniform1i(U.warpStyle,s.warpStyle);gl.uniform1f(U.warpStr,s.warpStr);
+  gl.uniform1f(U.domBands,s.domBands);gl.uniform1i(U.domStyle,s.domStyle);
+  gl.uniform1f(U.phaseOff,s.t*s.phaseSpd);
+  gl.uniform1i(U.hermOrd,s.hermOrd);gl.uniform1i(U.lagOrd,s.lagOrd);
+  gl.uniform1i(U.bessOrd,s.bessOrd);
+  gl.uniform1f(U.logR,s.logR);
+  gl.uniform1f(U.logSeed,((s.t*s.logSpd+s.seed*0.001)%1+1)%1);
+  gl.uniform1i(U.hypN,s.hypN);gl.uniform1f(U.hypD,s.hypD);
+  const flat=[];
+  for(let i=0;i<8;i++){
+    const vs=s.vSeeds[i]||[0,0];
+    flat.push(vs[0]+Math.sin(s.t*s.vSpd+i*1.3)*0.12,
+              vs[1]+Math.cos(s.t*s.vSpd+i*0.9)*0.12);
+  }
+  gl.uniform2fv(U.vs,flat);gl.uniform1i(U.vCount,s.vSeeds.length);
+  gl.uniform1f(U.modD,s.modD);gl.uniform1f(U.modSpd,s.modSpd);
+  gl.uniform1f(U.barnsleyT,s.barnsleyT);gl.uniform1f(U.ifsMix,s.ifsMix);
+  const pal=s.palettes[s.palIdx];
+  gl.uniform3fv(U.palA,pal.a);gl.uniform3fv(U.palB,pal.b);
+  gl.uniform3fv(U.palC,pal.c);gl.uniform3fv(U.palD,pal.d);
+  gl.uniform1f(U.hBase,s.hBase+s.t*s.hueSpd);gl.uniform1f(U.hSpread,s.hSpread);
+  gl.uniform1f(U.satBase,s.satBase);gl.uniform1f(U.briBase,s.briBase);
+  gl.uniform1f(U.gammaV,s.gammaV);gl.uniform1f(U.contrast,s.contrast);
+  gl.uniform1f(U.vigStr,s.vigStr);gl.uniform1f(U.glowPow,s.glowPow);
+  gl.uniform1f(U.bloom,s.bloom);
+  gl.uniform1f(U.zoom,s.zoomBase+s.zoomAmp*Math.sin(s.t*s.zoomFreq));
+  gl.uniform1f(U.globalRot,s.globalRot+s.t*s.globalRotSpd);
+  gl.uniform1f(U.stereoMix,s.stereoMix);gl.uniform1f(U.stereoScl,s.stereoScl);
+  gl.uniform1f(U.energy,s.energySmooth);
+}
+
+// ── State animation ───────────────────────────────────────────────
+function animateState(dt){
+  const s=S; s.t+=dt;
+  // Julia orbit
+  s.julRe+=s.julDX*Math.sin(s.t*0.037+s.seed);
+  s.julIm+=s.julDY*Math.cos(s.t*0.029+s.seed*0.7);
+  s.julRe=clamp(s.julRe,-1.2,1.2);
+  s.julIm=clamp(s.julIm,-1.2,1.2);
+  // Warp slow drift
+  s.warpA+=0.0003*Math.sin(s.t*0.019);
+  s.warpB+=0.0002*Math.cos(s.t*0.015);
+  // Palette morph — full cosine palette evolution
+  const pal=s.palettes[s.palIdx];
+  const sp=s.palMorphSpd;
+  for(let i=0;i<3;i++){
+    pal.a[i]=0.5+0.5*Math.sin(s.t*sp*(1+i*0.31)+s.seed*0.01+i*2.1);
+    pal.b[i]=0.4+0.4*Math.sin(s.t*sp*(0.73+i*0.41)+s.seed*0.02+i*1.73);
+    pal.c[i]=0.25+0.25*Math.sin(s.t*sp*(1.27+i*0.23)+s.seed*0.03+i*3.1);
+    pal.d[i]=0.5+0.5*Math.sin(s.t*sp*(0.89+i*0.53)+s.seed*0.04+i*1.17);
+  }
+  // Energy metric
+  const julMag=Math.sqrt(s.julRe*s.julRe+s.julIm*s.julIm);
+  const chaosProx=Math.abs(s.logR-3.75)*2.6;
+  s.energy=clamp(julMag*0.5+chaosProx*0.3+s.warpStr*0.2,0,1);
+  s.energySmooth=lerp(s.energySmooth,s.energy,0.04);
+  s.fracDensity=lerp(s.fracDensity,(s.iterCount/92),0.02);
+  s.chaosLevel=lerp(s.chaosLevel,(s.logR-3.5)*2.0,0.01);
+}
+
+// ═════════════════════════════════════════════════════════════════
+// AUDIO ENGINE — fully synchronized to visual evolution
+// ═════════════════════════════════════════════════════════════════
+let AC=null,MG=null,audioNodes=[];
+let soundOn=false;
+
+// ── Reverb impulse ─────────────────────────────────────────────
+function mkReverb(ctx,dur,dec){
+  const len=Math.floor(ctx.sampleRate*dur);
+  const buf=ctx.createBuffer(2,len,ctx.sampleRate);
+  for(let c=0;c<2;c++){
+    const d=buf.getChannelData(c);
+    for(let i=0;i<len;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/len,dec*2.5);
+  }
+  return buf;
+}
+
+// ── Delay line ────────────────────────────────────────────────
+function mkDelay(ctx,t,fb){
+  const d=ctx.createDelay(2.0);d.delayTime.setValueAtTime(t,ctx.currentTime);
+  const g=ctx.createGain();g.gain.setValueAtTime(fb,ctx.currentTime);
+  d.connect(g);g.connect(d);return {d,g};}
+
+// ── Build audio graph from current state ──────────────────────
+function buildAudio(){
+  if(!AC) return;
+  audioNodes.forEach(n=>{try{n.stop&&n.stop(0);n.disconnect();}catch(e){}});
+  audioNodes=[];
+
+  const now=AC.currentTime,s=S;
+
+  // Master chain
+  MG=AC.createGain();MG.gain.setValueAtTime(0,now);
+  MG.gain.linearRampToValueAtTime(0.10,now+0.8);
+
+  const comp=AC.createDynamicsCompressor();
+  comp.threshold.setValueAtTime(-20,now);
+  comp.ratio.setValueAtTime(5,now);
+  comp.attack.setValueAtTime(0.003,now);
+  comp.release.setValueAtTime(0.15,now);
+  comp.connect(MG);MG.connect(AC.destination);
+
+  // Reverb
+  const rev=AC.createConvolver();
+  rev.buffer=mkReverb(AC,2.8,0.25);
+  const revG=AC.createGain();revG.gain.setValueAtTime(0.22,now);
+  rev.connect(revG);revG.connect(comp);
+
+  // Delay (synced to symmetry number)
+  const delayT=0.125*(1+s.symN%4)*0.5;
+  const dly=mkDelay(AC,delayT,0.35);
+  dly.d.connect(comp);
+
+  audioNodes.push(comp,rev,revG,dly.d,dly.g,MG);
+
+  // ── Fundamental frequency: derived from fractal julia + mode
+  // Each fractal mode maps to a different harmonic base
+  const modeFreqs=[55,82.41,110,65.41,73.42];
+  const baseF=modeFreqs[s.fracMode%5]*(1+Math.abs(s.julRe)*0.4+Math.abs(s.julIm)*0.25);
+  // Symmetry quantizes to harmonic series
+  const root=baseF*(1+Math.floor(s.symN/3)*0.25);
+
+  // ── Harmonic oscillator bank (8 partials) ─────────────────
+  // Partial amplitudes shaped by Bessel weights and cosine palette
+  const partials=[1,2,3,4,5,6,8,12];
+  for(let k=0;k<8;k++){
+    const osc=AC.createOscillator();
+    // Build custom waveform from palette
+    const sz=16;
+    const real=new Float32Array(sz+1);
+    const imag=new Float32Array(sz+1);
+    for(let j=1;j<=sz;j++){
+      const amp=s.palettes[s.palIdx].b[j%3]/j*(0.5+s.modD*0.5);
+      real[j]=amp*Math.cos(j*s.hBase+s.seed*0.01);
+      imag[j]=amp*Math.sin(j*s.hBase+s.seed*0.02);
+    }
+    try{osc.setPeriodicWave(AC.createPeriodicWave(real,imag,{disableNormalization:false}));}
+    catch(e){osc.type='sine';}
+
+    const freq=root*partials[k]+(s.warpC*3+s.warpD*2);
+    osc.frequency.setValueAtTime(freq,now);
+    osc.detune.setValueAtTime((k*s.seed)%31-15,now);
+
+    // Per-partial LFO (pitch vibrato derived from warp speed)
+    const lfo=AC.createOscillator();
+    lfo.type='sine';
+    const lfoRate=0.05+k*s.modSpd*0.5+s.chaosLevel*0.1;
+    lfo.frequency.setValueAtTime(lfoRate,now);
+    const lfoG=AC.createGain();
+    const vib=partials[k]*s.modD*8*(1+s.energySmooth);
+    lfoG.gain.setValueAtTime(vib,now);
+    lfo.connect(lfoG);lfoG.connect(osc.frequency);
+
+    // Gain: higher partials quieter, shaped by energy
+    const g=AC.createGain();
+    const pAmp=(0.04+s.energySmooth*0.025)/(Math.sqrt(partials[k])*0.7+0.3);
+    g.gain.setValueAtTime(pAmp,now);
+
+    osc.connect(g);
+    g.connect(comp);
+    if(k<3){g.connect(rev);}    // lower partials get reverb
+    if(k<5){g.connect(dly.d);}  // middle partials get delay
+
+    osc.start(now);lfo.start(now);
+    // Tag for update
+    osc._pIdx=k;osc._rootF=freq;
+    audioNodes.push(osc,g,lfo,lfoG);
+  }
+
+  // ── Sub bass: logistic chaos drives pitch modulation ──────
+  const sub=AC.createOscillator();
+  sub.type='sine';
+  sub.frequency.setValueAtTime(root*0.5,now);
+  const subLFO=AC.createOscillator();
+  subLFO.type='sine';
+  subLFO.frequency.setValueAtTime(0.07+s.chaosLevel*0.15,now);
+  const subLFOG=AC.createGain();
+  subLFOG.gain.setValueAtTime(root*0.08*s.chaosLevel,now);
+  subLFO.connect(subLFOG);subLFOG.connect(sub.frequency);
+  const subFilt=AC.createBiquadFilter();
+  subFilt.type='lowpass';subFilt.frequency.setValueAtTime(200+s.logR*30,now);
+  const subG=AC.createGain();subG.gain.setValueAtTime(0.06,now);
+  sub.connect(subFilt);subFilt.connect(subG);subG.connect(comp);
+  sub.start(now);subLFO.start(now);
+  audioNodes.push(sub,subLFO,subLFOG,subFilt,subG);
+
+  // ── Noise band: voronoi edge texture ──────────────────────
+  const nLen=Math.floor(AC.sampleRate*0.3);
+  const nBuf=AC.createBuffer(1,nLen,AC.sampleRate);
+  const nd=nBuf.getChannelData(0);
+  for(let i=0;i<nLen;i++) nd[i]=(Math.random()*2-1);
+  const nSrc=AC.createBufferSource();
+  nSrc.buffer=nBuf;nSrc.loop=true;
+  const nFilt=AC.createBiquadFilter();
+  nFilt.type='bandpass';
+  nFilt.frequency.setValueAtTime(600+s.symN*150+s.bessOrd*80,now);
+  nFilt.Q.setValueAtTime(12+s.vSeeds.length*2,now);
+  const nG=AC.createGain();
+  nG.gain.setValueAtTime(0.006+s.energySmooth*0.008,now);
+  nSrc.connect(nFilt);nFilt.connect(nG);nG.connect(comp);
+  nSrc.start(now);
+  audioNodes.push(nSrc,nFilt,nG);
+
+  // ── Pulse / rhythm: derives from logistic period doubling ──
+  const pulseRate=0.5+s.chaosLevel*3;
+  const scriptNode=AC.createScriptProcessor?AC.createScriptProcessor(256,0,1):null;
+  if(scriptNode){
+    let phase=0;
+    let logX=0.5;
+    scriptNode.onaudioprocess=function(ev){
+      const out=ev.outputBuffer.getChannelData(0);
+      const dt2=1/AC.sampleRate;
+      for(let i=0;i<out.length;i++){
+        phase+=pulseRate*dt2;
+        if(phase>=1){phase-=1;logX=s.logR*logX*(1-logX);}
+        out[i]=logX*0.018*(soundOn?1:0);
+      }
+    };
+    scriptNode.connect(comp);
+    audioNodes.push(scriptNode);
+  }
+}
+
+// ── Continuous audio sync to visual state ─────────────────────
+let aFrameN=0;
+function updateAudio(){
+  if(!AC||!soundOn||!MG||audioNodes.length<2) return;
+  aFrameN++;
+  if(aFrameN%6!==0) return;
+  const s=S,now=AC.currentTime;
+  const modeFreqs=[55,82.41,110,65.41,73.42];
+  const baseF=modeFreqs[s.fracMode%5]*(1+Math.abs(s.julRe)*0.4+Math.abs(s.julIm)*0.25);
+  const root=baseF*(1+Math.floor(s.symN/3)*0.25);
+  const partials=[1,2,3,4,5,6,8,12];
+  let pIdx=0;
+  for(const n of audioNodes){
+    if(n._pIdx!==undefined){
+      const freq=root*partials[n._pIdx]+(s.warpC*3+s.warpD*2);
+      n.frequency.setTargetAtTime(freq,now,0.3);
+    }
+  }
+  // Sub bass
+  // Update master volume gently with energy
+  if(MG) MG.gain.setTargetAtTime(0.06+s.energySmooth*0.08,now,0.5);
+}
+
+function initAudio(){
+  if(AC) return;
+  AC=new(window.AudioContext||window.webkitAudioContext)();
+}
+function toggleSound(){
+  soundOn=!soundOn;
+  if(soundOn){
+    initAudio();
+    if(AC.state==='suspended') AC.resume();
+    buildAudio();
+  } else {
+    if(MG) MG.gain.setTargetAtTime(0,AC.currentTime,0.2);
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════
+// HUD
+// ═════════════════════════════════════════════════════════════════
+const hudEl=document.getElementById('hud');
+let hudOn=false,frameN=0;
+const FMODES=['Julia','BurnShip','Cubic','Sine','Newton'];
+const WSTYLES=['Clifford','DeJong','Ikeda'];
+const MMODES=['Kaleido','Tile','Spiral'];
+
+function updateHUD(){
+  if(!hudOn) return;
+  const s=S;
+  hudEl.innerHTML=`
+<div>t=${s.t.toFixed(2)} &nbsp; f=${frameN}</div>
+<div>FRACTAL ${FMODES[s.fracMode]} &nbsp; iter=${s.iterCount}</div>
+<div>julia [${s.julRe.toFixed(4)}, ${s.julIm.toFixed(4)}]</div>
+<div>SYM ×${s.symN} ${MMODES[s.mirrorMode]} &nbsp; WARP ${WSTYLES[s.warpStyle]}</div>
+<div>warp [${s.warpA.toFixed(2)},${s.warpB.toFixed(2)},${s.warpC.toFixed(2)},${s.warpD.toFixed(2)}]</div>
+<div>LOGISTIC r=${s.logR.toFixed(4)} &nbsp; HYP N=${s.hypN}</div>
+<div>H${s.hermOrd} L${s.lagOrd} J${s.bessOrd} &nbsp; voro=${s.vSeeds.length}</div>
+<div>gamma=${s.gammaV.toFixed(2)} &nbsp; zoom=${(s.zoomBase+s.zoomAmp*Math.sin(s.t*s.zoomFreq)).toFixed(3)}</div>
+<div>energy=${(s.energySmooth*100).toFixed(0)}% &nbsp; chaos=${(s.chaosLevel*100).toFixed(0)}%</div>
+<div>sound ${soundOn?'ON':'OFF'}</div>`;
+}
+
+// ═════════════════════════════════════════════════════════════════
+// RESET
+// ═════════════════════════════════════════════════════════════════
+function reset(){
+  S=mkState();
+  if(soundOn&&AC){
+    if(MG) MG.gain.setTargetAtTime(0,AC.currentTime,0.12);
+    setTimeout(()=>{buildAudio();},200);
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════
+// RENDER LOOP
+// ═════════════════════════════════════════════════════════════════
+let lastT=performance.now();
+function render(now){
+  requestAnimationFrame(render);
+  const dt=Math.min((now-lastT)/1000,0.05);lastT=now;frameN++;
+  animateState(dt);setUniforms();
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+  if(soundOn) updateAudio();
+  if(hudOn&&frameN%8===0) updateHUD();
+}
+
+// ═════════════════════════════════════════════════════════════════
+// EVENTS
+// ═════════════════════════════════════════════════════════════════
+window.addEventListener('resize',resize);
+window.addEventListener('keydown',e=>{
+  if(e.code==='Space'){e.preventDefault();reset();}
+  if(e.code==='KeyH'){hudOn=!hudOn;hudEl.classList.toggle('on',hudOn);if(!hudOn)hudEl.innerHTML='';}
+  if(e.code==='KeyS') toggleSound();
+});
+canvas.addEventListener('click',reset);
+canvas.addEventListener('touchstart',e=>{e.preventDefault();reset();},{passive:false});
+const hintEl=document.getElementById('hint');
+setTimeout(()=>hintEl.style.opacity='0',4500);
+setTimeout(()=>hintEl.style.display='none',8000);
+
+// ═════════════════════════════════════════════════════════════════
+// BOOT
+// ═════════════════════════════════════════════════════════════════
+S=mkState();resize();requestAnimationFrame(render);
+})();
+</script>
+</body>
+</html>

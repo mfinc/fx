@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MetaTopological Fractal Symphony Grid</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#000;overflow:hidden;width:100vw;height:100vh}
+canvas{display:block;position:fixed;top:0;left:0}
+#hud{position:fixed;top:16px;left:16px;display:none;font-family:'Courier New',monospace;font-size:11px;color:rgba(255,255,255,0.7);pointer-events:none;line-height:1.8;text-shadow:0 0 8px rgba(100,200,255,0.8)}
+#hud.visible{display:block}
+#hint{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);font-family:'Courier New',monospace;font-size:10px;color:rgba(255,255,255,0.3);pointer-events:none;letter-spacing:2px;transition:opacity 2s}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<div id="hint">SPACE/CLICK — RESET &nbsp;|&nbsp; H — HUD &nbsp;|&nbsp; S — SOUND</div>
+<script>
+(()=>{
+'use strict';
+
+const canvas=document.getElementById('c');
+const gl=canvas.getContext('webgl',{antialias:false,alpha:false});
+const hud=document.getElementById('hud');
+const hint=document.getElementById('hint');
+
+let W,H,t=0,frame=0,hudOn=false,soundOn=false;
+let audioCtx=null,masterGain=null,osc1=null,osc2=null,osc3=null,lfo=null;
+
+// State
+let S={
+  seed:Math.random()*999,
+  symmetry:Math.floor(Math.random()*5+3),
+  julia:[Math.random()*2-1,Math.random()*2-1],
+  palette:Array.from({length:6},()=>[Math.random(),Math.random(),Math.random()]),
+  fractalMode:Math.floor(Math.random()*4),
+  lsysAngle:Math.PI/(3+Math.random()*5),
+  voronoiSeeds:[],
+  barnsley:Math.random(),
+  hyperbolicN:Math.floor(Math.random()*3+3),
+  logistic:3.5+Math.random()*0.4,
+  hueOffset:Math.random()*6.28,
+  gammaVal:1.8+Math.random()*0.8,
+  spectralPhase:Math.random()*6.28,
+  modDepth:Math.random()*0.5+0.3,
+  bessel:Math.floor(Math.random()*5),
+  cliffordA:1.5+Math.random(),
+  cliffordB:1.8+Math.random(),
+  cliffordC:Math.random()*2-1,
+  cliffordD:Math.random()*2-1,
+  time:0
+};
+
+function randomizeState(){
+  S.seed=Math.random()*999;
+  S.symmetry=Math.floor(Math.random()*6+3);
+  S.julia=[Math.random()*2-1,Math.random()*2-1];
+  S.palette=Array.from({length:6},()=>[Math.random(),Math.random(),Math.random()]);
+  S.fractalMode=Math.floor(Math.random()*4);
+  S.lsysAngle=Math.PI/(3+Math.random()*5);
+  S.voronoiSeeds=Array.from({length:8+Math.floor(Math.random()*8)},()=>[Math.random()*2-1,Math.random()*2-1]);
+  S.barnsley=Math.random();
+  S.hyperbolicN=Math.floor(Math.random()*4+3);
+  S.logistic=3.5+Math.random()*0.45;
+  S.hueOffset=Math.random()*6.28;
+  S.gammaVal=1.6+Math.random()*1.0;
+  S.spectralPhase=Math.random()*6.28;
+  S.modDepth=Math.random()*0.6+0.2;
+  S.bessel=Math.floor(Math.random()*6);
+  S.cliffordA=1.2+Math.random()*1.5;
+  S.cliffordB=1.5+Math.random()*1.5;
+  S.cliffordC=Math.random()*2-1;
+  S.cliffordD=Math.random()*2-1;
+  t=0; frame=0;
+}
+
+// WebGL setup
+function resize(){
+  W=canvas.width=window.innerWidth;
+  H=canvas.height=window.innerHeight;
+  gl.viewport(0,0,W,H);
+}
+
+const vsrc=`
+attribute vec2 pos;
+void main(){gl_Position=vec4(pos,0.,1.);}
+`;
+
+const fsrc=`
+precision highp float;
+uniform vec2 res;
+uniform float time;
+uniform float seed;
+uniform int sym;
+uniform vec2 julia;
+uniform vec3 pal0,pal1,pal2,pal3,pal4,pal5;
+uniform float gammaV;
+uniform float hueOff;
+uniform float spectralPh;
+uniform float modDepth;
+uniform float logistic;
+uniform float barnsleyT;
+uniform float cliffordA,cliffordB,cliffordC,cliffordD;
+uniform float lsysAngle;
+uniform int besselN;
+uniform vec2 vs0,vs1,vs2,vs3,vs4,vs5,vs6,vs7;
+uniform int vCount;
+uniform int fracMode;
+uniform float hypN;
+
+#define PI 3.14159265358979
+#define TAU 6.28318530718
+
+float ccosh(float x){return (exp(x)+exp(-x))*0.5;}
+float csinh(float x){return (exp(x)-exp(-x))*0.5;}
+vec2 cmul(vec2 a,vec2 b){return vec2(a.x*b.x-a.y*b.y,a.x*b.y+a.y*b.x);}
+vec2 cdiv(vec2 a,vec2 b){float d=dot(b,b);return vec2(dot(a,b),a.y*b.x-a.x*b.y)/d;}
+vec2 cpow(vec2 z,float n){float r=length(z),th=atan(z.y,z.x);return pow(max(r,0.0001),n)*vec2(cos(th*n),sin(th*n));}
+vec2 cexp(vec2 z){return exp(z.x)*vec2(cos(z.y),sin(z.y));}
+vec2 clog(vec2 z){return vec2(log(max(length(z),0.0001)),atan(z.y,z.x));}
+vec2 csin(vec2 z){return vec2(sin(z.x)*ccosh(z.y),cos(z.x)*csinh(z.y));}
+vec2 ccos(vec2 z){return vec2(cos(z.x)*ccosh(z.y),-sin(z.x)*csinh(z.y));}
+vec2 cabs(vec2 z){return vec2(abs(z.x),abs(z.y));}
+
+// Domain coloring HSV->RGB
+vec3 hsv2rgb(vec3 c){
+  vec3 p=abs(fract(c.xxx+vec3(1.,2./3.,1./3.))*6.-3.);
+  return c.z*mix(vec3(1.),clamp(p-vec3(1.),0.,1.),c.y);
+}
+
+// Stereographic projection
+vec2 stereo(vec2 z){
+  float n=dot(z,z)+1.;
+  return 2.*z/n;
+}
+
+// Mobius transform for hyperbolic
+vec2 mobius(vec2 z,vec2 a,vec2 b){
+  return cdiv(cmul(a,z)+b, cmul(vec2(-b.x,b.y),z)+vec2(a.x,-a.y));
+}
+
+// Bessel J0..5 via hardcoded series terms (constant loop bounds only)
+float besselJ(int n,float x){
+  float h=x*0.5;
+  float h2=h*h;
+  // Series: sum_{k=0}^{7} (-1)^k h^{2k+n} / (k! * (k+n)!)
+  // Precompute h^n seed
+  float hn=1.;
+  if(n==1)hn=h;else if(n==2)hn=h2;else if(n==3)hn=h2*h;
+  else if(n==4)hn=h2*h2;else if(n==5)hn=h2*h2*h;
+  float s=0.;float term=hn;
+  // k=0 contribution (denominator = 0! * n! )
+  float nd=1.;
+  if(n==1)nd=1.;else if(n==2)nd=2.;else if(n==3)nd=6.;
+  else if(n==4)nd=24.;else if(n==5)nd=120.;
+  s=hn/nd;
+  // unrolled k=1..7, each term = prev * (-h2) / (k*(k+n))
+  float prev=hn/nd;
+  for(int k=1;k<8;k++){
+    float kf=float(k); float knf=kf+float(n);
+    prev*=(-h2)/(kf*knf);
+    s+=prev;
+  }
+  return s;
+}
+
+// Hermite H3, H2 hardcoded (only orders 2,3 used)
+float hermite(int n,float x){
+  if(n==0)return 1.;
+  if(n==1)return 2.*x;
+  // Always run 4 recurrence steps, pick result by n
+  float h0=1.,h1=2.*x,h2=4.*x*x-2.,h3=8.*x*x*x-12.*x,h4=16.*x*x*x*x-48.*x*x+12.;
+  if(n==2)return h2;
+  if(n==3)return h3;
+  return h4;
+}
+
+// Laguerre L0..4 hardcoded
+float laguerre(int n,float x){
+  if(n==0)return 1.;
+  if(n==1)return 1.-x;
+  if(n==2)return 1.-2.*x+0.5*x*x;
+  if(n==3)return 1.-3.*x+1.5*x*x-(1./6.)*x*x*x;
+  return 1.-4.*x+(3./2.)*x*x-(2./3.)*x*x*x+(1./24.)*x*x*x*x;
+}
+
+// Voronoi distance - always iterate all 8, mask with large dist when unused
+float voronoi(vec2 p){
+  float d1=99.,d2=99.;
+  vec2 seeds[8];
+  seeds[0]=vs0;seeds[1]=vs1;seeds[2]=vs2;seeds[3]=vs3;
+  seeds[4]=vs4;seeds[5]=vs5;seeds[6]=vs6;seeds[7]=vs7;
+  for(int i=0;i<8;i++){
+    // Use large distance sentinel when i >= vCount to avoid branch on uniform
+    float active=step(float(i),float(vCount)-0.5);
+    float d=mix(999.,distance(p,seeds[i]),active);
+    if(d<d1){d2=d1;d1=d;}
+    else if(d<d2){d2=d;}
+  }
+  return d2-d1;
+}
+
+// Logistic map - fixed 50 iterations (constant bound)
+float logisticField(float x,float r){
+  for(int i=0;i<50;i++){x=r*x*(1.-x);}
+  return x;
+}
+
+// Kaleidoscope symmetry
+vec2 kaleido(vec2 uv,int n){
+  float a=atan(uv.y,uv.x);
+  float s=TAU/float(n);
+  a=mod(a,s);
+  if(a>s*.5)a=s-a;
+  float r=length(uv);
+  return r*vec2(cos(a),sin(a));
+}
+
+// Clifford attractor field
+vec2 clifford(vec2 p,float a,float b,float cc,float d){
+  float x2=sin(a*p.y)+cc*cos(a*p.x);
+  float y2=sin(b*p.x)+d*cos(b*p.y);
+  return vec2(x2,y2);
+}
+
+// Matrix exponential rotation (2D)
+vec2 matExp(vec2 v,float th){
+  return vec2(cos(th)*v.x-sin(th)*v.y,sin(th)*v.x+cos(th)*v.y);
+}
+
+// Modular form distortion (mock)
+vec2 modularDist(vec2 z,float t){
+  // q-expansion mock: sum of sin waves at harmonic frequencies
+  vec2 r=z;
+  for(int k=1;k<=6;k++){
+    float kf=float(k);
+    float amp=exp(-kf*0.5);
+    float ph=kf*t*0.3+seed*0.01*kf;
+    r+=amp*vec2(sin(kf*z.x+ph)*cos(kf*z.y),cos(kf*z.x+ph)*sin(kf*z.y));
+  }
+  return r;
+}
+
+// IFS Barnsley fern selection
+vec2 barnsleyIter(vec2 p,float sel){
+  if(sel<0.01)return vec2(0.,0.16*p.y);
+  if(sel<0.86)return vec2(0.85*p.x+0.04*p.y,-0.04*p.x+0.85*p.y+1.6);
+  if(sel<0.93)return vec2(0.2*p.x-0.26*p.y,0.23*p.x+0.22*p.y+1.6);
+  return vec2(-0.15*p.x+0.28*p.y,0.26*p.x+0.24*p.y+0.44);
+}
+
+// Hilbert-like transform amplitude
+float hilbertAmp(vec2 uv,float t){
+  float s=0.;
+  for(int k=1;k<=8;k++){
+    float kf=float(k);
+    s+=sin(kf*uv.x*PI+t*kf*0.2)*cos(kf*uv.y*PI-t*kf*0.15)/kf;
+  }
+  return s;
+}
+
+// Softmax blend of palette colors
+vec3 softmaxBlend(float v[6],vec3 cols[6]){
+  float mx=v[0];
+  for(int i=1;i<6;i++)mx=max(mx,v[i]);
+  float sum=0.;
+  float w[6];
+  for(int i=0;i<6;i++){w[i]=exp(v[i]-mx);sum+=w[i];}
+  vec3 col=vec3(0.);
+  for(int i=0;i<6;i++)col+=w[i]/sum*cols[i];
+  return col;
+}
+
+void main(){
+  vec2 uv=(gl_FragCoord.xy/res)*2.-1.;
+  uv.x*=res.x/res.y;
+  
+  float T=time;
+  
+  // Apply kaleidoscope symmetry
+  vec2 kuv=kaleido(uv,sym);
+  
+  // Stereographic projection
+  vec2 stereoUV=stereo(kuv*1.2);
+  
+  // Clifford attractor field warp
+  vec2 cfield=clifford(kuv,cliffordA,cliffordB,cliffordC,cliffordD);
+  
+  // Modular form distortion
+  vec2 muv=modularDist(kuv,T);
+  
+  // Rotate via matrix exponential
+  vec2 ruv=matExp(muv,T*0.12+hueOff);
+  
+  // Hyperbolic tiling warp
+  float hrad=length(ruv);
+  if(hrad<1.0){
+    float ph=atan(ruv.y,ruv.x);
+    float hscale=2./(1.-hrad*hrad);
+    ruv=ruv*hscale*0.25;
+    // Poincare disk tiling repetition
+    float ha=TAU/hypN;
+    ph=mod(atan(ruv.y,ruv.x),ha);
+    if(ph>ha*.5)ph=ha-ph;
+    ruv=length(ruv)*vec2(cos(ph),sin(ph));
+  }
+  
+  // Voronoi field
+  float vfield=voronoi(kuv);
+  
+  // Orthogonal polynomial field
+  float hx=kuv.x*2.;float hy=kuv.y*2.;
+  float herm=hermite(3,hx)*hermite(2,hy)*0.1;
+  float lagg=laguerre(3,abs(hx)+abs(hy))*0.15;
+  float bess=besselJ(besselN,(length(kuv)+seed*0.001)*4.)*0.3;
+  float polyField=(herm+lagg+bess);
+  
+  // Logistic map field
+  float lx=logisticField(fract(abs(kuv.x)*0.5+0.1),logistic);
+  float ly=logisticField(fract(abs(kuv.y)*0.5+0.3),logistic);
+  float logField=(lx*ly-0.25)*2.;
+  
+  // Hilbert transform amplitude
+  float hamp=hilbertAmp(kuv,T)*0.3;
+  
+  // Julia/Mandelbrot field
+  vec2 z=ruv*1.5;
+  vec2 c=julia+0.1*vec2(sin(T*0.07),cos(T*0.11));
+  float iter=0.;
+  float trap=1e5;
+  for(int i=0;i<64;i++){
+    if(fracMode==0){z=cmul(z,z)+c;}
+    else if(fracMode==1){z=cmul(cabs(z),z)+c;}
+    else if(fracMode==2){z=cpow(z,3.)+c;}
+    else{z=csin(z)+c;}
+    float lz=length(z);
+    trap=min(trap,lz);
+    if(lz>4.){iter=float(i)+1.-log2(log2(max(lz,1.0001)));break;}
+    iter=float(i);
+  }
+  float juliaV=iter/64.;
+  float smoothJ=iter/64.+log(max(log(trap+1.),0.0001))*0.1;
+  
+  // Cauchy-Riemann style: partial derivatives approximation
+  float eps=0.01;
+  vec2 zh=z+vec2(eps,0.);
+  float crMag=length(cpow(zh,2.+sin(T*0.05)));
+  float crField=fract(crMag*3.);
+  
+  // Domain coloring angle and magnitude
+  vec2 wz=ruv+0.3*cfield*0.2;
+  float angle=atan(wz.y,wz.x);
+  float mag=log(length(wz)+1.);
+  
+  // Fourier series hue cycling
+  float fourier=0.;
+  for(int k=1;k<=8;k++){
+    float kf=float(k);
+    fourier+=sin(kf*T*0.08+kf*angle+spectralPh)/kf;
+  }
+  
+  // Amplitude modulation
+  float am=1.+modDepth*sin(T*0.3+length(kuv)*5.);
+  
+  // Build softmax weights from all fields
+  float weights[6];
+  weights[0]=juliaV*2.+hamp;
+  weights[1]=vfield*3.+polyField;
+  weights[2]=logField*2.+crField;
+  weights[3]=mag+fourier*0.3;
+  weights[4]=bess*3.+lx;
+  weights[5]=herm*4.+lagg*2.;
+  
+  // Gamma-correct spectral harmonization
+  vec3 cols[6];
+  cols[0]=pal0; cols[1]=pal1; cols[2]=pal2;
+  cols[3]=pal3; cols[4]=pal4; cols[5]=pal5;
+  
+  vec3 baseCol=softmaxBlend(weights,cols);
+  
+  // Domain coloring overlay
+  float h=fract(angle/TAU+hueOff/(TAU)+T*0.02+fourier*0.1);
+  float bright=1.-exp(-mag*1.5);
+  float sat=0.7+0.3*sin(mag*PI*2.);
+  // Checkerboard for grid lines (Cauchy-Riemann visualization)
+  float grid=0.5+0.5*sign(sin(mag*PI*4.)*sin(angle*8.));
+  vec3 domainCol=hsv2rgb(vec3(h,sat,bright))*grid;
+  
+  // L-system angle field contribution
+  float lsys=fract((angle/lsysAngle)*0.5+T*0.04)*2.-1.;
+  lsys=abs(lsys);
+  
+  // Barnsley fern density field (approximation via IFS probability)
+  float bfern=fract(barnsleyT*length(kuv)*10.+T*0.05);
+  bfern=exp(-bfern*bfern*5.);
+  
+  // Blend everything
+  vec3 col=mix(baseCol,domainCol,0.45+0.1*sin(T*0.09));
+  col=mix(col,vec3(lsys*pal2),0.15);
+  col+=bfern*0.12*pal4;
+  col*=am;
+  col=mix(col,col*vec3(0.9,1.,1.1),smoothJ*0.3);
+  
+  // Gamma correction
+  col=clamp(col,0.,1.);
+  col=pow(col,vec3(1./gammaV));
+  
+  // Vignette
+  float vig=1.-smoothstep(0.6,1.4,length(uv));
+  col*=vig;
+  
+  gl_FragColor=vec4(col,1.);
+}
+`;
+
+function compileShader(type,src){
+  const sh=gl.createShader(type);
+  gl.shaderSource(sh,src);
+  gl.compileShader(sh);
+  if(!gl.getShaderParameter(sh,gl.COMPILE_STATUS)){
+    console.error(gl.getShaderInfoLog(sh));
+  }
+  return sh;
+}
+
+const prog=gl.createProgram();
+gl.attachShader(prog,compileShader(gl.VERTEX_SHADER,vsrc));
+gl.attachShader(prog,compileShader(gl.FRAGMENT_SHADER,fsrc));
+gl.linkProgram(prog);
+gl.useProgram(prog);
+
+const buf=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+const posLoc=gl.getAttribLocation(prog,'pos');
+gl.enableVertexAttribArray(posLoc);
+gl.vertexAttribPointer(posLoc,2,gl.FLOAT,false,0,0);
+
+function ul(n){return gl.getUniformLocation(prog,n);}
+const u={
+  res:ul('res'),time:ul('time'),seed:ul('seed'),
+  sym:ul('sym'),julia:ul('julia'),
+  pal:Array.from({length:6},(_,i)=>ul('pal'+i)),
+  gammaV:ul('gammaV'),hueOff:ul('hueOff'),
+  spectralPh:ul('spectralPh'),modDepth:ul('modDepth'),
+  logistic:ul('logistic'),barnsleyT:ul('barnsleyT'),
+  cliffordA:ul('cliffordA'),cliffordB:ul('cliffordB'),
+  cliffordC:ul('cliffordC'),cliffordD:ul('cliffordD'),
+  lsysAngle:ul('lsysAngle'),besselN:ul('besselN'),
+  vs:Array.from({length:8},(_,i)=>ul('vs'+i)),
+  vCount:ul('vCount'),fracMode:ul('fracMode'),hypN:ul('hypN')
+};
+
+function setUniforms(){
+  const seeds=S.voronoiSeeds;
+  gl.uniform2f(u.res,W,H);
+  gl.uniform1f(u.time,t);
+  gl.uniform1f(u.seed,S.seed);
+  gl.uniform1i(u.sym,S.symmetry);
+  gl.uniform2f(u.julia,S.julia[0],S.julia[1]);
+  for(let i=0;i<6;i++) gl.uniform3f(u.pal[i],...S.palette[i]);
+  gl.uniform1f(u.gammaV,S.gammaVal);
+  gl.uniform1f(u.hueOff,S.hueOffset);
+  gl.uniform1f(u.spectralPh,S.spectralPhase);
+  gl.uniform1f(u.modDepth,S.modDepth);
+  gl.uniform1f(u.logistic,S.logistic);
+  gl.uniform1f(u.barnsleyT,S.barnsley);
+  gl.uniform1f(u.cliffordA,S.cliffordA);
+  gl.uniform1f(u.cliffordB,S.cliffordB);
+  gl.uniform1f(u.cliffordC,S.cliffordC);
+  gl.uniform1f(u.cliffordD,S.cliffordD);
+  gl.uniform1f(u.lsysAngle,S.lsysAngle);
+  gl.uniform1i(u.besselN,S.bessel);
+  const cnt=Math.min(seeds.length,8);
+  for(let i=0;i<8;i++){
+    const s=seeds[i]||[0,0];
+    gl.uniform2f(u.vs[i],s[0],s[1]);
+  }
+  gl.uniform1i(u.vCount,cnt);
+  gl.uniform1i(u.fracMode,S.fractalMode);
+  gl.uniform1f(u.hypN,S.hyperbolicN);
+}
+
+// Animate state
+let juliaTargetT=0;
+function animateState(){
+  // Slowly drift julia
+  S.julia[0]+=0.0001*Math.sin(t*0.04+juliaTargetT);
+  S.julia[1]+=0.0001*Math.cos(t*0.033+juliaTargetT*0.7);
+  // Drift hue
+  S.hueOffset+=0.0002;
+  // Clifford drift
+  S.cliffordA+=0.0003*Math.sin(t*0.02);
+  S.cliffordB+=0.0002*Math.cos(t*0.018);
+  // Palette spectral harmonization
+  for(let i=0;i<6;i++){
+    const f=0.3+i*0.15;
+    S.palette[i][0]=0.5+0.5*Math.sin(t*0.015*f+i+S.spectralPhase);
+    S.palette[i][1]=0.5+0.5*Math.sin(t*0.012*f+i*1.3+S.spectralPhase+2);
+    S.palette[i][2]=0.5+0.5*Math.sin(t*0.018*f+i*0.7+S.spectralPhase+4);
+  }
+}
+
+// Sound
+function initAudio(){
+  if(audioCtx) return;
+  audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+  masterGain=audioCtx.createGain();
+  masterGain.gain.setValueAtTime(0.08,audioCtx.currentTime);
+  masterGain.connect(audioCtx.destination);
+  
+  // FFT-inverted harmonic stack
+  const real=new Float32Array(16);
+  const imag=new Float32Array(16);
+  for(let k=1;k<=15;k++){
+    real[k]=1/(k*k)*Math.cos(k*S.spectralPhase);
+    imag[k]=1/(k*k)*Math.sin(k*S.spectralPhase);
+  }
+  const wave=audioCtx.createPeriodicWave(real,imag,{disableNormalization:false});
+  
+  osc1=audioCtx.createOscillator();
+  osc1.setPeriodicWave(wave);
+  osc1.frequency.setValueAtTime(55+S.bessel*13,audioCtx.currentTime);
+  
+  osc2=audioCtx.createOscillator();
+  osc2.type='sawtooth';
+  osc2.frequency.setValueAtTime(110*S.cliffordA*0.5,audioCtx.currentTime);
+  
+  osc3=audioCtx.createOscillator();
+  osc3.type='sine';
+  osc3.frequency.setValueAtTime(220*S.logistic*0.3,audioCtx.currentTime);
+  
+  lfo=audioCtx.createOscillator();
+  lfo.frequency.setValueAtTime(0.2+S.modDepth,audioCtx.currentTime);
+  const lfoGain=audioCtx.createGain();
+  lfoGain.gain.setValueAtTime(20,audioCtx.currentTime);
+  lfo.connect(lfoGain);
+  lfoGain.connect(osc1.frequency);
+  lfoGain.connect(osc2.frequency);
+  
+  const g1=audioCtx.createGain(); g1.gain.setValueAtTime(0.5,audioCtx.currentTime);
+  const g2=audioCtx.createGain(); g2.gain.setValueAtTime(0.3,audioCtx.currentTime);
+  const g3=audioCtx.createGain(); g3.gain.setValueAtTime(0.2,audioCtx.currentTime);
+  
+  osc1.connect(g1); g1.connect(masterGain);
+  osc2.connect(g2); g2.connect(masterGain);
+  osc3.connect(g3); g3.connect(masterGain);
+  
+  // Phase modulation: osc3 modulates osc2 freq
+  const pmGain=audioCtx.createGain(); pmGain.gain.setValueAtTime(30,audioCtx.currentTime);
+  osc3.connect(pmGain); pmGain.connect(osc2.frequency);
+  
+  osc1.start(); osc2.start(); osc3.start(); lfo.start();
+}
+
+function updateAudio(){
+  if(!audioCtx||!soundOn) return;
+  const now=audioCtx.currentTime;
+  const base=40+S.bessel*15+Math.sin(t*0.05)*10;
+  osc1.frequency.setTargetAtTime(base,now,0.3);
+  osc2.frequency.setTargetAtTime(base*2.01+S.cliffordA*5,now,0.5);
+  osc3.frequency.setTargetAtTime(base*3.97+S.modDepth*10,now,0.7);
+  lfo.frequency.setTargetAtTime(0.1+S.modDepth*2+Math.sin(t*0.02)*0.3,now,0.5);
+}
+
+function toggleSound(){
+  soundOn=!soundOn;
+  if(soundOn){
+    initAudio();
+    if(masterGain) masterGain.gain.setTargetAtTime(0.08,audioCtx.currentTime,0.1);
+  } else {
+    if(masterGain) masterGain.gain.setTargetAtTime(0.0,audioCtx.currentTime,0.1);
+  }
+}
+
+function updateHUD(){
+  if(!hudOn) return;
+  hud.innerHTML=`
+    <div>FRAME ${frame} &nbsp; T=${t.toFixed(1)}</div>
+    <div>MODE ${['Julia','BurningShip','Cubic','Sine'][S.fractalMode]} &nbsp; SYM×${S.symmetry}</div>
+    <div>JULIA [${S.julia[0].toFixed(3)}, ${S.julia[1].toFixed(3)}]</div>
+    <div>CLIFFORD [${S.cliffordA.toFixed(2)}, ${S.cliffordB.toFixed(2)}]</div>
+    <div>LOGISTIC r=${S.logistic.toFixed(3)} &nbsp; BESSEL J${S.bessel}</div>
+    <div>HYPERBOLIC N=${S.hyperbolicN} &nbsp; GAMMA=${S.gammaVal.toFixed(2)}</div>
+    <div>VORONOI seeds=${S.voronoiSeeds.length}</div>
+    <div>SOUND ${soundOn?'ON':'OFF'} &nbsp; HUD ON</div>
+  `;
+}
+
+let lastFrame=performance.now();
+let fps=60;
+
+function render(now){
+  requestAnimationFrame(render);
+  const dt=(now-lastFrame)/1000;
+  lastFrame=now;
+  fps=fps*0.9+0.1/dt;
+  
+  t+=dt;
+  frame++;
+  
+  animateState();
+  setUniforms();
+  
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+  
+  if(soundOn && frame%6===0) updateAudio();
+  if(hudOn && frame%10===0) updateHUD();
+}
+
+function reset(){
+  randomizeState();
+  if(audioCtx && soundOn){
+    // retune oscillators
+    const now=audioCtx.currentTime;
+    const base=40+S.bessel*15;
+    osc1 && osc1.frequency.setTargetAtTime(base,now,0.2);
+    osc2 && osc2.frequency.setTargetAtTime(base*2.01,now,0.2);
+    osc3 && osc3.frequency.setTargetAtTime(base*4,now,0.2);
+  }
+}
+
+// Events
+window.addEventListener('resize',()=>{resize();setUniforms();});
+window.addEventListener('keydown',e=>{
+  if(e.code==='Space'){e.preventDefault();reset();}
+  if(e.code==='KeyH'){hudOn=!hudOn;hud.classList.toggle('visible',hudOn);if(!hudOn)hud.innerHTML='';}
+  if(e.code==='KeyS'){toggleSound();}
+});
+canvas.addEventListener('click',reset);
+canvas.addEventListener('touchstart',e=>{e.preventDefault();reset();},{passive:false});
+
+// Hint fadeout
+setTimeout(()=>{hint.style.opacity='0';},5000);
+setTimeout(()=>{hint.style.display='none';},8000);
+
+// Init
+randomizeState();
+resize();
+requestAnimationFrame(render);
+})();
+</script>
+</body>
+</html>

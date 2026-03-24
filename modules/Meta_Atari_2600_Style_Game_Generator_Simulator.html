@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Meta Atari 2600 Style Game Generator Simulator | Procedural Retro Screensaver</title>
+<meta name="description" content="Procedural Meta Atari 2600 Style Game Generator. Each restart creates a completely new randomized auto-playing retro game with vibrant spectral color cycling, classic pixel graphics and synthesized 8-bit sound.">
+<meta name="keywords" content="Atari 2600, procedural game generator, retro screensaver, 8-bit, pixel art, color cycling, generative art, meta game, HTML5 canvas, retro simulation">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+html,body{
+  margin:0;
+  padding:0;
+  background:black;
+  overflow:hidden;
+  font-family:monospace;
+}
+canvas{
+  display:block;
+}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+"use strict";
+
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+let W,H;
+
+function resize(){
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+window.addEventListener("resize", resize);
+resize();
+
+let hud=false;
+let sound=false;
+let audioCtx=null;
+let masterGain=null;
+
+let game={};
+let lastTime=0;
+
+function rand(a=1,b=0){return Math.random()*(a-b)+b;}
+function randi(a,b){return Math.floor(rand(a,b));}
+
+function newGame(){
+
+  game = {};
+
+  game.type = randi(0,6); // multiple totally different archetypes
+
+  game.entities=[];
+  game.bgMode=randi(0,4);
+  game.colorSpeed=rand(0.5,0.05);
+  game.paletteBase=rand(360,0);
+  game.bandCount=randi(3,14);
+  game.motionMode=randi(0,5);
+  game.spawnRate=rand(0.05,0.01);
+  game.time=0;
+  game.scale = Math.min(W,H)/160;
+
+  let count=randi(12,80);
+
+  for(let i=0;i<count;i++){
+    game.entities.push({
+      x:rand(W),
+      y:rand(H),
+      vx:rand(2,-2),
+      vy:rand(2,-2),
+      size:rand(16,4),
+      phase:rand(Math.PI*2),
+      spin:rand(0.2,-0.2),
+      type:randi(0,4)
+    });
+  }
+}
+
+function spectralColor(t,offset=0){
+  let h = (game.paletteBase + t*game.colorSpeed*50 + offset)%360;
+  return "hsl("+h+",100%,"+(50+Math.sin(t+offset)*20)+"%)";
+}
+
+function drawBackground(t){
+
+  if(game.bgMode===0){
+    let grad=ctx.createLinearGradient(0,0,W,H);
+    for(let i=0;i<game.bandCount;i++){
+      grad.addColorStop(i/(game.bandCount-1),spectralColor(t,i*20));
+    }
+    ctx.fillStyle=grad;
+    ctx.fillRect(0,0,W,H);
+  }
+  else if(game.bgMode===1){
+    for(let i=0;i<game.bandCount;i++){
+      ctx.fillStyle=spectralColor(t,i*15);
+      ctx.fillRect(0,i*H/game.bandCount,W,H/game.bandCount+1);
+    }
+  }
+  else if(game.bgMode===2){
+    for(let i=0;i<game.bandCount;i++){
+      ctx.fillStyle=spectralColor(t,i*25);
+      ctx.fillRect(i*W/game.bandCount,0,W/game.bandCount+1,H);
+    }
+  }
+  else{
+    ctx.fillStyle="black";
+    ctx.fillRect(0,0,W,H);
+  }
+}
+
+function update(dt){
+  game.time+=dt;
+
+  for(let e of game.entities){
+    e.x+=e.vx*60*dt;
+    e.y+=e.vy*60*dt;
+
+    if(e.x<0||e.x>W)e.vx*=-1;
+    if(e.y<0||e.y>H)e.vy*=-1;
+
+    if(game.motionMode===1){
+      e.vx+=Math.sin(game.time+e.phase)*0.02;
+      e.vy+=Math.cos(game.time+e.phase)*0.02;
+    }
+    if(game.motionMode===2){
+      e.x+=Math.sin(game.time*3+e.phase)*2;
+    }
+    if(game.motionMode===3){
+      e.y+=Math.cos(game.time*4+e.phase)*2;
+    }
+    if(game.motionMode===4){
+      let dx=W/2-e.x;
+      let dy=H/2-e.y;
+      e.vx+=dx*0.00001;
+      e.vy+=dy*0.00001;
+    }
+  }
+
+  if(Math.random()<game.spawnRate && game.entities.length<120){
+    game.entities.push({
+      x:rand(W),
+      y:rand(H),
+      vx:rand(2,-2),
+      vy:rand(2,-2),
+      size:rand(12,3),
+      phase:rand(Math.PI*2),
+      spin:rand(0.3,-0.3),
+      type:randi(0,4)
+    });
+  }
+}
+
+function drawEntities(t){
+
+  ctx.imageSmoothingEnabled=false;
+
+  for(let e of game.entities){
+    ctx.fillStyle=spectralColor(t,e.phase*20);
+
+    let s=e.size*game.scale;
+
+    if(e.type===0){
+      ctx.fillRect(e.x,e.y,s,s);
+    }
+    else if(e.type===1){
+      ctx.beginPath();
+      ctx.arc(e.x,e.y,s/2,0,Math.PI*2);
+      ctx.fill();
+    }
+    else if(e.type===2){
+      ctx.beginPath();
+      ctx.moveTo(e.x,e.y);
+      ctx.lineTo(e.x+s,e.y);
+      ctx.lineTo(e.x+s/2,e.y-s);
+      ctx.closePath();
+      ctx.fill();
+    }
+    else{
+      ctx.fillRect(e.x,e.y,s/2,s);
+      ctx.fillRect(e.x+s/2,e.y+s/3,s/2,s/3);
+    }
+  }
+}
+
+function drawHUD(){
+  if(!hud)return;
+  ctx.fillStyle="white";
+  ctx.font="14px monospace";
+  ctx.fillText("META ATARI GENERATOR",20,20);
+  ctx.fillText("Entities: "+game.entities.length,20,40);
+  ctx.fillText("Mode: "+game.type,20,60);
+  ctx.fillText("SPACE / CLICK: New Game",20,80);
+  ctx.fillText("H: HUD  |  S: Sound",20,100);
+}
+
+function loop(ts){
+  let dt=(ts-lastTime)/1000;
+  lastTime=ts;
+
+  update(dt);
+  drawBackground(game.time);
+  drawEntities(game.time);
+  drawHUD();
+
+  requestAnimationFrame(loop);
+}
+
+function toggleSound(){
+  sound=!sound;
+  if(sound){
+    audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+    masterGain=audioCtx.createGain();
+    masterGain.gain.value=0.05;
+    masterGain.connect(audioCtx.destination);
+    playTone();
+  }else{
+    if(audioCtx){
+      audioCtx.close();
+      audioCtx=null;
+    }
+  }
+}
+
+function playTone(){
+  if(!sound||!audioCtx)return;
+
+  let osc=audioCtx.createOscillator();
+  osc.type="square";
+  osc.frequency.value=220+Math.random()*880;
+  osc.connect(masterGain);
+  osc.start();
+  osc.stop(audioCtx.currentTime+0.08);
+
+  setTimeout(()=>{
+    if(sound)playTone();
+  },80+Math.random()*200);
+}
+
+window.addEventListener("keydown",(e)=>{
+  if(e.code==="Space")newGame();
+  if(e.key==="h"||e.key==="H")hud=!hud;
+  if(e.key==="s"||e.key==="S")toggleSound();
+});
+
+window.addEventListener("click",newGame);
+
+newGame();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

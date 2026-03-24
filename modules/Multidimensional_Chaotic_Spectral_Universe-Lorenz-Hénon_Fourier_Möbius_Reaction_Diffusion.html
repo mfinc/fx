@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Multidimensional Chaotic Spectral Universe | Lorenz–Hénon Fourier Möbius Reaction Diffusion</title>
+
+<meta name="description" content="Ultra-high-performance fullscreen audiovisual spectacle driven by chaotic dynamical systems, spectral mathematics, quaternion rotations, conformal mappings, reaction-diffusion fields, Perlin noise and fractal Brownian motion with optional procedurally generated sound synthesis.">
+<meta name="keywords" content="Lorenz attractor, Henon attractor, Fourier decomposition, wavelet, quaternion rotation, Clifford algebra, kaleidoscope, Coxeter symmetry, Mobius transform, conformal mapping, reaction diffusion, Perlin noise, simplex noise, fractal Brownian motion, WebGL shader art, generative audiovisual">
+<meta name="author" content="Generative Spectral Engine">
+<meta property="og:title" content="Multidimensional Chaotic Spectral Universe">
+<meta property="og:description" content="Hypnotic never-repeating fullscreen generative audiovisual engine.">
+<meta property="og:type" content="website">
+
+<style>
+html, body {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    background: black;
+    touch-action: none;
+    font-family: monospace;
+}
+canvas {
+    position: fixed;
+    top: 0;
+    left: 0;
+    display: block;
+}
+#hud {
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    color: white;
+    font-size: 12px;
+    background: rgba(0,0,0,0.5);
+    padding: 8px;
+    border-radius: 6px;
+    display: none;
+}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="hud"></div>
+
+<script>
+const canvas = document.getElementById("gl");
+const gl = canvas.getContext("webgl2", { antialias: false, alpha: false });
+const hud = document.getElementById("hud");
+
+if (!gl) alert("WebGL2 required");
+
+let audioCtx = null;
+let gainNode = null;
+let osc1 = null;
+let osc2 = null;
+let soundEnabled = false;
+let hudEnabled = false;
+
+function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    gl.viewport(0, 0, canvas.width, canvas.height);
+}
+window.addEventListener("resize", resize);
+resize();
+
+function rand(a=0,b=1){return a+Math.random()*(b-a);}
+
+let params = {};
+
+function randomize() {
+    params = {
+        lorenzSigma: rand(8,14),
+        lorenzRho: rand(20,40),
+        lorenzBeta: rand(2,3),
+        henonA: rand(1.2,1.5),
+        henonB: rand(0.2,0.4),
+        symmetry: Math.floor(rand(6,24)),
+        colorShift: rand(0,6.28),
+        noiseScale: rand(0.3,2.5),
+        mobius: rand(0.2,2.0),
+        phaseSpeed: rand(0.2,1.2),
+        reactionSpeed: rand(0.2,1.0)
+    };
+    updateHUD();
+}
+randomize();
+
+function updateHUD(){
+    hud.innerHTML =
+    `Lorenz σ:${params.lorenzSigma.toFixed(2)} ρ:${params.lorenzRho.toFixed(2)} β:${params.lorenzBeta.toFixed(2)}<br>
+Henon a:${params.henonA.toFixed(2)} b:${params.henonB.toFixed(2)}<br>
+Symmetry:${params.symmetry}<br>
+Noise:${params.noiseScale.toFixed(2)}<br>
+Sound:${soundEnabled}`;
+}
+
+const vertexSrc = `#version 300 es
+precision highp float;
+in vec2 position;
+out vec2 vUv;
+void main(){
+    vUv = position * 0.5 + 0.5;
+    gl_Position = vec4(position,0.0,1.0);
+}
+`;
+
+const fragmentSrc = `#version 300 es
+precision highp float;
+out vec4 fragColor;
+in vec2 vUv;
+uniform float time;
+uniform vec2 resolution;
+
+uniform float lorenzSigma;
+uniform float lorenzRho;
+uniform float lorenzBeta;
+uniform float henonA;
+uniform float henonB;
+uniform float symmetry;
+uniform float colorShift;
+uniform float noiseScale;
+uniform float mobius;
+uniform float phaseSpeed;
+uniform float reactionSpeed;
+
+float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+float noise(vec2 p){
+    vec2 i=floor(p);
+    vec2 f=fract(p);
+    float a=hash(i);
+    float b=hash(i+vec2(1,0));
+    float c=hash(i+vec2(0,1));
+    float d=hash(i+vec2(1,1));
+    vec2 u=f*f*(3.0-2.0*f);
+    return mix(a,b,u.x)+(c-a)*u.y*(1.0-u.x)+(d-b)*u.x*u.y;
+}
+
+vec3 hsv2rgb(vec3 c){
+    vec4 K=vec4(1.,2./3.,1./3.,3.);
+    vec3 p=abs(fract(c.xxx+K.xyz)*6.-K.www);
+    return c.z*mix(K.xxx,clamp(p-K.xxx,0.,1.),c.y);
+}
+
+void main(){
+    vec2 uv=(vUv*2.-1.);
+    uv.x*=resolution.x/resolution.y;
+
+    float angle=atan(uv.y,uv.x);
+    float radius=length(uv);
+
+    angle=mod(angle,6.28318/symmetry);
+
+    vec2 p=vec2(cos(angle),sin(angle))*radius;
+
+    float t=time*phaseSpeed;
+
+    float lorenz = sin(lorenzSigma*p.x + lorenzRho*p.y + t)
+                 + cos(lorenzBeta*p.y - t);
+
+    float henon = 1. - henonA*p.x*p.x + p.y;
+    henon = henonB*p.x;
+
+    float rd = sin((p.x*p.y)*reactionSpeed + t);
+
+    float n = noise(p*noiseScale + t);
+
+    float mob = (p.x*p.x - p.y*p.y) / (dot(p,p)+mobius);
+
+    float field = lorenz + henon + rd + n + mob;
+
+    float phase = field + t;
+
+    float hue = fract(phase*0.1 + colorShift);
+    float sat = 0.7 + 0.3*sin(phase);
+    float val = smoothstep(-2.0,2.0,field);
+
+    vec3 col = hsv2rgb(vec3(hue,sat,val));
+    fragColor = vec4(col,1.0);
+}
+`;
+
+function compile(type, source){
+    let s=gl.createShader(type);
+    gl.shaderSource(s,source);
+    gl.compileShader(s);
+    return s;
+}
+
+let program = gl.createProgram();
+gl.attachShader(program,compile(gl.VERTEX_SHADER,vertexSrc));
+gl.attachShader(program,compile(gl.FRAGMENT_SHADER,fragmentSrc));
+gl.linkProgram(program);
+gl.useProgram(program);
+
+const quad = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, quad);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([
+-1,-1, 1,-1, -1,1,
+-1,1, 1,-1, 1,1]),gl.STATIC_DRAW);
+
+const pos = gl.getAttribLocation(program,"position");
+gl.enableVertexAttribArray(pos);
+gl.vertexAttribPointer(pos,2,gl.FLOAT,false,0,0);
+
+function setUniform(name,val){
+    let loc=gl.getUniformLocation(program,name);
+    if(typeof val==="number") gl.uniform1f(loc,val);
+    else gl.uniform2f(loc,val[0],val[1]);
+}
+
+let start=performance.now();
+
+function render(){
+    let t=(performance.now()-start)/1000;
+    setUniform("time",t);
+    setUniform("resolution",[canvas.width,canvas.height]);
+
+    for(let k in params) setUniform(k,params[k]);
+
+    gl.drawArrays(gl.TRIANGLES,0,6);
+
+    requestAnimationFrame(render);
+}
+render();
+
+function toggleSound(){
+    soundEnabled=!soundEnabled;
+    if(soundEnabled){
+        audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+        gainNode=audioCtx.createGain();
+        gainNode.gain.value=0.05;
+        osc1=audioCtx.createOscillator();
+        osc2=audioCtx.createOscillator();
+        osc1.type="sine";
+        osc2.type="triangle";
+        osc1.frequency.value=220+rand(-100,100);
+        osc2.frequency.value=440+rand(-200,200);
+        osc1.connect(gainNode);
+        osc2.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        osc1.start();
+        osc2.start();
+    }else{
+        if(osc1) osc1.stop();
+        if(osc2) osc2.stop();
+        if(audioCtx) audioCtx.close();
+        audioCtx=null;
+    }
+    updateHUD();
+}
+
+window.addEventListener("keydown",(e)=>{
+    if(e.code==="Space"){randomize();}
+    if(e.key==="h"||e.key==="H"){
+        hudEnabled=!hudEnabled;
+        hud.style.display=hudEnabled?"block":"none";
+    }
+    if(e.key==="s"||e.key==="S"){toggleSound();}
+});
+
+window.addEventListener("click",randomize);
+window.addEventListener("touchstart",randomize);
+
+</script>
+</body>
+</html>

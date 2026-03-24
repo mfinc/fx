@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>LORENZ-TENSOR HYPERDIMENSIONAL ATTRACTOR</title>
+<meta name="description" content="Hyperdimensional quaternion strange attractor audiovisual engine with Lyapunov spectral coloring, kaleidoscopic folding, synchronized Fourier additive synthesis and nonlinear Chebyshev waveshaping.">
+<meta name="keywords" content="Lorenz attractor art, Rossler, Duffing, Henon, Van der Pol, quaternion projection, 4D visualization, generative audiovisual, Web Audio synthesis, Lyapunov spectrum">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+html,body{margin:0;padding:0;overflow:hidden;background:black;}
+canvas{display:block;}
+#hud{position:fixed;top:10px;left:10px;color:white;font-family:monospace;font-size:12px;pointer-events:none;}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<script>
+const canvas=document.getElementById("c");
+const ctx=canvas.getContext("2d",{alpha:false});
+const hud=document.getElementById("hud");
+
+function resize(){
+    canvas.width=window.innerWidth;
+    canvas.height=window.innerHeight;
+}
+window.addEventListener("resize",resize);
+resize();
+
+let soundOn=false;
+let hudOn=false;
+let attractorType=0;
+let particles=[];
+let projectionMatrix=[];
+let symmetryCount=6;
+let symmetryPhase=0;
+let palette={};
+let harmonics=16;
+let audioCtx=null,gainNode,convolver,osc;
+let energyDensity=1;
+let chebyAmount=1;
+let lyapGlobal=0;
+let frameCount=0;
+
+function rand(a,b){return a+Math.random()*(b-a);}
+function randInt(a,b){return Math.floor(rand(a,b));}
+
+function randomQuaternion(){
+    let u1=Math.random(),u2=Math.random(),u3=Math.random();
+    return {
+        w:Math.sqrt(1-u1)*Math.sin(2*Math.PI*u2),
+        x:Math.sqrt(1-u1)*Math.cos(2*Math.PI*u2),
+        y:Math.sqrt(u1)*Math.sin(2*Math.PI*u3),
+        z:Math.sqrt(u1)*Math.cos(2*Math.PI*u3)
+    };
+}
+
+function quatToMatrix(q){
+    return [
+        [1-2*q.y*q.y-2*q.z*q.z,2*q.x*q.y-2*q.z*q.w,2*q.x*q.z+2*q.y*q.w,0],
+        [2*q.x*q.y+2*q.z*q.w,1-2*q.x*q.x-2*q.z*q.z,2*q.y*q.z-2*q.x*q.w,0],
+        [2*q.x*q.z-2*q.y*q.w,2*q.y*q.z+2*q.x*q.w,1-2*q.x*q.x-2*q.y*q.y,0],
+        [0,0,0,1]
+    ];
+}
+
+function randomize(){
+    attractorType=randInt(0,5);
+    symmetryCount=randInt(3,16);
+    harmonics=randInt(6,20);
+    chebyAmount=rand(0.5,4);
+    palette={
+        hueOffset:rand(0,360),
+        hueSpread:rand(120,360),
+        sat:rand(60,100),
+        lightBase:rand(30,70)
+    };
+    projectionMatrix=quatToMatrix(randomQuaternion());
+    particles=[];
+    for(let i=0;i<5000;i++){
+        particles.push({
+            x:rand(-1,1),
+            y:rand(-1,1),
+            z:rand(-1,1),
+            w:rand(-1,1),
+            lx:0
+        });
+    }
+}
+
+function step(p,dt){
+    let px=p.x,py=p.y,pz=p.z;
+    switch(attractorType){
+        case 0:{
+            let s=10,r=28,b=8/3;
+            p.x+=s*(p.y-p.x)*dt;
+            p.y+=(p.x*(r-p.z)-p.y)*dt;
+            p.z+=(p.x*p.y-b*p.z)*dt;
+        }break;
+        case 1:{
+            let a=0.2,b=0.2,c=5.7;
+            p.x+=(-p.y-p.z)*dt;
+            p.y+=(p.x+a*p.y)*dt;
+            p.z+=(b+p.z*(p.x-c))*dt;
+        }break;
+        case 2:{
+            let d=0.2,a=-1,b=1,g=0.3,w=1.2;
+            p.x+=p.y*dt;
+            p.y+=(-d*p.y-a*p.x-b*p.x*p.x*p.x+g*Math.cos(w*frameCount*0.01))*dt;
+        }break;
+        case 3:{
+            let A=1.4,B=0.3;
+            let x1=1-A*p.x*p.x+p.y;
+            p.y=B*p.x;
+            p.x=x1;
+        }break;
+        case 4:{
+            let mu=3;
+            p.x+=p.y*dt;
+            p.y+=(mu*(1-p.x*p.x)*p.y-p.x)*dt;
+        }break;
+    }
+    let dx=p.x-px,dy=p.y-py,dz=p.z-pz;
+    let div=Math.sqrt(dx*dx+dy*dy+dz*dz);
+    p.lx=Math.log(Math.abs(div)+1e-6);
+    lyapGlobal+=p.lx;
+}
+
+function project(p){
+    let v=[p.x,p.y,p.z,p.w];
+    let r=[0,0,0,0];
+    for(let i=0;i<4;i++){
+        for(let j=0;j<4;j++){
+            r[i]+=projectionMatrix[i][j]*v[j];
+        }
+    }
+    let d=2/(2-r[3]);
+    return {x:r[0]*d,y:r[1]*d};
+}
+
+function labColor(lx){
+    let h=(palette.hueOffset+lx*palette.hueSpread)%360;
+    return `hsla(${h},${palette.sat}%,${palette.lightBase+Math.sin(lx*5)*20}%,`;
+}
+
+function render(){
+    frameCount++;
+    ctx.fillStyle="rgba(0,0,0,0.07)";
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    ctx.save();
+    ctx.translate(canvas.width/2,canvas.height/2);
+    symmetryPhase+=0.005;
+    ctx.rotate(symmetryPhase);
+
+    lyapGlobal=0;
+    let dt=0.005;
+    for(let p of particles){
+        step(p,dt);
+        let pr=project(p);
+        let x=pr.x*canvas.height/4;
+        let y=pr.y*canvas.height/4;
+        let opacity=Math.min(1,Math.abs(p.lx)*2);
+        ctx.fillStyle=labColor(p.lx)+opacity+")";
+        for(let i=0;i<symmetryCount;i++){
+            let a=2*Math.PI*i/symmetryCount;
+            let rx=x*Math.cos(a)-y*Math.sin(a);
+            let ry=x*Math.sin(a)+y*Math.cos(a);
+            ctx.fillRect(rx,ry,1,1);
+        }
+    }
+    ctx.restore();
+
+    energyDensity=Math.log(Math.abs(lyapGlobal)/particles.length+1);
+
+    if(soundOn)updateAudio();
+
+    if(hudOn){
+        hud.innerHTML=
+        "Attractor:"+["Lorenz","Rossler","Duffing","Henon","VanDerPol"][attractorType]+
+        "<br>Symmetry:"+symmetryCount+
+        "<br>Harmonics:"+harmonics+
+        "<br>Energy:"+energyDensity.toFixed(3);
+    }else hud.innerHTML="";
+
+    requestAnimationFrame(render);
+}
+
+function initAudio(){
+    audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+    gainNode=audioCtx.createGain();
+    gainNode.gain.value=0.15;
+    convolver=audioCtx.createConvolver();
+    gainNode.connect(convolver);
+    convolver.connect(audioCtx.destination);
+}
+
+function createReverb(){
+    let len=audioCtx.sampleRate*energyDensity*0.5;
+    let impulse=audioCtx.createBuffer(2,len,audioCtx.sampleRate);
+    for(let c=0;c<2;c++){
+        let ch=impulse.getChannelData(c);
+        for(let i=0;i<len;i++){
+            ch[i]=(Math.random()*2-1)*(1-i/len);
+        }
+    }
+    convolver.buffer=impulse;
+}
+
+function updateAudio(){
+    if(!audioCtx)initAudio();
+    if(!osc){
+        osc=audioCtx.createOscillator();
+        let real=new Float32Array(harmonics+1);
+        let imag=new Float32Array(harmonics+1);
+        for(let i=1;i<=harmonics;i++){
+            imag[i]=1/i;
+        }
+        osc.setPeriodicWave(audioCtx.createPeriodicWave(real,imag));
+        osc.connect(gainNode);
+        osc.start();
+    }
+    let freq=200+Math.abs(Math.sin(energyDensity*5))*400;
+    osc.frequency.setTargetAtTime(freq,audioCtx.currentTime,0.05);
+    createReverb();
+}
+
+canvas.addEventListener("click",()=>randomize());
+window.addEventListener("keydown",e=>{
+    if(e.code==="Space")randomize();
+    if(e.key==="h"||e.key==="H")hudOn=!hudOn;
+    if(e.key==="s"||e.key==="S"){soundOn=!soundOn;if(!soundOn&&osc){osc.stop();osc=null;}}
+});
+
+randomize();
+render();
+</script>
+</body>
+</html>

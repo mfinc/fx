@@ -1,0 +1,1214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Multidimensional Puzzle-Physics Labyrinth Reactor | Generative Algorithmic Art Engine</title>
+<meta name="description" content="A self-contained generative audiovisual engine fusing puzzle topologies, algorithmic maze generators, physics-driven mechanical frameworks, and decorative geometry traditions into an endlessly evolving meta-abstract design machine.">
+<meta name="keywords" content="generative puzzles, algorithmic mazes, physics simulation, procedural art, slitherlink, tangram, polyomino, Prim maze, Kruskal maze, Moorish tessellation, Byzantine mosaic, Celtic interlace, mass-spring lattice, Hamiltonian dynamics, Lagrangian mechanics, gear train simulation, audiovisual art, canvas animation, procedural music, generative design, labyrinth generator, puzzle topology, rigid body physics, fractal geometry, interactive art">
+<meta name="author" content="Labyrinth Reactor Engine">
+<meta property="og:title" content="Multidimensional Puzzle-Physics Labyrinth Reactor">
+<meta property="og:description" content="Algorithmically fused puzzle topologies and maze generators animated through physics-driven mechanical frameworks with generative audiovisual synchronization.">
+<meta property="og:type" content="website">
+<meta name="robots" content="index, follow">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000}
+canvas{display:block;position:fixed;top:0;left:0}
+#hud{position:fixed;top:16px;left:16px;color:rgba(255,255,255,0.85);font-family:monospace;font-size:11px;line-height:1.7;pointer-events:none;display:none;text-shadow:0 0 8px currentColor;z-index:10}
+#hud.visible{display:block}
+#hint{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,0.3);font-family:monospace;font-size:10px;letter-spacing:2px;pointer-events:none;transition:opacity 1s}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<div id="hint">SPACE / TAP · REGENERATE &nbsp;|&nbsp; H · HUD &nbsp;|&nbsp; S · SOUND</div>
+<script>
+(function(){
+'use strict';
+
+// ── Canvas Setup ──────────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const hud = document.getElementById('hud');
+const hint = document.getElementById('hint');
+let W, H, cx, cy;
+function resize(){
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  cx = W/2; cy = H/2;
+}
+resize();
+window.addEventListener('resize', ()=>{ resize(); regenerate(); });
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let showHUD = false;
+let soundOn = false;
+let frame = 0;
+let t = 0;
+let audioCtx = null;
+let masterGain = null;
+let oscillators = [];
+let config = {};
+let mazeData = null;
+let springs = [];
+let gears = [];
+let particles = [];
+let mechanicalNodes = [];
+let decorTiles = [];
+let polyominoes = [];
+let palette = [];
+let bgPalette = [];
+let rng;
+
+// ── PRNG ──────────────────────────────────────────────────────────────────────
+function mkRng(seed){
+  let s = seed >>> 0;
+  return {
+    next(){ s = (s ^ (s << 13)) >>> 0; s = (s ^ (s >> 17)) >>> 0; s = (s ^ (s << 5)) >>> 0; return s / 0x100000000; },
+    int(a,b){ return Math.floor(this.next()*(b-a+1))+a; },
+    pick(arr){ return arr[this.int(0,arr.length-1)]; },
+    shuffle(arr){ for(let i=arr.length-1;i>0;i--){ const j=this.int(0,i); [arr[i],arr[j]]=[arr[j],arr[i]]; } return arr; }
+  };
+}
+
+// ── Color Utilities ───────────────────────────────────────────────────────────
+function hsl(h,s,l,a=1){ return `hsla(${h%360},${s}%,${l}%,${a})`; }
+function lerp(a,b,t){ return a+(b-a)*t; }
+function lerpColor(c1,c2,t){
+  return [lerp(c1[0],c2[0],t),lerp(c1[1],c2[1],t),lerp(c1[2],c2[2],t)];
+}
+function hslToArr(h,s,l){ return [h%360,s,l]; }
+
+function buildPalette(r){
+  const schemes = [
+    ()=>{ // Spectral / banded
+      const base = r.int(0,359);
+      return Array.from({length:8},(_,i)=>[base+i*45,70+r.int(-20,20),50+r.int(-15,15)]);
+    },
+    ()=>{ // Analogous warm
+      const base = r.int(0,60);
+      return Array.from({length:8},(_,i)=>[base+i*18,80,55+i*2]);
+    },
+    ()=>{ // Complementary split
+      const base = r.int(0,359);
+      const pal = [];
+      for(let i=0;i<8;i++) pal.push([base+(i%2===0?0:180)+i*10,75,50+i*3]);
+      return pal;
+    },
+    ()=>{ // Triadic neon
+      const base = r.int(0,359);
+      return Array.from({length:8},(_,i)=>[base+i*120%360,90,60]);
+    },
+    ()=>{ // Monochromatic deep
+      const base = r.int(180,280);
+      return Array.from({length:8},(_,i)=>[base,60+i*4,20+i*8]);
+    },
+    ()=>{ // Persian garden
+      const base = r.int(140,200);
+      return [[base,70,35],[base+30,80,45],[base-20,60,55],[base+60,75,40],[50,90,55],[30,85,50],[base+90,65,45],[base+10,55,60]];
+    },
+    ()=>{ // Art Deco gold/black
+      const gold = r.int(35,55);
+      return Array.from({length:8},(_,i)=>[gold+i*5,85-(i*5),45+i*4]);
+    },
+    ()=>{ // Byzantine mosaic
+      const base = r.int(0,359);
+      return [[base,80,50],[base+120,75,45],[base+240,85,55],[base+60,70,40],[base+180,65,60],[base+30,90,35],[base+150,80,50],[base+300,70,55]];
+    }
+  ];
+  return r.pick(schemes)();
+}
+
+function palColor(idx, tOffset=0){
+  const n = palette.length;
+  const i = ((idx % n) + n) % n;
+  const j = (i+1) % n;
+  const blend = (Math.sin(t*0.3 + tOffset + i) * 0.5 + 0.5);
+  const c = lerpColor(palette[i], palette[j], blend);
+  return hsl(c[0], c[1], c[2]);
+}
+function palColorA(idx, alpha, tOffset=0){
+  const n = palette.length;
+  const i = ((idx % n) + n) % n;
+  const j = (i+1) % n;
+  const blend = (Math.sin(t*0.3 + tOffset + i) * 0.5 + 0.5);
+  const c = lerpColor(palette[i], palette[j], blend);
+  return hsl(c[0], c[1], c[2], alpha);
+}
+
+// ── Maze Generators ───────────────────────────────────────────────────────────
+function mazeGrid(cols, rows){
+  const cells = new Uint8Array(cols*rows); // bitmask: 1=N 2=E 4=S 8=W
+  const visited = new Uint8Array(cols*rows);
+  return { cols, rows, cells, visited,
+    idx(x,y){ return y*cols+x; },
+    hasWall(x,y,dir){ return !(this.cells[this.idx(x,y)] & dir); },
+    carve(x1,y1,x2,y2){
+      const dx=x2-x1, dy=y2-y1;
+      if(dx===1){ this.cells[this.idx(x1,y1)]|=2; this.cells[this.idx(x2,y2)]|=8; }
+      else if(dx===-1){ this.cells[this.idx(x1,y1)]|=8; this.cells[this.idx(x2,y2)]|=2; }
+      else if(dy===1){ this.cells[this.idx(x1,y1)]|=4; this.cells[this.idx(x2,y2)]|=1; }
+      else if(dy===-1){ this.cells[this.idx(x1,y1)]|=1; this.cells[this.idx(x2,y2)]|=4; }
+    }
+  };
+}
+
+function genPrim(cols, rows, r){
+  const m = mazeGrid(cols, rows);
+  const startX = r.int(0,cols-1), startY = r.int(0,rows-1);
+  m.visited[m.idx(startX,startY)] = 1;
+  const frontier = [[startX,startY]];
+  const dirs = [[0,-1],[1,0],[0,1],[-1,0]];
+  while(frontier.length > 0){
+    const fi = r.int(0, frontier.length-1);
+    const [cx,cy] = frontier[fi];
+    frontier.splice(fi,1);
+    const unvisitedNeighbors = [];
+    const visitedNeighbors = [];
+    for(const [dx,dy] of dirs){
+      const nx=cx+dx, ny=cy+dy;
+      if(nx>=0&&nx<cols&&ny>=0&&ny<rows){
+        if(m.visited[m.idx(nx,ny)]) visitedNeighbors.push([nx,ny]);
+        else { m.visited[m.idx(nx,ny)]=1; unvisitedNeighbors.push([nx,ny]); frontier.push([nx,ny]); }
+      }
+    }
+    if(visitedNeighbors.length>0){
+      const [vx,vy] = r.pick(visitedNeighbors);
+      m.carve(cx,cy,vx,vy);
+    }
+  }
+  return m;
+}
+
+function genKruskal(cols, rows, r){
+  const m = mazeGrid(cols, rows);
+  const sets = new Int32Array(cols*rows).map((_,i)=>i);
+  function find(x){ return sets[x]===x?x:(sets[x]=find(sets[x])); }
+  function union(a,b){ sets[find(a)]=find(b); }
+  const edges = [];
+  for(let y=0;y<rows;y++) for(let x=0;x<cols;x++){
+    if(x<cols-1) edges.push([x,y,x+1,y]);
+    if(y<rows-1) edges.push([x,y,x,y+1]);
+  }
+  r.shuffle(edges);
+  for(const [x1,y1,x2,y2] of edges){
+    const a=m.idx(x1,y1), b=m.idx(x2,y2);
+    if(find(a)!==find(b)){ union(a,b); m.carve(x1,y1,x2,y2); }
+  }
+  return m;
+}
+
+function genSidewinder(cols, rows, r){
+  const m = mazeGrid(cols, rows);
+  for(let y=0;y<rows;y++){
+    let run = [];
+    for(let x=0;x<cols;x++){
+      run.push([x,y]);
+      const atEast = x===cols-1;
+      const atNorth = y===0;
+      const carveNorth = !atNorth && (atEast || r.next()<0.5);
+      if(carveNorth){
+        const [cx,cy] = r.pick(run);
+        if(cy>0) m.carve(cx,cy,cx,cy-1);
+        run=[];
+      } else if(!atEast){ m.carve(x,y,x+1,y); }
+    }
+  }
+  return m;
+}
+
+function genHuntKill(cols, rows, r){
+  const m = mazeGrid(cols, rows);
+  let cx=r.int(0,cols-1), cy=r.int(0,rows-1);
+  m.visited[m.idx(cx,cy)]=1;
+  const dirs=[[0,-1],[1,0],[0,1],[-1,0]];
+  let hunting=false;
+  let safetyBreak=cols*rows*4;
+  while(safetyBreak-->0){
+    if(!hunting){
+      r.shuffle(dirs);
+      let moved=false;
+      for(const [dx,dy] of dirs){
+        const nx=cx+dx,ny=cy+dy;
+        if(nx>=0&&nx<cols&&ny>=0&&ny<rows&&!m.visited[m.idx(nx,ny)]){
+          m.carve(cx,cy,nx,ny); m.visited[m.idx(nx,ny)]=1; cx=nx;cy=ny; moved=true; break;
+        }
+      }
+      if(!moved) hunting=true;
+    } else {
+      let found=false;
+      outer: for(let y=0;y<rows;y++) for(let x=0;x<cols;x++){
+        if(!m.visited[m.idx(x,y)]){
+          for(const [dx,dy] of dirs){
+            const nx=x+dx,ny=y+dy;
+            if(nx>=0&&nx<cols&&ny>=0&&ny<rows&&m.visited[m.idx(nx,ny)]){
+              m.carve(x,y,nx,ny); m.visited[m.idx(x,y)]=1; cx=x;cy=y; found=true; hunting=false; break outer;
+            }
+          }
+        }
+      }
+      if(!found) break;
+    }
+  }
+  return m;
+}
+
+function genAldousBroder(cols, rows, r){
+  const m = mazeGrid(cols, rows);
+  let cx=r.int(0,cols-1), cy=r.int(0,rows-1);
+  m.visited[m.idx(cx,cy)]=1;
+  let remaining=cols*rows-1;
+  const dirs=[[0,-1],[1,0],[0,1],[-1,0]];
+  let limit=cols*rows*20;
+  while(remaining>0&&limit-->0){
+    const [dx,dy]=r.pick(dirs);
+    const nx=cx+dx,ny=cy+dy;
+    if(nx>=0&&nx<cols&&ny>=0&&ny<rows){
+      if(!m.visited[m.idx(nx,ny)]){ m.carve(cx,cy,nx,ny); m.visited[m.idx(nx,ny)]=1; remaining--; }
+      cx=nx;cy=ny;
+    }
+  }
+  return m;
+}
+
+// ── Radial Maze ───────────────────────────────────────────────────────────────
+function genRadialMaze(rings, sectors, r){
+  const cells = [];
+  for(let ri=0;ri<rings;ri++){
+    cells.push(new Uint8Array(sectors)); // bit 1=outward, bit 2=clockwise
+  }
+  // Simple radial spanning tree
+  const visited = [];
+  for(let ri=0;ri<rings;ri++) visited.push(new Uint8Array(sectors));
+  visited[0][0]=1;
+  const frontier=[[0,0]];
+  while(frontier.length>0){
+    const fi=r.int(0,frontier.length-1);
+    const [ri,si]=frontier[fi]; frontier.splice(fi,1);
+    const nbrs=[];
+    if(ri<rings-1&&!visited[ri+1][si]) nbrs.push([ri+1,si,'out']);
+    if(ri>0&&!visited[ri-1][si]) nbrs.push([ri-1,si,'in']);
+    const nextS=(si+1)%sectors;
+    const prevS=(si-1+sectors)%sectors;
+    if(!visited[ri][nextS]) nbrs.push([ri,nextS,'cw']);
+    if(!visited[ri][prevS]) nbrs.push([ri,prevS,'ccw']);
+    if(nbrs.length>0){
+      const [nr,ns,dir]=r.pick(nbrs);
+      if(!visited[nr][ns]){
+        visited[nr][ns]=1; frontier.push([nr,ns]);
+        if(dir==='out'){ cells[ri][si]|=1; }
+        else if(dir==='cw'){ cells[ri][si]|=2; }
+      }
+    }
+  }
+  return {rings,sectors,cells};
+}
+
+// ── Polyomino Packer ──────────────────────────────────────────────────────────
+function genPolyominoes(r){
+  const shapes = [
+    [[0,0],[1,0],[2,0],[3,0]], // I
+    [[0,0],[1,0],[1,1],[2,1]], // S
+    [[0,1],[1,1],[1,0],[2,0]], // Z
+    [[0,0],[1,0],[0,1],[1,1]], // O
+    [[0,0],[1,0],[2,0],[1,1]], // T
+    [[0,0],[1,0],[2,0],[2,1]], // L
+    [[0,1],[1,1],[2,1],[2,0]], // J
+    [[0,0],[0,1],[1,1],[2,1]], // extra
+    [[0,0],[0,1],[0,2],[1,2]], // extra
+    [[0,0],[1,0],[1,1],[1,2]], // extra
+    [[0,0],[0,1],[1,0],[2,0],[2,1]], // P
+    [[0,0],[1,0],[1,1],[2,1],[2,2]], // W
+  ];
+  const result = [];
+  const gridSize = r.int(6,10);
+  const grid = new Uint8Array(gridSize*gridSize);
+  for(let attempt=0;attempt<100;attempt++){
+    const shape = r.pick(shapes);
+    const ox = r.int(0,gridSize-4);
+    const oy = r.int(0,gridSize-4);
+    const color = r.int(0,palette.length-1);
+    let ok=true;
+    for(const [dx,dy] of shape){
+      const nx=ox+dx,ny=oy+dy;
+      if(nx>=gridSize||ny>=gridSize||grid[ny*gridSize+nx]){ ok=false; break; }
+    }
+    if(ok){
+      for(const [dx,dy] of shape) grid[(oy+dy)*gridSize+(ox+dx)]=1;
+      result.push({shape,ox,oy,color});
+    }
+  }
+  return {pieces:result, gridSize};
+}
+
+// ── Mass-Spring Lattice ───────────────────────────────────────────────────────
+function buildSpringLattice(r){
+  const nodeCount = r.int(12,28);
+  const nodes = [];
+  for(let i=0;i<nodeCount;i++){
+    const angle = (i/nodeCount)*Math.PI*2 + r.next()*0.5;
+    const radius = r.next()*0.35 + 0.15;
+    nodes.push({
+      x: cx + Math.cos(angle)*radius*Math.min(W,H),
+      y: cy + Math.sin(angle)*radius*Math.min(W,H),
+      vx:0, vy:0, mass: r.next()*2+0.5,
+      color: r.int(0,palette.length-1),
+      size: r.next()*8+3,
+      fixed: i<2
+    });
+  }
+  const springs2 = [];
+  for(let i=0;i<nodes.length;i++){
+    for(let j=i+1;j<nodes.length;j++){
+      if(r.next()<0.35){
+        const dx=nodes[i].x-nodes[j].x, dy=nodes[i].y-nodes[j].y;
+        springs2.push({ a:i, b:j, rest:Math.sqrt(dx*dx+dy*dy), k:r.next()*8+2, damp:0.92 });
+      }
+    }
+  }
+  return {nodes, springs:springs2};
+}
+
+// ── Gear Train ────────────────────────────────────────────────────────────────
+function buildGears(r){
+  const gearList = [];
+  const count = r.int(4, 9);
+  let px=cx, py=cy;
+  let lastR = r.int(30,70);
+  let lastAngle = 0;
+  let lastSpeed = 0.8;
+  for(let i=0;i<count;i++){
+    const radius = r.int(15,60);
+    const teeth = Math.round(radius*1.5);
+    const angle = r.next()*Math.PI*2;
+    if(i>0){
+      px = gearList[i-1].x + Math.cos(angle)*(gearList[i-1].r+radius+2);
+      py = gearList[i-1].y + Math.sin(angle)*(gearList[i-1].r+radius+2);
+      lastSpeed = -gearList[i-1].speed*(gearList[i-1].r/radius);
+    }
+    gearList.push({
+      x:px, y:py, r:radius, teeth, angle:r.next()*Math.PI*2,
+      speed: i===0 ? (r.next()*0.01+0.005) : lastSpeed,
+      color: r.int(0,palette.length-1),
+      type: r.pick(['spur','worm','ratchet'])
+    });
+  }
+  return gearList;
+}
+
+// ── Decorative Tiles (Moorish/Celtic/Aztec) ───────────────────────────────────
+function buildDecorTiles(r){
+  const styles = ['moorish','celtic','aztec','byzantine','artdeco','chinese','persian'];
+  const style = r.pick(styles);
+  const tileSize = r.int(25,55);
+  const tiles = [];
+  const tilesX = Math.ceil(W/tileSize)+2;
+  const tilesY = Math.ceil(H/tileSize)+2;
+  for(let ty=0;ty<tilesY;ty++){
+    for(let tx=0;tx<tilesX;tx++){
+      tiles.push({
+        x: tx*tileSize - tileSize,
+        y: ty*tileSize - tileSize,
+        s: tileSize,
+        phase: r.next()*Math.PI*2,
+        color: r.int(0,palette.length-1),
+        style, idx: tx+ty*tilesX
+      });
+    }
+  }
+  return tiles;
+}
+
+// ── Articulated Arm ───────────────────────────────────────────────────────────
+function buildArm(r){
+  const segments = r.int(3,7);
+  const arm = [];
+  for(let i=0;i<segments;i++){
+    arm.push({
+      length: r.int(30,90),
+      angle: r.next()*Math.PI*2,
+      angleSpeed: (r.next()-0.5)*0.02,
+      width: Math.max(3, 15-i*2),
+      color: r.int(0,palette.length-1)
+    });
+  }
+  return {segments:arm, x:cx+r.next()*200-100, y:cy+r.next()*200-100};
+}
+
+// ── Config / Regenerate ───────────────────────────────────────────────────────
+function regenerate(){
+  frame=0; t=0;
+  rng = mkRng(Date.now() ^ (Math.random()*0xFFFFFFFF)|0);
+  palette = buildPalette(rng);
+  bgPalette = buildPalette(rng);
+
+  const mazeType = rng.pick(['prim','kruskal','sidewinder','huntKill','aldous','radial']);
+  const cols = rng.int(8, 22);
+  const rows = rng.int(8, 18);
+
+  if(mazeType==='radial'){
+    mazeData = { type:'radial', data: genRadialMaze(rng.int(4,8), rng.int(12,24), rng) };
+  } else {
+    const gen = {prim:genPrim,kruskal:genKruskal,sidewinder:genSidewinder,huntKill:genHuntKill,aldous:genAldousBroder}[mazeType];
+    mazeData = { type:'grid', data: gen(cols, rows, rng), cols, rows };
+  }
+
+  const lattice = buildSpringLattice(rng);
+  springs = lattice.springs;
+  mechanicalNodes = lattice.nodes;
+  gears = buildGears(rng);
+  decorTiles = buildDecorTiles(rng);
+  polyominoes = genPolyominoes(rng);
+
+  config = {
+    mazeType,
+    decorStyle: rng.pick(['moorish','celtic','aztec','byzantine','artdeco','chinese','persian']),
+    armCount: rng.int(1,3),
+    arms: Array.from({length: rng.int(1,3)}, ()=>buildArm(rng)),
+    paletteMode: rng.pick(['spectral','banded','harmonic','interference','kaleidoscope']),
+    physicsScale: rng.next()*0.5+0.5,
+    mazeCellW: W / (mazeData.type==='grid'?mazeData.cols:20),
+    mazeCellH: H / (mazeData.type==='grid'?mazeData.rows:20),
+    sliderCrankAngle: 0,
+    sliderCrankSpeed: rng.next()*0.015+0.005,
+    scotchAngle: 0,
+    scotchSpeed: rng.next()*0.012+0.004,
+    wormAngle: 0,
+    showPolyomino: rng.next()>0.4,
+    showKenken: rng.next()>0.5,
+    kenkenSize: rng.int(3,6),
+    skewbPhase: 0,
+    globalRotSpeed: (rng.next()-0.5)*0.003,
+    globalRot: 0
+  };
+
+  particles = Array.from({length: rng.int(80,200)}, ()=>({
+    x: rng.next()*W, y: rng.next()*H,
+    vx:(rng.next()-0.5)*2, vy:(rng.next()-0.5)*2,
+    life:1, maxLife:rng.int(80,200),
+    age:rng.int(0,100),
+    size:rng.next()*3+1,
+    color:rng.int(0,palette.length-1)
+  }));
+
+  if(soundOn) initAudio();
+  hideHint();
+}
+
+function hideHint(){ setTimeout(()=>{ hint.style.opacity='0'; }, 3000); }
+
+// ── Audio ─────────────────────────────────────────────────────────────────────
+function initAudio(){
+  if(!soundOn) return;
+  stopAudio();
+  audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+  masterGain = audioCtx.createGain();
+  masterGain.gain.value = 0.08;
+  masterGain.connect(audioCtx.destination);
+
+  // Drone oscillators
+  const freqs = [55, 110, 165, 220, 330];
+  for(const freq of freqs){
+    const osc = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.value = freq * (1 + Math.random()*0.1);
+    filter.Q.value = 10 + Math.random()*20;
+    osc.type = ['sine','triangle','sawtooth'][Math.floor(Math.random()*3)];
+    osc.frequency.value = freq + (Math.random()-0.5)*5;
+    g.gain.value = 0.3 + Math.random()*0.4;
+    osc.connect(filter); filter.connect(g); g.connect(masterGain);
+    osc.start();
+    oscillators.push({osc,g,filter,baseFreq:freq});
+  }
+
+  // Resonator
+  const noise = audioCtx.createOscillator();
+  noise.type = 'sawtooth';
+  noise.frequency.value = 80;
+  const nGain = audioCtx.createGain();
+  nGain.gain.value = 0.05;
+  const nFilter = audioCtx.createBiquadFilter();
+  nFilter.type = 'lowpass';
+  nFilter.frequency.value = 400;
+  noise.connect(nFilter); nFilter.connect(nGain); nGain.connect(masterGain);
+  noise.start();
+  oscillators.push({osc:noise,g:nGain,filter:nFilter,baseFreq:80});
+}
+
+function stopAudio(){
+  for(const {osc} of oscillators){ try{osc.stop();}catch(e){} }
+  oscillators=[];
+  if(masterGain) masterGain.disconnect();
+  if(audioCtx){ try{audioCtx.close();}catch(e){} audioCtx=null; }
+}
+
+function updateAudio(){
+  if(!soundOn||!audioCtx) return;
+  const beatPhase = Math.sin(t*config.sliderCrankSpeed*8)*0.5+0.5;
+  for(let i=0;i<oscillators.length;i++){
+    const {osc,g,filter} = oscillators[i];
+    const vibrato = Math.sin(t*0.3+i)*2;
+    try{
+      osc.frequency.setTargetAtTime(oscillators[i].baseFreq+vibrato+beatPhase*5, audioCtx.currentTime, 0.1);
+      g.gain.setTargetAtTime(0.2+beatPhase*0.15+Math.sin(t*0.5+i)*0.05, audioCtx.currentTime, 0.3);
+    }catch(e){}
+  }
+}
+
+// ── Drawing Helpers ───────────────────────────────────────────────────────────
+function drawGear(x,y,radius,teeth,angle,col,gtype){
+  ctx.save();
+  ctx.translate(x,y);
+  ctx.rotate(angle);
+  ctx.beginPath();
+  const toothH = radius*0.15;
+  const toothW = (Math.PI*2/teeth)*0.4;
+  for(let i=0;i<teeth;i++){
+    const a = (i/teeth)*Math.PI*2;
+    const a1=a-toothW, a2=a-toothW*0.3, a3=a+toothW*0.3, a4=a+toothW;
+    ctx.lineTo(Math.cos(a1)*radius, Math.sin(a1)*radius);
+    ctx.lineTo(Math.cos(a2)*(radius+toothH), Math.sin(a2)*(radius+toothH));
+    ctx.lineTo(Math.cos(a3)*(radius+toothH), Math.sin(a3)*(radius+toothH));
+    ctx.lineTo(Math.cos(a4)*radius, Math.sin(a4)*radius);
+  }
+  ctx.closePath();
+  ctx.strokeStyle = palColorA(col, 0.9, t);
+  ctx.lineWidth = 1.5;
+  ctx.fillStyle = palColorA(col, 0.18, t);
+  ctx.fill();
+  ctx.stroke();
+  // Hub
+  ctx.beginPath();
+  ctx.arc(0,0,radius*0.22,0,Math.PI*2);
+  ctx.fillStyle = palColorA(col, 0.6, t+1);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(0,0,radius*0.08,0,Math.PI*2);
+  ctx.fillStyle = palColorA((col+2)%palette.length, 0.9, t);
+  ctx.fill();
+  // Spokes
+  ctx.strokeStyle = palColorA(col, 0.4, t);
+  ctx.lineWidth=1;
+  for(let i=0;i<4;i++){
+    const a=i*Math.PI/2;
+    ctx.beginPath(); ctx.moveTo(Math.cos(a)*radius*0.22,Math.sin(a)*radius*0.22);
+    ctx.lineTo(Math.cos(a)*radius*0.8,Math.sin(a)*radius*0.8);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawMoorish(x,y,s,phase,col){
+  ctx.save(); ctx.translate(x+s/2,y+s/2);
+  const r2=s/2, r3=s/3, r4=s/4;
+  // 8-pointed star
+  ctx.beginPath();
+  for(let i=0;i<8;i++){
+    const a=i*Math.PI/4+phase*0.1;
+    const a2=a+Math.PI/8;
+    const r=(i%2===0)?r2:r3;
+    if(i===0) ctx.moveTo(Math.cos(a)*r,Math.sin(a)*r);
+    else ctx.lineTo(Math.cos(a)*r,Math.sin(a)*r);
+    ctx.lineTo(Math.cos(a2)*r4,Math.sin(a2)*r4);
+  }
+  ctx.closePath();
+  ctx.fillStyle=palColorA(col,0.15,phase);
+  ctx.strokeStyle=palColorA(col,0.6,phase);
+  ctx.lineWidth=0.8;
+  ctx.fill(); ctx.stroke();
+  // Inner circle
+  ctx.beginPath(); ctx.arc(0,0,r4*0.6,0,Math.PI*2);
+  ctx.fillStyle=palColorA((col+1)%palette.length,0.3,phase+1);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawCeltic(x,y,s,phase,col){
+  ctx.save(); ctx.translate(x+s/2,y+s/2);
+  const r=s*0.4;
+  ctx.strokeStyle=palColorA(col,0.7,phase);
+  ctx.lineWidth=2;
+  // Interlace loops
+  for(let i=0;i<4;i++){
+    const a=i*Math.PI/2+phase*0.05;
+    ctx.beginPath();
+    ctx.arc(Math.cos(a)*r*0.4, Math.sin(a)*r*0.4, r*0.4, a, a+Math.PI);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawAztec(x,y,s,phase,col){
+  ctx.save(); ctx.translate(x+s/2,y+s/2);
+  const steps=4;
+  for(let i=steps;i>0;i--){
+    const r=s*0.45*(i/steps);
+    ctx.strokeStyle=palColorA((col+i)%palette.length,0.6,phase+i);
+    ctx.lineWidth=0.8;
+    ctx.strokeRect(-r,-r,r*2,r*2);
+    ctx.save(); ctx.rotate(Math.PI/4*(1+phase*0.02));
+    ctx.strokeStyle=palColorA((col+i+2)%palette.length,0.3,phase+i+2);
+    ctx.strokeRect(-r*0.7,-r*0.7,r*1.4,r*1.4);
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+function drawByzantine(x,y,s,phase,col){
+  ctx.save(); ctx.translate(x+s/2,y+s/2);
+  const r=s*0.45;
+  ctx.fillStyle=palColorA(col,0.12,phase);
+  ctx.fillRect(-r,-r,r*2,r*2);
+  // Cross motif
+  ctx.fillStyle=palColorA((col+1)%palette.length,0.3,phase+1);
+  ctx.fillRect(-r*0.2,-r,r*0.4,r*2);
+  ctx.fillRect(-r,-r*0.2,r*2,r*0.4);
+  // Corner circles
+  for(let i=0;i<4;i++){
+    const a=i*Math.PI/2+Math.PI/4;
+    ctx.beginPath();
+    ctx.arc(Math.cos(a)*r*0.6,Math.sin(a)*r*0.6,r*0.18,0,Math.PI*2);
+    ctx.fillStyle=palColorA((col+2+i)%palette.length,0.5,phase+i);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawArtDeco(x,y,s,phase,col){
+  ctx.save(); ctx.translate(x+s/2,y+s/2);
+  const r=s*0.46;
+  // Fan rays
+  const rays=8;
+  for(let i=0;i<rays;i++){
+    const a=i*(Math.PI*2/rays)+phase*0.03;
+    ctx.beginPath();
+    ctx.moveTo(0,0);
+    ctx.arc(0,0,r,a,a+Math.PI/rays*0.7);
+    ctx.closePath();
+    ctx.fillStyle=palColorA((col+i)%palette.length, i%2?0.3:0.1, phase+i*0.3);
+    ctx.fill();
+  }
+  ctx.beginPath(); ctx.arc(0,0,r*0.25,0,Math.PI*2);
+  ctx.strokeStyle=palColorA(col,0.8,phase);
+  ctx.lineWidth=1; ctx.stroke();
+  ctx.restore();
+}
+
+function drawChinese(x,y,s,phase,col){
+  ctx.save(); ctx.translate(x+s/2,y+s/2);
+  const r=s*0.45;
+  // Lattice grid
+  const n=3;
+  ctx.strokeStyle=palColorA(col,0.5,phase);
+  ctx.lineWidth=0.8;
+  for(let i=-n;i<=n;i++){
+    const p=i*(r/n);
+    ctx.beginPath(); ctx.moveTo(p,-r); ctx.lineTo(p,r); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-r,p); ctx.lineTo(r,p); ctx.stroke();
+  }
+  // Diamond overlay
+  ctx.beginPath();
+  ctx.moveTo(0,-r); ctx.lineTo(r,0); ctx.lineTo(0,r); ctx.lineTo(-r,0);
+  ctx.closePath();
+  ctx.strokeStyle=palColorA((col+1)%palette.length,0.7,phase+1);
+  ctx.lineWidth=1.2; ctx.stroke();
+  ctx.restore();
+}
+
+function drawPersian(x,y,s,phase,col){
+  ctx.save(); ctx.translate(x+s/2,y+s/2);
+  const r=s*0.45;
+  // Floral 6-petal
+  for(let i=0;i<6;i++){
+    const a=i*Math.PI/3+phase*0.04;
+    ctx.beginPath();
+    ctx.arc(Math.cos(a)*r*0.3,Math.sin(a)*r*0.3,r*0.35,0,Math.PI*2);
+    ctx.fillStyle=palColorA((col+i)%palette.length,0.15,phase+i*0.4);
+    ctx.strokeStyle=palColorA((col+i)%palette.length,0.6,phase+i*0.4);
+    ctx.lineWidth=0.7;
+    ctx.fill(); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+const tileDrawers = {moorish:drawMoorish,celtic:drawCeltic,aztec:drawAztec,byzantine:drawByzantine,artdeco:drawArtDeco,chinese:drawChinese,persian:drawPersian};
+
+function drawDecorLayer(alpha){
+  if(!decorTiles.length) return;
+  ctx.save(); ctx.globalAlpha=alpha;
+  for(const tile of decorTiles){
+    const drawer = tileDrawers[tile.style];
+    if(drawer) drawer(tile.x,tile.y,tile.s,tile.phase+t*0.2,tile.color);
+  }
+  ctx.restore();
+}
+
+// ── Grid Maze Render ──────────────────────────────────────────────────────────
+function drawGridMaze(){
+  if(!mazeData||mazeData.type!=='grid') return;
+  const {data,cols,rows} = mazeData;
+  const cw = W/cols, ch = H/rows;
+  ctx.save();
+  ctx.lineWidth=1.5;
+  const mazeAlpha = 0.6+Math.sin(t*0.4)*0.2;
+  ctx.strokeStyle=palColorA(0, mazeAlpha, t*0.5);
+
+  for(let y=0;y<rows;y++){
+    for(let x=0;x<cols;x++){
+      const cell=data.cells[data.idx(x,y)];
+      const px=x*cw, py=y*ch;
+      // color cells
+      const cellCol = (x*3+y*7)%palette.length;
+      ctx.fillStyle=palColorA(cellCol, 0.06+Math.sin(t*0.2+x*0.3+y*0.5)*0.04, t+x+y);
+      ctx.fillRect(px,py,cw,ch);
+      // walls
+      ctx.strokeStyle=palColorA((x+y)%palette.length,mazeAlpha,t*0.3+x*0.1);
+      if(!(cell&1)){ ctx.beginPath(); ctx.moveTo(px,py); ctx.lineTo(px+cw,py); ctx.stroke(); }
+      if(!(cell&2)){ ctx.beginPath(); ctx.moveTo(px+cw,py); ctx.lineTo(px+cw,py+ch); ctx.stroke(); }
+      if(!(cell&4)){ ctx.beginPath(); ctx.moveTo(px,py+ch); ctx.lineTo(px+cw,py+ch); ctx.stroke(); }
+      if(!(cell&8)){ ctx.beginPath(); ctx.moveTo(px,py); ctx.lineTo(px,py+ch); ctx.stroke(); }
+    }
+  }
+  ctx.restore();
+}
+
+// ── Radial Maze Render ────────────────────────────────────────────────────────
+function drawRadialMaze(){
+  if(!mazeData||mazeData.type!=='radial') return;
+  const {rings,sectors,cells} = mazeData.data;
+  const maxR = Math.min(W,H)*0.46;
+  const ringW = maxR/rings;
+  ctx.save();
+  ctx.lineWidth=1.2;
+  for(let ri=0;ri<rings;ri++){
+    for(let si=0;si<sectors;si++){
+      const r1=(ri)*ringW, r2=(ri+1)*ringW;
+      const a1=(si/sectors)*Math.PI*2-Math.PI/2+t*0.02;
+      const a2=((si+1)/sectors)*Math.PI*2-Math.PI/2+t*0.02;
+      // fill
+      const col=(ri*sectors+si)%palette.length;
+      ctx.beginPath();
+      ctx.arc(cx,cy,r2,a1,a2);
+      ctx.arc(cx,cy,r1,a2,a1,true);
+      ctx.closePath();
+      ctx.fillStyle=palColorA(col,0.08+Math.sin(t*0.3+ri+si)*0.04,t+ri*0.2);
+      ctx.fill();
+      // outer wall
+      if(!(cells[ri][si]&1)){
+        ctx.beginPath(); ctx.arc(cx,cy,r2,a1,a2);
+        ctx.strokeStyle=palColorA((col+2)%palette.length,0.7,t+ri);
+        ctx.stroke();
+      }
+      // clockwise wall
+      if(!(cells[ri][si]&2)){
+        ctx.beginPath();
+        ctx.moveTo(cx+Math.cos(a2)*r1,cy+Math.sin(a2)*r1);
+        ctx.lineTo(cx+Math.cos(a2)*r2,cy+Math.sin(a2)*r2);
+        ctx.strokeStyle=palColorA((col+1)%palette.length,0.7,t+si);
+        ctx.stroke();
+      }
+    }
+  }
+  ctx.restore();
+}
+
+// ── Polyomino Render ──────────────────────────────────────────────────────────
+function drawPolyomino(){
+  if(!config.showPolyomino) return;
+  const {pieces,gridSize}=polyominoes;
+  const cellSize=Math.min(W,H)*0.04;
+  const ox=cx-gridSize*cellSize/2+Math.sin(t*0.1)*30;
+  const oy=cy-gridSize*cellSize/2+Math.cos(t*0.13)*20;
+  ctx.save(); ctx.globalAlpha=0.55;
+  for(const piece of pieces){
+    for(const [dx,dy] of piece.shape){
+      const px=ox+(piece.ox+dx)*cellSize;
+      const py=oy+(piece.oy+dy)*cellSize;
+      ctx.fillStyle=palColorA(piece.color,0.5,t+piece.ox);
+      ctx.strokeStyle=palColorA((piece.color+1)%palette.length,0.9,t);
+      ctx.lineWidth=1;
+      ctx.fillRect(px,py,cellSize-1,cellSize-1);
+      ctx.strokeRect(px,py,cellSize-1,cellSize-1);
+    }
+  }
+  ctx.restore();
+}
+
+// ── KenKen Grid ───────────────────────────────────────────────────────────────
+function drawKenKen(){
+  if(!config.showKenken) return;
+  const n=config.kenkenSize;
+  const cellSize=Math.min(W,H)*0.055;
+  const ox=cx+W*0.22+Math.cos(t*0.08)*20;
+  const oy=cy-n*cellSize/2;
+  ctx.save(); ctx.globalAlpha=0.5;
+  ctx.strokeStyle=palColorA(0,0.8,t);
+  ctx.lineWidth=1.5;
+  ctx.strokeRect(ox,oy,n*cellSize,n*cellSize);
+  for(let i=1;i<n;i++){
+    ctx.lineWidth=0.5;
+    ctx.strokeStyle=palColorA(i%palette.length,0.5,t+i);
+    ctx.beginPath(); ctx.moveTo(ox+i*cellSize,oy); ctx.lineTo(ox+i*cellSize,oy+n*cellSize); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(ox,oy+i*cellSize); ctx.lineTo(ox+n*cellSize,oy+i*cellSize); ctx.stroke();
+  }
+  // cage highlight
+  for(let i=0;i<n;i++){
+    for(let j=0;j<n;j++){
+      const v=(i*n+j)%palette.length;
+      ctx.fillStyle=palColorA(v,0.1+Math.sin(t*0.3+i*j)*0.05,t);
+      ctx.fillRect(ox+j*cellSize,oy+i*cellSize,cellSize,cellSize);
+    }
+  }
+  ctx.restore();
+}
+
+// ── Skewb Symmetry ────────────────────────────────────────────────────────────
+function drawSkewb(){
+  const r=Math.min(W,H)*0.12+Math.sin(t*0.2)*10;
+  const sx=cx-W*0.3+Math.sin(t*0.07)*40;
+  const sy=cy+Math.cos(t*0.09)*30;
+  ctx.save();
+  ctx.translate(sx,sy);
+  ctx.rotate(config.skewbPhase);
+  const faces=[
+    {a:0, col:0},{a:Math.PI/2,col:1},{a:Math.PI,col:2},{a:3*Math.PI/2,col:3}
+  ];
+  for(const f of faces){
+    const ax=Math.cos(f.a)*r*0.6, ay=Math.sin(f.a)*r*0.6;
+    ctx.save(); ctx.translate(ax,ay);
+    ctx.beginPath();
+    for(let i=0;i<3;i++){
+      const a2=f.a+i*Math.PI*2/3;
+      const px2=Math.cos(a2)*r*0.5, py2=Math.sin(a2)*r*0.5;
+      i===0?ctx.moveTo(px2,py2):ctx.lineTo(px2,py2);
+    }
+    ctx.closePath();
+    ctx.fillStyle=palColorA(f.col,0.35,t+f.a);
+    ctx.strokeStyle=palColorA((f.col+2)%palette.length,0.8,t);
+    ctx.lineWidth=1.5; ctx.fill(); ctx.stroke();
+    ctx.restore();
+  }
+  ctx.restore();
+  config.skewbPhase += 0.008;
+}
+
+// ── Slider-Crank ──────────────────────────────────────────────────────────────
+function drawSliderCrank(){
+  const crankR=50, rodLen=120;
+  const bx=cx-W*0.25, by=cy+H*0.25;
+  const a=config.sliderCrankAngle;
+  const crankX=bx+Math.cos(a)*crankR;
+  const crankY=by+Math.sin(a)*crankR;
+  const sliderX=bx+Math.cos(a)*crankR+Math.sqrt(rodLen*rodLen-(Math.sin(a)*crankR)*(Math.sin(a)*crankR));
+  const rodAngle=Math.asin(Math.sin(a)*crankR/rodLen);
+
+  ctx.save();
+  // Crank circle
+  ctx.beginPath(); ctx.arc(bx,by,crankR,0,Math.PI*2);
+  ctx.strokeStyle=palColorA(3,0.5,t); ctx.lineWidth=1.5; ctx.stroke();
+  // Crank arm
+  ctx.beginPath(); ctx.moveTo(bx,by); ctx.lineTo(crankX,crankY);
+  ctx.strokeStyle=palColorA(1,0.9,t); ctx.lineWidth=3; ctx.stroke();
+  // Connecting rod
+  ctx.beginPath(); ctx.moveTo(crankX,crankY); ctx.lineTo(sliderX,by);
+  ctx.strokeStyle=palColorA(2,0.8,t+1); ctx.lineWidth=2.5; ctx.stroke();
+  // Slider block
+  ctx.fillStyle=palColorA(0,0.7,t);
+  ctx.fillRect(sliderX-12,by-12,24,24);
+  ctx.strokeStyle=palColorA(4,0.9,t); ctx.lineWidth=1.5;
+  ctx.strokeRect(sliderX-12,by-12,24,24);
+  // Guide rail
+  ctx.beginPath(); ctx.moveTo(bx,by+15); ctx.lineTo(bx+rodLen+crankR+20,by+15);
+  ctx.strokeStyle=palColorA(5,0.3,t); ctx.lineWidth=1; ctx.stroke();
+  ctx.restore();
+  config.sliderCrankAngle+=config.sliderCrankSpeed;
+}
+
+// ── Scotch Yoke ───────────────────────────────────────────────────────────────
+function drawScotchYoke(){
+  const r=45;
+  const bx=cx+W*0.27, by=cy-H*0.2;
+  const a=config.scotchAngle;
+  const pinX=bx+Math.cos(a)*r;
+  const pinY=by+Math.sin(a)*r;
+  ctx.save();
+  // Drive circle
+  ctx.beginPath(); ctx.arc(bx,by,r,0,Math.PI*2);
+  ctx.strokeStyle=palColorA(2,0.5,t); ctx.lineWidth=1.5; ctx.stroke();
+  // Pin
+  ctx.beginPath(); ctx.arc(pinX,pinY,5,0,Math.PI*2);
+  ctx.fillStyle=palColorA(1,0.9,t); ctx.fill();
+  // Yoke frame (vertical slider)
+  const yokeY=pinY;
+  const yokeW=30, yokeH=r*2.4;
+  ctx.strokeStyle=palColorA(3,0.7,t+1); ctx.lineWidth=2;
+  ctx.strokeRect(bx-yokeW/2,yokeY-yokeH/2,yokeW,yokeH);
+  // Output rod
+  ctx.beginPath(); ctx.moveTo(bx,yokeY-yokeH/2-10); ctx.lineTo(bx,yokeY-yokeH/2-50);
+  ctx.strokeStyle=palColorA(0,0.8,t); ctx.lineWidth=3; ctx.stroke();
+  ctx.restore();
+  config.scotchAngle+=config.scotchSpeed;
+}
+
+// ── Spring Physics ────────────────────────────────────────────────────────────
+function updatePhysics(){
+  if(!mechanicalNodes.length) return;
+  for(const sp of springs){
+    const a=mechanicalNodes[sp.a], b=mechanicalNodes[sp.b];
+    if(!a||!b) continue;
+    const dx=b.x-a.x, dy=b.y-a.y;
+    const dist=Math.sqrt(dx*dx+dy*dy)||1;
+    const force=(dist-sp.rest)*sp.k;
+    const fx=force*(dx/dist), fy=force*(dy/dist);
+    if(!a.fixed){ a.vx+=fx/a.mass; a.vy+=fy/a.mass; }
+    if(!b.fixed){ b.vx-=fx/b.mass; b.vy-=fy/b.mass; }
+  }
+  // Global oscillation driver
+  const osc=Math.sin(t*0.8)*config.physicsScale*40;
+  for(let i=0;i<mechanicalNodes.length;i++){
+    const n=mechanicalNodes[i];
+    if(n.fixed) continue;
+    n.vx+=Math.sin(t*0.3+i*0.7)*0.3;
+    n.vy+=Math.cos(t*0.4+i*0.5)*0.3;
+    n.vx*=0.92; n.vy*=0.92;
+    n.x+=n.vx; n.y+=n.vy;
+    // Soft boundary
+    const dx=n.x-cx, dy=n.y-cy;
+    const d=Math.sqrt(dx*dx+dy*dy);
+    const maxD=Math.min(W,H)*0.46;
+    if(d>maxD){ n.vx-=dx/d*2; n.vy-=dy/d*2; }
+  }
+}
+
+function drawSprings(){
+  ctx.save();
+  for(const sp of springs){
+    const a=mechanicalNodes[sp.a], b=mechanicalNodes[sp.b];
+    if(!a||!b) continue;
+    const dx=b.x-a.x, dy=b.y-a.y;
+    const dist=Math.sqrt(dx*dx+dy*dy)||1;
+    const strain=Math.abs(dist-sp.rest)/sp.rest;
+    ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y);
+    ctx.strokeStyle=palColorA(sp.a%palette.length, Math.min(0.7,0.2+strain*2), t+sp.a);
+    ctx.lineWidth=1+strain*3;
+    ctx.stroke();
+  }
+  for(const n of mechanicalNodes){
+    ctx.beginPath(); ctx.arc(n.x,n.y,n.size,0,Math.PI*2);
+    ctx.fillStyle=palColorA(n.color,0.8,t+n.color);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+// ── Articulated Arms ──────────────────────────────────────────────────────────
+function drawArm(arm){
+  ctx.save();
+  let ax=arm.x, ay=arm.y;
+  let cumAngle=0;
+  for(let i=0;i<arm.segments.length;i++){
+    const seg=arm.segments[i];
+    seg.angle+=seg.angleSpeed*(1+Math.sin(t*0.2+i)*0.3);
+    cumAngle+=seg.angle;
+    const ex=ax+Math.cos(cumAngle)*seg.length;
+    const ey=ay+Math.sin(cumAngle)*seg.length;
+    ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(ex,ey);
+    ctx.strokeStyle=palColorA(seg.color,0.8,t+i*0.5);
+    ctx.lineWidth=seg.width;
+    ctx.lineCap='round'; ctx.stroke();
+    // Joint
+    ctx.beginPath(); ctx.arc(ax,ay,seg.width*0.6,0,Math.PI*2);
+    ctx.fillStyle=palColorA((seg.color+2)%palette.length,0.9,t+i);
+    ctx.fill();
+    ax=ex; ay=ey;
+  }
+  // End effector
+  ctx.beginPath(); ctx.arc(ax,ay,6,0,Math.PI*2);
+  ctx.fillStyle=palColorA(0,1,t);
+  ctx.fill();
+  ctx.restore();
+}
+
+// ── Particles ─────────────────────────────────────────────────────────────────
+function updateParticles(){
+  for(const p of particles){
+    p.age++;
+    if(p.age>p.maxLife){ p.age=0; p.x=rng.next()*W; p.y=rng.next()*H; }
+    p.x+=p.vx*(1+Math.sin(t*0.1)*0.5);
+    p.y+=p.vy*(1+Math.cos(t*0.13)*0.5);
+    if(p.x<0) p.x=W; if(p.x>W) p.x=0;
+    if(p.y<0) p.y=H; if(p.y>H) p.y=0;
+  }
+}
+
+function drawParticles(){
+  ctx.save();
+  for(const p of particles){
+    const life=1-p.age/p.maxLife;
+    ctx.beginPath(); ctx.arc(p.x,p.y,p.size*life,0,Math.PI*2);
+    ctx.fillStyle=palColorA(p.color,life*0.7,t+p.age*0.01);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+// ── Background Gradient ───────────────────────────────────────────────────────
+function drawBackground(){
+  const grad=ctx.createRadialGradient(
+    cx+Math.sin(t*0.07)*W*0.2, cy+Math.cos(t*0.05)*H*0.2, 0,
+    cx, cy, Math.max(W,H)
+  );
+  const c1=bgPalette[0], c2=bgPalette[Math.floor(t*0.1)%bgPalette.length]||bgPalette[1];
+  const h1=c1[0]+t*10, h2=c2[0]-t*8;
+  grad.addColorStop(0, hsl(h1,c1[1]*0.3,c1[2]*0.15));
+  grad.addColorStop(0.5, hsl(h2,c2[1]*0.2,c2[2]*0.08));
+  grad.addColorStop(1, hsl(h1+30,c1[1]*0.1,5));
+  ctx.fillStyle=grad;
+  ctx.fillRect(0,0,W,H);
+}
+
+// ── Interference Pattern ──────────────────────────────────────────────────────
+function drawInterference(){
+  ctx.save(); ctx.globalAlpha=0.04;
+  const n=4;
+  for(let i=0;i<n;i++){
+    const srcX=cx+Math.cos(t*0.05+i*Math.PI*2/n)*W*0.3;
+    const srcY=cy+Math.sin(t*0.07+i*Math.PI*2/n)*H*0.3;
+    const grad=ctx.createRadialGradient(srcX,srcY,0,srcX,srcY,Math.min(W,H)*0.6);
+    const col=palette[(i+Math.floor(t*0.05))%palette.length];
+    grad.addColorStop(0,hsl(col[0]+t*20,col[1],col[2],0.3));
+    grad.addColorStop(0.5,hsl(col[0]+180,col[1],col[2]*0.5,0.15));
+    grad.addColorStop(1,'transparent');
+    ctx.fillStyle=grad;
+    ctx.fillRect(0,0,W,H);
+  }
+  ctx.restore();
+}
+
+// ── Kaleidoscope Overlay ──────────────────────────────────────────────────────
+function drawKaleidoscope(){
+  if(config.paletteMode!=='kaleidoscope') return;
+  ctx.save();
+  ctx.globalAlpha=0.08;
+  ctx.translate(cx,cy);
+  const slices=8;
+  for(let i=0;i<slices;i++){
+    ctx.save();
+    ctx.rotate(i*Math.PI*2/slices+t*0.03);
+    ctx.scale(1+Math.sin(t*0.2)*0.1,1);
+    ctx.beginPath();
+    ctx.moveTo(0,0);
+    ctx.arc(0,0,Math.min(W,H)*0.5,0,Math.PI/slices*0.9);
+    ctx.closePath();
+    ctx.fillStyle=palColorA(i%palette.length,0.5,t+i*0.4);
+    ctx.fill();
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+// ── HUD Update ────────────────────────────────────────────────────────────────
+let lastFPS=60, frameTimeLast=performance.now();
+function updateHUD(){
+  if(!showHUD) return;
+  const now=performance.now();
+  lastFPS=Math.round(1000/(now-frameTimeLast+0.001));
+  frameTimeLast=now;
+  hud.innerHTML=`FRAME ${frame} | FPS ${lastFPS} | t=${t.toFixed(1)}<br>`+
+    `MAZE: ${config.mazeType} | DECOR: ${config.decorStyle}<br>`+
+    `PALETTE: ${config.paletteMode} | SOUND: ${soundOn?'ON':'OFF'}<br>`+
+    `NODES: ${mechanicalNodes.length} | SPRINGS: ${springs.length}<br>`+
+    `GEARS: ${gears.length} | PARTICLES: ${particles.length}<br>`+
+    `[SPACE/TAP] REGEN | [H] HUD | [S] SOUND`;
+}
+
+// ── Main Loop ─────────────────────────────────────────────────────────────────
+function loop(){
+  requestAnimationFrame(loop);
+  frame++; t+=0.016;
+  config.globalRot+=config.globalRotSpeed;
+
+  // Clear
+  ctx.fillStyle='rgba(0,0,0,0.18)';
+  ctx.fillRect(0,0,W,H);
+
+  drawBackground();
+  drawInterference();
+  drawKaleidoscope();
+
+  // Decorative layer (background)
+  drawDecorLayer(0.25);
+
+  // Maze
+  drawGridMaze();
+  drawRadialMaze();
+
+  // Polyomino / KenKen overlays
+  drawPolyomino();
+  drawKenKen();
+
+  // Skewb symmetry
+  drawSkewb();
+
+  // Physics
+  updatePhysics();
+  drawSprings();
+
+  // Gear trains
+  ctx.save();
+  for(const g of gears){
+    g.angle+=g.speed;
+    drawGear(g.x,g.y,g.r,g.teeth,g.angle,g.color,g.type);
+  }
+  ctx.restore();
+
+  // Mechanical linkages
+  drawSliderCrank();
+  drawScotchYoke();
+
+  // Articulated arms
+  for(const arm of config.arms) drawArm(arm);
+
+  // Decorative layer (foreground, lighter)
+  drawDecorLayer(0.12);
+
+  // Particles
+  updateParticles();
+  drawParticles();
+
+  if(soundOn) updateAudio();
+  updateHUD();
+}
+
+// ── Input ─────────────────────────────────────────────────────────────────────
+function handleRegen(){
+  ctx.fillStyle='rgba(0,0,0,0.5)';
+  ctx.fillRect(0,0,W,H);
+  regenerate();
+}
+
+document.addEventListener('keydown',e=>{
+  if(e.key===' '||e.code==='Space'){ e.preventDefault(); handleRegen(); }
+  else if(e.key==='h'||e.key==='H'){ showHUD=!showHUD; hud.className=showHUD?'visible':''; }
+  else if(e.key==='s'||e.key==='S'){
+    soundOn=!soundOn;
+    if(soundOn){ initAudio(); }
+    else{ stopAudio(); }
+  }
+});
+
+canvas.addEventListener('click', handleRegen);
+canvas.addEventListener('touchend',e=>{ e.preventDefault(); handleRegen(); },{passive:false});
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+regenerate();
+loop();
+
+})();
+</script>
+</body>
+</html>

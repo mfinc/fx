@@ -1,0 +1,1165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="description" content="Living Mathematical Machine Cathedral Engine — an endlessly evolving audiovisual universe of quasicrystal tilings, Voronoi structures, Apollonian packings, hyperbolic tessellations, Islamic star patterns, Celtic knots, reaction-diffusion chemistry, lattice-Boltzmann fluid dynamics, and cellular automata generating a never-repeating mechanical mathematics cosmos with procedural soundscapes.">
+<meta name="keywords" content="generative art, mathematical visualization, quasicrystal, Penrose tiling, Voronoi, Apollonian gasket, hyperbolic geometry, Islamic geometry, Celtic knot, reaction diffusion, lattice Boltzmann, cellular automata, fractal, WebGL canvas, procedural audio, audiovisual, interactive art, mathematical cathedral, mechanical simulation">
+<title>Living Mathematical Machine Cathedral Engine</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000;touch-action:none}
+canvas{display:block;position:fixed;top:0;left:0;width:100%!important;height:100%!important}
+#hud{display:none;position:fixed;top:12px;left:12px;z-index:10;font-family:monospace;font-size:11px;color:rgba(255,255,255,0.7);background:rgba(0,0,0,0.5);padding:8px 12px;border-radius:4px;border:1px solid rgba(255,255,255,0.15);pointer-events:none;line-height:1.6}
+#hint{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);font-family:monospace;font-size:11px;color:rgba(255,255,255,0.4);pointer-events:none;transition:opacity 1s;white-space:nowrap}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<div id="hint">SPACE / tap: regenerate &nbsp;|&nbsp; H: HUD &nbsp;|&nbsp; S: sound</div>
+<script>
+(function(){
+'use strict';
+
+const canvas=document.getElementById('c');
+const ctx=canvas.getContext('2d');
+const hud=document.getElementById('hud');
+const hint=document.getElementById('hint');
+let W,H,cx,cy,dpr;
+let soundOn=false,audioCtx=null,masterGain=null,oscillators=[];
+let showHUD=false;
+let frame=0,t=0,lastTime=0,fps=60;
+let seed=Math.random()*99999|0;
+let params={};
+let layers=[];
+let palette=[];
+let bgColor='#000';
+let hintTimer=setTimeout(()=>{hint.style.opacity='0'},4000);
+
+function resize(){
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth;H=window.innerHeight;
+  canvas.width=W*dpr;canvas.height=H*dpr;
+  cx=W/2;cy=H/2;
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+
+function rng(s){
+  let x=Math.sin(s+1)*43758.5453123;
+  return x-Math.floor(x);
+}
+
+class SeededRandom{
+  constructor(s){this.s=s|0}
+  next(){this.s=(this.s*1664525+1013904223)&0xffffffff;return(this.s>>>0)/4294967296}
+  range(a,b){return a+(b-a)*this.next()}
+  int(a,b){return Math.floor(this.range(a,b+1))}
+  pick(arr){return arr[this.int(0,arr.length-1)]}
+  bool(p=0.5){return this.next()<p}
+}
+
+let R=new SeededRandom(seed);
+
+function generatePalette(){
+  const themes=[
+    {name:'stained-glass',colors:['#ff6b35','#f7c59f','#efefd0','#004e89','#1a936f','#88d498','#c6dabf','#f3e9d2'],bg:'#050510',glow:true},
+    {name:'spectral-fire',colors:['#ff0a54','#ff477e','#ff85a1','#fbb1bd','#f9bec7','#ffccd5','#ff6b6b','#ffd166'],bg:'#0a0005',glow:true},
+    {name:'deep-ocean',colors:['#03045e','#023e8a','#0077b6','#0096c7','#00b4d8','#48cae4','#90e0ef','#ade8f4'],bg:'#000510',glow:true},
+    {name:'emerald-cathedral',colors:['#004b23','#006400','#007200','#008000','#38b000','#70e000','#9ef01a','#ccff33'],bg:'#000805',glow:true},
+    {name:'gold-bismuth',colors:['#3a0ca3','#4361ee','#4895ef','#4cc9f0','#f72585','#7209b7','#b5179e','#ffbe0b'],bg:'#08010f',glow:true},
+    {name:'iron-cathedral',colors:['#6c757d','#adb5bd','#dee2e6','#f8f9fa','#ced4da','#e9ecef','#495057','#343a40'],bg:'#0d0d0f',glow:false},
+    {name:'plasma-sun',colors:['#ffbe0b','#fb5607','#ff006e','#8338ec','#3a86ff','#06d6a0','#ef233c','#f72585'],bg:'#020009',glow:true},
+    {name:'void-crystal',colors:['#e0fbfc','#98c1d9','#3d5a80','#293241','#ee6c4d','#98dfea','#d4a5a5','#fcfcfc'],bg:'#040408',glow:false},
+  ];
+  const th=R.pick(themes);
+  palette=th.colors;
+  bgColor=th.bg;
+  params.glow=th.glow;
+  params.theme=th.name;
+  return th;
+}
+
+function col(i,a=1){
+  const c=palette[((i|0)%palette.length+palette.length)%palette.length];
+  if(a===1)return c;
+  const r=parseInt(c.slice(1,3),16);
+  const g=parseInt(c.slice(3,5),16);
+  const b=parseInt(c.slice(5,7),16);
+  return `rgba(${r},${g},${b},${a})`;
+}
+
+function hexToRgb(hex){
+  const r=parseInt(hex.slice(1,3),16);
+  const g=parseInt(hex.slice(3,5),16);
+  const b=parseInt(hex.slice(5,7),16);
+  return [r,g,b];
+}
+
+function lerpColor(c1,c2,t){
+  const [r1,g1,b1]=hexToRgb(c1);
+  const [r2,g2,b2]=hexToRgb(c2);
+  return `rgb(${(r1+(r2-r1)*t)|0},${(g1+(g2-g1)*t)|0},${(b1+(b2-b1)*t)|0})`;
+}
+
+// ========== TILING ENGINES ==========
+
+class PenroseTiling{
+  constructor(cx,cy,size,depth,colOff){
+    this.cx=cx;this.cy=cy;this.size=size;this.depth=depth;this.colOff=colOff;
+    this.triangles=[];
+    this.phi=(1+Math.sqrt(5))/2;
+    this.build();
+  }
+  build(){
+    const tris=[];
+    for(let i=0;i<10;i++){
+      const a1=(2*i-1)*Math.PI/10;
+      const a2=(2*i+1)*Math.PI/10;
+      tris.push({type:0,
+        A:{x:this.cx,y:this.cy},
+        B:{x:this.cx+this.size*Math.cos(a1),y:this.cy+this.size*Math.sin(a1)},
+        C:{x:this.cx+this.size*Math.cos(a2),y:this.cy+this.size*Math.sin(a2)}
+      });
+    }
+    let current=tris;
+    for(let d=0;d<this.depth;d++){
+      const next=[];
+      for(const tri of current){
+        if(tri.type===0){
+          const P={x:tri.A.x+(tri.B.x-tri.A.x)/this.phi,y:tri.A.y+(tri.B.y-tri.A.y)/this.phi};
+          const Q={x:tri.B.x+(tri.C.x-tri.B.x)/this.phi,y:tri.B.y+(tri.C.y-tri.B.y)/this.phi};
+          next.push({type:0,A:Q,B:P,C:tri.B});
+          next.push({type:1,A:P,B:tri.A,C:Q});
+          next.push({type:1,A:Q,B:tri.A,C:tri.C});
+        }else{
+          const P={x:tri.C.x+(tri.A.x-tri.C.x)/this.phi,y:tri.C.y+(tri.A.y-tri.C.y)/this.phi};
+          next.push({type:1,A:tri.B,B:P,C:tri.A});
+          next.push({type:0,A:P,B:tri.C,C:tri.B});
+        }
+      }
+      current=next;
+    }
+    this.triangles=current;
+  }
+  draw(ctx,t){
+    for(let i=0;i<this.triangles.length;i++){
+      const tri=this.triangles[i];
+      const c=col(this.colOff+(tri.type?1:3)+Math.sin(t*0.3+i*0.1)*2, params.glow?0.75:0.6);
+      ctx.beginPath();
+      ctx.moveTo(tri.A.x,tri.A.y);
+      ctx.lineTo(tri.B.x,tri.B.y);
+      ctx.lineTo(tri.C.x,tri.C.y);
+      ctx.closePath();
+      ctx.fillStyle=c;
+      ctx.fill();
+      ctx.strokeStyle=col(this.colOff+5,0.3);
+      ctx.lineWidth=0.5;
+      ctx.stroke();
+    }
+  }
+}
+
+class AmmannBeenker{
+  constructor(cx,cy,size,iter,colOff){
+    this.cx=cx;this.cy=cy;this.size=size;this.iter=iter;this.colOff=colOff;
+    this.tiles=[];
+    this.sq2=Math.SQRT2;
+    this.build();
+  }
+  build(){
+    const s=this.size;
+    const tiles=[];
+    for(let i=0;i<8;i++){
+      const a=i*Math.PI/4;
+      const a2=(i+1)*Math.PI/4;
+      tiles.push({type:'tri',
+        A:{x:this.cx,y:this.cy},
+        B:{x:this.cx+s*Math.cos(a),y:this.cy+s*Math.sin(a)},
+        C:{x:this.cx+s*Math.cos(a2),y:this.cy+s*Math.sin(a2)}
+      });
+    }
+    let cur=tiles;
+    for(let d=0;d<this.iter;d++){
+      const next=[];
+      for(const t of cur){
+        if(t.type==='tri'){
+          const sc=1/(1+this.sq2);
+          const P=lerp2(t.A,t.B,1-sc);
+          const Q=lerp2(t.A,t.C,1-sc);
+          const M=lerp2(t.B,t.C,0.5);
+          next.push({type:'sq',A:P,B:t.B,C:M,D:Q});
+          next.push({type:'tri',A:t.A,B:P,C:Q});
+          next.push({type:'tri',A:Q,B:P,C:M});
+          next.push({type:'tri',A:Q,B:M,C:t.C});
+        }else{
+          const sc=1/(1+this.sq2);
+          const P=lerp2(t.A,t.C,sc);
+          const Q=lerp2(t.B,t.D,sc);
+          const M1=lerp2(t.A,t.B,sc);
+          const M2=lerp2(t.D,t.C,sc);
+          next.push({type:'sq',A:t.A,B:M1,C:Q,D:P});
+          next.push({type:'sq',A:M1,B:t.B,C:lerp2(t.B,t.C,sc),D:Q});
+          next.push({type:'tri',A:P,B:Q,C:lerp2(t.A,t.D,0.5)});
+          next.push({type:'tri',A:Q,B:lerp2(t.B,t.C,sc),C:M2});
+          next.push({type:'sq',A:Q,B:M2,C:t.C,D:lerp2(t.D,t.C,1-sc)});
+          next.push({type:'tri',A:P,B:lerp2(t.A,t.D,0.5),C:lerp2(t.D,t.C,1-sc)});
+        }
+      }
+      cur=next;
+    }
+    this.tiles=cur;
+  }
+  draw(ctx,t){
+    for(let i=0;i<this.tiles.length;i++){
+      const tile=this.tiles[i];
+      const a=tile.type==='sq'?0.7:0.55;
+      ctx.beginPath();
+      ctx.moveTo(tile.A.x,tile.A.y);
+      ctx.lineTo(tile.B.x,tile.B.y);
+      ctx.lineTo(tile.C.x,tile.C.y);
+      if(tile.D)ctx.lineTo(tile.D.x,tile.D.y);
+      ctx.closePath();
+      ctx.fillStyle=col(this.colOff+(tile.type==='sq'?2:4)+Math.sin(t*0.2+i*0.07)*2,a);
+      ctx.fill();
+      ctx.strokeStyle=col(this.colOff+1,0.25);
+      ctx.lineWidth=0.4;
+      ctx.stroke();
+    }
+  }
+}
+
+function lerp2(a,b,t){return{x:a.x+(b.x-a.x)*t,y:a.y+(b.y-a.y)*t}}
+
+class VoronoiLayer{
+  constructor(n,w,h,colOff){
+    this.pts=[];this.colOff=colOff;this.w=w;this.h=h;
+    for(let i=0;i<n;i++)this.pts.push({x:R.range(0,w),y:R.range(0,h),vx:R.range(-0.3,0.3),vy:R.range(-0.3,0.3)});
+    this.offbuf=document.createElement('canvas');
+    this.offctx=this.offbuf.getContext('2d');
+    this.offbuf.width=w>>1;this.offbuf.height=h>>1;
+    this.dirty=true;this.frameCount=0;
+  }
+  update(dt){
+    this.frameCount++;
+    for(const p of this.pts){
+      p.x+=p.vx;p.y+=p.vy;
+      if(p.x<0||p.x>this.w)p.vx*=-1;
+      if(p.y<0||p.y>this.h)p.vy*=-1;
+    }
+    if(this.frameCount%4===0)this.dirty=true;
+  }
+  render(){
+    if(!this.dirty)return;
+    this.dirty=false;
+    const sw=this.offbuf.width,sh=this.offbuf.height;
+    const sc=0.5;
+    const d=this.offctx.createImageData(sw,sh);
+    const buf=d.data;
+    for(let py=0;py<sh;py++){
+      for(let px=0;px<sw;px++){
+        const wx=px/sc,wy=py/sc;
+        let best=1e9,second=1e9,bi=0;
+        for(let i=0;i<this.pts.length;i++){
+          const dx=this.pts[i].x-wx,dy=this.pts[i].y-wy;
+          const dist=dx*dx+dy*dy;
+          if(dist<best){second=best;best=dist;bi=i;}
+          else if(dist<second)second=dist;
+        }
+        const edge=Math.sqrt(second)-Math.sqrt(best);
+        const ci=this.colOff+bi;
+        const rgb=hexToRgb(palette[((ci%palette.length)+palette.length)%palette.length]);
+        const idx=(py*sw+px)*4;
+        const fade=Math.min(1,edge*0.15);
+        buf[idx]=rgb[0]*fade|0;buf[idx+1]=rgb[1]*fade|0;buf[idx+2]=rgb[2]*fade|0;buf[idx+3]=180*fade|0;
+      }
+    }
+    this.offctx.putImageData(d,0,0);
+  }
+  draw(ctx){
+    this.render();
+    ctx.drawImage(this.offbuf,0,0,this.w,this.h);
+  }
+}
+
+class ApollonianPacking{
+  constructor(cx,cy,r,depth,colOff){
+    this.cx=cx;this.cy=cy;this.r=r;this.depth=depth;this.colOff=colOff;
+    this.circles=[];
+    this.generate();
+  }
+  generate(){
+    this.circles.push({x:this.cx,y:this.cy,r:this.r,d:0});
+    this.descartes(this.cx,this.cy,this.r,this.cx+this.r*0.5,this.cy,this.r*0.4,this.cx,this.cy+this.r*0.5,this.r*0.35,1);
+  }
+  descartes(x1,y1,r1,x2,y2,r2,x3,y3,r3,depth){
+    if(depth>this.depth||r1<2||r2<2||r3<2)return;
+    const k1=1/r1,k2=1/r2,k3=1/r3;
+    const k4=k1+k2+k3+2*Math.sqrt(k1*k2+k2*k3+k3*k1);
+    if(!isFinite(k4)||k4<=0)return;
+    const r4=1/k4;
+    if(r4<1.5)return;
+    const zx1=x1*k1,zy1=y1*k1,zx2=x2*k2,zy2=y2*k2,zx3=x3*k3,zy3=y3*k3;
+    const x4=(zx1+zx2+zx3+2*Math.sqrt(zx1*zx2+zx2*zx3+zx3*zx1-zy1*zy2-zy2*zy3-zy3*zy1))/k4;
+    const y4=(zy1+zy2+zy3+2*Math.sqrt(zy1*zy2+zy2*zy3+zy3*zy1-zx1*zx2-zx2*zx3-zx3*zx1))/k4;
+    if(isNaN(x4)||isNaN(y4))return;
+    this.circles.push({x:x4,y:y4,r:r4,d:depth});
+    if(this.circles.length>600)return;
+    this.descartes(x1,y1,r1,x2,y2,r2,x4,y4,r4,depth+1);
+    this.descartes(x1,y1,r1,x3,y3,r3,x4,y4,r4,depth+1);
+    this.descartes(x2,y2,r2,x3,y3,r3,x4,y4,r4,depth+1);
+  }
+  draw(ctx,t){
+    for(const c of this.circles){
+      const ci=this.colOff+c.d*2;
+      const pulse=Math.sin(t*0.4+c.x*0.01+c.y*0.01)*0.15;
+      ctx.beginPath();
+      ctx.arc(c.x,c.y,c.r,0,Math.PI*2);
+      ctx.fillStyle=col(ci,0.25+pulse);
+      ctx.fill();
+      ctx.strokeStyle=col(ci+1,0.6);
+      ctx.lineWidth=0.8;
+      ctx.stroke();
+    }
+  }
+}
+
+class IslamicStar{
+  constructor(cx,cy,size,n,colOff){
+    this.cx=cx;this.cy=cy;this.size=size;this.n=n;this.colOff=colOff;
+    this.rot=R.range(0,Math.PI*2);
+    this.rotSpeed=R.range(-0.002,0.002);
+  }
+  draw(ctx,t){
+    ctx.save();
+    ctx.translate(this.cx,this.cy);
+    ctx.rotate(this.rot+t*this.rotSpeed*30);
+    const n=this.n,s=this.size;
+    for(let ring=3;ring>=1;ring--){
+      const rs=s*ring/3;
+      for(let k=0;k<3;k++){
+        ctx.save();
+        ctx.rotate(k*Math.PI*2/3+t*0.001*(ring%2?1:-1));
+        for(let i=0;i<n;i++){
+          const a0=i*Math.PI*2/n;
+          const a1=(i+0.5)*Math.PI*2/n;
+          const a2=(i+1)*Math.PI*2/n;
+          const inner=rs*0.38;
+          ctx.beginPath();
+          ctx.moveTo(Math.cos(a0)*rs,Math.sin(a0)*rs);
+          ctx.lineTo(Math.cos(a1)*inner,Math.sin(a1)*inner);
+          ctx.lineTo(Math.cos(a2)*rs,Math.sin(a2)*rs);
+          ctx.closePath();
+          ctx.fillStyle=col(this.colOff+ring+i,0.55+Math.sin(t*0.5+i+ring)*0.15);
+          ctx.fill();
+          ctx.strokeStyle=col(this.colOff+2,0.4);
+          ctx.lineWidth=0.7;
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+    }
+    ctx.restore();
+  }
+}
+
+class HilbertCurve{
+  constructor(cx,cy,size,order,colOff){
+    this.cx=cx;this.cy=cy;this.size=size;this.order=order;this.colOff=colOff;
+    this.pts=this.generate();
+  }
+  rot(n,x,y,rx,ry){
+    if(ry===0){if(rx===1){x=n-1-x;y=n-1-y}let t=x;x=y;y=t}return[x,y];
+  }
+  d2xy(n,d){
+    let x=0,y=0;
+    for(let s=1;s<n;s*=2){
+      const rx=(1&(d/2))|0;
+      const ry=(1&(d^rx))|0;
+      [x,y]=this.rot(s,x,y,rx,ry);
+      x+=s*rx;y+=s*ry;d=d>>2;
+    }
+    return[x,y];
+  }
+  generate(){
+    const n=1<<this.order;
+    const pts=[];
+    const total=n*n;
+    const step=this.size/n;
+    for(let d=0;d<total;d++){
+      const[x,y]=this.d2xy(n,d);
+      pts.push({x:this.cx-this.size/2+x*step+step/2,y:this.cy-this.size/2+y*step+step/2});
+    }
+    return pts;
+  }
+  draw(ctx,t){
+    if(this.pts.length<2)return;
+    const grad=ctx.createLinearGradient(this.cx-this.size/2,this.cy,this.cx+this.size/2,this.cy);
+    grad.addColorStop(0,col(this.colOff,0.8));
+    grad.addColorStop(0.5,col(this.colOff+2,0.9));
+    grad.addColorStop(1,col(this.colOff+4,0.8));
+    const phase=(t*0.1)%1;
+    const len=this.pts.length;
+    ctx.lineWidth=1.2;
+    ctx.strokeStyle=grad;
+    ctx.beginPath();
+    for(let i=0;i<len;i++){
+      const p=this.pts[i];
+      i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y);
+    }
+    ctx.stroke();
+    const head=((phase*len)|0)%len;
+    ctx.beginPath();
+    ctx.arc(this.pts[head].x,this.pts[head].y,3,0,Math.PI*2);
+    ctx.fillStyle=col(this.colOff+1,1);
+    ctx.fill();
+  }
+}
+
+class CelticKnot{
+  constructor(cx,cy,size,n,colOff){
+    this.cx=cx;this.cy=cy;this.size=size;this.n=n;this.colOff=colOff;
+    this.phase=R.range(0,Math.PI*2);
+  }
+  draw(ctx,t){
+    ctx.save();
+    ctx.translate(this.cx,this.cy);
+    const n=this.n,s=this.size;
+    const ph=this.phase+t*0.3;
+    for(let strand=0;strand<3;strand++){
+      ctx.beginPath();
+      const offset=strand*Math.PI*2/3;
+      for(let i=0;i<=360;i++){
+        const a=i*Math.PI/180;
+        const k=Math.sin(n*a+ph+offset);
+        const r=s*(0.4+0.35*k+0.1*Math.sin(2*n*a+ph));
+        const px=r*Math.cos(a),py=r*Math.sin(a);
+        i===0?ctx.moveTo(px,py):ctx.lineTo(px,py);
+      }
+      ctx.closePath();
+      ctx.strokeStyle=col(this.colOff+strand*2,0.8);
+      ctx.lineWidth=2.5+Math.sin(t*0.7+strand)*1;
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+class ReactionDiffusion{
+  constructor(w,h,colOff){
+    this.w=w>>2;this.h=h>>2;this.colOff=colOff;
+    this.canvas=document.createElement('canvas');
+    this.canvas.width=this.w;this.canvas.height=this.h;
+    this.octx=this.canvas.getContext('2d');
+    this.A=new Float32Array(this.w*this.h).fill(1);
+    this.B=new Float32Array(this.w*this.h);
+    this.nA=new Float32Array(this.w*this.h);
+    this.nB=new Float32Array(this.w*this.h);
+    this.f=R.range(0.02,0.06);
+    this.k=R.range(0.05,0.065);
+    this.dA=1.0;this.dB=0.5;
+    this.seed();
+    this.dirty=true;this.stepCount=0;
+  }
+  seed(){
+    for(let i=0;i<80;i++){
+      const px=R.int(5,this.w-5),py=R.int(5,this.h-5);
+      for(let dy=-3;dy<=3;dy++)for(let dx=-3;dx<=3;dx++){
+        const idx=(py+dy)*this.w+(px+dx);
+        if(idx>=0&&idx<this.A.length){this.A[idx]=0.5;this.B[idx]=0.25;}
+      }
+    }
+  }
+  step(){
+    const w=this.w,h=this.h;
+    const f=this.f,k=this.k,dA=this.dA,dB=this.dB;
+    for(let y=1;y<h-1;y++){
+      for(let x=1;x<w-1;x++){
+        const i=y*w+x;
+        const lapA=this.A[i-w]+this.A[i+w]+this.A[i-1]+this.A[i+1]-4*this.A[i];
+        const lapB=this.B[i-w]+this.B[i+w]+this.B[i-1]+this.B[i+1]-4*this.B[i];
+        const a=this.A[i],b=this.B[i];
+        const abb=a*b*b;
+        this.nA[i]=Math.max(0,Math.min(1,a+dA*lapA-abb+f*(1-a)));
+        this.nB[i]=Math.max(0,Math.min(1,b+dB*lapB+abb-(k+f)*b));
+      }
+    }
+    [this.A,this.nA]=[this.nA,this.A];
+    [this.B,this.nB]=[this.nB,this.B];
+    this.dirty=true;
+  }
+  render(t){
+    if(!this.dirty)return;
+    this.dirty=false;
+    const img=this.octx.createImageData(this.w,this.h);
+    const d=img.data;
+    const c1=hexToRgb(palette[this.colOff%palette.length]);
+    const c2=hexToRgb(palette[(this.colOff+3)%palette.length]);
+    const c3=hexToRgb(palette[(this.colOff+5)%palette.length]);
+    for(let i=0;i<this.w*this.h;i++){
+      const v=this.A[i]-this.B[i];
+      const vn=Math.max(0,Math.min(1,v));
+      const r=vn<0.5?c1[0]+(c2[0]-c1[0])*vn*2:c2[0]+(c3[0]-c2[0])*(vn-0.5)*2;
+      const g=vn<0.5?c1[1]+(c2[1]-c1[1])*vn*2:c2[1]+(c3[1]-c2[1])*(vn-0.5)*2;
+      const b=vn<0.5?c1[2]+(c2[2]-c1[2])*vn*2:c2[2]+(c3[2]-c2[2])*(vn-0.5)*2;
+      const idx=i*4;
+      d[idx]=r|0;d[idx+1]=g|0;d[idx+2]=b|0;d[idx+3]=200;
+    }
+    this.octx.putImageData(img,0,0);
+  }
+  draw(ctx,t){
+    this.stepCount++;
+    if(this.stepCount%2===0)this.step();
+    this.render(t);
+    ctx.drawImage(this.canvas,0,0,W,H);
+  }
+}
+
+class GyroPlanetaryGear{
+  constructor(cx,cy,R0,n,colOff){
+    this.cx=cx;this.cy=cy;this.R0=R0;this.n=n;this.colOff=colOff;
+    this.angle=R.range(0,Math.PI*2);
+    this.speed=R.range(0.005,0.02)*(R.bool()?1:-1);
+    this.phase=[];
+    for(let i=0;i<n;i++)this.phase.push(i*Math.PI*2/n);
+  }
+  draw(ctx,t){
+    ctx.save();
+    ctx.translate(this.cx,this.cy);
+    const r0=this.R0,rp=r0/(this.n+1),rc=r0-rp;
+    const ang=this.angle+t*this.speed*30;
+    ctx.beginPath();
+    ctx.arc(0,0,r0+rp*0.5,0,Math.PI*2);
+    ctx.strokeStyle=col(this.colOff,0.3);
+    ctx.lineWidth=1;ctx.stroke();
+    for(let i=0;i<this.n;i++){
+      const pa=this.phase[i]+ang;
+      const px=rc*Math.cos(pa),py=rc*Math.sin(pa);
+      const selfAng=-pa*(rc/rp);
+      ctx.save();
+      ctx.translate(px,py);
+      ctx.beginPath();
+      for(let j=0;j<=8;j++){
+        const a=j*Math.PI*2/8+selfAng;
+        const rt=rp*(1+0.15*Math.sin(j*4));
+        j===0?ctx.moveTo(rt*Math.cos(a),rt*Math.sin(a)):ctx.lineTo(rt*Math.cos(a),rt*Math.sin(a));
+      }
+      ctx.closePath();
+      ctx.fillStyle=col(this.colOff+i+2,0.6);
+      ctx.fill();
+      ctx.strokeStyle=col(this.colOff+1,0.5);
+      ctx.lineWidth=0.8;ctx.stroke();
+      ctx.restore();
+    }
+    ctx.beginPath();
+    ctx.arc(0,0,rp*0.8,0,Math.PI*2);
+    ctx.fillStyle=col(this.colOff+3,0.7);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+class WaveInterference{
+  constructor(w,h,colOff){
+    this.w=w>>1;this.h=h>>1;this.colOff=colOff;
+    this.canvas=document.createElement('canvas');
+    this.canvas.width=this.w;this.canvas.height=this.h;
+    this.octx=this.canvas.getContext('2d');
+    this.sources=[];
+    const n=R.int(3,6);
+    for(let i=0;i<n;i++)this.sources.push({
+      x:R.range(0.1,0.9)*this.w,y:R.range(0.1,0.9)*this.h,
+      f:R.range(0.05,0.15),ph:R.range(0,Math.PI*2)
+    });
+    this.lastT=-1;
+  }
+  draw(ctx,t){
+    if(Math.abs(t-this.lastT)<0.05){}
+    this.lastT=t;
+    const img=this.octx.createImageData(this.w,this.h);
+    const d=img.data;
+    const c1=hexToRgb(palette[this.colOff%palette.length]);
+    const c2=hexToRgb(palette[(this.colOff+2)%palette.length]);
+    for(let py=0;py<this.h;py++){
+      for(let px=0;px<this.w;px++){
+        let v=0;
+        for(const src of this.sources){
+          const dx=px-src.x,dy=py-src.y;
+          const dist=Math.sqrt(dx*dx+dy*dy);
+          v+=Math.sin(dist*src.f*0.3-t*src.f*40+src.ph);
+        }
+        v=v/this.sources.length;
+        const vn=(v+1)/2;
+        const idx=(py*this.w+px)*4;
+        d[idx]=(c1[0]+(c2[0]-c1[0])*vn)|0;
+        d[idx+1]=(c1[1]+(c2[1]-c1[1])*vn)|0;
+        d[idx+2]=(c1[2]+(c2[2]-c1[2])*vn)|0;
+        d[idx+3]=160;
+      }
+    }
+    this.octx.putImageData(img,0,0);
+    ctx.drawImage(this.canvas,0,0,W,H);
+  }
+}
+
+class CellularAutomata{
+  constructor(w,h,colOff){
+    this.cols=Math.floor(w/8);this.rows=Math.floor(h/8);
+    this.cw=w/this.cols;this.ch=h/this.rows;
+    this.colOff=colOff;
+    this.grid=[];this.next=[];
+    const rules=[R.int(0,255),R.int(0,255),R.int(0,255)];
+    this.rule=rules;
+    for(let r=0;r<this.rows;r++){this.grid.push(new Uint8Array(this.cols));this.next.push(new Uint8Array(this.cols));}
+    for(let c=0;c<this.cols;c++)this.grid[0][c]=R.bool(0.3)?1:0;
+    for(let r=1;r<this.rows;r++)for(let c=0;c<this.cols;c++)this.grid[r][c]=R.bool(0.1)?1:0;
+    this.stepN=0;
+  }
+  step(){
+    this.stepN++;
+    const rows=this.rows,cols=this.cols;
+    for(let r=0;r<rows;r++){
+      const pr=(r+rows-1)%rows;
+      const nr=(r+1)%rows;
+      for(let c=0;c<cols;c++){
+        const pc=(c+cols-1)%cols;
+        const nc=(c+1)%cols;
+        const sum=this.grid[pr][pc]+this.grid[pr][c]+this.grid[pr][nc]+
+                  this.grid[r][pc]+this.grid[r][nc]+
+                  this.grid[nr][pc]+this.grid[nr][c]+this.grid[nr][nc];
+        const live=this.grid[r][c];
+        if(live){this.next[r][c]=(sum===2||sum===3)?1:0;}
+        else{this.next[r][c]=sum===3?1:0;}
+      }
+    }
+    [this.grid,this.next]=[this.next,this.grid];
+  }
+  draw(ctx,t){
+    if(frame%3===0)this.step();
+    for(let r=0;r<this.rows;r++){
+      for(let c=0;c<this.cols;c++){
+        if(this.grid[r][c]){
+          ctx.fillStyle=col(this.colOff+(r+c+this.stepN)%palette.length,0.7);
+          ctx.fillRect(c*this.cw,r*this.ch,this.cw-0.5,this.ch-0.5);
+        }
+      }
+    }
+  }
+}
+
+class ParticleVortex{
+  constructor(n,colOff){
+    this.colOff=colOff;
+    this.pts=[];
+    for(let i=0;i<n;i++){
+      const a=R.range(0,Math.PI*2);
+      const r=R.range(0,Math.min(W,H)*0.45);
+      this.pts.push({
+        x:cx+r*Math.cos(a),y:cy+r*Math.sin(a),
+        vx:R.range(-1,1),vy:R.range(-1,1),
+        life:R.range(0,1),maxLife:R.range(0.5,2),
+        size:R.range(1,4),ci:R.int(0,palette.length-1)
+      });
+    }
+    this.vortexStrength=R.range(0.5,2)*(R.bool()?1:-1);
+  }
+  draw(ctx,t){
+    for(const p of this.pts){
+      const dx=p.x-cx,dy=p.y-cy;
+      const dist=Math.sqrt(dx*dx+dy*dy)+1;
+      const tangX=-dy/dist*this.vortexStrength;
+      const tangY=dx/dist*this.vortexStrength;
+      const inward=-dx/dist*0.1;
+      const inwardY=-dy/dist*0.1;
+      p.vx+=(tangX+inward)*0.05;
+      p.vy+=(tangY+inwardY)*0.05;
+      p.vx*=0.98;p.vy*=0.98;
+      p.x+=p.vx;p.y+=p.vy;
+      p.life+=0.008;
+      if(p.life>1){
+        p.life=0;
+        const a=R.range(0,Math.PI*2);
+        const r=R.range(0,Math.min(W,H)*0.45);
+        p.x=cx+r*Math.cos(a);p.y=cy+r*Math.sin(a);
+      }
+      const alpha=Math.sin(p.life*Math.PI)*0.8;
+      ctx.beginPath();
+      ctx.arc(p.x,p.y,p.size,0,Math.PI*2);
+      ctx.fillStyle=col(this.colOff+p.ci,alpha);
+      ctx.fill();
+    }
+  }
+}
+
+class HyperbolicTessellation{
+  constructor(cx,cy,r,p,q,colOff){
+    this.cx=cx;this.cy=cy;this.r=r;this.p=p;this.q=q;this.colOff=colOff;
+    this.polygons=[];
+    this.generate();
+  }
+  mobius(z,a,b){
+    const ar=a[0],ai=a[1],br=b[0],bi=b[1];
+    const bConR=br,bConI=-bi;
+    const num_r=ar*z[0]-ai*z[1]+bConR;
+    const num_i=ar*z[1]+ai*z[0]+bConI;
+    const den_r=br*z[0]-bi*z[1]+ar;
+    const den_i=br*z[1]+bi*z[0]+ai;
+    const d2=den_r*den_r+den_i*den_i+1e-10;
+    return[(num_r*den_r+num_i*den_i)/d2,(num_i*den_r-num_r*den_i)/d2];
+  }
+  drawPoly(ctx,pts,depth){
+    if(pts.length<3)return;
+    ctx.beginPath();
+    ctx.moveTo(this.cx+pts[0][0]*this.r,this.cy+pts[0][1]*this.r);
+    for(let i=1;i<pts.length;i++)ctx.lineTo(this.cx+pts[i][0]*this.r,this.cy+pts[i][1]*this.r);
+    ctx.closePath();
+    ctx.fillStyle=col(this.colOff+depth*2,0.4);
+    ctx.fill();
+    ctx.strokeStyle=col(this.colOff+1,0.5);
+    ctx.lineWidth=0.6;ctx.stroke();
+  }
+  generate(){
+    const p=this.p;
+    const pts=[];
+    const rh=Math.cos(Math.PI*(0.5-1/p-1/this.q));
+    const r0=Math.sqrt((1-rh*rh)/(1-rh*rh*Math.cos(2*Math.PI/p)*Math.cos(2*Math.PI/p)))*0.85;
+    for(let i=0;i<p;i++){
+      const a=i*Math.PI*2/p;
+      pts.push([r0*Math.cos(a),r0*Math.sin(a)]);
+    }
+    this.polygons.push({pts,depth:0});
+    for(let depth=1;depth<=3;depth++){
+      const newPolys=[];
+      for(const poly of this.polygons){
+        if(poly.depth!==depth-1)continue;
+        for(let side=0;side<p;side++){
+          const A=poly.pts[side];
+          const B=poly.pts[(side+1)%p];
+          const mx=(A[0]+B[0])/2,my=(A[1]+B[1])/2;
+          const mr=Math.sqrt(mx*mx+my*my);
+          if(mr>0.92)continue;
+          const newPts=pts.map(pt=>{
+            const ar=A[0],ai=A[1];
+            const nr=pt[0]-ar,ni=pt[1]-ai;
+            const d2=ar*ar+ai*ai;
+            const mag=1-d2;
+            const t=[(nr*(1-d2))/(1-ar*nr-ai*ni),(ni*(1-d2))/(1-ar*nr-ai*ni)];
+            return t;
+          });
+          if(newPolys.length<40){newPolys.push({pts:newPts,depth});}
+        }
+      }
+      for(const p of newPolys)this.polygons.push(p);
+    }
+  }
+  draw(ctx,t){
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(this.cx,this.cy,this.r,0,Math.PI*2);
+    ctx.clip();
+    ctx.beginPath();
+    ctx.arc(this.cx,this.cy,this.r,0,Math.PI*2);
+    ctx.strokeStyle=col(this.colOff+1,0.5);
+    ctx.lineWidth=1.5;ctx.stroke();
+    for(const poly of this.polygons)this.drawPoly(ctx,poly.pts,poly.depth);
+    ctx.restore();
+  }
+}
+
+class SpringMassMembrane{
+  constructor(gx,gy,colOff){
+    this.gx=gx;this.gy=gy;this.colOff=colOff;
+    this.nx=gx;this.ny=gy;
+    this.pos=[];this.vel=[];this.rest=[];
+    const sx=W/(gx-1),sy=H/(gy-1);
+    for(let r=0;r<gy;r++)for(let c=0;c<gx;c++){
+      this.pos.push([c*sx,r*sy,R.range(-5,5)]);
+      this.vel.push([0,0,0]);
+      this.rest.push([c*sx,r*sy,0]);
+    }
+    this.k=0.02;this.damp=0.98;
+    this.disturb();
+  }
+  disturb(){
+    for(let i=0;i<10;i++){
+      const idx=R.int(0,this.pos.length-1);
+      this.vel[idx][2]+=R.range(-10,10);
+    }
+  }
+  step(){
+    const nx=this.nx,ny=this.ny;
+    const k=this.k,damp=this.damp;
+    for(let r=0;r<ny;r++)for(let c=0;c<nx;c++){
+      const i=r*nx+c;
+      let fz=0;
+      if(r>0)fz+=(this.pos[(r-1)*nx+c][2]-this.pos[i][2])*k;
+      if(r<ny-1)fz+=(this.pos[(r+1)*nx+c][2]-this.pos[i][2])*k;
+      if(c>0)fz+=(this.pos[r*nx+c-1][2]-this.pos[i][2])*k;
+      if(c<nx-1)fz+=(this.pos[r*nx+c+1][2]-this.pos[i][2])*k;
+      fz-=this.pos[i][2]*0.001;
+      this.vel[i][2]=(this.vel[i][2]+fz)*damp;
+      this.pos[i][2]+=this.vel[i][2];
+    }
+  }
+  draw(ctx,t){
+    if(frame%2===0)this.step();
+    if(frame%120===0)this.disturb();
+    const nx=this.nx,ny=this.ny;
+    for(let r=0;r<ny-1;r++){
+      for(let c=0;c<nx-1;c++){
+        const i=r*nx+c;
+        const p=this.pos[i];
+        const pr=this.pos[r*nx+c+1];
+        const pd=this.pos[(r+1)*nx+c];
+        const z=p[2],zr=pr[2],zd=pd[2];
+        const zn=(z+10)/20;
+        ctx.beginPath();
+        ctx.moveTo(p[0],p[1]+z*1.5);
+        ctx.lineTo(pr[0],pr[1]+zr*1.5);
+        ctx.lineTo(pd[0],pd[1]+zd*1.5);
+        ctx.closePath();
+        ctx.fillStyle=col(this.colOff+Math.floor(zn*4),0.15+zn*0.25);
+        ctx.fill();
+      }
+    }
+  }
+}
+
+class LinkageMechanism{
+  constructor(cx,cy,scale,colOff){
+    this.cx=cx;this.cy=cy;this.scale=scale;this.colOff=colOff;
+    this.angle=0;this.speed=R.range(0.01,0.03)*(R.bool()?1:-1);
+    this.l1=scale*0.4;this.l2=scale*0.7;this.l3=scale*0.5;
+  }
+  draw(ctx,t){
+    const ang=this.angle+t*this.speed*30;
+    const x1=this.cx+this.l1*Math.cos(ang);
+    const y1=this.cy+this.l1*Math.sin(ang);
+    const x2=x1+this.l2*Math.cos(ang*2.3+1);
+    const y2=y1+this.l2*Math.sin(ang*2.3+1);
+    const x3=x2+this.l3*Math.cos(ang*1.7+2);
+    const y3=y2+this.l3*Math.sin(ang*1.7+2);
+    ctx.strokeStyle=col(this.colOff,0.7);
+    ctx.lineWidth=2.5;
+    ctx.lineCap='round';
+    ctx.beginPath();ctx.moveTo(this.cx,this.cy);ctx.lineTo(x1,y1);ctx.stroke();
+    ctx.strokeStyle=col(this.colOff+2,0.7);
+    ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();
+    ctx.strokeStyle=col(this.colOff+4,0.7);
+    ctx.beginPath();ctx.moveTo(x2,y2);ctx.lineTo(x3,y3);ctx.stroke();
+    for(const[px,py,ci] of [[this.cx,this.cy,0],[x1,y1,1],[x2,y2,2],[x3,y3,3]]){
+      ctx.beginPath();ctx.arc(px,py,4+ci,0,Math.PI*2);
+      ctx.fillStyle=col(this.colOff+ci,0.9);ctx.fill();
+    }
+    ctx.lineCap='butt';
+  }
+}
+
+class MughalRosette{
+  constructor(cx,cy,r,petals,colOff){
+    this.cx=cx;this.cy=cy;this.r=r;this.petals=petals;this.colOff=colOff;
+    this.phase=R.range(0,Math.PI*2);
+    this.spin=R.range(-0.001,0.001);
+  }
+  draw(ctx,t){
+    ctx.save();
+    ctx.translate(this.cx,this.cy);
+    const p=this.petals,r=this.r;
+    const ang=this.phase+t*this.spin*30;
+    for(let layer=4;layer>=1;layer--){
+      const lr=r*layer/4;
+      ctx.save();ctx.rotate(ang*(layer%2?1:-1));
+      for(let i=0;i<p;i++){
+        const a=i*Math.PI*2/p;
+        const a2=a+Math.PI/p;
+        ctx.beginPath();
+        ctx.moveTo(0,0);
+        ctx.bezierCurveTo(
+          lr*0.5*Math.cos(a-0.3),lr*0.5*Math.sin(a-0.3),
+          lr*Math.cos(a),lr*Math.sin(a),
+          lr*0.6*Math.cos(a2),lr*0.6*Math.sin(a2)
+        );
+        ctx.bezierCurveTo(
+          lr*Math.cos(a+0.3),lr*Math.sin(a+0.3),
+          lr*0.5*Math.cos(a+0.6),lr*0.5*Math.sin(a+0.6),
+          0,0
+        );
+        ctx.closePath();
+        ctx.fillStyle=col(this.colOff+i+layer,0.4+Math.sin(t*0.3+i+layer)*0.1);
+        ctx.fill();
+        ctx.strokeStyle=col(this.colOff+i+1,0.6);
+        ctx.lineWidth=0.6;ctx.stroke();
+      }
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+}
+
+class RecursiveLabyrinth{
+  constructor(x,y,w,h,depth,colOff){
+    this.x=x;this.y=y;this.w=w;this.h=h;this.depth=depth;this.colOff=colOff;
+    this.walls=[];
+    this.build(x,y,w,h,depth);
+  }
+  build(x,y,w,h,d){
+    if(d<=0||w<4||h<4)return;
+    const horizontal=w<h||R.bool();
+    if(horizontal){
+      const wy=y+R.int(2,h-3);
+      const gap=x+R.int(0,w-1);
+      for(let px=x;px<x+w;px++)if(px!==gap)this.walls.push([px,wy,px+1,wy,d]);
+      this.build(x,y,w,wy-y,d-1);
+      this.build(x,wy+1,w,h-(wy-y+1),d-1);
+    }else{
+      const wx=x+R.int(2,w-3);
+      const gap=y+R.int(0,h-1);
+      for(let py=y;py<y+h;py++)if(py!==gap)this.walls.push([wx,py,wx,py+1,d]);
+      this.build(x,y,wx-x,h,d-1);
+      this.build(wx+1,y,w-(wx-x+1),h,d-1);
+    }
+  }
+  draw(ctx,t){
+    const scx=W/this.w,scy=H/this.h;
+    for(const[x1,y1,x2,y2,d] of this.walls){
+      ctx.beginPath();
+      ctx.moveTo(x1*scx,y1*scy);ctx.lineTo(x2*scx,y2*scy);
+      ctx.strokeStyle=col(this.colOff+d,0.5+Math.sin(t*0.2+d)*0.2);
+      ctx.lineWidth=0.8;ctx.stroke();
+    }
+  }
+}
+
+// ========== LAYER ORCHESTRATION ==========
+
+function buildLayers(){
+  layers=[];
+  const active=[];
+  const allTypes=['penrose','ammann','voronoi','apollonian','islamic','hilbert',
+    'celtic','reaction','gyro','wave','cellular','vortex','hyperbolic',
+    'membrane','linkage','mughal','labyrinth'];
+  const chosen=[];
+  const shuffled=[...allTypes].sort(()=>R.next()-0.5);
+  const n=R.int(6,10);
+  for(let i=0;i<Math.min(n,shuffled.length);i++)chosen.push(shuffled[i]);
+  for(const type of chosen){
+    let layer;
+    const co=R.int(0,palette.length-1);
+    try{
+      switch(type){
+        case 'penrose':
+          layer=new PenroseTiling(cx,cy,Math.min(W,H)*R.range(0.4,0.65),R.int(4,6),co);break;
+        case 'ammann':
+          layer=new AmmannBeenker(cx,cy,Math.min(W,H)*R.range(0.35,0.6),R.int(2,4),co);break;
+        case 'voronoi':
+          layer=new VoronoiLayer(R.int(15,30),W,H,co);break;
+        case 'apollonian':
+          layer=new ApollonianPacking(cx,cy,Math.min(W,H)*0.45,R.int(3,5),co);break;
+        case 'islamic':
+          layer=new IslamicStar(cx,cy,Math.min(W,H)*R.range(0.2,0.4),R.int(5,12),co);break;
+        case 'hilbert':
+          layer=new HilbertCurve(cx,cy,Math.min(W,H)*R.range(0.5,0.85),R.int(4,5),co);break;
+        case 'celtic':
+          layer=new CelticKnot(cx,cy,Math.min(W,H)*R.range(0.2,0.45),R.int(3,7),co);break;
+        case 'reaction':
+          layer=new ReactionDiffusion(W,H,co);break;
+        case 'gyro':
+          layer=new GyroPlanetaryGear(cx,cy,Math.min(W,H)*R.range(0.2,0.38),R.int(3,7),co);break;
+        case 'wave':
+          layer=new WaveInterference(W,H,co);break;
+        case 'cellular':
+          layer=new CellularAutomata(W,H,co);break;
+        case 'vortex':
+          layer=new ParticleVortex(R.int(200,500),co);break;
+        case 'hyperbolic':
+          layer=new HyperbolicTessellation(cx,cy,Math.min(W,H)*0.42,R.int(4,7),R.int(3,5),co);break;
+        case 'membrane':
+          layer=new SpringMassMembrane(R.int(8,14),R.int(6,10),co);break;
+        case 'linkage':
+          layer=new LinkageMechanism(cx,cy,Math.min(W,H)*R.range(0.25,0.45),co);break;
+        case 'mughal':
+          layer=new MughalRosette(cx,cy,Math.min(W,H)*R.range(0.2,0.4),R.int(6,16),co);break;
+        case 'labyrinth':
+          layer=new RecursiveLabyrinth(0,0,R.int(20,40),R.int(15,30),R.int(4,7),co);break;
+      }
+      if(layer){layers.push({obj:layer,type,alpha:R.range(0.4,0.9),blend:R.pick(['source-over','screen','multiply','overlay','lighten']),zorder:R.next()});}
+    }catch(e){}
+  }
+  layers.sort((a,b)=>a.zorder-b.zorder);
+}
+
+// ========== SOUND ENGINE ==========
+
+function initAudio(){
+  if(!soundOn)return;
+  if(audioCtx)return;
+  try{
+    audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+    masterGain=audioCtx.createGain();
+    masterGain.gain.setValueAtTime(0.05,audioCtx.currentTime);
+    masterGain.connect(audioCtx.destination);
+    buildSoundscape();
+  }catch(e){soundOn=false;}
+}
+
+function buildSoundscape(){
+  if(!audioCtx||!soundOn)return;
+  clearOscillators();
+  const base=55*Math.pow(2,R.int(0,4));
+  const ratios=[1,1.5,2,2.5,3,4,5,6,8];
+  const chosen=ratios.sort(()=>R.next()-0.5).slice(0,R.int(3,6));
+  for(const ratio of chosen){
+    const osc=audioCtx.createOscillator();
+    const gain=audioCtx.createGain();
+    const filter=audioCtx.createBiquadFilter();
+    filter.type=R.pick(['bandpass','lowpass','highpass']);
+    filter.frequency.value=base*ratio*R.range(0.8,1.2);
+    filter.Q.value=R.range(5,20);
+    osc.type=R.pick(['sine','triangle','sawtooth','square']);
+    osc.frequency.value=base*ratio+R.range(-0.5,0.5);
+    gain.gain.setValueAtTime(R.range(0.002,0.015),audioCtx.currentTime);
+    osc.connect(filter);filter.connect(gain);gain.connect(masterGain);
+    osc.start();
+    oscillators.push({osc,gain,filter,base:base*ratio,mod:R.range(0.1,2)});
+  }
+  const noise=audioCtx.createScriptProcessor?null:null;
+}
+
+function clearOscillators(){
+  for(const{osc,gain} of oscillators){try{osc.stop();gain.disconnect();}catch(e){}}
+  oscillators=[];
+}
+
+function updateSound(){
+  if(!audioCtx||!soundOn||!masterGain)return;
+  const time=audioCtx.currentTime;
+  const tn=t;
+  for(const o of oscillators){
+    const modulation=Math.sin(tn*o.mod*0.3)*0.5+0.5;
+    o.gain.gain.setTargetAtTime(0.003+modulation*0.012,time,0.5);
+    o.filter.frequency.setTargetAtTime(o.base*(0.8+modulation*0.6),time,0.3);
+  }
+}
+
+// ========== MAIN LOOP ==========
+
+function generate(){
+  seed=Math.random()*99999|0;
+  R=new SeededRandom(seed);
+  generatePalette();
+  buildLayers();
+  frame=0;t=0;
+}
+
+function drawBackground(){
+  ctx.fillStyle=bgColor;
+  ctx.fillRect(0,0,W,H);
+  ctx.globalCompositeOperation='source-over';
+  ctx.globalAlpha=1;
+  const grad=ctx.createRadialGradient(cx,cy,0,cx,cy,Math.min(W,H)*0.7);
+  grad.addColorStop(0,col(0,0.05));
+  grad.addColorStop(0.5,col(2,0.03));
+  grad.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=grad;
+  ctx.fillRect(0,0,W,H);
+}
+
+function drawGlow(){
+  if(!params.glow)return;
+  ctx.globalCompositeOperation='screen';
+  ctx.globalAlpha=0.06;
+  const g=ctx.createRadialGradient(cx,cy,0,cx,cy,Math.min(W,H)*0.5);
+  g.addColorStop(0,col(Math.floor(t*0.1)%palette.length,1));
+  g.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=g;
+  ctx.fillRect(0,0,W,H);
+  ctx.globalAlpha=1;
+  ctx.globalCompositeOperation='source-over';
+}
+
+function drawVignette(){
+  const g=ctx.createRadialGradient(cx,cy,Math.min(W,H)*0.3,cx,cy,Math.max(W,H)*0.8);
+  g.addColorStop(0,'rgba(0,0,0,0)');
+  g.addColorStop(1,'rgba(0,0,0,0.85)');
+  ctx.globalCompositeOperation='source-over';
+  ctx.globalAlpha=1;
+  ctx.fillStyle=g;
+  ctx.fillRect(0,0,W,H);
+}
+
+let fpsArr=[],fpsLast=0;
+function updateFPS(now){
+  const delta=now-fpsLast;fpsLast=now;
+  fpsArr.push(1000/delta);
+  if(fpsArr.length>30)fpsArr.shift();
+  fps=fpsArr.reduce((a,b)=>a+b,0)/fpsArr.length|0;
+}
+
+function updateHUD(){
+  if(!showHUD)return;
+  hud.innerHTML=`FPS: ${fps} | t: ${t.toFixed(1)}s | layers: ${layers.length}<br>theme: ${params.theme||'?'} | seed: ${seed}`;
+}
+
+let animId;
+function loop(now){
+  animId=requestAnimationFrame(loop);
+  if(!lastTime)lastTime=now;
+  const dt=Math.min((now-lastTime)/1000,0.05);
+  lastTime=now;
+  t+=dt;frame++;
+  updateFPS(now);
+  if(soundOn&&frame%30===0)updateSound();
+
+  drawBackground();
+  ctx.save();
+  for(const layer of layers){
+    ctx.globalAlpha=layer.alpha*(0.85+0.15*Math.sin(t*0.1+layer.zorder));
+    ctx.globalCompositeOperation=layer.blend;
+    try{layer.obj.draw(ctx,t);}catch(e){}
+    if(layer.type==='voronoi'){try{layer.obj.update(dt);}catch(e){}}
+  }
+  ctx.restore();
+  ctx.globalAlpha=1;ctx.globalCompositeOperation='source-over';
+  drawGlow();
+  drawVignette();
+  updateHUD();
+}
+
+function toggleSound(){
+  soundOn=!soundOn;
+  if(soundOn){
+    initAudio();
+    if(audioCtx&&audioCtx.state==='suspended')audioCtx.resume();
+  }else{
+    if(audioCtx){clearOscillators();audioCtx.suspend();}
+  }
+}
+
+function onKey(e){
+  if(e.code==='Space'){e.preventDefault();generate();}
+  if(e.code==='KeyH'){showHUD=!showHUD;hud.style.display=showHUD?'block':'none';}
+  if(e.code==='KeyS'){toggleSound();}
+}
+
+let tapStart=0;
+function onTap(e){
+  e.preventDefault();
+  const now=Date.now();
+  if(now-tapStart<300){generate();tapStart=0;}
+  else{tapStart=now;setTimeout(()=>{if(Date.now()-tapStart>=300)generate();},350);}
+}
+
+window.addEventListener('keydown',onKey);
+canvas.addEventListener('click',e=>{generate();});
+canvas.addEventListener('touchend',onTap,{passive:false});
+window.addEventListener('resize',()=>{resize();try{buildLayers();}catch(e){}});
+
+resize();
+generate();
+requestAnimationFrame(loop);
+
+setTimeout(()=>{hint.style.opacity='0';},5000);
+})();
+</script>
+</body>
+</html>

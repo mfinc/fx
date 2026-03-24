@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Mathemaesthetic Kaleidoscopic Field Navigator</title>
+
+<meta name="viewport" content="width=device-width,initial-scale=1">
+
+<meta name="description" content="Mathemaesthetic Kaleidoscopic Field Navigator – a procedural generative visualization engine exploring analytic functions, orthogonal polynomials, tensor fields, complex domain coloring, kaleidoscopic symmetry groups, Voronoi tessellations, and psychedelic mathematical corridors with optional generative audio synthesis.">
+
+<meta name="keywords" content="mathematical visualization, generative art, kaleidoscope engine, procedural graphics, domain coloring, orthogonal polynomials, Legendre Hermite Laguerre Chebyshev, fractal tunnel, WebGL generative art, audiovisual generative systems, psychedelic mathematical graphics">
+
+<style>
+html,body{
+margin:0;
+padding:0;
+overflow:hidden;
+background:black;
+font-family:monospace;
+}
+canvas{
+position:fixed;
+top:0;
+left:0;
+width:100%;
+height:100%;
+}
+#hud{
+position:fixed;
+top:10px;
+left:10px;
+color:#0f0;
+background:rgba(0,0,0,0.45);
+padding:10px;
+font-size:12px;
+display:none;
+}
+</style>
+</head>
+
+<body>
+
+<canvas id="c"></canvas>
+<div id="hud"></div>
+
+<script>
+
+const canvas = document.getElementById("c");
+const gl = canvas.getContext("webgl");
+
+const hud = document.getElementById("hud");
+
+let startTime = performance.now();
+let params;
+
+let soundOn=false;
+let audioCtx=null;
+let oscillators=[];
+let gainNode;
+
+function resize(){
+canvas.width=innerWidth;
+canvas.height=innerHeight;
+gl.viewport(0,0,canvas.width,canvas.height);
+}
+window.addEventListener("resize",resize);
+resize();
+
+function rand(a=0,b=1){return a+Math.random()*(b-a);}
+
+function newParams(){
+
+params={
+seed:Math.random()*1000,
+sym:Math.floor(rand(4,12)),
+polyMix:rand(0.2,2),
+warp:rand(0.2,1.5),
+flow:rand(0.1,0.8),
+colorRate:rand(0.05,0.4),
+tunnel:rand(0.5,3),
+rotate:rand(0,1),
+mirror:Math.floor(rand(0,3))
+};
+
+updateHUD();
+restartAudio();
+}
+
+function updateHUD(){
+hud.innerHTML=
+`Mathemaesthetic Navigator
+seed: ${params.seed.toFixed(2)}
+symmetry: ${params.sym}
+polyMix: ${params.polyMix.toFixed(2)}
+warp: ${params.warp.toFixed(2)}
+flow: ${params.flow.toFixed(2)}
+tunnel: ${params.tunnel.toFixed(2)}
+rotateMode: ${params.rotate.toFixed(2)}
+sound: ${soundOn}`;
+}
+
+const vertex=`
+attribute vec2 p;
+void main(){
+gl_Position=vec4(p,0.,1.);
+}
+`;
+
+const fragment=`
+precision highp float;
+
+uniform vec2 res;
+uniform float t;
+
+uniform float seed;
+uniform float sym;
+uniform float polyMix;
+uniform float warp;
+uniform float flow;
+uniform float colorRate;
+uniform float tunnel;
+uniform float rotate;
+uniform float mirror;
+
+float legendre(float x){
+return 0.5*(3.*x*x-1.);
+}
+
+float hermite(float x){
+return 2.*x*x-1.;
+}
+
+float cheb(float x){
+return 2.*x*x-1.;
+}
+
+float laguerre(float x){
+return 1.-x;
+}
+
+vec2 kale(vec2 p){
+float a=atan(p.y,p.x);
+float r=length(p);
+
+float seg=6.28318/sym;
+a=mod(a,seg);
+a=abs(a-seg*0.5);
+
+return vec2(cos(a),sin(a))*r;
+}
+
+vec3 palette(float v){
+vec3 c;
+
+float h=v;
+c.r=0.5+0.5*cos(6.28318*(h));
+c.g=0.5+0.5*cos(6.28318*(h+0.33));
+c.b=0.5+0.5*cos(6.28318*(h+0.66));
+
+return pow(c,vec3(0.8));
+}
+
+void main(){
+
+vec2 uv=(gl_FragCoord.xy/res-0.5);
+uv.x*=res.x/res.y;
+
+float time=t*flow;
+
+float ang=time*rotate;
+mat2 rot=mat2(cos(ang),-sin(ang),sin(ang),cos(ang));
+uv*=rot;
+
+vec2 p=uv;
+
+float r=length(p);
+
+p/=r+0.2;
+
+p=kale(p);
+
+float z=r*tunnel-time;
+
+float x=p.x;
+float y=p.y;
+
+float poly=
+legendre(x*polyMix)+
+hermite(y*polyMix)+
+cheb(x*y*polyMix)+
+laguerre(r*polyMix);
+
+float field=
+sin(8.*x+z)+
+cos(8.*y-z)+
+sin(poly*3.);
+
+field+=sin(length(p)*10.-z*2.);
+
+vec2 w=p;
+w.x+=warp*sin(3.*p.y+time);
+w.y+=warp*cos(3.*p.x-time);
+
+float domain=atan(w.y,w.x);
+
+float color=field+domain;
+
+color+=sin(z);
+
+vec3 col=palette(color*colorRate+time*0.1);
+
+gl_FragColor=vec4(col,1.);
+}
+`;
+
+function compile(type,src){
+let s=gl.createShader(type);
+gl.shaderSource(s,src);
+gl.compileShader(s);
+return s;
+}
+
+let prog=gl.createProgram();
+gl.attachShader(prog,compile(gl.VERTEX_SHADER,vertex));
+gl.attachShader(prog,compile(gl.FRAGMENT_SHADER,fragment));
+gl.linkProgram(prog);
+
+gl.useProgram(prog);
+
+let buf=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([
+-1,-1,
+1,-1,
+-1,1,
+1,1
+]),gl.STATIC_DRAW);
+
+let loc=gl.getAttribLocation(prog,"p");
+gl.enableVertexAttribArray(loc);
+gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+
+const uRes=gl.getUniformLocation(prog,"res");
+const uTime=gl.getUniformLocation(prog,"t");
+
+const uSeed=gl.getUniformLocation(prog,"seed");
+const uSym=gl.getUniformLocation(prog,"sym");
+const uPoly=gl.getUniformLocation(prog,"polyMix");
+const uWarp=gl.getUniformLocation(prog,"warp");
+const uFlow=gl.getUniformLocation(prog,"flow");
+const uColor=gl.getUniformLocation(prog,"colorRate");
+const uTunnel=gl.getUniformLocation(prog,"tunnel");
+const uRotate=gl.getUniformLocation(prog,"rotate");
+const uMirror=gl.getUniformLocation(prog,"mirror");
+
+function frame(){
+
+let now=(performance.now()-startTime)/1000;
+
+gl.uniform2f(uRes,canvas.width,canvas.height);
+gl.uniform1f(uTime,now);
+
+gl.uniform1f(uSeed,params.seed);
+gl.uniform1f(uSym,params.sym);
+gl.uniform1f(uPoly,params.polyMix);
+gl.uniform1f(uWarp,params.warp);
+gl.uniform1f(uFlow,params.flow);
+gl.uniform1f(uColor,params.colorRate);
+gl.uniform1f(uTunnel,params.tunnel);
+gl.uniform1f(uRotate,params.rotate);
+gl.uniform1f(uMirror,params.mirror);
+
+gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+
+requestAnimationFrame(frame);
+}
+
+function initAudio(){
+
+audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+
+gainNode=audioCtx.createGain();
+gainNode.gain.value=0.05;
+gainNode.connect(audioCtx.destination);
+
+oscillators=[];
+
+for(let i=0;i<4;i++){
+
+let o=audioCtx.createOscillator();
+let f=120*Math.pow(2,rand(0,3));
+
+o.frequency.value=f;
+
+let g=audioCtx.createGain();
+g.gain.value=0.25;
+
+o.connect(g);
+g.connect(gainNode);
+
+o.start();
+
+oscillators.push({o,g});
+}
+}
+
+function restartAudio(){
+
+if(!soundOn)return;
+
+if(!audioCtx)initAudio();
+
+oscillators.forEach(x=>{
+x.o.frequency.value=120*Math.pow(2,rand(0,3));
+});
+
+}
+
+function toggleSound(){
+
+soundOn=!soundOn;
+
+if(soundOn){
+
+if(!audioCtx)initAudio();
+gainNode.gain.value=0.05;
+
+}else{
+
+if(gainNode)gainNode.gain.value=0;
+}
+
+updateHUD();
+}
+
+window.addEventListener("keydown",e=>{
+
+if(e.code==="Space"){
+newParams();
+}
+
+if(e.key==="h"||e.key==="H"){
+hud.style.display=hud.style.display==="none"?"block":"none";
+}
+
+if(e.key==="s"||e.key==="S"){
+toggleSound();
+}
+
+});
+
+window.addEventListener("click",newParams);
+window.addEventListener("touchstart",newParams);
+
+newParams();
+frame();
+
+</script>
+</body>
+</html>

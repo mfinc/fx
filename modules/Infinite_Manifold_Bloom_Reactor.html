@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Infinite Manifold Bloom Reactor</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Infinite Manifold Bloom Reactor – A high-performance WebGL spectral gradient bloom engine derived from multidimensional Hilbert and Minkowski projections, tensor field mappings, Legendre surfaces, Bessel oscillations, stereographic conformal mappings, reaction-diffusion overlays and modular arithmetic color cycling. Interactive audio synthesis tied to manifold curvature.">
+<meta name="keywords" content="WebGL, GLSL, Hilbert space visualization, Minkowski projection, Legendre polynomials, Bessel functions, reaction diffusion, spectral gradients, kaleidoscope shader, manifold visualization, FFT audio synthesis">
+<meta name="author" content="Infinite Manifold Bloom Reactor">
+
+<style>
+html,body{
+margin:0;
+padding:0;
+overflow:hidden;
+background:#000;
+touch-action:none;
+}
+canvas{
+display:block;
+position:fixed;
+top:0;
+left:0;
+}
+#hud{
+position:fixed;
+top:10px;
+left:10px;
+font-family:monospace;
+font-size:12px;
+color:#0ff;
+background:rgba(0,0,0,0.5);
+padding:8px;
+border-radius:6px;
+display:none;
+}
+</style>
+</head>
+<body>
+
+<canvas id="gl"></canvas>
+<div id="hud"></div>
+
+<script>
+const canvas = document.getElementById("gl");
+const gl = canvas.getContext("webgl", {antialias:false});
+const hud = document.getElementById("hud");
+
+function resize(){
+canvas.width = innerWidth;
+canvas.height = innerHeight;
+gl.viewport(0,0,canvas.width,canvas.height);
+}
+resize();
+addEventListener("resize",resize);
+
+const vertexSrc = `
+attribute vec2 p;
+void main(){
+gl_Position = vec4(p,0.0,1.0);
+}
+`;
+
+const fragmentSrc = `
+precision highp float;
+uniform vec2 r;
+uniform float t;
+uniform float seed1;
+uniform float seed2;
+uniform float seed3;
+uniform float symmetry;
+uniform float degree;
+uniform float paletteShift;
+
+float hash(float n){return fract(sin(n)*43758.5453123);}
+float noise(vec2 x){
+vec2 p=floor(x),f=fract(x);
+f=f*f*(3.0-2.0*f);
+float n=p.x+p.y*57.0;
+return mix(mix(hash(n),hash(n+1.0),f.x),
+mix(hash(n+57.0),hash(n+58.0),f.x),f.y);
+}
+
+float legendre(float x, float n){
+float p0=1.0;
+float p1=x;
+for(int i=2;i<12;i++){
+if(float(i)>n) break;
+float pi=((2.0*float(i)-1.0)*x*p1-(float(i)-1.0)*p0)/float(i);
+p0=p1;
+p1=pi;
+}
+return p1;
+}
+
+float bessel(float x){
+return sin(x)/x;
+}
+
+vec3 palette(float x){
+return vec3(
+0.5+0.5*cos(6.2831*(x+paletteShift)),
+0.5+0.5*cos(6.2831*(x+0.33+paletteShift)),
+0.5+0.5*cos(6.2831*(x+0.66+paletteShift))
+);
+}
+
+vec2 stereographic(vec3 p){
+return p.xy/(1.0-p.z);
+}
+
+void main(){
+vec2 uv=(gl_FragCoord.xy*2.0-r)/min(r.x,r.y);
+float time=t*0.15;
+
+float angle=atan(uv.y,uv.x);
+float radius=length(uv);
+
+float k = floor(angle/(6.2831/symmetry));
+angle = mod(angle,6.2831/symmetry);
+angle = abs(angle-(3.14159/symmetry));
+vec2 kaleido=vec2(cos(angle),sin(angle))*radius;
+
+float hilbert = sin(dot(kaleido,kaleido)*seed1 + time);
+float minkowski = sqrt(abs(dot(kaleido,kaleido) - seed2*seed2));
+
+float leg = legendre(clamp(radius,-1.0,1.0), degree);
+float bes = bessel(radius*seed3*8.0 + 0.1);
+
+vec3 sphere=normalize(vec3(kaleido, sin(radius+time)));
+vec2 proj=stereographic(sphere);
+
+float tensor = sin(proj.x*proj.y*5.0 + time);
+
+float rd = noise(uv*3.0+time) * sin(uv.x*uv.y*10.0);
+
+float field = hilbert + minkowski*0.5 + leg + bes + tensor + rd;
+
+float hue = fract(field*0.2 + time*0.1);
+vec3 col = palette(hue);
+
+float bloom = exp(-radius*2.0);
+col *= bloom;
+
+gl_FragColor = vec4(col,1.0);
+}
+`;
+
+function compile(type,src){
+const s=gl.createShader(type);
+gl.shaderSource(s,src);
+gl.compileShader(s);
+return s;
+}
+
+const program=gl.createProgram();
+gl.attachShader(program,compile(gl.VERTEX_SHADER,vertexSrc));
+gl.attachShader(program,compile(gl.FRAGMENT_SHADER,fragmentSrc));
+gl.linkProgram(program);
+gl.useProgram(program);
+
+const buffer=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,buffer);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([
+-1,-1, 1,-1, -1,1,
+-1,1, 1,-1, 1,1]),gl.STATIC_DRAW);
+
+const loc=gl.getAttribLocation(program,"p");
+gl.enableVertexAttribArray(loc);
+gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+
+const uR=gl.getUniformLocation(program,"r");
+const uT=gl.getUniformLocation(program,"t");
+const uS1=gl.getUniformLocation(program,"seed1");
+const uS2=gl.getUniformLocation(program,"seed2");
+const uS3=gl.getUniformLocation(program,"seed3");
+const uSym=gl.getUniformLocation(program,"symmetry");
+const uDeg=gl.getUniformLocation(program,"degree");
+const uPal=gl.getUniformLocation(program,"paletteShift");
+
+let params={};
+function randomize(){
+params.seed1=Math.random()*5+1;
+params.seed2=Math.random()*2;
+params.seed3=Math.random()*3+1;
+params.symmetry=Math.floor(Math.random()*10)+3;
+params.degree=Math.floor(Math.random()*8)+2;
+params.paletteShift=Math.random();
+}
+randomize();
+
+let start=performance.now();
+
+function render(){
+let now=(performance.now()-start)/1000;
+gl.uniform2f(uR,canvas.width,canvas.height);
+gl.uniform1f(uT,now);
+gl.uniform1f(uS1,params.seed1);
+gl.uniform1f(uS2,params.seed2);
+gl.uniform1f(uS3,params.seed3);
+gl.uniform1f(uSym,params.symmetry);
+gl.uniform1f(uDeg,params.degree);
+gl.uniform1f(uPal,params.paletteShift);
+gl.drawArrays(gl.TRIANGLES,0,6);
+requestAnimationFrame(render);
+}
+render();
+
+let audioCtx=null;
+let audioOn=false;
+let analyser;
+
+function initAudio(){
+audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+let bufferSize=2048;
+let node=audioCtx.createScriptProcessor(bufferSize,1,1);
+analyser=audioCtx.createAnalyser();
+node.onaudioprocess=function(e){
+let out=e.outputBuffer.getChannelData(0);
+for(let i=0;i<bufferSize;i++){
+let time=i/audioCtx.sampleRate;
+let curvature=Math.sin(params.seed1*time*200.0)+Math.cos(params.seed3*time*150.0);
+let fftApprox=Math.sin(curvature*50.0*time);
+out[i]=fftApprox*0.2;
+}
+};
+node.connect(audioCtx.destination);
+}
+
+addEventListener("keydown",e=>{
+if(e.code==="Space"){
+randomize();
+}
+if(e.key==="s"||e.key==="S"){
+audioOn=!audioOn;
+if(audioOn){
+if(!audioCtx) initAudio();
+audioCtx.resume();
+}else{
+audioCtx.suspend();
+}
+}
+if(e.key==="h"||e.key==="H"){
+hud.style.display=hud.style.display==="none"?"block":"none";
+}
+});
+
+canvas.addEventListener("click",randomize);
+
+hud.innerHTML="Infinite Manifold Bloom Reactor<br>SPACE/click: re-randomize<br>S: audio<br>H: HUD";
+
+</script>
+</body>
+</html>

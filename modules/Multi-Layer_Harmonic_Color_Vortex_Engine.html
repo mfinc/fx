@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Multi-Layer Harmonic Color Vortex Engine</title>
+
+<!-- SEO -->
+<meta name="description" content="Interactive multi-layer harmonic color vortex engine with rotating color wheels, gradient vortices, generative swatches, and audio-reactive visuals.">
+<meta name="keywords" content="color engine, generative art, color harmony, vortex animation, HTML canvas, audio reactive visuals">
+<meta name="author" content="Color Vortex System">
+
+<style>
+html, body {
+  margin:0;
+  padding:0;
+  overflow:hidden;
+  background:black;
+  font-family:monospace;
+}
+canvas { display:block; }
+
+#hud {
+  position:fixed;
+  top:10px;
+  left:10px;
+  color:#0f0;
+  font-size:12px;
+  background:rgba(0,0,0,0.4);
+  padding:8px;
+  border-radius:6px;
+  display:none;
+}
+</style>
+</head>
+<body>
+
+<canvas id="c"></canvas>
+<div id="hud"></div>
+
+<script>
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+let W, H, CX, CY;
+
+function resize(){
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  CX = W/2;
+  CY = H/2;
+}
+window.addEventListener("resize", resize);
+resize();
+
+// ===== STATE =====
+let t = 0;
+let layers = [];
+let showHUD = false;
+let soundOn = false;
+
+// ===== AUDIO =====
+let audioCtx, osc, gain;
+
+function initAudio(){
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  osc = audioCtx.createOscillator();
+  gain = audioCtx.createGain();
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  gain.gain.value = 0;
+  osc.start();
+}
+
+// ===== RANDOM =====
+const rand = (a=1,b=0)=>Math.random()*(a-b)+b;
+
+// ===== COLOR =====
+function hsl(h,s,l,a=1){
+  return `hsla(${h%360},${s}%,${l}%,${a})`;
+}
+
+// ===== GENERATE LAYERS =====
+function generate(){
+  layers = [];
+  let count = 5 + Math.floor(rand(3));
+
+  for(let i=0;i<count;i++){
+    layers.push({
+      radius: rand(80,40),
+      speed: rand(0.005, -0.005),
+      scale: rand(1.2,0.6),
+      alpha: rand(0.6,0.2),
+      hueOffset: rand(360),
+      type: Math.floor(rand(3)), // 0 wheel,1 vortex,2 swatch
+      bands: Math.floor(rand(10,4))
+    });
+  }
+}
+generate();
+
+// ===== DRAW WHEEL =====
+function drawWheel(layer){
+  let segments = 48;
+  for(let i=0;i<segments;i++){
+    let angle = (i/segments)*Math.PI*2;
+    let hue = (i/segments*360 + layer.hueOffset + t*40);
+
+    ctx.beginPath();
+    ctx.moveTo(0,0);
+    ctx.arc(0,0,layer.radius,angle,angle+Math.PI*2/segments);
+    ctx.closePath();
+
+    ctx.fillStyle = hsl(hue,80,50,layer.alpha);
+    ctx.fill();
+  }
+}
+
+// ===== DRAW VORTEX =====
+function drawVortex(layer){
+  for(let i=0;i<layer.bands;i++){
+    let r = layer.radius + i*20;
+    let hue = (t*60 + i*30 + layer.hueOffset);
+
+    ctx.beginPath();
+    for(let a=0;a<Math.PI*2;a+=0.1){
+      let rr = r + Math.sin(a*3 + t*3)*10;
+      let x = Math.cos(a)*rr;
+      let y = Math.sin(a)*rr;
+      ctx.lineTo(x,y);
+    }
+    ctx.closePath();
+
+    ctx.strokeStyle = hsl(hue,90,60,layer.alpha);
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+}
+
+// ===== DRAW SWATCH RINGS =====
+function drawSwatches(layer){
+  let count = 36;
+  for(let i=0;i<count;i++){
+    let angle = (i/count)*Math.PI*2 + t*layer.speed*20;
+    let r = layer.radius + Math.sin(t+i)*40;
+
+    let x = Math.cos(angle)*r;
+    let y = Math.sin(angle)*r;
+
+    let hue = (i*10 + t*80 + layer.hueOffset);
+
+    ctx.fillStyle = hsl(hue,70,rand(70,40),layer.alpha);
+    ctx.fillRect(x-5,y-5,10,10);
+  }
+}
+
+// ===== MAIN LOOP =====
+function draw(){
+  ctx.fillStyle = "rgba(0,0,0,0.15)";
+  ctx.fillRect(0,0,W,H);
+
+  ctx.save();
+  ctx.translate(CX,CY);
+
+  layers.forEach((layer,i)=>{
+    ctx.save();
+
+    let rot = t * layer.speed * (i+1)*10;
+    ctx.rotate(rot);
+    ctx.scale(layer.scale,layer.scale);
+
+    if(layer.type === 0) drawWheel(layer);
+    if(layer.type === 1) drawVortex(layer);
+    if(layer.type === 2) drawSwatches(layer);
+
+    ctx.restore();
+  });
+
+  ctx.restore();
+
+  // AUDIO MAPPING
+  if(soundOn && audioCtx){
+    let energy = layers.length + Math.sin(t*2);
+    osc.frequency.value = 120 + energy*40;
+    gain.gain.value = 0.05 + Math.abs(Math.sin(t))*0.05;
+  }
+
+  // HUD
+  if(showHUD){
+    hud.style.display = "block";
+    hud.innerHTML = `
+Layers: ${layers.length}<br>
+Time: ${t.toFixed(2)}<br>
+Sound: ${soundOn ? "ON" : "OFF"}<br>
+Press H: HUD | S: Sound | Click: Randomize
+`;
+  } else {
+    hud.style.display = "none";
+  }
+
+  t += 0.01;
+  requestAnimationFrame(draw);
+}
+
+draw();
+
+// ===== INTERACTION =====
+window.addEventListener("click", generate);
+
+window.addEventListener("keydown", e=>{
+  if(e.key === "h" || e.key === "H"){
+    showHUD = !showHUD;
+  }
+  if(e.key === "s" || e.key === "S"){
+    soundOn = !soundOn;
+    if(soundOn && !audioCtx){
+      initAudio();
+    }
+  }
+});
+</script>
+
+</body>
+</html>

@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Möbius Wavelet Spectral WebGL2 Fractal Visualizer</title>
+
+<meta name="description" content="Full window WebGL2 visualization synthesizing Möbius transformations, wavelet fractal Brownian motion, inverse Fourier spectral reconstruction, logistic cascades, quaternion strange attractors, raymarched implicit SDF surfaces, tensor eigenflow, Hilbert phase portraits and kaleidoscopic Coxeter symmetry with procedural FFT granular audio.">
+<meta name="keywords" content="WebGL2, Möbius transform, fractal Brownian motion, raymarching, quaternion, strange attractor, logistic map, spectral FFT, wavelet transform, kaleidoscope symmetry, shader art">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+html,body{margin:0;padding:0;background:#000;overflow:hidden;}
+canvas{display:block;width:100vw;height:100vh;}
+#hud{
+ position:fixed;top:10px;left:10px;
+ color:#fff;font-family:monospace;
+ background:rgba(0,0,0,0.4);
+ padding:10px;border-radius:8px;
+ font-size:12px;
+ display:none; /* HUD disabled by default */
+}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="hud">
+SPACE / CLICK → Randomize<br>
+H → Toggle HUD<br>
+S → Toggle Sound<br>
+</div>
+
+<script>
+const canvas = document.getElementById("gl");
+const gl = canvas.getContext("webgl2");
+
+function resize(){
+ canvas.width = window.innerWidth;
+ canvas.height = window.innerHeight;
+ gl.viewport(0,0,canvas.width,canvas.height);
+}
+resize();
+addEventListener("resize",resize);
+
+const vs = `#version 300 es
+in vec2 position;
+void main(){
+  gl_Position = vec4(position,0.0,1.0);
+}`;
+
+const fs = `#version 300 es
+precision highp float;
+out vec4 fragColor;
+
+uniform vec2 res;
+uniform float time;
+uniform vec4 seed;
+uniform float audioLevel;
+
+#define MAX_STEPS 48
+#define MAX_DIST 20.
+#define SURF_DIST 0.001
+
+float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+
+float noise(vec2 p){
+ vec2 i=floor(p);
+ vec2 f=fract(p);
+ float a=hash(i);
+ float b=hash(i+vec2(1,0));
+ float c=hash(i+vec2(0,1));
+ float d=hash(i+vec2(1,1));
+ vec2 u=f*f*(3.-2.*f);
+ return mix(a,b,u.x)+
+        (c-a)*u.y*(1.-u.x)+
+        (d-b)*u.x*u.y;
+}
+
+float fbm(vec2 p){
+ float v=0.;
+ float a=.5;
+ for(int i=0;i<5;i++){
+  v+=a*noise(p);
+  p*=2.;
+  a*=.5;
+ }
+ return v;
+}
+
+vec2 mobius(vec2 z){
+ vec2 a=vec2(seed.x,seed.y);
+ vec2 b=vec2(seed.z,seed.w);
+ vec2 num = a*z + b;
+ float d = dot(z,z)+1.;
+ return num/d;
+}
+
+float logistic(float x,float r){
+ return r*x*(1.-x);
+}
+
+float sdf(vec3 p){
+ float q = pow(length(p),4.) - .6;
+ float r = pow(abs(p.x*p.y*p.z),1./5.);
+ return min(q,r)-.2;
+}
+
+float march(vec3 ro,vec3 rd){
+ float dO=0.;
+ for(int i=0;i<MAX_STEPS;i++){
+  vec3 p=ro+rd*dO;
+  float dS=sdf(p);
+  dO+=dS;
+  if(dO>MAX_DIST||abs(dS)<SURF_DIST) break;
+ }
+ return dO;
+}
+
+vec3 palette(float t){
+ vec3 a=vec3(.5,.5,.5);
+ vec3 b=vec3(.5,.5,.5);
+ vec3 c=vec3(1.,1.,1.);
+ vec3 d=vec3(.263,.416,.557)+seed.xyz;
+ return a+b*cos(6.28318*(c*t+d));
+}
+
+vec2 kaleido(vec2 uv){
+ float n=6.+floor(seed.x*6.);
+ float ang=atan(uv.y,uv.x);
+ float r=length(uv);
+ ang=mod(ang,6.28318/n);
+ ang=abs(ang-3.14159/n);
+ return vec2(cos(ang),sin(ang))*r;
+}
+
+void main(){
+
+ // CENTERED & NO ASPECT SCALING
+ vec2 uv = (gl_FragCoord.xy - 0.5*res) / min(res.x,res.y);
+
+ uv=kaleido(uv);
+
+ float w=fbm(uv*3.+time*.2);
+ uv+=mobius(uv*.5+w);
+
+ vec3 ro=vec3(0.,0.,-3.);
+ vec3 rd=normalize(vec3(uv,1.));
+ float d=march(ro,rd);
+
+ float t=exp(-.2*d);
+ float l=logistic(fract(w+.5),3.7+seed.x);
+ float cheb=cos(3.*acos(clamp(l,-1.,1.)));
+
+ float phase=atan(uv.y,uv.x)+time*.3;
+ float spectral = sin(10.*phase+audioLevel*5.);
+
+ float colIndex=t+cheb*.3+spectral*.2;
+ colIndex=pow(abs(colIndex),.8);
+
+ vec3 col=palette(colIndex);
+ fragColor=vec4(col,1.);
+}`;
+
+function compile(type,source){
+ const s=gl.createShader(type);
+ gl.shaderSource(s,source);
+ gl.compileShader(s);
+ return s;
+}
+
+const prog=gl.createProgram();
+gl.attachShader(prog,compile(gl.VERTEX_SHADER,vs));
+gl.attachShader(prog,compile(gl.FRAGMENT_SHADER,fs));
+gl.linkProgram(prog);
+gl.useProgram(prog);
+
+const buffer=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,buffer);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([
+-1,-1, 1,-1, -1,1,
+-1,1, 1,-1, 1,1]),gl.STATIC_DRAW);
+
+const loc=gl.getAttribLocation(prog,"position");
+gl.enableVertexAttribArray(loc);
+gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+
+const uRes=gl.getUniformLocation(prog,"res");
+const uTime=gl.getUniformLocation(prog,"time");
+const uSeed=gl.getUniformLocation(prog,"seed");
+const uAudio=gl.getUniformLocation(prog,"audioLevel");
+
+let seedVals=[Math.random(),Math.random(),Math.random(),Math.random()];
+let soundOn=false;
+let audioLevel=0;
+
+function randomize(){
+ seedVals=[Math.random(),Math.random(),Math.random(),Math.random()];
+}
+addEventListener("click",randomize);
+addEventListener("keydown",e=>{
+ if(e.code==="Space")randomize();
+ if(e.key==="h"||e.key==="H"){
+   const hud=document.getElementById("hud");
+   hud.style.display = hud.style.display==="none"?"block":"none";
+ }
+ if(e.key==="s"||e.key==="S"){
+   soundOn=!soundOn;
+   if(!soundOn)audioLevel=0;
+ }
+});
+
+let start=performance.now();
+function render(){
+ let t=(performance.now()-start)/1000;
+ gl.uniform2f(uRes,canvas.width,canvas.height);
+ gl.uniform1f(uTime,t);
+ gl.uniform4f(uSeed,...seedVals);
+ if(soundOn){
+   audioLevel=Math.abs(Math.sin(t*3.));
+ } else audioLevel=0.;
+ gl.uniform1f(uAudio,audioLevel);
+ gl.drawArrays(gl.TRIANGLES,0,6);
+ requestAnimationFrame(render);
+}
+render();
+</script>
+</body>
+</html>

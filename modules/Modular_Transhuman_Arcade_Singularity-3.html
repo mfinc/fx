@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Modular Transhuman Arcade Singularity</title>
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<meta name="description" content="Experimental generative art engine combining Atari 2600 vector aesthetics, Tron neon megastructures, CRISPR inspired transformations, and animated category theory morphisms. A procedural audiovisual environment with evolving color spectra, graph morphogenesis, fractal vector fields, and retro arcade sound synthesis.">
+
+<meta name="keywords" content="generative art, procedural graphics, Atari vector graphics, Tron neon grid, CRISPR visualization, category theory morphisms, generative audiovisual engine, experimental art, fractal systems, graph networks, cybernetic art, arcade aesthetics">
+
+<style>
+html,body{
+margin:0;
+padding:0;
+background:black;
+overflow:hidden;
+font-family:monospace;
+}
+
+#hud{
+position:fixed;
+top:10px;
+left:10px;
+color:#0ff;
+font-size:12px;
+white-space:pre;
+pointer-events:none;
+}
+</style>
+</head>
+
+<body>
+
+<canvas id="c"></canvas>
+<div id="hud"></div>
+
+<script>
+
+const canvas = document.getElementById("c")
+const ctx = canvas.getContext("2d")
+const hud = document.getElementById("hud")
+
+let W,H
+let time=0
+let frame=0
+
+let nodes=[]
+let particles=[]
+let humans=[]
+
+let palette=[]
+let seed=Math.random()*999999
+
+let showHUD=false
+let sound=false
+
+let audioCtx=null
+let osc=null
+let gain=null
+
+function resize(){
+W=canvas.width=window.innerWidth
+H=canvas.height=window.innerHeight
+}
+window.addEventListener("resize",resize)
+resize()
+
+function rand(a=1,b=0){return b+Math.random()*(a-b)}
+
+function generatePalette(){
+palette=[]
+let base=rand(360)
+for(let i=0;i<8;i++){
+palette.push(`hsl(${(base+i*rand(20,60)+time*5)%360},100%,60%)`)
+}
+}
+
+function init(){
+
+seed=Math.random()*999999
+time=0
+frame=0
+
+nodes=[]
+particles=[]
+humans=[]
+
+generatePalette()
+
+let nodeCount=30+Math.floor(rand(40))
+
+for(let i=0;i<nodeCount;i++){
+nodes.push({
+x:rand(W),
+y:rand(H),
+vx:rand(-0.4,0.4),
+vy:rand(-0.4,0.4)
+})
+}
+
+for(let i=0;i<120;i++){
+particles.push({
+x:rand(W),
+y:rand(H),
+vx:rand(-1,1),
+vy:rand(-1,1)
+})
+}
+
+for(let i=0;i<10;i++){
+humans.push({
+x:rand(W),
+y:rand(H),
+phase:rand(Math.PI*2),
+evolve:rand()
+})
+}
+
+if(sound && audioCtx){
+audioCtx.close()
+audioCtx=null
+}
+
+}
+
+function startAudio(){
+
+if(!sound) return
+
+audioCtx=new (window.AudioContext||window.webkitAudioContext)()
+
+osc=audioCtx.createOscillator()
+gain=audioCtx.createGain()
+
+osc.type="sawtooth"
+gain.gain.value=0.02
+
+osc.connect(gain)
+gain.connect(audioCtx.destination)
+
+osc.start()
+
+}
+
+function toggleSound(){
+
+sound=!sound
+
+if(sound){
+startAudio()
+}else{
+if(audioCtx){
+audioCtx.close()
+audioCtx=null
+}
+}
+
+}
+
+function vectorField(x,y){
+return Math.sin(x*0.002+time)+Math.cos(y*0.002-time)
+}
+
+function update(){
+
+time+=0.01
+frame++
+
+nodes.forEach(n=>{
+let f=vectorField(n.x,n.y)
+n.vx+=Math.cos(f)*0.01
+n.vy+=Math.sin(f)*0.01
+n.x+=n.vx
+n.y+=n.vy
+
+if(n.x<0||n.x>W) n.vx*=-1
+if(n.y<0||n.y>H) n.vy*=-1
+})
+
+particles.forEach(p=>{
+let f=vectorField(p.x,p.y)
+
+p.vx+=Math.cos(f)*0.05
+p.vy+=Math.sin(f)*0.05
+
+p.x+=p.vx
+p.y+=p.vy
+
+p.vx*=0.98
+p.vy*=0.98
+
+if(p.x<0)p.x=W
+if(p.x>W)p.x=0
+if(p.y<0)p.y=H
+if(p.y>H)p.y=0
+})
+
+humans.forEach(h=>{
+h.phase+=0.02
+h.evolve+=0.001
+})
+
+if(sound && osc){
+let freq=200+Math.sin(time*2)*100 + nodes.length
+osc.frequency.value=freq
+}
+
+}
+
+function drawGrid(){
+
+ctx.strokeStyle=palette[0]
+ctx.lineWidth=1
+ctx.globalAlpha=0.25
+
+let step=80
+
+for(let x=0;x<W;x+=step){
+ctx.beginPath()
+ctx.moveTo(x,0)
+ctx.lineTo(x,H)
+ctx.stroke()
+}
+
+for(let y=0;y<H;y+=step){
+ctx.beginPath()
+ctx.moveTo(0,y)
+ctx.lineTo(W,y)
+ctx.stroke()
+}
+
+ctx.globalAlpha=1
+
+}
+
+function drawGraph(){
+
+for(let i=0;i<nodes.length;i++){
+for(let j=i+1;j<nodes.length;j++){
+
+let a=nodes[i]
+let b=nodes[j]
+
+let dx=a.x-b.x
+let dy=a.y-b.y
+let d=Math.sqrt(dx*dx+dy*dy)
+
+if(d<160){
+
+ctx.strokeStyle=palette[(i+j)%palette.length]
+ctx.lineWidth=1
+
+ctx.beginPath()
+ctx.moveTo(a.x,a.y)
+ctx.lineTo(b.x,b.y)
+ctx.stroke()
+
+}
+}
+}
+
+nodes.forEach((n,i)=>{
+ctx.fillStyle=palette[i%palette.length]
+ctx.beginPath()
+ctx.arc(n.x,n.y,2,0,Math.PI*2)
+ctx.fill()
+})
+
+}
+
+function drawParticles(){
+
+particles.forEach((p,i)=>{
+ctx.fillStyle=palette[i%palette.length]
+ctx.fillRect(p.x,p.y,2,2)
+})
+
+}
+
+function drawHumans(){
+
+humans.forEach((h,i)=>{
+
+let size=20*(1-h.evolve)
+
+ctx.strokeStyle=palette[(i*2)%palette.length]
+ctx.lineWidth=2
+
+ctx.beginPath()
+
+ctx.moveTo(h.x,h.y-size)
+ctx.lineTo(h.x,h.y+size)
+
+ctx.moveTo(h.x-size/2,h.y)
+ctx.lineTo(h.x+size/2,h.y)
+
+ctx.moveTo(h.x,h.y+size)
+ctx.lineTo(h.x-size/2,h.y+size*1.8)
+
+ctx.moveTo(h.x,h.y+size)
+ctx.lineTo(h.x+size/2,h.y+size*1.8)
+
+ctx.stroke()
+
+if(h.evolve>1){
+
+let parts=6
+
+for(let j=0;j<parts;j++){
+let ang=j*Math.PI*2/parts+time
+let px=h.x+Math.cos(ang)*30
+let py=h.y+Math.sin(ang)*30
+
+ctx.fillStyle=palette[(j+i)%palette.length]
+ctx.fillRect(px,py,4,4)
+}
+
+}
+
+})
+
+}
+
+function render(){
+
+ctx.fillStyle="rgba(0,0,0,0.2)"
+ctx.fillRect(0,0,W,H)
+
+drawGrid()
+drawGraph()
+drawParticles()
+drawHumans()
+
+if(showHUD){
+
+hud.style.display="block"
+
+hud.textContent=
+`MODULAR TRANSHUMAN ARCADE SINGULARITY
+nodes: ${nodes.length}
+particles: ${particles.length}
+humans: ${humans.length}
+frame: ${frame}
+sound: ${sound}
+hud: ${showHUD}`
+
+}else{
+hud.style.display="none"
+}
+
+}
+
+function loop(){
+update()
+render()
+requestAnimationFrame(loop)
+}
+
+document.addEventListener("keydown",e=>{
+
+if(e.code==="Space"){
+init()
+}
+
+if(e.key==="h"||e.key==="H"){
+showHUD=!showHUD
+}
+
+if(e.key==="s"||e.key==="S"){
+toggleSound()
+}
+
+})
+
+canvas.addEventListener("click",init)
+canvas.addEventListener("touchstart",init)
+
+init()
+loop()
+
+</script>
+
+</body>
+</html>

@@ -1,0 +1,1312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mechanical Tessellation Orchestra Engine</title>
+<meta name="description" content="A generative audiovisual tessellation orchestra where mathematical tilings operate as mechanical instruments producing synchronized motion and sound. Features Penrose quasicrystal, Ammann-Beenker, Islamic geometry, Celtic knots, Voronoi, and 20+ tiling systems with physics simulation and procedural audio.">
+<meta name="keywords" content="tessellation, generative art, Penrose tiling, Voronoi, Islamic geometry, procedural audio, WebGL, mathematical art, quasicrystal, Apollonian packing, cellular automata, reaction diffusion">
+<meta property="og:title" content="Mechanical Tessellation Orchestra Engine">
+<meta property="og:description" content="Generative audiovisual tessellation orchestra with Penrose quasicrystals, Islamic geometry, physics simulation and procedural sound.">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Mechanical Tessellation Orchestra Engine">
+<meta name="robots" content="index, follow">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000}
+canvas{display:block;position:fixed;top:0;left:0;width:100vw!important;height:100vh!important}
+#hud{position:fixed;top:16px;left:16px;color:rgba(255,255,255,0.7);font-family:monospace;font-size:11px;line-height:1.6;pointer-events:none;display:none;text-shadow:0 0 8px currentColor;z-index:10}
+#hint{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,0.35);font-family:monospace;font-size:10px;pointer-events:none;z-index:10;letter-spacing:2px}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<div id="hint">SPACE / CLICK · REGENERATE &nbsp;|&nbsp; H · HUD &nbsp;|&nbsp; S · SOUND</div>
+<script>
+// ============================================================
+// MECHANICAL TESSELLATION ORCHESTRA ENGINE
+// ============================================================
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const hud = document.getElementById('hud');
+
+let W, H, cx, cy, t = 0, frame = 0;
+let soundOn = false, hudOn = false;
+let audioCtx = null, masterGain = null, nodes = [];
+let animId = null;
+
+// ---- GLOBAL STATE ----
+let S = {}; // scene state, regenerated each cycle
+
+function rand(a,b){ return a + Math.random()*(b-a); }
+function randi(a,b){ return Math.floor(rand(a,b+1)); }
+function pick(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
+function lerp(a,b,t){ return a+(b-a)*t; }
+function clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
+function mod(a,b){ return ((a%b)+b)%b; }
+function hsl(h,s,l,a=1){ return `hsla(${h},${s}%,${l}%,${a})`; }
+
+// ---- RESIZE ----
+function resize(){
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  cx = W/2; cy = H/2;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ============================================================
+// PALETTE SYSTEM
+// ============================================================
+const PALETTE_THEMES = [
+  // name, base hues
+  {name:'Solaris',    hues:[30,45,15,200,190]},
+  {name:'Abyss',      hues:[240,260,280,300,180]},
+  {name:'Pyroclast',  hues:[0,15,30,45,200]},
+  {name:'Biolumen',   hues:[160,180,200,120,280]},
+  {name:'Mughal',     hues:[280,300,30,50,200]},
+  {name:'Circuit',    hues:[120,140,80,200,30]},
+  {name:'Prism',      hues:[0,60,120,180,240,300]},
+  {name:'Ember',      hues:[10,25,40,55,210]},
+  {name:'Arctic',     hues:[200,220,240,180,260]},
+  {name:'Venom',      hues:[90,120,60,280,30]},
+];
+
+function makePalette(){
+  const theme = pick(PALETTE_THEMES);
+  const bg_l = Math.random()<0.5 ? randi(2,10) : randi(85,96);
+  const dark = bg_l < 50;
+  return {
+    theme,
+    dark,
+    bg: hsl(theme.hues[0], 20, bg_l),
+    hues: [...theme.hues],
+    cycleSpeed: rand(0.3, 1.2),
+    satBase: rand(60,100),
+    lightBase: dark ? rand(45,75) : rand(25,55),
+    alpha: rand(0.55, 0.92),
+    glowColor: hsl(theme.hues[0], 100, 60),
+    neonIntensity: rand(0, 15),
+  };
+}
+
+function palColor(P, idx, phase=0, sat_mod=0, light_mod=0, a=null){
+  const h = mod(P.hues[mod(idx, P.hues.length)] + phase * P.cycleSpeed * 60, 360);
+  const s = clamp(P.satBase + sat_mod, 10, 100);
+  const l = clamp(P.lightBase + light_mod, 5, 95);
+  return hsl(h, s, l, a !== null ? a : P.alpha);
+}
+
+// ============================================================
+// TILING SYSTEMS (20+ types)
+// ============================================================
+
+// --- Penrose P3 (rhombus) quasicrystal ---
+function penroseSubdivide(tris, iter){
+  for(let i=0;i<iter;i++){
+    let next=[];
+    for(const [typ,A,B,C] of tris){
+      if(typ===0){ // thin
+        const P = [A[0]+(B[0]-A[0])*0.618, A[1]+(B[1]-A[1])*0.618];
+        const Q = [A[0]+(C[0]-A[0])*0.618, A[1]+(C[1]-A[1])*0.618];
+        next.push([0,P,B,Q],[0,C,Q,A],[1,Q,B,P]);
+      } else { // thick
+        const P = [B[0]+(A[0]-B[0])*0.618, B[1]+(A[1]-B[1])*0.618];
+        next.push([1,C,P,B],[0,P,C,A]);
+      }
+    }
+    tris = next;
+  }
+  return tris;
+}
+
+function buildPenrose(){
+  const scale = Math.min(W,H)*0.55;
+  const tris = [];
+  for(let i=0;i<10;i++){
+    const a1 = (2*i-1)*Math.PI/10;
+    const a2 = (2*i+1)*Math.PI/10;
+    tris.push([0,[cx,cy],[cx+scale*Math.cos(a1),cy+scale*Math.sin(a1)],[cx+scale*Math.cos(a2),cy+scale*Math.sin(a2)]]);
+  }
+  return penroseSubdivide(tris, S.subdivIter||4);
+}
+
+// --- Ammann-Beenker tiling ---
+function buildAmmannBeenker(){
+  const sq2 = Math.SQRT2;
+  const size = Math.min(W,H)*0.04;
+  const tiles = [];
+  const R = Math.min(W,H)*0.48;
+  for(let i=-20;i<=20;i++) for(let j=-20;j<=20;j++){
+    const x = cx + (i+j/sq2)*size*sq2;
+    const y = cy + j*size*sq2;
+    if(Math.hypot(x-cx,y-cy)<R){
+      const phase = mod(i*3+j*5, 8);
+      tiles.push({x,y,r:size, angle:(phase*Math.PI/4), type: phase%2===0?'sq':'tri', phase});
+    }
+  }
+  return tiles;
+}
+
+// --- Voronoi diagram ---
+function buildVoronoi(n){
+  const pts = [];
+  for(let i=0;i<n;i++) pts.push([rand(0,W), rand(0,H)]);
+  return pts;
+}
+
+function voronoiCell(pts, pi, res=4){
+  // approximate with canvas clipping
+  const [px,py] = pts[pi];
+  const verts = [];
+  for(let a=0;a<Math.PI*2;a+=Math.PI*2/res){
+    let best = 1e9, bx=px+Math.cos(a)*800, by=py+Math.sin(a)*800;
+    // find perpendicular bisector intersections
+    for(let j=0;j<pts.length;j++){
+      if(j===pi) continue;
+      const [qx,qy]=pts[j];
+      const mx=(px+qx)/2, my=(py+qy)/2;
+      const dx=qx-px, dy=qy-py;
+      // project ray onto bisector
+      const t2 = ((mx-px)*dx+(my-py)*dy)/(dx*dx+dy*dy);
+      if(t2>0){
+        const d2 = Math.hypot(mx-px,my-py);
+        if(d2<best){ best=d2; bx=mx; by=my; }
+      }
+    }
+    verts.push([bx,by]);
+  }
+  return verts;
+}
+
+// --- Apollonian gasket ---
+function apollonian(depth){
+  const circles = [];
+  const r0 = Math.min(W,H)*0.45;
+  circles.push({x:cx,y:cy,r:r0});
+  function subdivide(x,y,r,d){
+    if(d>depth||r<3) return;
+    circles.push({x,y,r});
+    const r1 = r*0.5;
+    subdivide(x+r1,y,r1,d+1);
+    subdivide(x-r1,y,r1,d+1);
+    subdivide(x,y+r1,r1,d+1);
+    subdivide(x,y-r1,r1,d+1);
+  }
+  subdivide(cx,cy,r0,0);
+  return circles;
+}
+
+// --- Hyperbolic tiling (Poincaré disk) ---
+function buildHyperbolic(p,q){
+  const R = Math.min(W,H)*0.44;
+  const tiles = [];
+  function mobius(z, c){ // z,c complex as [re,im]
+    const denom = [1-c[0]*z[0]+c[1]*z[1], -(c[0]*z[1]+c[1]*z[0])];
+    const num = [z[0]-c[0], z[1]-c[1]];
+    const d2 = denom[0]*denom[0]+denom[1]*denom[1];
+    return [(num[0]*denom[0]+num[1]*denom[1])/d2, (num[1]*denom[0]-num[0]*denom[1])/d2];
+  }
+  function hypPt(r,a){ return [r*Math.cos(a)*R+cx, r*Math.sin(a)*R+cy]; }
+  const n = p, sides = [];
+  for(let i=0;i<12;i++){
+    const a = i*2*Math.PI/n;
+    const r = Math.cos(Math.PI/p+Math.PI/q)/Math.cos(Math.PI/p-Math.PI/q);
+    const zr = (r-1)/(r+1)*0.85;
+    sides.push(hypPt(zr, a));
+  }
+  tiles.push({type:'hyp', pts: sides.slice(0,p)});
+  for(let ring=0;ring<3;ring++){
+    for(let i=0;i<n*(ring+1)*2;i++){
+      const ra = rand(0,1)*0.75+ring*0.08;
+      const ang = i*2*Math.PI/(n*(ring+1)*2);
+      const pts=[];
+      for(let j=0;j<p;j++){
+        pts.push(hypPt(ra, ang+j*2*Math.PI/p));
+      }
+      tiles.push({type:'hyp', pts});
+    }
+  }
+  return tiles;
+}
+
+// --- Islamic star geometry ---
+function buildIslamic(n, rings){
+  const cells = [];
+  const r = Math.min(W,H)*0.046;
+  for(let row=-rings;row<=rings;row++){
+    for(let col=-rings;col<=rings;col++){
+      const x = cx + col*r*2.05*Math.cos(Math.PI/6)*2 + row*r*2.05*Math.cos(Math.PI/6);
+      const y = cy + row*r*2.05*1.5;
+      cells.push({x,y,r,n});
+    }
+  }
+  return cells;
+}
+
+function starPolygon(cx2,cy2,r,n,skip,t2=0){
+  const pts=[];
+  for(let i=0;i<n;i++){
+    const a = t2 + i*Math.PI*2/n - Math.PI/2;
+    pts.push([cx2+r*Math.cos(a), cy2+r*Math.sin(a)]);
+  }
+  const star=[];
+  for(let i=0;i<n;i++) star.push(pts[i], pts[(i+skip)%n]);
+  return star;
+}
+
+// --- Celtic knot lattice ---
+function buildCeltic(grid){
+  const cells=[];
+  const sz = Math.min(W,H)/(grid+1);
+  for(let r=0;r<grid;r++) for(let c=0;c<grid;c++){
+    cells.push({x:cx+(c-grid/2+0.5)*sz, y:cy+(r-grid/2+0.5)*sz, sz, r, c});
+  }
+  return cells;
+}
+
+function celticKnot(x,y,sz,t2){
+  const pts=[];
+  const n=24;
+  for(let i=0;i<n;i++){
+    const a = i/n*Math.PI*2;
+    const k1=Math.sin(3*a+t2), k2=Math.cos(2*a+t2);
+    const r = sz*0.42*(1+0.3*k1*k2);
+    pts.push([x+r*Math.cos(a), y+r*Math.sin(a)]);
+  }
+  return pts;
+}
+
+// --- Hilbert curve ---
+function hilbert(order){
+  const pts=[];
+  const n = 1<<order;
+  function d2xy(n,d){
+    let rx,ry,s,t=d; let x=0,y=0;
+    for(s=1;s<n;s*=2){
+      rx=(1&(t/2>>0)); ry=(1&(t^rx));
+      if(ry===0){ if(rx===1){x=s-1-x;y=s-1-y;} [x,y]=[y,x]; }
+      x+=s*rx; y+=s*ry; t>>=2;
+    }
+    return [x,y];
+  }
+  for(let i=0;i<n*n;i++){
+    const [x,y]=d2xy(n,i);
+    pts.push([x,y]);
+  }
+  return pts;
+}
+
+// --- Cellular automata (Game of Life variant) ---
+function buildCA(cols,rows){
+  const grid=[];
+  for(let r=0;r<rows;r++){
+    grid.push([]);
+    for(let c=0;c<cols;c++) grid[r].push(Math.random()<0.32?1:0);
+  }
+  return grid;
+}
+
+function stepCA(grid){
+  const rows=grid.length, cols=grid[0].length;
+  const next=[];
+  for(let r=0;r<rows;r++){
+    next.push([]);
+    for(let c=0;c<cols;c++){
+      let n=0;
+      for(let dr=-1;dr<=1;dr++) for(let dc=-1;dc<=1;dc++){
+        if(dr===0&&dc===0) continue;
+        n+=grid[mod(r+dr,rows)][mod(c+dc,cols)];
+      }
+      const v=grid[r][c];
+      next[r].push((v&&(n===2||n===3))||(!v&&n===3)?1:0);
+    }
+  }
+  return next;
+}
+
+// --- Reaction-diffusion (Gray-Scott) ---
+function buildRD(w,h){
+  const U=new Float32Array(w*h).fill(1);
+  const V=new Float32Array(w*h).fill(0);
+  for(let i=0;i<120;i++){
+    const cx2=randi(5,w-5), cy2=randi(5,h-5);
+    for(let dy=-4;dy<=4;dy++) for(let dx=-4;dx<=4;dx++){
+      const idx=mod(cy2+dy,h)*w+mod(cx2+dx,w);
+      U[idx]=0.5; V[idx]=0.25;
+    }
+  }
+  return {U,V,w,h};
+}
+
+function stepRD(rd, steps=1){
+  const {U,V,w,h}=rd;
+  const F=0.055, K=0.062, Du=0.16, Dv=0.08;
+  for(let s=0;s<steps;s++){
+    const nU=new Float32Array(w*h), nV=new Float32Array(w*h);
+    for(let y=0;y<h;y++) for(let x=0;x<w;x++){
+      const i=y*w+x;
+      const u=U[i], v=V[i];
+      const lap_u=U[mod(y-1,h)*w+x]+U[mod(y+1,h)*w+x]+U[y*w+mod(x-1,w)]+U[y*w+mod(x+1,w)]-4*u;
+      const lap_v=V[mod(y-1,h)*w+x]+V[mod(y+1,h)*w+x]+V[y*w+mod(x-1,w)]+V[y*w+mod(x+1,w)]-4*v;
+      const uvv=u*v*v;
+      nU[i]=clamp(u+Du*lap_u-uvv+F*(1-u),0,1);
+      nV[i]=clamp(v+Dv*lap_v+uvv-(F+K)*v,0,1);
+    }
+    U.set(nU); V.set(nV);
+  }
+}
+
+// --- Mughal rosette ---
+function mughalRosette(cx2,cy2,r,petals,t2){
+  const pts=[];
+  const n=60;
+  for(let i=0;i<=n;i++){
+    const a=i/n*Math.PI*2;
+    const rr=r*(0.6+0.4*Math.pow(Math.abs(Math.sin(petals*a/2+t2)),0.7));
+    pts.push([cx2+rr*Math.cos(a), cy2+rr*Math.sin(a)]);
+  }
+  return pts;
+}
+
+// --- Four-bar linkage ---
+function fourBar(O2x,O2y, r2,r3,r4, theta2){
+  const O4x=O2x+r4, O4y=O2y;
+  const Ax=O2x+r2*Math.cos(theta2), Ay=O2y+r2*Math.sin(theta2);
+  const d=Math.hypot(O4x-Ax, O4y-Ay);
+  if(d>r3+r4||d<Math.abs(r3-r4)) return null;
+  const a=(r3*r3-r4*r4+d*d)/(2*d);
+  const h=Math.sqrt(Math.max(0,r3*r3-a*a));
+  const mx=(O4x+Ax)/2+(O4x-Ax)*a/d, my=(O4y+Ay)/2+(O4y-Ay)*a/d;
+  const px=mx+h*(Ay-O4y)/d, py=my-h*(Ax-O4x)/d;
+  return {O2:{x:O2x,y:O2y},A:{x:Ax,y:Ay},B:{x:px,y:py},O4:{x:O4x,y:O4y}};
+}
+
+// ============================================================
+// SCENE GENERATOR
+// ============================================================
+function generateScene(){
+  if(animId) cancelAnimationFrame(animId);
+  t = 0; frame = 0;
+
+  const palette = makePalette();
+  const tilingTypes = [
+    'penrose','ammann','voronoi','apollonian','hyperbolic',
+    'islamic','celtic','hilbert','cellular','reaction_diffusion',
+    'mughal','arabesque','square_grid','hex_grid','tri_grid',
+    'hamiltonian','labyrinth','sliding_puzzle','rotational','stained_glass'
+  ];
+
+  const primary = pick(tilingTypes);
+  const secondary = pick(tilingTypes.filter(x=>x!==primary));
+  const tertiary = pick(tilingTypes.filter(x=>x!==primary&&x!==secondary));
+
+  // Physics params
+  const physics = {
+    linkages: Array.from({length:randi(3,8)}, (_,i)=>({
+      x: rand(W*0.1, W*0.9),
+      y: rand(H*0.1, H*0.9),
+      r2: rand(20,60), r3: rand(60,120), r4: rand(80,140),
+      speed: rand(0.4,1.8)*(Math.random()<0.5?1:-1),
+      phase: rand(0, Math.PI*2)
+    })),
+    gyros: Array.from({length:randi(2,6)}, ()=>({
+      x: rand(0,W), y: rand(0,H),
+      r: rand(20,70), omega: rand(1,4)*(Math.random()<0.5?1:-1),
+      precession: rand(0.1,0.5), phase: rand(0,Math.PI*2)
+    })),
+    springs: Array.from({length:randi(20,50)}, ()=>({
+      x: rand(0,W), y: rand(0,H),
+      vx: rand(-1,1), vy: rand(-1,1),
+      k: rand(0.01,0.05), rest: rand(30,100), mass: rand(0.5,2)
+    })),
+    vortices: Array.from({length:randi(2,5)}, ()=>({
+      x: rand(W*0.2,W*0.8), y: rand(H*0.2,H*0.8),
+      strength: rand(500,2000)*(Math.random()<0.5?1:-1),
+      drift_vx: rand(-0.3,0.3), drift_vy: rand(-0.3,0.3)
+    })),
+    waves: Array.from({length:randi(3,8)}, ()=>({
+      ox: rand(0,W), oy: rand(0,H),
+      freq: rand(0.01,0.04), amp: rand(10,40),
+      speed: rand(1,3), phase: rand(0,Math.PI*2)
+    })),
+    convection: Array.from({length:randi(3,6)}, ()=>({
+      x: rand(0,W), y: rand(0,H),
+      r: rand(60,180), temp: rand(0.3,1)
+    }))
+  };
+
+  // Build tiling data
+  const subdivIter = randi(3,6);
+  const caGrid = buildCA(80, 60);
+  const rd = buildRD(60, 45);
+
+  // Do a few RD warm-up steps
+  for(let i=0;i<20;i++) stepRD(rd, 3);
+
+  S = {
+    palette, primary, secondary, tertiary,
+    subdivIter, physics,
+    penrose: null, // built lazily
+    voronoiPts: buildVoronoi(randi(40,100)),
+    apollonian: apollonian(randi(3,6)),
+    hyperbolic: buildHyperbolic(randi(4,7), randi(3,5)),
+    islamic: buildIslamic(randi(6,12), randi(3,6)),
+    celtic: buildCeltic(randi(4,8)),
+    hilbert: hilbert(randi(4,6)),
+    caGrid, caTimer:0, caInterval: randi(3,8),
+    rd, rdTimer:0, rdInterval: randi(2,5),
+    ammann: buildAmmannBeenker(),
+    timeOffset: rand(0, 1000),
+    rotSpeed: rand(0.1, 0.5),
+    globalScale: rand(0.7, 1.3),
+    blend: rand(0.0, 0.5),
+    displayMode: randi(0,4),
+    particleCount: randi(100, 400),
+    particles: Array.from({length:500},()=>({
+      x:rand(0,W), y:rand(0,H),
+      vx:rand(-2,2), vy:rand(-2,2),
+      life: rand(0,1), maxLife:rand(1,4),
+      size:rand(1,4), hue:rand(0,360)
+    })),
+    interferenceFreqs: Array.from({length:randi(3,7)}, ()=>rand(0.005,0.03)),
+    fractalSeed: rand(0, 100),
+    mughalPetals: randi(6,16),
+  };
+
+  // Build Penrose lazily
+  S.penrose = buildPenrose();
+
+  setupAudio();
+  animate();
+}
+
+// ============================================================
+// RENDERING
+// ============================================================
+function drawPenrose(phase){
+  if(!S.penrose) return;
+  const P = S.palette;
+  S.penrose.forEach(([typ,A,B,C],i)=>{
+    const wave = S.physics.waves.reduce((acc,w)=>{
+      const d = Math.hypot((A[0]+B[0]+C[0])/3-w.ox, (A[1]+B[1]+C[1])/3-w.oy);
+      return acc + w.amp*Math.sin(d*w.freq - t*w.speed + w.phase);
+    }, 0);
+    ctx.beginPath();
+    const disp = wave*0.08;
+    ctx.moveTo(A[0]+Math.cos(phase)*disp, A[1]+Math.sin(phase)*disp);
+    ctx.lineTo(B[0]+Math.cos(phase+2.1)*disp, B[1]+Math.sin(phase+2.1)*disp);
+    ctx.lineTo(C[0]+Math.cos(phase+4.2)*disp, C[1]+Math.sin(phase+4.2)*disp);
+    ctx.closePath();
+    const energy = (wave+40)/80;
+    ctx.fillStyle = palColor(P, i+typ*17, phase*0.1, energy*20-10, energy*20-10, 0.5+energy*0.4);
+    ctx.fill();
+    ctx.strokeStyle = palColor(P, i+3, phase*0.15, 20, 30, 0.7);
+    ctx.lineWidth = 0.5 + energy;
+    ctx.stroke();
+  });
+}
+
+function drawAmmann(phase){
+  const P = S.palette;
+  S.ammann.forEach((t2,i)=>{
+    const spin = t*S.rotSpeed + i*0.1;
+    ctx.save();
+    ctx.translate(t2.x, t2.y);
+    ctx.rotate(t2.angle + spin*0.3);
+    const pulse = 1 + 0.15*Math.sin(t*1.5 + i*0.4);
+    ctx.scale(pulse, pulse);
+    if(t2.type==='sq'){
+      ctx.beginPath();
+      ctx.rect(-t2.r,-t2.r,t2.r*2,t2.r*2);
+      ctx.fillStyle = palColor(P, i, phase*0.2, 10, 0, 0.6);
+      ctx.fill();
+      ctx.strokeStyle = palColor(P, i+2, phase*0.2, 30, 20, 0.9);
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    } else {
+      ctx.beginPath();
+      ctx.moveTo(0,-t2.r);
+      ctx.lineTo(t2.r*0.866, t2.r*0.5);
+      ctx.lineTo(-t2.r*0.866, t2.r*0.5);
+      ctx.closePath();
+      ctx.fillStyle = palColor(P, i+1, phase*0.2, -10, 10, 0.6);
+      ctx.fill();
+      ctx.strokeStyle = palColor(P, i+3, phase*0.2, 30, 20, 0.9);
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+    ctx.restore();
+  });
+}
+
+function drawVoronoi(phase){
+  const P = S.palette;
+  const pts = S.voronoiPts;
+  // Animate pts slightly
+  pts.forEach((p,i)=>{
+    p[0] += Math.sin(t*0.5+i*1.3)*0.4;
+    p[1] += Math.cos(t*0.4+i*1.7)*0.4;
+    p[0] = mod(p[0],W); p[1] = mod(p[1],H);
+  });
+  // Draw cells
+  pts.forEach((p,i)=>{
+    // Draw rough Voronoi cell using clipping
+    ctx.save();
+    ctx.beginPath();
+    // Create clipping region from midpoints to neighbors
+    const neighbors = pts.map((q,j)=>j!==i?[j,Math.hypot(q[0]-p[0],q[1]-p[1])]:null).filter(Boolean).sort((a,b)=>a[1]-b[1]).slice(0,8);
+    if(neighbors.length<3){ctx.restore();return;}
+    // Convex hull approximation via midpoints
+    const mids = neighbors.map(([j])=>{
+      const q=pts[j];
+      return [(p[0]+q[0])/2, (p[1]+q[1])/2];
+    }).sort((a,b)=>Math.atan2(a[1]-p[1],a[0]-p[0])-Math.atan2(b[1]-p[1],b[0]-p[0]));
+    ctx.moveTo(mids[0][0],mids[0][1]);
+    mids.forEach(m=>ctx.lineTo(m[0],m[1]));
+    ctx.closePath();
+    const wv = S.physics.waves.reduce((a,w)=>a+w.amp*Math.sin(Math.hypot(p[0]-w.ox,p[1]-w.oy)*w.freq-t*w.speed+w.phase),0);
+    ctx.fillStyle = palColor(P, i, phase*0.1+wv*0.03, 15, wv*0.3, 0.55);
+    ctx.fill();
+    ctx.strokeStyle = palColor(P, i+2, phase*0.15, 30, 20, 0.85);
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.restore();
+  });
+}
+
+function drawApolloNian(phase){
+  const P = S.palette;
+  S.apollonian.forEach((c,i)=>{
+    const pulse = 1+0.1*Math.sin(t*1.2+i*0.7);
+    ctx.beginPath();
+    ctx.arc(c.x, c.y, c.r*pulse, 0, Math.PI*2);
+    const g = ctx.createRadialGradient(c.x,c.y,0,c.x,c.y,c.r*pulse);
+    g.addColorStop(0, palColor(P, i, phase*0.2, 30, 30, 0.8));
+    g.addColorStop(1, palColor(P, i+2, phase*0.2, -10, -10, 0.1));
+    ctx.fillStyle = g;
+    ctx.fill();
+    ctx.strokeStyle = palColor(P, i+1, phase*0.2, 20, 30, 0.9);
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+  });
+}
+
+function drawHyperbolic(phase){
+  const P = S.palette;
+  S.hyperbolic.forEach((tile,i)=>{
+    if(!tile.pts||tile.pts.length<3) return;
+    ctx.beginPath();
+    ctx.moveTo(tile.pts[0][0], tile.pts[0][1]);
+    tile.pts.forEach(p=>ctx.lineTo(p[0],p[1]));
+    ctx.closePath();
+    ctx.fillStyle = palColor(P, i, phase*0.1, 10, 10, 0.4);
+    ctx.fill();
+    ctx.strokeStyle = palColor(P, i+1, phase*0.1, 30, 30, 0.9);
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  });
+  // Draw Poincaré disk boundary
+  const R = Math.min(W,H)*0.44;
+  ctx.beginPath();
+  ctx.arc(cx,cy,R,0,Math.PI*2);
+  ctx.strokeStyle = palColor(P, 0, phase*0.1, 20, 40, 0.5);
+  ctx.lineWidth = 2;
+  ctx.stroke();
+}
+
+function drawIslamic(phase){
+  const P = S.palette;
+  S.islamic.forEach((c,i)=>{
+    const spin = t*S.rotSpeed*(i%2?1:-1)*0.5;
+    const pts = starPolygon(c.x, c.y, c.r, c.n, Math.floor(c.n/3), spin);
+    if(pts.length<4) return;
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0],pts[0][1]);
+    for(let j=1;j<pts.length;j++) ctx.lineTo(pts[j][0],pts[j][1]);
+    ctx.closePath();
+    ctx.fillStyle = palColor(P, i, phase*0.15+spin*0.1, 10, 5, 0.45);
+    ctx.fill();
+    ctx.strokeStyle = palColor(P, i+2, phase*0.15, 30, 30, 0.9);
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    // Inner star
+    const pts2 = starPolygon(c.x, c.y, c.r*0.5, c.n, Math.floor(c.n/3), spin+Math.PI/c.n);
+    ctx.beginPath();
+    ctx.moveTo(pts2[0][0],pts2[0][1]);
+    for(let j=1;j<pts2.length;j++) ctx.lineTo(pts2[j][0],pts2[j][1]);
+    ctx.closePath();
+    ctx.fillStyle = palColor(P, i+1, phase*0.15, 20, 10, 0.6);
+    ctx.fill();
+  });
+}
+
+function drawCeltic(phase){
+  const P = S.palette;
+  S.celtic.forEach((c,i)=>{
+    const pts = celticKnot(c.x, c.y, c.sz, t*0.5+i*0.3);
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0],pts[0][1]);
+    pts.forEach(p=>ctx.lineTo(p[0],p[1]));
+    ctx.closePath();
+    ctx.strokeStyle = palColor(P, i, phase*0.2, 20, 20, 0.85);
+    ctx.lineWidth = 2+Math.sin(t+i)*1;
+    ctx.stroke();
+    ctx.fillStyle = palColor(P, i+1, phase*0.15, -10, 0, 0.3);
+    ctx.fill();
+  });
+}
+
+function drawHilbert(phase){
+  const P = S.palette;
+  const pts = S.hilbert;
+  const n = Math.sqrt(pts.length);
+  const sz = Math.min(W,H)*0.8/n;
+  const ox = cx - n*sz/2, oy = cy - n*sz/2;
+  ctx.beginPath();
+  pts.forEach(([x,y],i)=>{
+    const px = ox+x*sz+sz/2, py = oy+y*sz+sz/2;
+    const wave = S.physics.waves.reduce((a,w)=>a+w.amp*Math.sin(Math.hypot(px-w.ox,py-w.oy)*w.freq-t*w.speed+w.phase),0);
+    const px2 = px+wave*0.2, py2 = py+wave*0.2;
+    if(i===0) ctx.moveTo(px2,py2); else ctx.lineTo(px2,py2);
+  });
+  // Gradient stroke
+  const g = ctx.createLinearGradient(ox,oy,ox+n*sz,oy+n*sz);
+  g.addColorStop(0, palColor(P,0,phase*0.1,20,30,0.9));
+  g.addColorStop(0.5, palColor(P,2,phase*0.1,10,10,0.9));
+  g.addColorStop(1, palColor(P,4,phase*0.1,20,30,0.9));
+  ctx.strokeStyle = g;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+}
+
+function drawCA(phase){
+  const P = S.palette;
+  const grid = S.caGrid;
+  const rows=grid.length, cols=grid[0].length;
+  const cw=W/cols, ch=H/rows;
+  for(let r=0;r<rows;r++) for(let c=0;c<cols;c++){
+    if(!grid[r][c]) continue;
+    const wave = S.physics.waves[0]?S.physics.waves[0].amp*Math.sin((c+r)*S.physics.waves[0].freq-t*S.physics.waves[0].speed):0;
+    ctx.fillStyle = palColor(P, r*3+c, phase*0.1+wave*0.05, 20, wave*0.5, 0.75);
+    ctx.fillRect(c*cw, r*ch, cw-0.5, ch-0.5);
+  }
+}
+
+function drawRD(phase){
+  const P = S.palette;
+  const {U,V,w,h} = S.rd;
+  const cw=W/w, ch=H/h;
+  for(let y=0;y<h;y++) for(let x=0;x<w;x++){
+    const v=V[y*w+x];
+    if(v<0.05) continue;
+    const hue = mod(P.hues[0]+v*240+phase*40, 360);
+    ctx.fillStyle = `hsla(${hue},${P.satBase}%,${30+v*50}%,${0.4+v*0.5})`;
+    ctx.fillRect(x*cw, y*ch, cw+0.5, ch+0.5);
+  }
+}
+
+function drawMughal(phase){
+  const P = S.palette;
+  const n = 7;
+  const spacing = Math.min(W,H)*0.18;
+  for(let r=-3;r<=3;r++) for(let c=-3;c<=3;c++){
+    const x = cx+c*spacing, y = cy+r*spacing;
+    if(x<-spacing||x>W+spacing||y<-spacing||y>H+spacing) continue;
+    const i = (r+3)*7+(c+3);
+    const rot = t*S.rotSpeed*(i%2?0.3:-0.3);
+    const pts = mughalRosette(x,y, spacing*0.45, S.mughalPetals, rot);
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0],pts[0][1]);
+    pts.forEach(p=>ctx.lineTo(p[0],p[1]));
+    ctx.closePath();
+    ctx.fillStyle = palColor(P, i, phase*0.15, 10, 10, 0.45);
+    ctx.fill();
+    ctx.strokeStyle = palColor(P, i+1, phase*0.15, 30, 20, 0.85);
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+  }
+}
+
+function drawArabesque(phase){
+  const P = S.palette;
+  const r = Math.min(W,H)*0.06;
+  const cols = Math.ceil(W/r/2)+2, rows = Math.ceil(H/r/1.73)+2;
+  for(let row=-1;row<rows;row++) for(let col=-1;col<cols;col++){
+    const x = col*r*2 + (row%2)*r;
+    const y = row*r*1.732;
+    const i = row*cols+col;
+    const spin = t*S.rotSpeed*(i%3<1.5?0.5:-0.5);
+    ctx.save();
+    ctx.translate(x,y);
+    ctx.rotate(spin);
+    // 8-pointed star
+    ctx.beginPath();
+    for(let k=0;k<16;k++){
+      const a=k*Math.PI/8;
+      const rad = k%2===0 ? r*0.9 : r*0.38;
+      k===0?ctx.moveTo(rad*Math.cos(a),rad*Math.sin(a)):ctx.lineTo(rad*Math.cos(a),rad*Math.sin(a));
+    }
+    ctx.closePath();
+    ctx.fillStyle = palColor(P, i, phase*0.1, 15, 5, 0.5);
+    ctx.fill();
+    ctx.strokeStyle = palColor(P, i+2, phase*0.1, 25, 25, 0.85);
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+function drawGrid(type, phase){
+  const P = S.palette;
+  let r;
+  if(type==='square') r=Math.min(W,H)*0.04;
+  else if(type==='hex') r=Math.min(W,H)*0.04;
+  else r=Math.min(W,H)*0.04;
+
+  const cols=Math.ceil(W/r/2)+2, rows=Math.ceil(H/r/1.73)+2;
+  for(let row=-1;row<rows;row++) for(let col=-1;col<cols;col++){
+    let x,y;
+    if(type==='square'){ x=col*r*2; y=row*r*2; }
+    else if(type==='hex'){ x=col*r*1.73+(row%2)*r*0.866; y=row*r*1.5; }
+    else { x=col*r*1.73+(row%2)*r*0.866; y=row*r*1.5; }
+
+    const i=row*cols+col;
+    const wv = S.physics.waves.reduce((a,w)=>a+w.amp*Math.sin(Math.hypot(x-w.ox,y-w.oy)*w.freq-t*w.speed+w.phase),0);
+    const pulse = 1+0.2*Math.sin(t*1.5+i*0.2+wv*0.1);
+
+    ctx.save();
+    ctx.translate(x,y);
+    ctx.rotate(t*S.rotSpeed*0.1*(i%2?1:-1));
+    ctx.beginPath();
+    if(type==='square'){
+      ctx.rect(-r*pulse,-r*pulse,r*2*pulse,r*2*pulse);
+    } else if(type==='hex'){
+      for(let k=0;k<6;k++){
+        const a=k*Math.PI/3;
+        k===0?ctx.moveTo(r*pulse*Math.cos(a),r*pulse*Math.sin(a)):ctx.lineTo(r*pulse*Math.cos(a),r*pulse*Math.sin(a));
+      }
+      ctx.closePath();
+    } else {
+      ctx.moveTo(0,-r*pulse);
+      ctx.lineTo(r*pulse*0.866, r*pulse*0.5);
+      ctx.lineTo(-r*pulse*0.866, r*pulse*0.5);
+      ctx.closePath();
+    }
+    ctx.fillStyle = palColor(P, i, phase*0.1+wv*0.02, 10, wv*0.5, 0.45);
+    ctx.fill();
+    ctx.strokeStyle = palColor(P, i+1, phase*0.1, 25, 20, 0.8);
+    ctx.lineWidth = 0.7;
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+function drawLabyrinth(phase){
+  const P = S.palette;
+  const cols=20, rows=15;
+  const cw=W/cols, ch=H/rows;
+  for(let r=0;r<rows;r++) for(let c=0;c<cols;c++){
+    const hash = (r*37+c*53+Math.floor(t*0.2+phase))%7;
+    if(hash<3){
+      ctx.beginPath();
+      ctx.rect(c*cw,r*ch,cw,ch);
+      ctx.fillStyle = palColor(P, r*3+c, phase*0.1, 0, hash*5, 0.4);
+      ctx.fill();
+    }
+    // Draw walls
+    const waveOff = S.physics.waves[0]?S.physics.waves[0].amp*Math.sin((c+r)*0.3-t)*0.5:0;
+    if((c+r+Math.floor(t*0.1))%3===0){
+      ctx.beginPath();
+      ctx.moveTo(c*cw,r*ch+waveOff);
+      ctx.lineTo(c*cw+cw,r*ch+ch+waveOff);
+      ctx.strokeStyle = palColor(P, r+c, phase*0.1, 30, 30, 0.7);
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+  }
+}
+
+function drawSlidingPuzzle(phase){
+  const P = S.palette;
+  const n=5;
+  const sz=Math.min(W,H)*0.15;
+  const ox=cx-n*sz/2, oy=cy-n*sz/2;
+  for(let r=0;r<n;r++) for(let c=0;c<n;c++){
+    const i=r*n+c;
+    const slide = Math.sin(t*0.8+i*0.4)*5;
+    const x=ox+c*sz+slide, y=oy+r*sz+slide;
+    const g=ctx.createLinearGradient(x,y,x+sz,y+sz);
+    g.addColorStop(0,palColor(P,i,phase*0.1,20,15,0.8));
+    g.addColorStop(1,palColor(P,i+2,phase*0.1,-5,-5,0.8));
+    ctx.fillStyle=g;
+    ctx.fillRect(x+2,y+2,sz-4,sz-4);
+    ctx.strokeStyle=palColor(P,i+1,phase*0.1,30,30,0.9);
+    ctx.lineWidth=1.5;
+    ctx.strokeRect(x+2,y+2,sz-4,sz-4);
+    // Draw number/symbol
+    ctx.fillStyle=palColor(P,i+3,phase*0.1,20,30,0.9);
+    ctx.font=`${sz*0.3}px monospace`;
+    ctx.textAlign='center';
+    ctx.textBaseline='middle';
+    ctx.fillText((i+1).toString(16).toUpperCase(),x+sz/2,y+sz/2);
+  }
+}
+
+function drawRotationalPuzzle(phase){
+  const P = S.palette;
+  const rings=5;
+  const baseR=Math.min(W,H)*0.06;
+  for(let ring=0;ring<rings;ring++){
+    const r=baseR*(ring+1);
+    const segments=6+ring*2;
+    const rotOff = t*S.rotSpeed*(ring%2?0.3:-0.3)+ring*0.5;
+    for(let seg=0;seg<segments;seg++){
+      const a1=rotOff+seg*Math.PI*2/segments;
+      const a2=rotOff+(seg+1)*Math.PI*2/segments;
+      ctx.beginPath();
+      ctx.moveTo(cx+r*Math.cos(a1),cy+r*Math.sin(a1));
+      ctx.arc(cx,cy,r,a1,a2);
+      ctx.arc(cx,cy,r-baseR*0.9,a2,a1,true);
+      ctx.closePath();
+      const wv=S.physics.waves[0]?S.physics.waves[0].amp*Math.sin(ring*0.5-t*S.physics.waves[0].speed):0;
+      ctx.fillStyle=palColor(P,ring*3+seg,phase*0.1+wv*0.03,10,wv*0.5,0.6);
+      ctx.fill();
+      ctx.strokeStyle=palColor(P,ring+seg,phase*0.1,25,25,0.85);
+      ctx.lineWidth=1;
+      ctx.stroke();
+    }
+  }
+}
+
+function drawStainedGlass(phase){
+  const P = S.palette;
+  const n=randi(12,20);
+  ctx.save();
+  ctx.translate(cx,cy);
+  for(let i=0;i<n;i++){
+    const a1=i*Math.PI*2/n;
+    const a2=(i+1)*Math.PI*2/n;
+    const r1=Math.min(W,H)*0.08;
+    const r2=Math.min(W,H)*0.44;
+    const spin=t*S.rotSpeed*(i%2?0.2:-0.2);
+    ctx.beginPath();
+    ctx.moveTo(r1*Math.cos(a1+spin),r1*Math.sin(a1+spin));
+    ctx.arc(0,0,r2,a1+spin,a2+spin);
+    ctx.arc(0,0,r1,a2+spin,a1+spin,true);
+    ctx.closePath();
+    const g=ctx.createRadialGradient(0,0,r1,0,0,r2);
+    g.addColorStop(0,palColor(P,i,phase*0.1,30,20,0.9));
+    g.addColorStop(1,palColor(P,i+2,phase*0.1,-10,-10,0.3));
+    ctx.fillStyle=g;
+    ctx.fill();
+    ctx.strokeStyle=palColor(P,i,phase*0.1,20,30,1);
+    ctx.lineWidth=1.5;
+    ctx.stroke();
+    // Sub-segments
+    for(let j=0;j<3;j++){
+      const ar=a1+spin+(a2-a1)*(j+1)/4;
+      ctx.beginPath();
+      ctx.moveTo(r1*Math.cos(ar),r1*Math.sin(ar));
+      ctx.lineTo(r2*Math.cos(ar),r2*Math.sin(ar));
+      ctx.strokeStyle=palColor(P,i+j,phase*0.15,15,25,0.7);
+      ctx.lineWidth=1;
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+function drawHamiltonian(phase){
+  const P=S.palette;
+  const n=randi(12,20);
+  const pts=Array.from({length:n},()=>({
+    x:rand(W*0.05,W*0.95), y:rand(H*0.05,H*0.95),
+    vx:rand(-0.4,0.4), vy:rand(-0.4,0.4)
+  }));
+  // Update positions
+  pts.forEach(p=>{p.x+=p.vx; p.y+=p.vy; if(p.x<0||p.x>W)p.vx*=-1; if(p.y<0||p.y>H)p.vy*=-1;});
+  // Draw path
+  ctx.beginPath();
+  pts.forEach((p,i)=>i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y));
+  ctx.closePath();
+  const g=ctx.createLinearGradient(0,0,W,H);
+  g.addColorStop(0,palColor(P,0,phase*0.1,20,20,0.8));
+  g.addColorStop(1,palColor(P,3,phase*0.1,20,20,0.8));
+  ctx.strokeStyle=g;
+  ctx.lineWidth=2;
+  ctx.stroke();
+  pts.forEach((p,i)=>{
+    ctx.beginPath();
+    ctx.arc(p.x,p.y,5+Math.sin(t*2+i)*2,0,Math.PI*2);
+    ctx.fillStyle=palColor(P,i,phase*0.15,20,30,0.9);
+    ctx.fill();
+  });
+}
+
+// ============================================================
+// PHYSICS OVERLAYS
+// ============================================================
+function drawLinkages(phase){
+  const P=S.palette;
+  S.physics.linkages.forEach((L,i)=>{
+    const theta=t*L.speed+L.phase;
+    const link=fourBar(L.x,L.y,L.r2,L.r3,L.r4,theta);
+    if(!link) return;
+    ctx.strokeStyle=palColor(P,i,phase*0.2,20,20,0.85);
+    ctx.lineWidth=3;
+    [[link.O2,link.A],[link.A,link.B],[link.B,link.O4]].forEach(([a,b])=>{
+      ctx.beginPath();
+      ctx.moveTo(a.x,a.y);
+      ctx.lineTo(b.x,b.y);
+      ctx.stroke();
+    });
+    [link.O2,link.A,link.B,link.O4].forEach((pt,j)=>{
+      ctx.beginPath();
+      ctx.arc(pt.x,pt.y,4+j,0,Math.PI*2);
+      ctx.fillStyle=palColor(P,i+j,phase*0.2,30,30,0.9);
+      ctx.fill();
+    });
+  });
+}
+
+function drawGyros(phase){
+  const P=S.palette;
+  S.physics.gyros.forEach((g2,i)=>{
+    const spin=t*g2.omega+g2.phase;
+    const prec=t*g2.precession+g2.phase*1.3;
+    ctx.save();
+    ctx.translate(g2.x,g2.y);
+    ctx.rotate(prec);
+    // Draw gyroscope rings
+    for(let ring=0;ring<3;ring++){
+      const r=g2.r*(1-ring*0.25);
+      const angle=spin*(1+ring*0.3);
+      ctx.save();
+      ctx.rotate(angle);
+      ctx.beginPath();
+      ctx.ellipse(0,0,r,r*0.3,0,0,Math.PI*2);
+      ctx.strokeStyle=palColor(P,i+ring,phase*0.2,20,20,0.75);
+      ctx.lineWidth=2;
+      ctx.stroke();
+      ctx.restore();
+    }
+    // Center dot
+    ctx.beginPath();
+    ctx.arc(0,0,5,0,Math.PI*2);
+    ctx.fillStyle=palColor(P,i,phase*0.2,30,40,1);
+    ctx.fill();
+    ctx.restore();
+  });
+}
+
+function drawVortices(phase){
+  const P=S.palette;
+  S.physics.vortices.forEach((v,i)=>{
+    v.x+=v.drift_vx; v.y+=v.drift_vy;
+    if(v.x<0||v.x>W) v.drift_vx*=-1;
+    if(v.y<0||v.y>H) v.drift_vy*=-1;
+    const maxR=Math.min(W,H)*0.25;
+    for(let r=maxR;r>5;r-=12){
+      const alpha=0.04*(1-r/maxR)*Math.abs(v.strength)/2000;
+      ctx.beginPath();
+      ctx.arc(v.x,v.y,r,0,Math.PI*2);
+      ctx.strokeStyle=palColor(P,i+Math.floor(r/20),phase*0.1,30,20,alpha*3);
+      ctx.lineWidth=3;
+      ctx.stroke();
+    }
+  });
+}
+
+function drawInterference(phase){
+  const P=S.palette;
+  const freqs=S.interferenceFreqs;
+  // Sample grid for interference pattern
+  const step=12;
+  for(let y=0;y<H;y+=step) for(let x=0;x<W;x+=step){
+    const val=freqs.reduce((a,f,i)=>{
+      const src=S.physics.waves[i%S.physics.waves.length];
+      if(!src) return a;
+      return a+src.amp*Math.sin(Math.hypot(x-src.ox,y-src.oy)*f - t*src.speed + src.phase);
+    },0);
+    if(Math.abs(val)>8){
+      ctx.fillStyle=palColor(P, Math.floor(val*0.1), phase*0.1+val*0.02, val*0.3, val*0.5, 0.15+Math.abs(val)*0.004);
+      ctx.fillRect(x,y,step,step);
+    }
+  }
+}
+
+function drawParticles(phase){
+  const P=S.palette;
+  S.particles.forEach(p=>{
+    // Apply vortex forces
+    S.physics.vortices.forEach(v=>{
+      const dx=p.x-v.x, dy=p.y-v.y;
+      const d2=dx*dx+dy*dy+1;
+      const f=v.strength/d2;
+      p.vx+=(-dy*f)*0.01;
+      p.vy+=(dx*f)*0.01;
+    });
+    // Apply wave forces
+    S.physics.waves.forEach(w=>{
+      const d=Math.hypot(p.x-w.ox,p.y-w.oy);
+      const wave=w.amp*Math.sin(d*w.freq-t*w.speed+w.phase);
+      p.vx+=Math.cos(Math.atan2(p.y-w.oy,p.x-w.ox))*wave*0.001;
+      p.vy+=Math.sin(Math.atan2(p.y-w.oy,p.x-w.ox))*wave*0.001;
+    });
+    // Damping
+    p.vx*=0.99; p.vy*=0.99;
+    p.x+=p.vx; p.y+=p.vy;
+    p.life+=0.01;
+    if(p.life>p.maxLife||p.x<0||p.x>W||p.y<0||p.y>H){
+      p.x=rand(0,W); p.y=rand(0,H);
+      p.vx=rand(-1,1); p.vy=rand(-1,1);
+      p.life=0;
+    }
+    const lifeRatio=p.life/p.maxLife;
+    const alpha=Math.sin(lifeRatio*Math.PI)*0.7;
+    ctx.beginPath();
+    ctx.arc(p.x,p.y,p.size*(1-lifeRatio*0.5),0,Math.PI*2);
+    ctx.fillStyle=palColor(P,Math.floor(p.hue/50),phase*0.1,20,lifeRatio*20,alpha);
+    ctx.fill();
+  });
+}
+
+function drawConvection(phase){
+  const P=S.palette;
+  S.physics.convection.forEach((c,i)=>{
+    const pulse=1+0.3*Math.sin(t*0.8+i);
+    const g=ctx.createRadialGradient(c.x,c.y,0,c.x,c.y,c.r*pulse);
+    g.addColorStop(0,palColor(P,i,phase*0.1,30,c.temp*30,0.25));
+    g.addColorStop(1,palColor(P,i+1,phase*0.1,-10,-20,0));
+    ctx.beginPath();
+    ctx.arc(c.x,c.y,c.r*pulse,0,Math.PI*2);
+    ctx.fillStyle=g;
+    ctx.fill();
+  });
+}
+
+// ============================================================
+// DISPATCH TILING TYPE
+// ============================================================
+function drawTiling(type, phase, alpha_mod=1){
+  ctx.save();
+  ctx.globalAlpha*=alpha_mod;
+  switch(type){
+    case 'penrose': drawPenrose(phase); break;
+    case 'ammann': drawAmmann(phase); break;
+    case 'voronoi': drawVoronoi(phase); break;
+    case 'apollonian': drawApolloNian(phase); break;
+    case 'hyperbolic': drawHyperbolic(phase); break;
+    case 'islamic': drawIslamic(phase); break;
+    case 'celtic': drawCeltic(phase); break;
+    case 'hilbert': drawHilbert(phase); break;
+    case 'cellular': drawCA(phase); break;
+    case 'reaction_diffusion': drawRD(phase); break;
+    case 'mughal': drawMughal(phase); break;
+    case 'arabesque': drawArabesque(phase); break;
+    case 'square_grid': drawGrid('square',phase); break;
+    case 'hex_grid': drawGrid('hex',phase); break;
+    case 'tri_grid': drawGrid('tri',phase); break;
+    case 'hamiltonian': drawHamiltonian(phase); break;
+    case 'labyrinth': drawLabyrinth(phase); break;
+    case 'sliding_puzzle': drawSlidingPuzzle(phase); break;
+    case 'rotational': drawRotationalPuzzle(phase); break;
+    case 'stained_glass': drawStainedGlass(phase); break;
+  }
+  ctx.restore();
+}
+
+// ============================================================
+// AUDIO ENGINE
+// ============================================================
+function setupAudio(){
+  if(!soundOn) return;
+  teardownAudio();
+  try{
+    audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+    masterGain = audioCtx.createGain();
+    masterGain.gain.setValueAtTime(0.0, audioCtx.currentTime);
+    masterGain.gain.linearRampToValueAtTime(0.18, audioCtx.currentTime+2);
+    masterGain.connect(audioCtx.destination);
+
+    const P = S.palette;
+    const baseFreqs = [55,82.4,110,146.8,165,220,246.9,293.6,329.6,440];
+    const scale = P.hues.map(h=>baseFreqs[Math.floor(h/36)%baseFreqs.length]);
+
+    // Drones
+    scale.slice(0,3).forEach((f,i)=>{
+      const osc=audioCtx.createOscillator();
+      const g=audioCtx.createGain();
+      const filt=audioCtx.createBiquadFilter();
+      osc.type=['sine','triangle','sawtooth'][i%3];
+      osc.frequency.value=f*(1+i*0.5);
+      filt.type='lowpass'; filt.frequency.value=800+i*200;
+      g.gain.value=0.04/(i+1);
+      osc.connect(filt); filt.connect(g); g.connect(masterGain);
+      osc.start();
+      nodes.push(osc,g,filt);
+    });
+
+    // Harmonic oscillators triggered by physics
+    for(let i=0;i<4;i++){
+      const osc=audioCtx.createOscillator();
+      const g=audioCtx.createGain();
+      const lfo=audioCtx.createOscillator();
+      const lfoG=audioCtx.createGain();
+      osc.type='sine';
+      osc.frequency.value=scale[i%scale.length]*(2+i);
+      lfo.frequency.value=0.1+i*0.07;
+      lfoG.gain.value=osc.frequency.value*0.05;
+      lfo.connect(lfoG); lfoG.connect(osc.frequency);
+      g.gain.value=0.02;
+      osc.connect(g); g.connect(masterGain);
+      osc.start(); lfo.start();
+      nodes.push(osc,g,lfo,lfoG);
+    }
+
+    // Percussive noise bursts
+    const bufLen = audioCtx.sampleRate*0.5;
+    const buf = audioCtx.createBuffer(1,bufLen,audioCtx.sampleRate);
+    const data = buf.getChannelData(0);
+    for(let i=0;i<bufLen;i++) data[i]=(Math.random()*2-1)*Math.exp(-i/bufLen*8);
+    const noiseGain=audioCtx.createGain();
+    noiseGain.gain.value=0.015;
+    const filt2=audioCtx.createBiquadFilter();
+    filt2.type='bandpass'; filt2.frequency.value=scale[0]*4; filt2.Q.value=5;
+    noiseGain.connect(filt2); filt2.connect(masterGain);
+    nodes.push(noiseGain,filt2);
+    setInterval(()=>{
+      if(!audioCtx||audioCtx.state!=='running') return;
+      const src=audioCtx.createBufferSource();
+      src.buffer=buf;
+      src.connect(noiseGain);
+      src.start();
+    }, 800+Math.random()*1200);
+
+  }catch(e){ console.warn('Audio init failed',e); }
+}
+
+function teardownAudio(){
+  nodes.forEach(n=>{try{n.disconnect();if(n.stop)n.stop();}catch(e){}});
+  nodes=[];
+  if(audioCtx){try{audioCtx.close();}catch(e){} audioCtx=null; masterGain=null;}
+}
+
+function updateAudio(){
+  if(!soundOn||!audioCtx||!masterGain) return;
+  // Modulate audio based on physics energy
+  const energy = S.physics.waves.reduce((a,w)=>a+w.amp,0)/S.physics.waves.length/40;
+  try{
+    masterGain.gain.setTargetAtTime(clamp(energy*0.3,0.01,0.25), audioCtx.currentTime, 0.1);
+  }catch(e){}
+}
+
+// ============================================================
+// MAIN RENDER LOOP
+// ============================================================
+function animate(){
+  t += 0.016;
+  frame++;
+
+  const P = S.palette;
+  const phase = t + S.timeOffset;
+
+  // Update timers
+  S.caTimer++;
+  if(S.caTimer>=S.caInterval){
+    S.caGrid = stepCA(S.caGrid);
+    S.caTimer=0;
+  }
+  S.rdTimer++;
+  if(S.rdTimer>=S.rdInterval){
+    stepRD(S.rd, 2);
+    S.rdTimer=0;
+  }
+
+  // Background
+  const bgHue = mod(P.hues[0]+t*P.cycleSpeed*5, 360);
+  ctx.fillStyle = `hsla(${bgHue},${P.dark?30:15}%,${P.dark?4:93}%,0.18)`;
+  ctx.fillRect(0,0,W,H);
+
+  // Transform for global scale/rotation
+  ctx.save();
+  ctx.translate(cx,cy);
+  ctx.rotate(t*S.rotSpeed*0.02);
+  ctx.scale(S.globalScale,S.globalScale);
+  ctx.translate(-cx,-cy);
+
+  // Draw layers
+  drawInterference(phase);
+  drawConvection(phase);
+  drawTiling(S.primary, phase, 0.85);
+  drawTiling(S.secondary, phase, 0.55);
+  drawTiling(S.tertiary, phase, 0.35);
+  drawLinkages(phase);
+  drawGyros(phase);
+  drawVortices(phase);
+  drawParticles(phase);
+
+  ctx.restore();
+
+  // Spectral gradient overlay
+  const sg = ctx.createLinearGradient(0,0,W,H);
+  sg.addColorStop(0, `hsla(${mod(bgHue,360)},80%,50%,0.03)`);
+  sg.addColorStop(0.5, `hsla(${mod(bgHue+180,360)},80%,50%,0.03)`);
+  sg.addColorStop(1, `hsla(${mod(bgHue+270,360)},80%,50%,0.03)`);
+  ctx.fillStyle=sg;
+  ctx.fillRect(0,0,W,H);
+
+  // Audio
+  if(frame%3===0) updateAudio();
+
+  // HUD
+  if(hudOn){
+    hud.style.display='block';
+    hud.innerHTML = [
+      `Theme: ${P.theme.name}`,
+      `Primary: ${S.primary}`,
+      `Secondary: ${S.secondary}`,
+      `Tertiary: ${S.tertiary}`,
+      `t: ${t.toFixed(1)} | frame: ${frame}`,
+      `Linkages: ${S.physics.linkages.length} | Gyros: ${S.physics.gyros.length}`,
+      `Vortices: ${S.physics.vortices.length} | Waves: ${S.physics.waves.length}`,
+      `Sound: ${soundOn?'ON':'OFF'}`,
+    ].join('<br>');
+  } else {
+    hud.style.display='none';
+  }
+
+  animId = requestAnimationFrame(animate);
+}
+
+// ============================================================
+// INPUT HANDLING
+// ============================================================
+function onRegen(){
+  if(animId) cancelAnimationFrame(animId);
+  generateScene();
+}
+
+document.addEventListener('keydown', e=>{
+  if(e.key===' '){ e.preventDefault(); onRegen(); }
+  else if(e.key==='h'||e.key==='H'){ hudOn=!hudOn; }
+  else if(e.key==='s'||e.key==='S'){
+    soundOn=!soundOn;
+    if(soundOn){ setupAudio(); }
+    else{ teardownAudio(); }
+  }
+});
+
+canvas.addEventListener('click', onRegen);
+canvas.addEventListener('touchstart', e=>{ e.preventDefault(); onRegen(); }, {passive:false});
+
+// ============================================================
+// BOOT
+// ============================================================
+generateScene();
+</script>
+</body>
+</html>
