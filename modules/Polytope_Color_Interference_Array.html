@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Polytope Color Interference Array — Dynamic Multi-Dimensional Color Harmonics</title>
+<meta name="description" content="An immersive real-time visualization of rotating multi-dimensional polytopes with dynamic color interference patterns, spectral banding, delta-E driven transitions, and synchronized audio harmonics.">
+<meta name="keywords" content="polytope, color theory, interference patterns, generative art, WebGL, color harmonics, spectral visualization, interactive art">
+<meta property="og:title" content="Polytope Color Interference Array">
+<meta property="og:description" content="Real-time rotating polytopes with dynamic color interference, spectral banding, and audio harmonics.">
+<meta name="theme-color" content="#000000">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%;
+    background: #000;
+    overflow: hidden;
+    font-family: 'Courier New', monospace;
+    touch-action: none;
+  }
+  canvas {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+    position: fixed;
+    top: 0; left: 0;
+  }
+  #hud {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    pointer-events: none;
+    z-index: 100;
+    padding: 16px;
+  }
+  #hud.visible { display: block; }
+  .hud-panel {
+    background: rgba(0,0,0,0.65);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 4px;
+    padding: 10px 14px;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: #aaa;
+    display: inline-block;
+    backdrop-filter: blur(6px);
+  }
+  .hud-title { color: #fff; font-size: 13px; margin-bottom: 6px; letter-spacing: 0.2em; }
+  .hud-row { display: flex; gap: 24px; margin-bottom: 3px; }
+  .hud-val { color: #0ff; }
+  #palette-strip {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 4px;
+    pointer-events: none;
+    z-index: 100;
+    opacity: 0;
+    transition: opacity 0.6s;
+  }
+  #palette-strip.visible { opacity: 1; }
+  .swatch {
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    border: 1px solid rgba(255,255,255,0.2);
+    transition: background 0.8s ease;
+    box-shadow: 0 0 12px currentColor;
+  }
+  #controls-hint {
+    position: fixed;
+    bottom: 16px;
+    right: 16px;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: rgba(255,255,255,0.25);
+    pointer-events: none;
+    z-index: 100;
+    text-align: right;
+    line-height: 1.8;
+  }
+  #flash {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 200;
+    opacity: 0;
+    mix-blend-mode: screen;
+    transition: opacity 0.05s;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div class="hud-panel">
+    <div class="hud-title">◈ POLYTOPE INTERFERENCE ARRAY</div>
+    <div class="hud-row">
+      <span>POLYTOPES <span class="hud-val" id="hv-count">0</span></span>
+      <span>FRAME <span class="hud-val" id="hv-frame">0</span></span>
+      <span>FPS <span class="hud-val" id="hv-fps">0</span></span>
+    </div>
+    <div class="hud-row">
+      <span>COLOR SYS <span class="hud-val" id="hv-cs">HSL</span></span>
+      <span>DELTA-E <span class="hud-val" id="hv-de">0.00</span></span>
+      <span>HARMONY <span class="hud-val" id="hv-harm">TRIADIC</span></span>
+    </div>
+    <div class="hud-row">
+      <span>BLEND <span class="hud-val" id="hv-blend">screen</span></span>
+      <span>SPECTRAL <span class="hud-val" id="hv-spec">ON</span></span>
+      <span>AUDIO <span class="hud-val" id="hv-audio">OFF</span></span>
+    </div>
+  </div>
+</div>
+<div id="palette-strip">
+  <div class="swatch" id="sw0"></div>
+  <div class="swatch" id="sw1"></div>
+  <div class="swatch" id="sw2"></div>
+  <div class="swatch" id="sw3"></div>
+  <div class="swatch" id="sw4"></div>
+  <div class="swatch" id="sw5"></div>
+  <div class="swatch" id="sw6"></div>
+</div>
+<div id="controls-hint">
+  [H] HUD &nbsp; [S] SOUND &nbsp; [R] RANDOMIZE<br>
+  TAP to randomize
+</div>
+<div id="flash"></div>
+
+<script>
+(function(){
+'use strict';
+
+// ─── Canvas Setup ────────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d', { alpha: false });
+let W, H, dpr;
+
+function resize() {
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ─── State ───────────────────────────────────────────────────────────────────
+let frame = 0, lastT = 0, fps = 0, fpsAccum = 0, fpsFrames = 0;
+let hudVisible = false, soundOn = false;
+let audioCtx = null, masterGain = null;
+let polytopes = [];
+let globalPalette = [];
+let blendModes = ['screen','lighter','overlay','color-dodge','hard-light','multiply','difference'];
+let currentBlend = 0;
+let harmonyNames = ['TRIADIC','SPLIT-COMP','ANALOGOUS','TETRADIC','SQUARE','COMPLEMENT','PENTAGON'];
+let currentHarmony = 0;
+let colorSystemNames = ['HSL','LCH','OKLAB','HWB','SPECTRAL','MUNSELL','CMYK-SIM'];
+let currentCS = 0;
+let deltaE = 0;
+let spectralPhase = 0;
+let randomSeed = Math.random();
+
+// ─── Math Utils ──────────────────────────────────────────────────────────────
+const TAU = Math.PI * 2;
+const rng = (function() {
+  let s = randomSeed * 0xFFFFFF | 0;
+  return function(min=0, max=1) {
+    s = (s * 1664525 + 1013904223) & 0xFFFFFFFF;
+    const t = ((s >>> 0) / 0xFFFFFFFF);
+    return min + t * (max - min);
+  };
+})();
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+function mod(a, b) { return ((a % b) + b) % b; }
+
+// Matrix 4x4
+function mat4Identity() { return [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]; }
+function mat4Mul(a, b) {
+  const r = new Array(16);
+  for (let i=0;i<4;i++) for (let j=0;j<4;j++) {
+    r[i*4+j]=0;
+    for(let k=0;k<4;k++) r[i*4+j]+=a[i*4+k]*b[k*4+j];
+  }
+  return r;
+}
+function mat4RotXY(angle) {
+  const c=Math.cos(angle), s=Math.sin(angle);
+  return [c,-s,0,0, s,c,0,0, 0,0,1,0, 0,0,0,1];
+}
+function mat4RotXZ(angle) {
+  const c=Math.cos(angle), s=Math.sin(angle);
+  return [c,0,-s,0, 0,1,0,0, s,0,c,0, 0,0,0,1];
+}
+function mat4RotYZ(angle) {
+  const c=Math.cos(angle), s=Math.sin(angle);
+  return [1,0,0,0, 0,c,-s,0, 0,s,c,0, 0,0,0,1];
+}
+function mat4RotXW(angle) {
+  const c=Math.cos(angle), s=Math.sin(angle);
+  return [c,0,0,-s, 0,1,0,0, 0,0,1,0, s,0,0,c];
+}
+function mat4RotYW(angle) {
+  const c=Math.cos(angle), s=Math.sin(angle);
+  return [1,0,0,0, 0,c,0,-s, 0,0,1,0, 0,s,0,c];
+}
+function mat4RotZW(angle) {
+  const c=Math.cos(angle), s=Math.sin(angle);
+  return [1,0,0,0, 0,1,0,0, 0,0,c,-s, 0,0,s,c];
+}
+function transform4D(verts, mat) {
+  return verts.map(v => {
+    const x=v[0],y=v[1],z=v[2]||0,w=v[3]||0;
+    return [
+      mat[0]*x+mat[1]*y+mat[2]*z+mat[3]*w,
+      mat[4]*x+mat[5]*y+mat[6]*z+mat[7]*w,
+      mat[8]*x+mat[9]*y+mat[10]*z+mat[11]*w,
+      mat[12]*x+mat[13]*y+mat[14]*z+mat[15]*w
+    ];
+  });
+}
+function project4Dto3D(v, wDist=2) {
+  const w = v[3], f = wDist / (wDist - w);
+  return [v[0]*f, v[1]*f, v[2]*f];
+}
+function project3Dto2D(v, dist=3, cx=0, cy=0, scale=1) {
+  const f = dist / (dist - v[2]);
+  return [v[0]*f*scale + cx, v[1]*f*scale + cy];
+}
+
+// ─── Color Systems ───────────────────────────────────────────────────────────
+function hslToRgb(h, s, l) {
+  h = mod(h, 360)/360; s /= 100; l /= 100;
+  const q = l < 0.5 ? l*(1+s) : l+s-l*s, p = 2*l-q;
+  function hue(t) {
+    t = mod(t, 1);
+    if (t < 1/6) return p+(q-p)*6*t;
+    if (t < 1/2) return q;
+    if (t < 2/3) return p+(q-p)*(2/3-t)*6;
+    return p;
+  }
+  return [hue(h+1/3)*255|0, hue(h)*255|0, hue(h-1/3)*255|0];
+}
+function oklabToRgb(L, a, b) {
+  // Oklab to linear sRGB
+  let l_ = L + 0.3963377774*a + 0.2158037573*b;
+  let m_ = L - 0.1055613458*a - 0.0638541728*b;
+  let s_ = L - 0.0894841775*a - 1.2914855480*b;
+  let l=l_*l_*l_, m=m_*m_*m_, ss=s_*s_*s_;
+  let r = clamp(4.0767416621*l - 3.3077115913*m + 0.2309699292*ss,0,1);
+  let g = clamp(-1.2684380046*l + 2.6097574011*m - 0.3413193965*ss,0,1);
+  let bv = clamp(-0.0041960863*l - 0.7034186147*m + 1.7076147010*ss,0,1);
+  // gamma
+  function g22(c){ return c<=0.0031308?12.92*c:1.055*Math.pow(c,1/2.4)-0.055; }
+  return [g22(r)*255|0, g22(g)*255|0, g22(bv)*255|0];
+}
+function spectralColor(t) {
+  // Spectral locus approximation
+  t = clamp(t, 0, 1);
+  const wl = 380 + t * 400; // 380-780nm
+  let r=0, g=0, b=0;
+  if (wl >= 380 && wl < 440) { r=(440-wl)/60; g=0; b=1; }
+  else if (wl < 490) { r=0; g=(wl-440)/50; b=1; }
+  else if (wl < 510) { r=0; g=1; b=(510-wl)/20; }
+  else if (wl < 580) { r=(wl-510)/70; g=1; b=0; }
+  else if (wl < 645) { r=1; g=(645-wl)/65; b=0; }
+  else { r=1; g=0; b=0; }
+  let factor=1;
+  if (wl<420) factor=0.3+(0.7*(wl-380)/40);
+  else if (wl>700) factor=0.3+(0.7*(780-wl)/80);
+  return [clamp(r*factor,0,1)*255|0, clamp(g*factor,0,1)*255|0, clamp(b*factor,0,1)*255|0];
+}
+function lchToRgb(L, C, H) {
+  // LCH → Lab → XYZ → sRGB
+  const a = C * Math.cos(H * Math.PI/180);
+  const b = C * Math.sin(H * Math.PI/180);
+  // Lab to XYZ (D65)
+  function f(t){ return t>0.206897?t*t*t:0.12842*(t-4/29); }
+  const fy=(L+16)/116, fx=a/500+fy, fz=fy-b/200;
+  const X=0.95047*f(fx), Y=f(fy), Z=1.08883*f(fz);
+  // XYZ to linear sRGB
+  let r= 3.2406*X-1.5372*Y-0.4986*Z;
+  let g=-0.9689*X+1.8758*Y+0.0415*Z;
+  let bv= 0.0557*X-0.2040*Y+1.0570*Z;
+  function gc(c){ c=clamp(c,0,1); return c<=0.0031308?12.92*c:1.055*Math.pow(c,1/2.4)-0.055; }
+  return [gc(r)*255|0, gc(g)*255|0, gc(bv)*255|0];
+}
+function hwbToRgb(H, W, B) {
+  W/=100; B/=100;
+  if (W+B>=1){ const g=W/(W+B); return [g*255|0,g*255|0,g*255|0]; }
+  const [r,g,b] = hslToRgb(H,100,50).map(v=>v/255);
+  const rr=(r*(1-W-B)+W)*255|0, gg=(g*(1-W-B)+W)*255|0, bb=(b*(1-W-B)+W)*255|0;
+  return [rr,gg,bb];
+}
+function cmykSimToRgb(c,m,y,k) {
+  return [((1-c)*(1-k)*255)|0, ((1-m)*(1-k)*255)|0, ((1-y)*(1-k)*255)|0];
+}
+function munsellSimToRgb(H, V, C) {
+  // Simplified Munsell-like via LCH
+  return lchToRgb(V*10, C*8, H);
+}
+
+function generatePalette(t) {
+  const cs = currentCS;
+  const harm = currentHarmony;
+  const hueBase = (t * 30 + randomSeed * 360) % 360;
+  const offsets = [
+    [0, 120, 240],
+    [0, 150, 210],
+    [0, 30, 60],
+    [0, 90, 180, 270],
+    [0, 90, 180, 270],
+    [0, 180],
+    [0, 72, 144, 216, 288]
+  ];
+  const offs = offsets[harm % offsets.length];
+  const colors = [];
+  for (let i = 0; i < 7; i++) {
+    const hue = (hueBase + offs[i % offs.length]) % 360;
+    const sat = 70 + Math.sin(t * 0.7 + i) * 25;
+    const lit = 45 + Math.sin(t * 0.5 + i * 1.3) * 20;
+    let rgb;
+    if (cs === 0) rgb = hslToRgb(hue, sat, lit);
+    else if (cs === 1) rgb = lchToRgb(lit, sat*1.2, hue);
+    else if (cs === 2) rgb = oklabToRgb(lit/100, Math.cos(hue*Math.PI/180)*0.15, Math.sin(hue*Math.PI/180)*0.15);
+    else if (cs === 3) rgb = hwbToRgb(hue, (100-sat)*0.2, (100-lit)*0.2);
+    else if (cs === 4) rgb = spectralColor((hue/360 + t*0.03) % 1);
+    else if (cs === 5) rgb = munsellSimToRgb(hue, lit/10, sat/10);
+    else rgb = cmykSimToRgb(1-sat/100, Math.abs(Math.sin(hue/60))*0.8, Math.cos(hue*Math.PI/180)*0.5+0.5, 0.1);
+    colors.push(rgb);
+  }
+  return colors;
+}
+
+function rgbToHex(r,g,b){ return '#'+[r,g,b].map(v=>clamp(v,0,255).toString(16).padStart(2,'0')).join(''); }
+function rgbToStr(rgb, alpha=1){ return `rgba(${clamp(rgb[0],0,255)},${clamp(rgb[1],0,255)},${clamp(rgb[2],0,255)},${alpha})`; }
+
+function deltaEApprox(c1, c2) {
+  // Simple Euclidean in perceptual space
+  return Math.sqrt((c1[0]-c2[0])**2+(c1[1]-c2[1])**2+(c1[2]-c2[2])**2) / 4.41;
+}
+
+// ─── Polytope Definitions ─────────────────────────────────────────────────────
+function makeTetrahedron() {
+  const a = 1/Math.sqrt(3);
+  const verts = [[1,1,1],[1,-1,-1],[-1,1,-1],[-1,-1,1]].map(v=>v.map(x=>x*a));
+  const faces = [[0,1,2],[0,1,3],[0,2,3],[1,2,3]];
+  return { verts: verts.map(v=>[...v,0]), faces };
+}
+function makeCube() {
+  const verts = [], e = 1/Math.sqrt(3);
+  for (let x of [-1,1]) for (let y of [-1,1]) for (let z of [-1,1]) verts.push([x*e,y*e,z*e,0]);
+  const faces = [
+    [0,1,3,2],[4,5,7,6],[0,1,5,4],[2,3,7,6],[0,2,6,4],[1,3,7,5]
+  ];
+  return { verts, faces };
+}
+function makeOctahedron() {
+  const verts = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]].map(v=>[...v,0]);
+  const faces = [[0,2,4],[0,2,5],[0,3,4],[0,3,5],[1,2,4],[1,2,5],[1,3,4],[1,3,5]];
+  return { verts, faces };
+}
+function makeIcosahedron() {
+  const phi = (1+Math.sqrt(5))/2;
+  const verts = [
+    [0,1,phi],[0,-1,phi],[0,1,-phi],[0,-1,-phi],
+    [1,phi,0],[-1,phi,0],[1,-phi,0],[-1,-phi,0],
+    [phi,0,1],[phi,0,-1],[-phi,0,1],[-phi,0,-1]
+  ].map(v=>{const l=Math.sqrt(v[0]**2+v[1]**2+v[2]**2);return[v[0]/l,v[1]/l,v[2]/l,0];});
+  const faces = [
+    [0,1,8],[0,8,4],[0,4,5],[0,5,10],[0,10,1],
+    [3,2,9],[3,9,6],[3,6,7],[3,7,11],[3,11,2],
+    [1,6,8],[8,9,4],[4,2,5],[5,11,10],[10,7,1],
+    [6,1,7],[9,8,6],[2,4,9],[11,5,2],[7,10,11]
+  ];
+  return { verts, faces };
+}
+function makeDodecahedron() {
+  const phi=(1+Math.sqrt(5))/2, iphi=1/phi;
+  const rawV=[
+    [1,1,1],[1,1,-1],[1,-1,1],[1,-1,-1],
+    [-1,1,1],[-1,1,-1],[-1,-1,1],[-1,-1,-1],
+    [0,phi,iphi],[0,phi,-iphi],[0,-phi,iphi],[0,-phi,-iphi],
+    [iphi,0,phi],[-iphi,0,phi],[iphi,0,-phi],[-iphi,0,-phi],
+    [phi,iphi,0],[phi,-iphi,0],[-phi,iphi,0],[-phi,-iphi,0]
+  ];
+  const verts = rawV.map(v=>{const l=Math.sqrt(v.reduce((a,x)=>a+x*x,0));return[v[0]/l,v[1]/l,v[2]/l,0];});
+  // Simplified pentagon faces (not exact, but visually good)
+  const faces = [
+    [0,16,17,2,12],[0,12,13,4,8],[0,8,9,1,16],
+    [3,17,16,1,14],[3,14,15,7,11],[3,11,10,2,17],
+    [7,15,5,18,19],[7,19,6,10,11],[5,15,14,9,8],[5,8,4,13],[13,6,19,18,4],
+    [2,10,6,13,12],[9,14,1] // approx remainder
+  ].filter(f=>f.length>=3);
+  return { verts, faces };
+}
+function makeHypercube() {
+  // 4D tesseract — 16 vertices
+  const verts = [];
+  for (let x of [-1,1]) for (let y of [-1,1]) for (let z of [-1,1]) for (let w of [-1,1])
+    verts.push([x*0.6,y*0.6,z*0.6,w*0.6]);
+  // Faces: each face shares 2 coordinates fixed
+  const faces = [];
+  for (let a=0;a<4;a++) for (let sa of [-1,1]) {
+    const face = [];
+    for (let i=0;i<16;i++) {
+      const v = verts[i];
+      const coords = [v[0],v[1],v[2],v[3]];
+      if (Math.abs(coords[a]-sa*0.6)<0.01) face.push(i);
+    }
+    if (face.length === 4) faces.push(face);
+  }
+  return { verts, faces };
+}
+function make600Cell() {
+  // Simplified 600-cell using icosahedral caps
+  const ico = makeIcosahedron();
+  const verts = ico.verts.map(v=>[v[0],v[1],v[2],0]);
+  // Add W-axis variants
+  for (const v of [...ico.verts]) verts.push([v[0]*0.7,v[1]*0.7,v[2]*0.7,0.7]);
+  return { verts, faces: ico.faces.map(f=>f) };
+}
+
+const polytopeFactories = [
+  makeTetrahedron, makeCube, makeOctahedron,
+  makeIcosahedron, makeDodecahedron, makeHypercube, make600Cell
+];
+
+// ─── Polytope Object ──────────────────────────────────────────────────────────
+function createPolytope(idx) {
+  const factory = polytopeFactories[idx % polytopeFactories.length];
+  const base = factory();
+  const colorIdx = idx % 7;
+  const sz = 120 + Math.random() * 180;
+  const px = lerp(W*0.15, W*0.85, Math.random());
+  const py = lerp(H*0.15, H*0.85, Math.random());
+  return {
+    base,
+    pos: [px, py],
+    scale: sz,
+    colorIdx,
+    phaseXY: Math.random() * TAU,
+    phaseXZ: Math.random() * TAU,
+    phaseYZ: Math.random() * TAU,
+    phaseXW: Math.random() * TAU,
+    phaseYW: Math.random() * TAU,
+    phaseZW: Math.random() * TAU,
+    speedXY: (Math.random()-0.5) * 0.008,
+    speedXZ: (Math.random()-0.5) * 0.006,
+    speedYZ: (Math.random()-0.5) * 0.007,
+    speedXW: (Math.random()-0.5) * 0.005,
+    speedYW: (Math.random()-0.5) * 0.004,
+    speedZW: (Math.random()-0.5) * 0.006,
+    opacity: 0.18 + Math.random() * 0.35,
+    blendMode: blendModes[Math.floor(Math.random() * blendModes.length)],
+    glowRadius: 30 + Math.random() * 80,
+    hasWheel: Math.random() > 0.5,
+    wheelPhase: Math.random() * TAU,
+    wheelSpeed: (Math.random()-0.5) * 0.02,
+    birthT: 0,
+    type: idx % polytopeFactories.length,
+    drift: [(Math.random()-0.5)*0.3, (Math.random()-0.5)*0.3],
+    orbitRadius: Math.random() * 40,
+    orbitPhase: Math.random() * TAU,
+    orbitSpeed: (Math.random()-0.5) * 0.01,
+  };
+}
+
+function initPolytopes() {
+  polytopes = [];
+  const n = Math.min(12, Math.max(6, Math.floor(W*H / 50000)));
+  for (let i = 0; i < n; i++) {
+    const p = createPolytope(i);
+    p.birthT = -Math.random() * 200;
+    polytopes.push(p);
+  }
+}
+
+// ─── Color Wheel ─────────────────────────────────────────────────────────────
+function drawColorWheel(ctx, cx, cy, r, t, palette) {
+  const steps = 72;
+  for (let i = 0; i < steps; i++) {
+    const a1 = (i/steps)*TAU + t;
+    const a2 = ((i+1)/steps)*TAU + t;
+    const hue = (i/steps)*360;
+    const rgb = (currentCS===4) ? spectralColor(i/steps) : hslToRgb(hue + t*30, 85, 55);
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, r, a1, a2);
+    ctx.closePath();
+    ctx.fillStyle = rgbToStr(rgb, 0.7);
+    ctx.fill();
+  }
+  // Inner dark circle
+  ctx.beginPath();
+  ctx.arc(cx, cy, r*0.35, 0, TAU);
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fill();
+  // Harmonic spokes
+  const numSpokes = [3,3,4,4,4,2,5][currentHarmony % 7];
+  for (let i=0;i<numSpokes;i++) {
+    const angle = (i/numSpokes)*TAU + t;
+    const palC = palette[i % palette.length] || [255,255,255];
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(angle)*r*0.35, cy + Math.sin(angle)*r*0.35);
+    ctx.lineTo(cx + Math.cos(angle)*r, cy + Math.sin(angle)*r);
+    ctx.strokeStyle = rgbToStr(palC, 0.9);
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+}
+
+// ─── Draw Polytope ────────────────────────────────────────────────────────────
+function drawPolytope(p, t, palette) {
+  const age = t - p.birthT;
+  const fadeIn = Math.min(1, age / 60);
+
+  // Update rotations
+  p.phaseXY += p.speedXY;
+  p.phaseXZ += p.speedXZ;
+  p.phaseYZ += p.speedYZ;
+  p.phaseXW += p.speedXW;
+  p.phaseYW += p.speedYW;
+  p.phaseZW += p.speedZW;
+  p.wheelPhase += p.wheelSpeed;
+  p.orbitPhase += p.orbitSpeed;
+
+  // Orbit drift
+  const ox = Math.cos(p.orbitPhase) * p.orbitRadius;
+  const oy = Math.sin(p.orbitPhase * 0.7) * p.orbitRadius;
+  const cx = clamp(p.pos[0] + ox, p.scale, W - p.scale);
+  const cy = clamp(p.pos[1] + oy, p.scale, H - p.scale);
+
+  // 4D rotation matrix
+  let mat = mat4Identity();
+  mat = mat4Mul(mat4RotXY(p.phaseXY), mat);
+  mat = mat4Mul(mat4RotXZ(p.phaseXZ), mat);
+  mat = mat4Mul(mat4RotYZ(p.phaseYZ), mat);
+  mat = mat4Mul(mat4RotXW(p.phaseXW), mat);
+  mat = mat4Mul(mat4RotYW(p.phaseYW), mat);
+  mat = mat4Mul(mat4RotZW(p.phaseZW), mat);
+
+  const rotVerts = transform4D(p.base.verts, mat);
+  const proj3 = rotVerts.map(v => project4Dto3D(v, 2.5));
+  const proj2 = proj3.map(v => project3Dto2D(v, 3.5, cx, cy, p.scale));
+
+  const pColor = palette[p.colorIdx % palette.length] || [200,200,200];
+  const pColor2 = palette[(p.colorIdx+2) % palette.length] || [100,200,255];
+  const pColor3 = palette[(p.colorIdx+4) % palette.length] || [255,100,200];
+
+  ctx.save();
+  ctx.globalCompositeOperation = p.blendMode;
+  ctx.globalAlpha = p.opacity * fadeIn;
+
+  // Draw faces
+  for (let fi = 0; fi < p.base.faces.length; fi++) {
+    const face = p.base.faces[fi];
+    if (face.length < 3) continue;
+
+    // Z-depth for face (average Z of projected 3D verts)
+    const avgZ = face.reduce((s,vi) => s + proj3[vi][2], 0) / face.length;
+    const brightness = clamp(0.3 + avgZ * 0.7, 0.1, 1.0);
+
+    // Spectral gradient per face
+    const faceT = (fi / p.base.faces.length + spectralPhase * 0.1) % 1;
+    let faceColor;
+    if (currentCS === 4) {
+      faceColor = spectralColor(faceT);
+    } else {
+      faceColor = [
+        lerp(pColor[0], pColor2[0], faceT),
+        lerp(pColor[1], pColor2[1], faceT),
+        lerp(pColor[2], pColor2[2], faceT)
+      ];
+    }
+
+    ctx.beginPath();
+    const p0 = proj2[face[0]];
+    ctx.moveTo(p0[0], p0[1]);
+    for (let i = 1; i < face.length; i++) {
+      const pt = proj2[face[i]];
+      ctx.lineTo(pt[0], pt[1]);
+    }
+    ctx.closePath();
+
+    // Gradient fill
+    try {
+      const centroid = face.reduce((acc, vi) => {
+        return [acc[0]+proj2[vi][0]/face.length, acc[1]+proj2[vi][1]/face.length];
+      }, [0,0]);
+      const grad = ctx.createRadialGradient(
+        centroid[0], centroid[1], 0,
+        centroid[0], centroid[1], p.scale * 0.8
+      );
+      grad.addColorStop(0, rgbToStr(faceColor.map(v=>Math.min(255,v*brightness*1.4)), 0.85));
+      grad.addColorStop(0.6, rgbToStr(pColor2.map(v=>Math.min(255,v*brightness)), 0.4));
+      grad.addColorStop(1, rgbToStr(pColor3, 0.05));
+      ctx.fillStyle = grad;
+    } catch(e) {
+      ctx.fillStyle = rgbToStr(faceColor, 0.5);
+    }
+    ctx.fill();
+
+    // Edge glow
+    ctx.strokeStyle = rgbToStr(faceColor.map(v=>Math.min(255,v*1.3)), 0.9);
+    ctx.lineWidth = 0.8 + brightness * 1.5;
+    ctx.stroke();
+  }
+
+  // Glow halo
+  try {
+    const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, p.glowRadius);
+    glow.addColorStop(0, rgbToStr(pColor, 0.35));
+    glow.addColorStop(0.5, rgbToStr(pColor2, 0.12));
+    glow.addColorStop(1, rgbToStr(pColor3, 0));
+    ctx.globalCompositeOperation = 'screen';
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(cx, cy, p.glowRadius, 0, TAU);
+    ctx.fill();
+  } catch(e) {}
+
+  // Color wheel embedded in polytope
+  if (p.hasWheel) {
+    ctx.globalCompositeOperation = 'screen';
+    ctx.globalAlpha = 0.25 * fadeIn;
+    drawColorWheel(ctx, cx, cy, p.scale * 0.35, p.wheelPhase, palette);
+  }
+
+  ctx.restore();
+
+  // Vertex sparkles
+  ctx.save();
+  ctx.globalCompositeOperation = 'screen';
+  for (let vi = 0; vi < proj2.length && vi < 20; vi++) {
+    const pt = proj2[vi];
+    if (isNaN(pt[0])||isNaN(pt[1])) continue;
+    const vc = palette[vi % palette.length] || [255,255,255];
+    const vsz = 2 + Math.sin(t*0.05+vi*1.7) * 2;
+    const vglow = ctx.createRadialGradient(pt[0],pt[1],0,pt[0],pt[1],vsz*4);
+    vglow.addColorStop(0, rgbToStr(vc,0.9*fadeIn));
+    vglow.addColorStop(1, rgbToStr(vc,0));
+    ctx.fillStyle = vglow;
+    ctx.beginPath();
+    ctx.arc(pt[0],pt[1],vsz*4,0,TAU);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+// ─── Background Effects ───────────────────────────────────────────────────────
+function drawBackground(t, palette) {
+  // Dark base
+  ctx.fillStyle = 'rgba(0,0,0,0.18)';
+  ctx.fillRect(0, 0, W, H);
+
+  // Spectral banding
+  const bands = 8;
+  for (let i = 0; i < bands; i++) {
+    const yFrac = (i / bands + spectralPhase * 0.004) % 1;
+    const y = yFrac * H;
+    const bColor = currentCS===4 ? spectralColor(i/bands) : palette[i%palette.length] || [100,100,200];
+    const grad = ctx.createLinearGradient(0, y - H/bands*0.8, 0, y + H/bands*0.8);
+    grad.addColorStop(0, rgbToStr(bColor, 0));
+    grad.addColorStop(0.5, rgbToStr(bColor, 0.025));
+    grad.addColorStop(1, rgbToStr(bColor, 0));
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, y - H/bands, W, H/bands*2);
+  }
+
+  // Interference grid
+  const gSpacing = 60 + Math.sin(t*0.003)*20;
+  ctx.save();
+  ctx.globalAlpha = 0.03;
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 0.5;
+  for (let x = (t*0.2)%gSpacing; x < W; x += gSpacing) {
+    ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke();
+  }
+  for (let y = (t*0.15)%gSpacing; y < H; y += gSpacing) {
+    ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// ─── Interference Overlay ─────────────────────────────────────────────────────
+function drawInterference(t, palette) {
+  // Wave interference between polytope centers
+  if (polytopes.length < 2) return;
+  ctx.save();
+  ctx.globalCompositeOperation = 'screen';
+  ctx.globalAlpha = 0.04;
+
+  const sources = polytopes.map(p => ({
+    x: p.pos[0] + Math.cos(p.orbitPhase)*p.orbitRadius,
+    y: p.pos[1] + Math.sin(p.orbitPhase*0.7)*p.orbitRadius,
+    freq: 0.015 + p.colorIdx * 0.003,
+    phase: p.phaseXY
+  }));
+
+  const step = 40;
+  for (let x = 0; x < W; x += step) {
+    for (let y = 0; y < H; y += step) {
+      let amp = 0;
+      for (const s of sources) {
+        const d = Math.sqrt((x-s.x)**2+(y-s.y)**2);
+        amp += Math.sin(d*s.freq - t*0.02 + s.phase);
+      }
+      amp = (amp / sources.length + 1) / 2;
+      const c = currentCS===4 ? spectralColor(amp) : palette[Math.floor(amp*6)%palette.length] || [200,200,200];
+      ctx.fillStyle = rgbToStr(c, amp*0.12);
+      ctx.fillRect(x, y, step, step);
+    }
+  }
+  ctx.restore();
+}
+
+// ─── Audio ────────────────────────────────────────────────────────────────────
+function initAudio() {
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  masterGain = audioCtx.createGain();
+  masterGain.gain.setValueAtTime(0.12, audioCtx.currentTime);
+  masterGain.connect(audioCtx.destination);
+}
+
+let audioOscillators = [];
+function updateAudio(palette, t) {
+  if (!soundOn || !audioCtx) return;
+  // Synth tones from palette colors
+  const baseFreqs = [55, 82, 110, 165, 220, 330, 440];
+  for (let i = audioOscillators.length; i < 3; i++) {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    const pan = audioCtx.createStereoPanner();
+    osc.type = ['sine','triangle','sawtooth'][i%3];
+    osc.connect(gain); gain.connect(pan); pan.connect(masterGain);
+    osc.start();
+    gain.gain.setValueAtTime(0, audioCtx.currentTime);
+    audioOscillators.push({osc, gain, pan});
+  }
+  for (let i = 0; i < Math.min(3, audioOscillators.length); i++) {
+    const {osc, gain, pan} = audioOscillators[i];
+    const col = palette[i] || [200,200,200];
+    const brightness = (col[0]*0.299 + col[1]*0.587 + col[2]*0.114) / 255;
+    const freq = baseFreqs[i] * (0.9 + brightness * 0.3) * (1 + Math.sin(t*0.002+i)*0.05);
+    osc.frequency.setTargetAtTime(freq, audioCtx.currentTime, 0.5);
+    gain.gain.setTargetAtTime(0.04 + brightness*0.06, audioCtx.currentTime, 0.3);
+    pan.pan.setTargetAtTime(Math.sin(t*0.005+i*2.1)*0.6, audioCtx.currentTime, 0.5);
+  }
+}
+function stopAudio() {
+  for (const {gain} of audioOscillators) {
+    gain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.1);
+  }
+}
+
+// ─── HUD Update ──────────────────────────────────────────────────────────────
+function updateHUD(t) {
+  if (!hudVisible) return;
+  document.getElementById('hv-count').textContent = polytopes.length;
+  document.getElementById('hv-frame').textContent = frame;
+  document.getElementById('hv-fps').textContent = fps.toFixed(1);
+  document.getElementById('hv-cs').textContent = colorSystemNames[currentCS];
+  document.getElementById('hv-de').textContent = deltaE.toFixed(2);
+  document.getElementById('hv-harm').textContent = harmonyNames[currentHarmony];
+  document.getElementById('hv-blend').textContent = blendModes[currentBlend];
+  document.getElementById('hv-spec').textContent = 'ON';
+  document.getElementById('hv-audio').textContent = soundOn ? 'ON' : 'OFF';
+}
+
+// ─── Palette Strip ────────────────────────────────────────────────────────────
+function updatePaletteStrip(palette) {
+  for (let i = 0; i < 7; i++) {
+    const sw = document.getElementById('sw'+i);
+    if (sw && palette[i]) {
+      sw.style.background = rgbToHex(...palette[i]);
+      sw.style.boxShadow = `0 0 12px ${rgbToHex(...palette[i])}`;
+    }
+  }
+}
+
+// ─── Randomize ────────────────────────────────────────────────────────────────
+function randomize() {
+  randomSeed = Math.random();
+  currentCS = Math.floor(Math.random() * colorSystemNames.length);
+  currentHarmony = Math.floor(Math.random() * harmonyNames.length);
+  currentBlend = Math.floor(Math.random() * blendModes.length);
+  initPolytopes();
+  // Flash
+  const fl = document.getElementById('flash');
+  const flashColor = `hsl(${Math.random()*360},100%,70%)`;
+  fl.style.background = flashColor;
+  fl.style.opacity = '0.4';
+  setTimeout(() => fl.style.opacity = '0', 120);
+}
+
+// ─── Main Loop ────────────────────────────────────────────────────────────────
+function loop(ts) {
+  requestAnimationFrame(loop);
+  const dt = ts - lastT; lastT = ts;
+  frame++;
+  fpsAccum += dt; fpsFrames++;
+  if (fpsAccum > 500) { fps = fpsFrames/(fpsAccum/1000); fpsAccum=0; fpsFrames=0; }
+
+  spectralPhase += 0.3;
+
+  // Shift color systems / harmony slowly
+  if (frame % 600 === 0) currentCS = (currentCS + 1) % colorSystemNames.length;
+  if (frame % 900 === 0) currentHarmony = (currentHarmony + 1) % harmonyNames.length;
+  if (frame % 1200 === 0) currentBlend = (currentBlend + 1) % blendModes.length;
+
+  globalPalette = generatePalette(frame * 0.002);
+
+  // Delta-E of first two colors
+  if (globalPalette.length >= 2) deltaE = deltaEApprox(globalPalette[0], globalPalette[1]);
+
+  drawBackground(frame, globalPalette);
+  drawInterference(frame, globalPalette);
+
+  for (const p of polytopes) drawPolytope(p, frame, globalPalette);
+
+  updatePaletteStrip(globalPalette);
+  updateHUD(frame);
+  updateAudio(globalPalette, frame);
+}
+
+// ─── Input ───────────────────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+  if (k === 'h') {
+    hudVisible = !hudVisible;
+    document.getElementById('hud').classList.toggle('visible', hudVisible);
+    document.getElementById('palette-strip').classList.toggle('visible', hudVisible);
+  }
+  if (k === 's') {
+    soundOn = !soundOn;
+    if (soundOn) { initAudio(); if(audioCtx.state==='suspended') audioCtx.resume(); }
+    else if (audioCtx) stopAudio();
+  }
+  if (k === 'r') randomize();
+});
+
+// Mobile tap
+canvas.addEventListener('touchend', e => { e.preventDefault(); randomize(); }, { passive: false });
+canvas.addEventListener('click', () => randomize());
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+initPolytopes();
+requestAnimationFrame(loop);
+
+})();
+</script>
+</body>
+</html>
