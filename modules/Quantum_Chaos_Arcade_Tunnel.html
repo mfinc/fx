@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Quantum Chaos Arcade Tunnel</title>
+
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+
+<meta name="description" content="Quantum Chaos Arcade Tunnel – an immersive generative cyberpunk visualization of chaotic attractors, fractal vortex tunnels, Schrödinger-style probability clouds, kaleidoscopic symmetry corridors and interactive mathematical art rendered in real-time.">
+
+<meta name="keywords" content="generative art engine, chaotic systems visualization, Lorenz attractor, Rossler attractor, Henon map, Duffing oscillator, logistic map visualization, reaction diffusion morphogenesis, kaleidoscopic tunnel graphics, cyberpunk arcade visuals, interactive mathematical art, fractal tunnel, quantum visualization, procedural graphics, WebCanvas generative art">
+
+<style>
+html,body{
+margin:0;
+background:#000;
+overflow:hidden;
+font-family:monospace;
+}
+#hud{
+position:fixed;
+top:0;
+left:0;
+color:#0f0;
+font-size:12px;
+padding:6px;
+background:rgba(0,0,0,.25);
+display:none;
+pointer-events:none;
+}
+</style>
+</head>
+
+<body>
+
+<canvas id="c"></canvas>
+<div id="hud"></div>
+
+<script>
+
+const canvas=document.getElementById("c");
+const ctx=canvas.getContext("2d");
+const hud=document.getElementById("hud");
+
+let W,H,particles=[],seed=0;
+let hudOn=false;
+let soundOn=false;
+
+let symmetry=3;
+let rotMode=0;
+
+let paletteShift=0;
+
+let lastTime=0;
+let fps=0;
+
+const MAX_PARTICLES=1400;
+
+function resize(){
+W=canvas.width=window.innerWidth;
+H=canvas.height=window.innerHeight;
+}
+
+window.addEventListener("resize",resize);
+resize();
+
+function rnd(){
+seed=(seed*1664525+1013904223)>>>0;
+return seed/4294967296;
+}
+
+function reset(){
+
+seed=(Math.random()*1e9)|0;
+
+particles=[];
+
+symmetry=2+Math.floor(rnd()*6);
+rotMode=Math.floor(rnd()*3);
+
+for(let i=0;i<MAX_PARTICLES;i++){
+particles.push(newParticle());
+}
+
+paletteShift=rnd()*360;
+}
+
+function newParticle(){
+
+let type=Math.floor(rnd()*6);
+
+return{
+
+x:rnd()*2-1,
+y:rnd()*2-1,
+z:rnd()*4+0.5,
+
+vx:0,
+vy:0,
+vz:0.02+rnd()*0.04,
+
+type:type,
+
+a:rnd()*2,
+b:rnd()*2,
+c:rnd()*2,
+
+life:200+rnd()*600
+
+};
+}
+
+function updateParticle(p){
+
+if(p.type===0){
+let r=3.7;
+p.x=r*p.x*(1-p.x)-0.5;
+p.y=r*p.y*(1-p.y)-0.5;
+}
+
+if(p.type===1){
+let a=1.4,b=0.3;
+let nx=1-a*p.x*p.x+p.y;
+let ny=b*p.x;
+p.x=nx*0.5;
+p.y=ny*0.5;
+}
+
+if(p.type===2){
+let s=10,r=28,b=8/3,dt=0.01;
+let dx=s*(p.y-p.x);
+let dy=p.x*(r-p.z)-p.y;
+let dz=p.x*p.y-b*p.z;
+p.x+=dx*dt;
+p.y+=dy*dt;
+p.z+=dz*dt*0.2;
+}
+
+if(p.type===3){
+let a=.2,b=.2,c=5.7,dt=.01;
+let dx=-(p.y+p.z);
+let dy=p.x+a*p.y;
+let dz=b+p.z*(p.x-c);
+p.x+=dx*dt;
+p.y+=dy*dt;
+p.z+=dz*dt*0.2;
+}
+
+if(p.type===4){
+let dt=.02;
+let dx=p.y;
+let dy=-0.2*p.y-p.x-p.x*p.x*p.x;
+p.x+=dx*dt;
+p.y+=dy*dt;
+}
+
+if(p.type===5){
+p.x+=Math.sin(p.a+p.life*.01)*.01;
+p.y+=Math.cos(p.b+p.life*.01)*.01;
+}
+
+p.z-=p.vz;
+
+p.life--;
+
+if(p.z<0.1||p.life<0){
+Object.assign(p,newParticle());
+}
+
+}
+
+function drawParticle(p){
+
+let scale=400/p.z;
+
+let x=p.x*scale+W/2;
+let y=p.y*scale+H/2;
+
+if(x<0||x>W||y<0||y>H)return;
+
+let hue=(paletteShift+p.z*80)%360;
+
+ctx.fillStyle=`hsl(${hue},100%,60%)`;
+
+let size=Math.max(1,3/p.z);
+
+for(let i=0;i<symmetry;i++){
+
+let ang=(i*Math.PI*2)/symmetry;
+
+let rx=Math.cos(ang)*(x-W/2)-Math.sin(ang)*(y-H/2)+W/2;
+let ry=Math.sin(ang)*(x-W/2)+Math.cos(ang)*(y-H/2)+H/2;
+
+ctx.fillRect(rx,ry,size,size);
+
+if(rotMode===1){
+ctx.fillRect(W-rx,ry,size,size);
+}
+if(rotMode===2){
+ctx.fillRect(rx,H-ry,size,size);
+}
+
+}
+
+}
+
+function draw(){
+
+ctx.fillStyle="rgba(0,0,0,0.18)";
+ctx.fillRect(0,0,W,H);
+
+for(let p of particles){
+updateParticle(p);
+drawParticle(p);
+}
+
+paletteShift+=0.25;
+
+}
+
+function loop(t){
+
+fps=1000/(t-lastTime);
+lastTime=t;
+
+draw();
+
+if(hudOn){
+
+hud.style.display="block";
+hud.innerHTML=
+`FPS: ${fps.toFixed(1)}<br>
+Particles: ${particles.length}<br>
+Symmetry: ${symmetry}<br>
+Seed: ${seed}<br>
+Sound: ${soundOn?"ON":"OFF"}`;
+
+}else{
+hud.style.display="none";
+}
+
+requestAnimationFrame(loop);
+}
+
+requestAnimationFrame(loop);
+
+let audioCtx=null;
+let master=null;
+
+function initAudio(){
+
+if(audioCtx)return;
+
+audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+
+master=audioCtx.createGain();
+master.gain.value=.2;
+master.connect(audioCtx.destination);
+
+}
+
+function startSound(){
+
+if(!soundOn)return;
+
+initAudio();
+
+let carrier=audioCtx.createOscillator();
+let mod=audioCtx.createOscillator();
+
+let modGain=audioCtx.createGain();
+
+carrier.type="sawtooth";
+mod.type="sine";
+
+carrier.frequency.value=120;
+mod.frequency.value=2+rnd()*20;
+
+modGain.gain.value=80;
+
+mod.connect(modGain);
+modGain.connect(carrier.frequency);
+
+carrier.connect(master);
+
+carrier.start();
+mod.start();
+
+setTimeout(()=>{
+carrier.stop();
+mod.stop();
+if(soundOn)startSound();
+},800+rnd()*1200);
+
+}
+
+function toggleSound(){
+
+soundOn=!soundOn;
+
+if(soundOn){
+startSound();
+}
+
+}
+
+function resetInput(){
+reset();
+}
+
+window.addEventListener("keydown",e=>{
+
+if(e.code==="Space"){
+resetInput();
+}
+
+if(e.key==="h"||e.key==="H"){
+hudOn=!hudOn;
+}
+
+if(e.key==="s"||e.key==="S"){
+toggleSound();
+}
+
+});
+
+window.addEventListener("click",resetInput);
+window.addEventListener("touchstart",resetInput);
+
+reset();
+
+</script>
+</body>
+</html>

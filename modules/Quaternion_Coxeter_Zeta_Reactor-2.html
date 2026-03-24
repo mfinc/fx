@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport"
+content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>Quaternion Coxeter Zeta Reactor</title>
+<style>
+html,body{
+margin:0;
+padding:0;
+overflow:hidden;
+background:#000;
+width:100%;
+height:100%;
+}
+canvas{
+position:fixed;
+top:0;
+left:0;
+width:100%;
+height:100%;
+display:block;
+}
+#hud{
+position:fixed;
+top:10px;
+left:10px;
+color:#fff;
+font-family:monospace;
+font-size:13px;
+background:rgba(0,0,0,0.4);
+padding:8px;
+border-radius:6px;
+display:none;
+}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="hud"></div>
+
+<script>
+const canvas=document.getElementById("gl");
+const gl=canvas.getContext("webgl2",{antialias:false});
+
+function resize(){
+const dpr=window.devicePixelRatio||1;
+const w=innerWidth;
+const h=innerHeight;
+canvas.style.width=w+"px";
+canvas.style.height=h+"px";
+canvas.width=w*dpr;
+canvas.height=h*dpr;
+gl.viewport(0,0,canvas.width,canvas.height);
+}
+resize();
+window.addEventListener("resize",resize);
+
+let audioOn=false;
+let hudOn=false;
+let audioCtx,osc,gain;
+
+function initAudio(){
+audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+osc=audioCtx.createOscillator();
+gain=audioCtx.createGain();
+osc.type="sine";
+gain.gain.value=0;
+osc.connect(gain);
+gain.connect(audioCtx.destination);
+osc.start();
+}
+
+function randPhi(){
+const phi=(1+Math.sqrt(5))/2;
+return (Math.random()<0.5?phi:1/phi)*(Math.random()<0.5?1:-1);
+}
+
+let qc=[randPhi(),randPhi(),randPhi(),randPhi()];
+let paletteOffset=Math.random()*6.2831;
+
+function randomize(){
+qc=[randPhi(),randPhi(),randPhi(),randPhi()];
+paletteOffset=Math.random()*6.2831;
+}
+
+const vs=`#version 300 es
+in vec2 p;
+void main(){ gl_Position=vec4(p,0.,1.); }`;
+
+const fs=`#version 300 es
+precision highp float;
+out vec4 O;
+uniform vec2 R;
+uniform float T;
+uniform vec4 C;
+uniform float PO;
+
+#define MAX_IT 90
+
+vec4 qmul(vec4 a, vec4 b){
+return vec4(
+a.x*b.x - dot(a.yzw,b.yzw),
+a.x*b.yzw + b.x*a.yzw + cross(a.yzw,b.yzw)
+);
+}
+
+vec4 stereographic(vec4 q){
+float d=1.0/(1.0 - q.w);
+return vec4(q.xyz*d,0.);
+}
+
+vec3 kaleido(vec3 p){
+for(int i=0;i<6;i++){
+p=abs(p);
+if(p.x<p.y) p.xy=p.yx;
+if(p.x<p.z) p.xz=p.zx;
+if(p.y<p.z) p.yz=p.zy;
+}
+return p;
+}
+
+float reactDiffuse(vec2 v){
+float n=sin(v.x*3.+T)+cos(v.y*3.-T);
+return 0.6+0.4*sin(n*2.);
+}
+
+float escape(vec4 z){
+float it=0.;
+for(int i=0;i<MAX_IT;i++){
+z=qmul(z,z)+C;
+float r=length(z);
+if(r>4.) break;
+z*=reactDiffuse(z.xy);
+it+=1.;
+}
+return it;
+}
+
+vec3 domainColor(float v,float phase){
+float a=log(v+1.);
+return vec3(
+0.5+0.5*cos(6.2831*(a+phase+PO)),
+0.5+0.5*cos(6.2831*(a+phase+0.33+PO)),
+0.5+0.5*cos(6.2831*(a+phase+0.66+PO))
+);
+}
+
+void main(){
+vec2 uv = (gl_FragCoord.xy - 0.5*R) / min(R.x,R.y);
+
+float angle=T*0.25;
+mat2 rot=mat2(cos(angle),-sin(angle),sin(angle),cos(angle));
+uv=rot*uv;
+
+vec4 z=vec4(uv*1.5,0.,0.);
+float it=escape(z);
+
+vec4 proj=stereographic(z);
+vec3 p=kaleido(proj.xyz);
+
+float phase=atan(p.y,p.x)/6.2831;
+vec3 col=domainColor(it,phase);
+
+float glow=exp(-0.015*it*it);
+col*=glow;
+
+O=vec4(col,1.);
+}`;
+
+function compile(type,src){
+let s=gl.createShader(type);
+gl.shaderSource(s,src);
+gl.compileShader(s);
+return s;
+}
+
+const pr=gl.createProgram();
+gl.attachShader(pr,compile(gl.VERTEX_SHADER,vs));
+gl.attachShader(pr,compile(gl.FRAGMENT_SHADER,fs));
+gl.linkProgram(pr);
+gl.useProgram(pr);
+
+const buf=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+
+const loc=gl.getAttribLocation(pr,"p");
+gl.enableVertexAttribArray(loc);
+gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+
+const uR=gl.getUniformLocation(pr,"R");
+const uT=gl.getUniformLocation(pr,"T");
+const uC=gl.getUniformLocation(pr,"C");
+const uPO=gl.getUniformLocation(pr,"PO");
+
+let start=performance.now();
+
+function fractalDimensionEstimate(t){
+return 2.0+0.4*Math.sin(t*0.4);
+}
+
+function render(){
+let t=(performance.now()-start)/1000;
+gl.uniform2f(uR,canvas.width,canvas.height);
+gl.uniform1f(uT,t);
+gl.uniform4f(uC,qc[0],qc[1],qc[2],qc[3]);
+gl.uniform1f(uPO,paletteOffset);
+gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+
+if(hudOn){
+document.getElementById("hud").innerText=
+"c = ("+qc.map(v=>v.toFixed(3)).join(", ")+")\n"+
+"Fractal Dimension ≈ "+
+fractalDimensionEstimate(t).toFixed(4);
+}
+
+if(audioOn){
+let dim=fractalDimensionEstimate(t);
+let freq=180+240*Math.sin(dim*3.14);
+osc.frequency.value=freq;
+gain.gain.value=0.05;
+}else if(gain){ gain.gain.value=0; }
+
+requestAnimationFrame(render);
+}
+render();
+
+window.addEventListener("keydown",e=>{
+if(e.code==="Space") randomize();
+if(e.key==="h"||e.key==="H"){
+hudOn=!hudOn;
+document.getElementById("hud").style.display=hudOn?"block":"none";
+}
+if(e.key==="s"||e.key==="S"){
+audioOn=!audioOn;
+if(audioOn&&!audioCtx) initAudio();
+}
+});
+window.addEventListener("click",randomize);
+</script>
+</body>
+</html>

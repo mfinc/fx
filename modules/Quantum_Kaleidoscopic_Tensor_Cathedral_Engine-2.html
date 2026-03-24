@@ -1,0 +1,805 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Quantum Kaleidoscopic Tensor Cathedral Engine</title>
+<meta name="description" content="An immersive real-time generative art engine fusing tensor field visualizations, kaleidoscopic fractal systems, multidimensional mathematics, quaternion rotations, reaction-diffusion morphogenesis, Mandelbrot/Julia sets, Lorenz attractors, spherical harmonics, hyperbolic geometry, and procedural audio synthesis into a living visual cathedral of unprecedented conceptual density.">
+<meta name="keywords" content="generative art, tensor visualization, kaleidoscopic fractals, multidimensional mathematics, real-time audio synthesis, interactive abstract visualization, WebGL, quaternion rotation, Lie group, Coxeter symmetry, signed distance field, ray marching, reaction diffusion, Mandelbrot, Julia set, Lorenz attractor, Rossler attractor, spherical harmonics, hyperbolic geometry, Riemann surface, Perlin noise, Voronoi, Fibonacci spiral, golden ratio, CIELAB color space, FFT synthesis, frequency modulation, procedural music">
+<meta property="og:title" content="Quantum Kaleidoscopic Tensor Cathedral Engine">
+<meta property="og:description" content="Real-time multidimensional generative art: tensor fields, kaleidoscopic fractals, quantum probability amplitudes, and procedural audio in one transcendent visual experience.">
+<meta property="og:type" content="website">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Courier New',monospace}
+  canvas{display:block;width:100vw;height:100vh}
+  #hud{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;display:none;z-index:10}
+  #hud-inner{position:absolute;top:16px;left:16px;color:rgba(200,255,220,0.85);font-size:11px;line-height:1.7;text-shadow:0 0 8px rgba(0,255,120,0.6);background:rgba(0,0,0,0.45);padding:12px 16px;border:1px solid rgba(0,255,120,0.2);border-radius:4px;max-width:340px}
+  #hud-inner span{color:rgba(120,255,200,1)}
+  #hint{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,0.3);font-size:10px;letter-spacing:2px;pointer-events:none;z-index:10;text-align:center}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"><div id="hud-inner" id="hud-content"></div></div>
+<div id="hint">SPACE / CLICK — RANDOMIZE &nbsp;|&nbsp; H — HUD &nbsp;|&nbsp; S — SOUND</div>
+<script>
+(function(){
+'use strict';
+
+// ─── Canvas & Context ───────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const gl = canvas.getContext('webgl2',{antialias:false,powerPreference:'high-performance'})
+         || canvas.getContext('webgl',{antialias:false,powerPreference:'high-performance'});
+const use2D = !gl;
+let ctx2d = use2D ? canvas.getContext('2d') : null;
+
+let W,H;
+function resize(){
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  if(use2D){}
+}
+window.addEventListener('resize',resize);
+resize();
+
+// ─── State ──────────────────────────────────────────────────────────────────
+let t=0, frame=0;
+let hudVisible=false;
+let soundOn=false;
+let audioCtx=null, masterGain=null, osc1=null,osc2=null,osc3=null,modOsc=null,lfoOsc=null;
+let animId=null;
+
+// Randomizable parameters
+let P={};
+function randomize(){
+  const r=(a,b)=>a+(b-a)*Math.random();
+  const ri=(a,b)=>Math.floor(r(a,b+1));
+  P={
+    mode: ri(0,7),               // visual architecture
+    colorMode: ri(0,3),          // 0=HSV,1=HSL,2=RGB,3=CIELAB
+    seed: Math.random()*1000,
+    kFold: ri(3,12),             // kaleidoscope folds
+    fractalType: ri(0,4),        // mandelbrot/julia/burning ship/newton
+    juliaC: [r(-1,1),r(-1,1)],
+    lorenzSigma: r(8,14),
+    lorenzRho: r(24,32),
+    lorenzBeta: r(2,3),
+    reactDiffF: r(0.02,0.08),
+    reactDiffK: r(0.04,0.07),
+    sdMode: ri(0,4),
+    harmonicOrder: ri(2,8),
+    fibPhase: r(0,Math.PI*2),
+    tensorTwist: r(0.5,4),
+    tensorScale: r(0.5,3),
+    hyperbolicK: r(1,4),
+    colorFreq: r(0.3,3),
+    colorOffset: r(0,360),
+    colorBands: ri(3,20),
+    speed: r(0.3,1.5),
+    voronoiN: ri(5,30),
+    voronoiSeeds: null,
+    hueShift: r(0,360),
+    saturation: r(0.78,1),
+    brightness: r(0.72,1),
+    // Extended full color randomization
+    hueSpin: r(-1,1),              // hue drift direction/speed multiplier
+    hueRange: r(0.15,1.0),        // how wide the hue spread is (0=monochrome,1=full rainbow)
+    colorInvert: Math.random()<0.08?1:0, // invert luminance — rare, keeps things bright
+    colorScheme: ri(0,4),         // 0=analogous,1=complementary,2=triadic,3=split,4=tetradic
+    schemeSpread: r(0.05,0.45),   // angular spread within scheme
+    bgHue: r(0,1),                // background hue
+    bgSat: r(0,0.7),
+    bgBright: r(0,0.12),
+    glSaturation: r(0.82,1.0),    // shader saturation
+    glBrightness: r(0.72,1.0),    // shader brightness
+    glHueBase: r(0,1),            // shader hue base
+    glHueRange: r(0.2,1.0),       // shader hue range
+    // Per-layer hue offsets (10 layers)
+    layerHue: Array.from({length:10},()=>r(0,1)),
+    layerSat: Array.from({length:10},()=>r(0.75,1)),
+    layerBright: Array.from({length:10},()=>r(0.7,1)),
+    audioFreq1: r(80,400),
+    audioFreq2: r(200,1200),
+    audioModIdx: r(1,8),
+    audioLFO: r(0.1,8),
+    eigenPhase: r(0,Math.PI*2),
+    symmetryType: ri(0,3),
+    perlinOctaves: ri(2,6),
+    perlinLac: r(1.5,3),
+    riemannPow: r(0.5,3),
+    globalBlend: r(0,1),
+    cameraRoll: r(0,Math.PI*2),
+    palette: Array.from({length:5},()=>[Math.random(),Math.random(),Math.random()]),
+    noiseScale: r(1,8),
+    attractorMix: r(0,1),
+    sdfRaySteps: ri(24,64),
+  };
+  // Random voronoi seeds
+  P.voronoiSeeds = Array.from({length:P.voronoiN},()=>[Math.random(),Math.random()]);
+  t=0;
+  if(soundOn) updateAudio();
+}
+randomize();
+
+// ─── Math Helpers ───────────────────────────────────────────────────────────
+const PI=Math.PI, TAU=PI*2, PHI=(1+Math.sqrt(5))/2;
+const sin=Math.sin,cos=Math.cos,sqrt=Math.sqrt,atan2=Math.atan2,abs=Math.abs,floor=Math.floor;
+
+function hsvToRgb(h,s,v){
+  h=((h%1)+1)%1;
+  const i=floor(h*6),f=h*6-i,p=v*(1-s),q=v*(1-f*s),t2=v*(1-(1-f)*s);
+  const m=i%6;
+  if(m===0)return[v,t2,p];if(m===1)return[q,v,p];if(m===2)return[p,v,t2];
+  if(m===3)return[p,q,v];if(m===4)return[t2,p,v];return[v,p,q];
+}
+function hslToRgb(h,s,l){
+  h=((h%1)+1)%1;
+  const c=(1-abs(2*l-1))*s, x=c*(1-abs((h*6)%2-1)), m=l-c/2;
+  const i=floor(h*6);
+  let r,g,b;
+  if(i===0){r=c;g=x;b=0}else if(i===1){r=x;g=c;b=0}else if(i===2){r=0;g=c;b=x}
+  else if(i===3){r=0;g=x;b=c}else if(i===4){r=x;g=0;b=c}else{r=c;g=0;b=x}
+  return[r+m,g+m,b+m];
+}
+function labToRgb(L,a2,b2){
+  let y=(L+16)/116,x=a2/500+y,z=y-b2/200;
+  x=0.95047*(x*x*x>0.008856?x*x*x:(x-16/116)/7.787);
+  y=1.00000*(y*y*y>0.008856?y*y*y:(y-16/116)/7.787);
+  z=1.08883*(z*z*z>0.008856?z*z*z:(z-16/116)/7.787);
+  let r=x*3.2406+y*(-1.5372)+z*(-0.4986);
+  let g=x*(-0.9689)+y*1.8758+z*0.0415;
+  let b3=x*0.0557+y*(-0.204)+z*1.057;
+  r=r>0.0031308?1.055*Math.pow(r,1/2.4)-0.055:12.92*r;
+  g=g>0.0031308?1.055*Math.pow(g,1/2.4)-0.055:12.92*g;
+  b3=b3>0.0031308?1.055*Math.pow(b3,1/2.4)-0.055:12.92*b3;
+  return[Math.max(0,Math.min(1,r)),Math.max(0,Math.min(1,g)),Math.max(0,Math.min(1,b3))];
+}
+// Compute a scheme-offset hue from the base hue and colorScheme
+function schemeHue(base, index){
+  const s=P.colorScheme, sp=P.schemeSpread;
+  // index 0=primary,1=secondary,2=tertiary...
+  switch(s){
+    case 0: return base+index*sp;                   // analogous
+    case 1: return base+(index%2)*0.5;              // complementary
+    case 2: return base+index*(1/3);                // triadic
+    case 3: return base+(index===0?0:index===1?sp:0.5+sp); // split-complementary
+    case 4: return base+index*0.25;                 // tetradic
+    default: return base+index*sp;
+  }
+}
+function getColor(h,s,v,a,layer){
+  // Apply layer-specific hue, sat, bright offsets
+  const li=(layer!==undefined?layer%10:0);
+  const lh=P.layerHue[li], ls=P.layerSat[li], lv=P.layerBright[li];
+  // Apply scheme
+  const finalH=fract2(schemeHue(P.hueShift/360,li)+h*P.hueRange+P.hueSpin*0.01);
+  const finalS=Math.max(0,Math.min(1,s*ls*P.saturation));
+  let finalV=Math.max(0,Math.min(1,v*lv*P.brightness));
+  if(P.colorInvert)finalV=1-finalV;
+  let rgb;
+  switch(P.colorMode){
+    case 0: rgb=hsvToRgb(finalH,finalS,finalV); break;
+    case 1: rgb=hslToRgb(finalH,finalS,finalV); break;
+    case 2: {const c=finalH*TAU;rgb=[0.5+0.5*sin(c),0.5+0.5*sin(c+2.094),0.5+0.5*sin(c+4.188)];
+             rgb=rgb.map(x=>Math.max(0,Math.min(1,x*(finalV*1.5))));break;}
+    case 3: {const L=finalV*100,aa=(finalH-.5)*180*finalS,bb=(finalS-.5)*180*finalV;rgb=labToRgb(L,aa,bb);break;}
+    default: rgb=hsvToRgb(finalH,finalS,finalV);
+  }
+  return `rgba(${floor(rgb[0]*255)},${floor(rgb[1]*255)},${floor(rgb[2]*255)},${a!==undefined?a:1})`;
+}
+
+// Perlin noise (2D simplex-style)
+const perm=new Uint8Array(512);
+(function(){const p=new Uint8Array(256);for(let i=0;i<256;i++)p[i]=i;for(let i=255;i>0;i--){const j=floor(Math.random()*(i+1));[p[i],p[j]]=[p[j],p[i]];}for(let i=0;i<512;i++)perm[i]=p[i&255];})();
+function fade(t){return t*t*t*(t*(t*6-15)+10)}
+function lerp(a,b,t){return a+t*(b-a)}
+function grad(h,x,y){const v=h&3;return((v&1)?-x:x)+((v&2)?-y:y);}
+function noise2(x,y){
+  const X=floor(x)&255,Y=floor(y)&255;
+  x-=floor(x);y-=floor(y);
+  const u=fade(x),v=fade(y);
+  const a=perm[X]+Y,b=perm[X+1]+Y;
+  return lerp(lerp(grad(perm[a],x,y),grad(perm[b],x-1,y),u),
+               lerp(grad(perm[a+1],x,y-1),grad(perm[b+1],x-1,y-1),u),v);
+}
+function fbm(x,y,oct,lac){
+  let v=0,a=0.5,freq=1;
+  for(let i=0;i<oct;i++){v+=a*noise2(x*freq,y*freq);a*=0.5;freq*=lac;}
+  return v;
+}
+
+// Lorenz attractor (cached path)
+let lorenzPath=[];
+let lx=0.1,ly=0,lz=0;
+function stepLorenz(n){
+  for(let i=0;i<n;i++){
+    const dt=0.005;
+    const dx=P.lorenzSigma*(ly-lx)*dt;
+    const dy=(lx*(P.lorenzRho-lz)-ly)*dt;
+    const dz=(lx*ly-P.lorenzBeta*lz)*dt;
+    lx+=dx;ly+=dy;lz+=dz;
+    if(lorenzPath.length>800)lorenzPath.shift();
+    lorenzPath.push([lx,ly,lz]);
+  }
+}
+
+// Quaternion rotation
+function quatRotate(v,q){
+  const[qw,qx,qy,qz]=q,[vx,vy,vz]=v;
+  const tx=2*(qy*vz-qz*vy),ty=2*(qz*vx-qx*vz),tz=2*(qx*vy-qy*vx);
+  return[vx+qw*tx+qy*tz-qz*ty,vy+qw*ty+qz*tx-qx*tz,vz+qw*tz+qx*ty-qy*tx];
+}
+
+// SDF functions
+function sdSphere(p,r){return sqrt(p[0]*p[0]+p[1]*p[1]+p[2]*p[2])-r;}
+function sdTorus(p,r1,r2){const q=sqrt(p[0]*p[0]+p[2]*p[2])-r1;return sqrt(q*q+p[1]*p[1])-r2;}
+function sdBox(p,b){const dx=abs(p[0])-b,dy=abs(p[1])-b,dz=abs(p[2])-b;return sqrt(Math.max(0,dx)**2+Math.max(0,dy)**2+Math.max(0,dz)**2)+Math.min(0,Math.max(dx,dy,dz));}
+function sdOctahedron(p,s){const q=[abs(p[0]),abs(p[1]),abs(p[2])];return (q[0]+q[1]+q[2]-s)*0.5774;}
+
+function sdf(px,py,pz){
+  const tt=t*P.speed;
+  const q=quatRotate([px,py,pz],[cos(tt*0.3),sin(tt*0.2)*0.7071,cos(tt*0.15)*0.7071,sin(tt*0.4)*0.7071]);
+  switch(P.sdMode%5){
+    case 0: return sdSphere(q,1.2);
+    case 1: return sdTorus(q,0.9,0.35);
+    case 2: return sdBox(q,1);
+    case 3: return sdOctahedron(q,1.5);
+    case 4: {const s=0.8;for(let i=0;i<4;i++){q[0]=abs(q[0])-s;q[1]=abs(q[1])-s;q[2]=abs(q[2])-s;}return sdSphere(q,0.5);}
+  }
+  return sdSphere(q,1);
+}
+
+// Mandelbrot/Julia
+function mandelbrot(cx,cy,maxIter){
+  let zx=0,zy=0,i=0;
+  while(zx*zx+zy*zy<4&&i<maxIter){
+    const tmp=zx*zx-zy*zy+cx;
+    zy=2*zx*zy+cy;zx=tmp;i++;
+  }
+  if(i===maxIter)return -1;
+  return i+(1-Math.log(Math.log(zx*zx+zy*zy)*0.5)/Math.LN2)/maxIter*maxIter;
+}
+function julia(zx,zy,cx,cy,maxIter){
+  let i=0;
+  while(zx*zx+zy*zy<4&&i<maxIter){
+    const tmp=zx*zx-zy*zy+cx;
+    zy=2*zx*zy+cy;zx=tmp;i++;
+  }
+  if(i===maxIter)return-1;
+  return i+(1-Math.log(Math.log(zx*zx+zy*zy)*0.5)/Math.LN2)/maxIter*maxIter;
+}
+
+// Spherical harmonics Y_l^m(theta,phi)
+function Y00(){return 0.5*sqrt(1/PI);}
+function Y11(t,p){return 0.5*sqrt(3/(2*PI))*sin(t)*cos(p);}
+function Y20(t){return 0.25*sqrt(5/PI)*(3*cos(t)*cos(t)-1);}
+function Y22(t,p){return 0.25*sqrt(15/(2*PI))*sin(t)*sin(t)*cos(2*p);}
+function shRadius(t2,p2,m){
+  const l=P.harmonicOrder;
+  return 1+0.3*(sin(l*t2+m)*cos(l*p2)+sin((l+1)*p2)*0.5);
+}
+
+// Reaction-diffusion (Gray-Scott, mini grid)
+const RD_W=64,RD_H=64;
+let rdA=new Float32Array(RD_W*RD_H).fill(1);
+let rdB=new Float32Array(RD_W*RD_H).fill(0);
+let rdA2=new Float32Array(RD_W*RD_H);
+let rdB2=new Float32Array(RD_W*RD_H);
+(function seedRD(){
+  for(let i=RD_W/2-4;i<RD_W/2+4;i++)
+    for(let j=RD_H/2-4;j<RD_H/2+4;j++){rdB[j*RD_W+i]=1;rdA[j*RD_W+i]=0;}
+})();
+let rdStep=0;
+function stepRD(steps){
+  const f=P.reactDiffF,k=P.reactDiffK,dA=1,dB=0.5;
+  for(let s=0;s<steps;s++){
+    for(let y=0;y<RD_H;y++)for(let x=0;x<RD_W;x++){
+      const i=y*RD_W+x;
+      const lapA=(rdA[((y-1+RD_H)%RD_H)*RD_W+x]+rdA[((y+1)%RD_H)*RD_W+x]+rdA[y*RD_W+(x-1+RD_W)%RD_W]+rdA[y*RD_W+(x+1)%RD_W]-4*rdA[i]);
+      const lapB=(rdB[((y-1+RD_H)%RD_H)*RD_W+x]+rdB[((y+1)%RD_H)*RD_W+x]+rdB[y*RD_W+(x-1+RD_W)%RD_W]+rdB[y*RD_W+(x+1)%RD_W]-4*rdB[i]);
+      const a=rdA[i],b=rdB[i];
+      const abb=a*b*b;
+      rdA2[i]=Math.max(0,Math.min(1,a+dA*lapA/4-abb+f*(1-a)));
+      rdB2[i]=Math.max(0,Math.min(1,b+dB*lapB/4+abb-(k+f)*b));
+    }
+    [rdA,rdA2]=[rdA2,rdA];[rdB,rdB2]=[rdB2,rdB];
+  }
+}
+
+// Voronoi
+function voronoi(x,y){
+  let minD=1e9,minI=0;
+  for(let i=0;i<P.voronoiSeeds.length;i++){
+    const dx=x-P.voronoiSeeds[i][0],dy=y-P.voronoiSeeds[i][1];
+    const d=dx*dx+dy*dy;
+    if(d<minD){minD=d;minI=i;}
+  }
+  return{d:sqrt(minD),i:minI};
+}
+
+// ─── Audio ──────────────────────────────────────────────────────────────────
+function initAudio(){
+  if(audioCtx)return;
+  audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+  masterGain=audioCtx.createGain();masterGain.gain.value=0;
+  masterGain.connect(audioCtx.destination);
+
+  // FM synthesis chain
+  modOsc=audioCtx.createOscillator();
+  modOsc.type='sine';
+  modOsc.frequency.value=P.audioFreq1*P.audioModIdx;
+  const modGain=audioCtx.createGain();
+  modGain.gain.value=P.audioFreq1*P.audioModIdx;
+  modOsc.connect(modGain);
+
+  osc1=audioCtx.createOscillator();
+  osc1.type='sine';
+  osc1.frequency.value=P.audioFreq1;
+  modGain.connect(osc1.frequency);
+
+  osc2=audioCtx.createOscillator();
+  osc2.type='triangle';
+  osc2.frequency.value=P.audioFreq2;
+
+  osc3=audioCtx.createOscillator();
+  osc3.type='sawtooth';
+  osc3.frequency.value=P.audioFreq1*1.5;
+
+  lfoOsc=audioCtx.createOscillator();
+  lfoOsc.frequency.value=P.audioLFO;
+  const lfoGain=audioCtx.createGain();lfoGain.gain.value=0.3;
+  lfoOsc.connect(lfoGain);
+
+  const g1=audioCtx.createGain();g1.gain.value=0.4;
+  const g2=audioCtx.createGain();g2.gain.value=0.25;
+  const g3=audioCtx.createGain();g3.gain.value=0.1;
+  lfoGain.connect(g1.gain);
+
+  osc1.connect(g1);osc2.connect(g2);osc3.connect(g3);
+  g1.connect(masterGain);g2.connect(masterGain);g3.connect(masterGain);
+
+  [modOsc,osc1,osc2,osc3,lfoOsc].forEach(o=>o.start());
+}
+function updateAudio(){
+  if(!audioCtx)return;
+  try{
+    if(osc1)osc1.frequency.setTargetAtTime(P.audioFreq1,audioCtx.currentTime,0.1);
+    if(osc2)osc2.frequency.setTargetAtTime(P.audioFreq2,audioCtx.currentTime,0.1);
+    if(osc3)osc3.frequency.setTargetAtTime(P.audioFreq1*1.5,audioCtx.currentTime,0.1);
+    if(modOsc)modOsc.frequency.setTargetAtTime(P.audioFreq1*P.audioModIdx,audioCtx.currentTime,0.1);
+    if(lfoOsc)lfoOsc.frequency.setTargetAtTime(P.audioLFO,audioCtx.currentTime,0.1);
+  }catch(e){}
+}
+function toggleSound(){
+  soundOn=!soundOn;
+  if(soundOn){
+    initAudio();
+    if(audioCtx&&audioCtx.state==='suspended')audioCtx.resume();
+    if(masterGain)masterGain.gain.setTargetAtTime(0.18,audioCtx.currentTime,0.1);
+  } else {
+    if(masterGain&&audioCtx)masterGain.gain.setTargetAtTime(0,audioCtx.currentTime,0.1);
+  }
+}
+
+// ─── Main Render (Canvas 2D hybrid engine) ──────────────────────────────────
+// We use Canvas2D for maximum portability and richness
+// WebGL path for base field if available
+let glProgram=null,glBuf=null,glUniLoc={};
+if(gl){
+  const vsrc=`attribute vec2 a;void main(){gl_Position=vec4(a,0,1);}`;
+  const fsrc=`
+precision mediump float;
+uniform vec2 res;uniform float time;uniform float seed;
+uniform int mode;uniform float kFold;uniform vec2 julia;
+uniform float colorFreq;uniform float colorOff;uniform float noiseScale;
+uniform float glSat;uniform float glBright;uniform float glHueBase;uniform float glHueRange;uniform int colorInvert;
+vec3 hsv2rgb(float h,float s,float v){
+  h=fract(h+100.);
+  float hh=h*6.;int ih=int(hh);float ff=hh-float(ih);
+  float p=v*(1.-s),q=v*(1.-s*ff),t2=v*(1.-s*(1.-ff));
+  if(ih==0)return vec3(v,t2,p);if(ih==1)return vec3(q,v,p);
+  if(ih==2)return vec3(p,v,t2);if(ih==3)return vec3(p,q,v);
+  if(ih==4)return vec3(t2,p,v);return vec3(v,p,q);
+}
+void main(){
+  vec2 uv=(gl_FragCoord.xy/res)*2.-1.;uv.x*=res.x/res.y;
+  float r=length(uv);float a=atan(uv.y,uv.x);
+  float k=kFold;float fa=mod(a,6.2832/k);if(fa>3.1416/k)fa=6.2832/k-fa;
+  vec2 kp=vec2(cos(fa),sin(fa))*r;
+  float val=0.;
+  if(mode==0){float spiral=sin(r*12.-time*2.+kp.x*5.+seed)*cos(kp.y*4.+time);val=spiral;}
+  else if(mode==1){float hr=1./max(r,0.001);vec2 hp=kp*hr*hr;val=sin(hp.x*8.+time)*sin(hp.y*8.-time)+cos(r*6.);}
+  else if(mode==2){float d=fract(r*6.+sin(a*kFold+time));val=d;}
+  else if(mode==3){float phi=1.6180339887;float fib=sin(r*phi*20.+a*phi*phi+time*phi)*0.5+0.5;val=fib+sin(r*10.-time)*0.3;}
+  else{float s=sin(r*10.+time)*cos(a*k);val=s;}
+  val=val*.5+.5;
+  float h=fract(glHueBase+val*glHueRange*colorFreq+colorOff/360.+time*0.05);
+  float sv=glSat;
+  float v=colorInvert==1?(1.-(glBright*0.5+0.3*val)):(glBright*0.5+0.3*val+glBright*0.2);
+  v=clamp(v,0.,1.);
+  gl_FragColor=vec4(hsv2rgb(h,sv,v),1.);
+}`;
+  function mkShader(type,src){
+    const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);
+    if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){console.warn(gl.getShaderInfoLog(s));return null;}
+    return s;
+  }
+  const vs=mkShader(gl.VERTEX_SHADER,vsrc),fs=mkShader(gl.FRAGMENT_SHADER,fsrc);
+  if(vs&&fs){
+    glProgram=gl.createProgram();gl.attachShader(glProgram,vs);gl.attachShader(glProgram,fs);gl.linkProgram(glProgram);
+    if(gl.getProgramParameter(glProgram,gl.LINK_STATUS)){
+      glBuf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,glBuf);
+      gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+      ['res','time','seed','mode','kFold','julia','colorFreq','colorOff','noiseScale','glSat','glBright','glHueBase','glHueRange','colorInvert'].forEach(n=>{
+        glUniLoc[n]=gl.getUniformLocation(glProgram,n);
+      });
+    } else {glProgram=null;}
+  }
+}
+
+// Canvas2D overlay always used
+const oc=document.createElement('canvas');
+let octx=oc.getContext('2d');
+
+function renderGL(){
+  gl.viewport(0,0,W,H);
+  gl.useProgram(glProgram);
+  gl.bindBuffer(gl.ARRAY_BUFFER,glBuf);
+  const al=gl.getAttribLocation(glProgram,'a');
+  gl.enableVertexAttribArray(al);gl.vertexAttribPointer(al,2,gl.FLOAT,false,0,0);
+  gl.uniform2f(glUniLoc.res,W,H);
+  gl.uniform1f(glUniLoc.time,t*P.speed);
+  gl.uniform1f(glUniLoc.seed,P.seed);
+  gl.uniform1i(glUniLoc.mode,P.mode);
+  gl.uniform1f(glUniLoc.kFold,P.kFold);
+  gl.uniform2f(glUniLoc.julia,P.juliaC[0],P.juliaC[1]);
+  gl.uniform1f(glUniLoc.colorFreq,P.colorFreq);
+  gl.uniform1f(glUniLoc.colorOff,P.colorOffset);
+  gl.uniform1f(glUniLoc.noiseScale,P.noiseScale);
+  gl.uniform1f(glUniLoc.glSat,P.glSaturation);
+  gl.uniform1f(glUniLoc.glBright,P.glBrightness);
+  gl.uniform1f(glUniLoc.glHueBase,P.glHueBase);
+  gl.uniform1f(glUniLoc.glHueRange,P.glHueRange);
+  gl.uniform1i(glUniLoc.colorInvert,P.colorInvert);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+}
+
+// Canvas2D overlay for complex effects
+function renderOverlay(canvas2, ctx){
+  const w=canvas2.width, h=canvas2.height;
+  ctx.clearRect(0,0,w,h);
+  const tt=t*P.speed;
+
+  // ── Layer 1: Lorenz attractor trails ────────────────────────────────────
+  stepLorenz(3);
+  if(lorenzPath.length>2){
+    ctx.save();ctx.translate(w/2,h/2);
+    ctx.globalAlpha=P.attractorMix*0.7;
+    ctx.lineWidth=1;
+    ctx.beginPath();
+    const scale=Math.min(w,h)*0.014;
+    for(let i=1;i<lorenzPath.length;i++){
+      const[x,y,z]=lorenzPath[i];
+      const px=(x*scale),py=(z*scale-h*0.2);
+      const hue=((i/lorenzPath.length)+P.hueShift/360)%1;
+      if(i===1)ctx.moveTo(px,py);else ctx.lineTo(px,py);
+    }
+    const grad=ctx.createLinearGradient(-w/2,0,w/2,0);
+    grad.addColorStop(0,getColor(0,1,1,0,0));
+    grad.addColorStop(0.5,getColor(0.3,1,1,0.8,0));
+    grad.addColorStop(1,getColor(0.6,1,1,0,0));
+    ctx.strokeStyle=grad;ctx.stroke();ctx.restore();
+  }
+
+  // ── Layer 2: Reaction-Diffusion texture ────────────────────────────────
+  stepRD(1);
+  ctx.save();
+  const rdScale=Math.min(w,h);
+  const rdX=(w-rdScale)/2,rdY=(h-rdScale)/2;
+  ctx.globalAlpha=0.25;
+  const cellW=rdScale/RD_W,cellH=rdScale/RD_H;
+  for(let y=0;y<RD_H;y+=2)for(let x=0;x<RD_W;x+=2){
+    const b=rdB[y*RD_W+x];
+    if(b<0.05)continue;
+    const h2=((b*3+tt*0.02)%1);
+    ctx.fillStyle=getColor(h2,1,0.5+b*0.5,b*0.7,1);
+    ctx.fillRect(rdX+x*cellW,rdY+y*cellH,cellW*2,cellH*2);
+  }
+  ctx.restore();
+
+  // ── Layer 3: Kaleidoscopic fractal ring ────────────────────────────────
+  ctx.save();
+  ctx.translate(w/2,h/2);
+  ctx.globalAlpha=0.55;
+  const maxR=Math.min(w,h)*0.45;
+  const folds=P.kFold;
+  const fAngle=TAU/folds;
+  const maxIter=24;
+  // Radial rings
+  for(let ring=0;ring<5;ring++){
+    const rad=maxR*(0.2+ring*0.18);
+    for(let seg=0;seg<folds*4;seg++){
+      const angle=seg*fAngle/4+tt*(ring%2===0?0.15:-0.1);
+      const x1=cos(angle)*rad*0.8,y1=sin(angle)*rad*0.8;
+      const x2=cos(angle+fAngle/4)*rad,y2=sin(angle+fAngle/4)*rad;
+      // fractal value at this point
+      const nx=(x1/maxR)*2,ny=(y1/maxR)*2;
+      let fv;
+      if(P.fractalType%3===0){fv=mandelbrot(nx*1.5-0.5,ny*1.5,maxIter);}
+      else{fv=julia(nx*1.5,ny*1.5,...P.juliaC,maxIter);}
+      if(fv<0)continue;
+      const hue=fract2(fv/maxIter*P.colorFreq+tt*0.03);
+      const alpha=0.15+0.4*(fv/maxIter);
+      ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);
+      ctx.strokeStyle=getColor(hue,1,1,alpha,2);
+      ctx.lineWidth=1.5;ctx.stroke();
+    }
+  }
+  ctx.restore();
+
+  // ── Layer 4: Spherical harmonic blob ──────────────────────────────────
+  ctx.save();ctx.translate(w/2,h/2);
+  ctx.globalAlpha=0.35;
+  const blobR=Math.min(w,h)*0.22;
+  const steps=80;
+  for(let i=0;i<=steps;i++){
+    const phi=i/steps*TAU;
+    const theta=PI/2+sin(phi*P.harmonicOrder+tt)*0.5;
+    const r2=blobR*shRadius(theta,phi,tt);
+    const px=cos(phi)*r2,py=sin(phi)*r2;
+    const hue=fract2(i/steps+P.hueShift/360+tt*0.05);
+    if(i===0){ctx.beginPath();ctx.moveTo(px,py);}
+    else ctx.lineTo(px,py);
+  }
+  ctx.closePath();
+  const blobGrad=ctx.createRadialGradient(0,0,0,0,0,blobR);
+  blobGrad.addColorStop(0,getColor(fract2(tt*0.03),1,1,0.6,3));
+  blobGrad.addColorStop(1,getColor(fract2(0.5+tt*0.03),0.5,0.3,0,3));
+  ctx.fillStyle=blobGrad;ctx.fill();
+  ctx.restore();
+
+  // ── Layer 5: Voronoi tessellation overlay ─────────────────────────────
+  ctx.save();
+  ctx.globalAlpha=0.2;
+  const movedSeeds=P.voronoiSeeds.map(([sx,sy],i)=>{
+    return[sx+sin(tt*0.3+i)*0.05,sy+cos(tt*0.25+i*PHI)*0.05];
+  });
+  // Draw voronoi edges approx via dot grid
+  const vstep=Math.max(4,floor(Math.min(w,h)/80));
+  for(let y=0;y<h;y+=vstep){for(let x=0;x<w;x+=vstep){
+    const nx=x/w,ny=y/h;
+    const {d,i}=voronoi2(nx,ny,movedSeeds);
+    // Only draw near edges
+    const eps=0.02;
+    const{d:d2}=voronoi2second(nx,ny,movedSeeds,i);
+    if(abs(d2-d)<eps){
+      const hue=fract2(i/P.voronoiN+tt*0.02);
+      ctx.fillStyle=getColor(hue,1,1,0.5,4);
+      ctx.fillRect(x,y,vstep,vstep);
+    }
+  }}
+  ctx.restore();
+
+  // ── Layer 6: FFT-driven circular waveform ─────────────────────────────
+  ctx.save();ctx.translate(w/2,h/2);
+  ctx.globalAlpha=0.7;
+  const wR=Math.min(w,h)*0.38;
+  const wSteps=256;
+  ctx.beginPath();
+  for(let i=0;i<=wSteps;i++){
+    const ang=i/wSteps*TAU;
+    // Simulate FFT via sum of harmonics
+    let amp=0;
+    for(let h3=1;h3<=8;h3++){
+      amp+=sin(ang*h3*P.harmonicOrder+tt*(h3*0.7)+P.fibPhase*h3)/(h3);
+    }
+    amp*=0.12;
+    const r3=wR+amp*wR*0.3+fbm(cos(ang)*2+P.seed,sin(ang)*2+tt*0.1,P.perlinOctaves,P.perlinLac)*20;
+    const px=cos(ang)*r3,py=sin(ang)*r3;
+    if(i===0)ctx.moveTo(px,py);else ctx.lineTo(px,py);
+  }
+  ctx.closePath();
+  const wg=ctx.createLinearGradient(-wR,-wR,wR,wR);
+  wg.addColorStop(0,getColor(fract2(tt*0.04),1,1,0.9,5));
+  wg.addColorStop(0.5,getColor(fract2(0.33+tt*0.04),1,1,0.5,5));
+  wg.addColorStop(1,getColor(fract2(0.66+tt*0.04),1,0.7,0.3,5));
+  ctx.strokeStyle=wg;ctx.lineWidth=1.5;ctx.stroke();
+  ctx.restore();
+
+  // ── Layer 7: Fibonacci spiral arms ────────────────────────────────────
+  ctx.save();ctx.translate(w/2,h/2);
+  ctx.globalAlpha=0.5;
+  const fibN=floor(P.fibPhase*10+34);
+  const fibScale=Math.min(w,h)*0.002;
+  for(let i=0;i<fibN;i++){
+    const ang=i*TAU*PHI+tt*0.1;
+    const r4=fibScale*i;
+    const px=cos(ang)*r4,py=sin(ang)*r4;
+    const hue=fract2(i/fibN+tt*0.05);
+    const sz=Math.max(1,r4*0.08);
+    ctx.fillStyle=getColor(hue,1,1,0.6,6);
+    ctx.beginPath();ctx.arc(px,py,sz,0,TAU);ctx.fill();
+  }
+  ctx.restore();
+
+  // ── Layer 8: Tensor field lines ────────────────────────────────────────
+  ctx.save();
+  ctx.globalAlpha=0.3;
+  const tSteps=30,tLen=15;
+  for(let i=0;i<tSteps;i++){
+    const sx=Math.random()*w,sy=Math.random()*h;
+    ctx.beginPath();ctx.moveTo(sx,sy);
+    let cx2=sx,cy2=sy;
+    for(let s=0;s<tLen;s++){
+      const nx=cx2/w*4-2,ny=cy2/h*4-2;
+      const angle=fbm(nx*P.tensorScale+P.seed,ny*P.tensorScale+tt*0.2,3,2)*TAU*P.tensorTwist;
+      cx2+=cos(angle)*3;cy2+=sin(angle)*3;
+      ctx.lineTo(cx2,cy2);
+    }
+    const hue=fract2(i/tSteps+tt*0.02);
+    ctx.strokeStyle=getColor(hue,1,0.8,0.3,7);
+    ctx.lineWidth=0.8;ctx.stroke();
+  }
+  ctx.restore();
+
+  // ── Layer 9: SDF ray-marched silhouette ───────────────────────────────
+  ctx.save();ctx.translate(w/2,h/2);
+  ctx.globalAlpha=0.45;
+  const sdfR=Math.min(w,h)*0.28;
+  const sdfSteps=72;
+  ctx.beginPath();
+  for(let i=0;i<=sdfSteps;i++){
+    const ang=i/sdfSteps*TAU;
+    const rx=cos(ang),ry=sin(ang);
+    // march along ray in 2D (z=0)
+    let dist=0.1;
+    for(let s=0;s<P.sdfRaySteps;s++){
+      const d=abs(sdf(rx*dist,ry*dist,0));
+      if(d<0.01)break;
+      dist+=d*0.6;
+      if(dist>3)break;
+    }
+    const r5=sdfR*dist/3;
+    const px=cos(ang)*r5,py=sin(ang)*r5;
+    if(i===0)ctx.moveTo(px,py);else ctx.lineTo(px,py);
+  }
+  ctx.closePath();
+  const sdfHue=fract2(0.7+tt*0.03);
+  ctx.strokeStyle=getColor(sdfHue,1,1,0.8,8);
+  ctx.lineWidth=2;ctx.stroke();
+  ctx.restore();
+
+  // ── Layer 10: Eigenvalue spectral burst ───────────────────────────────
+  ctx.save();ctx.translate(w/2,h/2);
+  ctx.globalAlpha=0.4;
+  const eigN=P.harmonicOrder*4;
+  for(let i=0;i<eigN;i++){
+    const baseAng=i/eigN*TAU+P.eigenPhase+tt*0.07;
+    const eigen=1+0.5*sin(i*PHI+tt*0.5);
+    const r6=Math.min(w,h)*0.15*eigen;
+    const x1=cos(baseAng)*r6*0.1,y1=sin(baseAng)*r6*0.1;
+    const x2=cos(baseAng)*r6,y2=sin(baseAng)*r6;
+    const hue=fract2(i/eigN+tt*0.04);
+    const g2=ctx.createLinearGradient(x1,y1,x2,y2);
+    g2.addColorStop(0,getColor(hue,1,1,0,9));
+    g2.addColorStop(0.5,getColor(fract2(hue+0.1),1,1,0.7,9));
+    g2.addColorStop(1,getColor(fract2(hue+0.2),0.5,0.5,0,9));
+    ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);
+    ctx.strokeStyle=g2;ctx.lineWidth=1;ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function fract2(x){return x-floor(x);}
+function voronoi2(x,y,seeds){
+  let minD=1e9,minI=0;
+  for(let i=0;i<seeds.length;i++){
+    const dx=x-seeds[i][0],dy=y-seeds[i][1];const d=dx*dx+dy*dy;
+    if(d<minD){minD=d;minI=i;}
+  }
+  return{d:sqrt(minD),i:minI};
+}
+function voronoi2second(x,y,seeds,skipI){
+  let minD=1e9;
+  for(let i=0;i<seeds.length;i++){
+    if(i===skipI)continue;
+    const dx=x-seeds[i][0],dy=y-seeds[i][1];const d=sqrt(dx*dx+dy*dy);
+    if(d<minD)minD=d;
+  }
+  return{d:minD};
+}
+
+// ─── Render Loop ────────────────────────────────────────────────────────────
+let lastTime=0;
+function loop(ts){
+  animId=requestAnimationFrame(loop);
+  const dt=Math.min(0.05,(ts-lastTime)/1000);lastTime=ts;
+  t+=dt;frame++;
+
+  // Resize overlay canvas
+  if(oc.width!==W||oc.height!==H){oc.width=W;oc.height=H;}
+
+  // Audio coupling
+  if(soundOn&&audioCtx&&frame%30===0){
+    const intensity=sin(t*P.speed*2)*0.5+0.5;
+    try{
+      if(osc1)osc1.frequency.setTargetAtTime(P.audioFreq1*(1+intensity*P.audioModIdx*0.3),audioCtx.currentTime,0.05);
+    }catch(e){}
+  }
+
+  // Render GL background
+  if(glProgram){
+    renderGL();
+    // Blit overlay on top
+    renderOverlay(oc,octx);
+    // Draw overlay onto gl canvas via 2D context isn't directly possible
+    // We use a second full-screen 2D canvas approach
+    if(!ctx2d){
+      canvas.style.position='fixed';
+      const oc2=document.createElement('canvas');
+      oc2.style.cssText='position:fixed;top:0;left:0;width:100vw;height:100vh;pointer-events:none;';
+      oc2.width=W;oc2.height=H;
+      document.body.appendChild(oc2);
+      ctx2d=oc2.getContext('2d');
+    }
+    if(ctx2d.canvas.width!==W){ctx2d.canvas.width=W;ctx2d.canvas.height=H;}
+    ctx2d.clearRect(0,0,W,H);
+    ctx2d.drawImage(oc,0,0);
+  } else {
+    // Pure 2D path
+    if(!ctx2d){ctx2d=canvas.getContext('2d');}
+    ctx2d.fillStyle='#000';ctx2d.fillRect(0,0,W,H);
+    // Draw a basic gradient bg using randomized bg colors
+    const bg=ctx2d.createRadialGradient(W/2,H/2,0,W/2,H/2,Math.max(W,H)*0.7);
+    bg.addColorStop(0,getColor(P.bgHue,P.bgSat,P.bgBright*1.5,1,0));
+    bg.addColorStop(1,getColor(fract2(P.bgHue+0.5),P.bgSat,P.bgBright*0.3,1,0));
+    ctx2d.fillStyle=bg;ctx2d.fillRect(0,0,W,H);
+    renderOverlay(oc,octx);
+    ctx2d.drawImage(oc,0,0);
+  }
+
+  // HUD
+  if(hudVisible){
+    document.getElementById('hud').style.display='block';
+    document.getElementById('hud-inner').innerHTML=
+      `<span>QTCE</span> v1.0 &nbsp;|&nbsp; frame <span>${frame}</span><br>
+       mode <span>${P.mode}</span> &nbsp;|&nbsp; color <span>${['HSV','HSL','RGB','LAB'][P.colorMode]}</span><br>
+       scheme <span>${['analogous','complement','triadic','split','tetradic'][P.colorScheme]}</span> &nbsp;|&nbsp; invert <span>${P.colorInvert?'ON':'OFF'}</span><br>
+       hue <span>${floor(P.hueShift)}°</span> &nbsp;|&nbsp; range <span>${P.hueRange.toFixed(2)}</span> &nbsp;|&nbsp; bands <span>${P.colorBands}</span><br>
+       kFold <span>${P.kFold}</span> &nbsp;|&nbsp; fractal <span>${['Mandelbrot','Julia','BurningShip','Newton','Tricorn'][P.fractalType%5]}</span><br>
+       sdf <span>${['Sphere','Torus','Box','Octahedron','Menger'][P.sdMode%5]}</span> &nbsp;|&nbsp; harmonics <span>L=${P.harmonicOrder}</span><br>
+       voronoi <span>${P.voronoiN}pts</span> &nbsp;|&nbsp; rd <span>f=${P.reactDiffF.toFixed(3)} k=${P.reactDiffK.toFixed(3)}</span><br>
+       lorenz <span>σ=${P.lorenzSigma.toFixed(1)} ρ=${P.lorenzRho.toFixed(1)}</span><br>
+       audio <span>${soundOn?'ON':'OFF'}</span> &nbsp;|&nbsp; f1=<span>${floor(P.audioFreq1)}Hz</span> f2=<span>${floor(P.audioFreq2)}Hz</span><br>
+       speed <span>${P.speed.toFixed(2)}</span> &nbsp;|&nbsp; t=<span>${t.toFixed(1)}s</span>`;
+  } else {
+    document.getElementById('hud').style.display='none';
+  }
+}
+
+// ─── Input ──────────────────────────────────────────────────────────────────
+document.addEventListener('keydown',e=>{
+  if(e.key===' '){e.preventDefault();doRandomize();}
+  if(e.key==='h'||e.key==='H'){hudVisible=!hudVisible;}
+  if(e.key==='s'||e.key==='S'){toggleSound();}
+});
+canvas.addEventListener('click',doRandomize);
+canvas.addEventListener('touchend',e=>{e.preventDefault();doRandomize();},{passive:false});
+
+function doRandomize(){
+  // Reset RD
+  rdA.fill(1);rdB.fill(0);
+  for(let i=RD_W/2-4;i<RD_W/2+4;i++)
+    for(let j=RD_H/2-4;j<RD_H/2+4;j++){rdB[j*RD_W+i]=1;rdA[j*RD_W+i]=0;}
+  lorenzPath=[];lx=Math.random()*0.5;ly=Math.random()*0.5;lz=20+Math.random()*10;
+  randomize();
+}
+
+// ─── Start ──────────────────────────────────────────────────────────────────
+requestAnimationFrame(loop);
+
+})();
+</script>
+</body>
+</html>

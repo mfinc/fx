@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Quaternion 4D Hypersphere Projection Engine | Hopf Fibration Coxeter Kaleidoscope</title>
+<meta name="description" content="Real-time quaternion-driven 4D hypersphere stereographic projection with Hopf fibrations, Clifford torus windings, SU(2) orbits, Coxeter kaleidoscope symmetry, Fourier epicycles, Web Audio FM synthesis, adaptive resolution, and spectral phase color cycling.">
+<meta name="keywords" content="Quaternion rotation, 4D hypersphere, Hopf fibration, Clifford torus, SU(2), stereographic projection, Coxeter symmetry, kaleidoscope, Fourier epicycles, WebGL, Web Audio synthesis">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta property="og:title" content="Quaternion 4D Hypersphere Projection Engine">
+<meta property="og:description" content="Real-time quaternion hypersphere engine with kaleidoscopic symmetry and FM synthesis.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="">
+<script type="application/ld+json">
+{
+ "@context":"https://schema.org",
+ "@type":"SoftwareApplication",
+ "name":"Quaternion 4D Hypersphere Projection Engine",
+ "applicationCategory":"GraphicsApplication",
+ "operatingSystem":"Any",
+ "description":"Real-time quaternion-driven 4D hypersphere stereographic projection with Hopf fibrations, Coxeter kaleidoscope symmetry, and Web Audio synthesis."
+}
+</script>
+<style>
+html,body{margin:0;background:#000;overflow:hidden}
+canvas{display:block}
+#hud{
+position:fixed;top:10px;left:10px;color:#0ff;
+font-family:monospace;font-size:12px;
+background:rgba(0,0,0,0.6);padding:8px;border:1px solid #0ff;
+display:none;white-space:pre;
+}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<script>
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+const hud = document.getElementById("hud");
+
+let DPR = Math.min(window.devicePixelRatio||1,2);
+let W,H,RES_SCALE=1;
+
+function resize(){
+  W=innerWidth;H=innerHeight;
+  canvas.width=W*DPR*RES_SCALE;
+  canvas.height=H*DPR*RES_SCALE;
+  canvas.style.width=W+"px";
+  canvas.style.height=H+"px";
+  ctx.setTransform(DPR*RES_SCALE,0,0,DPR*RES_SCALE,0,0);
+}
+resize();
+addEventListener("resize",resize);
+
+function smoothstep(a,b,x){
+  let t=Math.max(0,Math.min(1,(x-a)/(b-a)));
+  return t*t*(3-2*t);
+}
+
+function hsv(h,s,v){
+  let c=v*s;
+  let x=c*(1-Math.abs((h/60)%2-1));
+  let m=v-c;
+  let r=0,g=0,b=0;
+  if(h<60){r=c;g=x;}
+  else if(h<120){r=x;g=c;}
+  else if(h<180){g=c;b=x;}
+  else if(h<240){g=x;b=c;}
+  else if(h<300){r=x;b=c;}
+  else{r=c;b=x;}
+  return `rgb(${((r+m)*255)|0},${((g+m)*255)|0},${((b+m)*255)|0})`;
+}
+
+function J0(x){
+  let sum=0,term=1,m=0;
+  while(m<8){
+    term = Math.pow(-1,m)*Math.pow(x/2,2*m)/(factorial(m)*factorial(m));
+    sum+=term;
+    m++;
+  }
+  return sum;
+}
+function factorial(n){return n<=1?1:n*factorial(n-1);}
+
+let params;
+
+function randomize(){
+  params={
+    spin:{
+      xy:r(-1,1),
+      xz:r(-1,1),
+      xw:r(-1,1),
+      yz:r(-1,1),
+      yw:r(-1,1),
+      zw:r(-1,1)
+    },
+    symmetry:["Tetrahedral","Octahedral","Icosahedral"][Math.floor(Math.random()*3)],
+    hopfW:Math.floor(r(1,6)),
+    cliffW:Math.floor(r(1,6)),
+    besselOrder:r(0.5,4),
+    epicycles: Array.from({length:6},()=>({
+      amp:r(10,80),
+      freq:r(0.5,3),
+      phase:r(0,Math.PI*2)
+    }))
+  };
+}
+function r(a,b){return a+Math.random()*(b-a);}
+
+randomize();
+
+let audioCtx=null;
+let synthOn=false;
+let voices=[];
+
+function toggleAudio(){
+  if(synthOn){
+    voices.forEach(v=>v.osc.stop());
+    voices=[];
+    audioCtx.close();
+    synthOn=false;
+  }else{
+    audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+    for(let i=0;i<6;i++){
+      let osc=audioCtx.createOscillator();
+      let mod=audioCtx.createOscillator();
+      let gain=audioCtx.createGain();
+      let pan=audioCtx.createStereoPanner();
+      mod.connect(gain.gain);
+      osc.connect(gain);
+      gain.connect(pan);
+      pan.connect(audioCtx.destination);
+      osc.type="sine";
+      mod.frequency.value=100;
+      gain.gain.value=0.05;
+      osc.start();mod.start();
+      voices.push({osc,mod,gain,pan});
+    }
+    synthOn=true;
+  }
+}
+
+function rotate4D(p,t){
+  let {xy,xz,xw,yz,yw,zw}=params.spin;
+  function rot(a,b,ang){
+    let ca=Math.cos(ang),sa=Math.sin(ang);
+    let pa=p[a],pb=p[b];
+    p[a]=pa*ca-pb*sa;
+    p[b]=pa*sa+pb*ca;
+  }
+  rot(0,1,xy*t);
+  rot(0,2,xz*t);
+  rot(0,3,xw*t);
+  rot(1,2,yz*t);
+  rot(1,3,yw*t);
+  rot(2,3,zw*t);
+  return p;
+}
+
+function stereo(p){
+  let k=1/(1-p[3]);
+  return [p[0]*k,p[1]*k,p[2]*k];
+}
+
+let time=0;
+
+function draw(){
+  time+=0.01;
+  ctx.fillStyle="rgba(0,0,0,0.15)";
+  ctx.fillRect(0,0,W,H);
+  ctx.save();
+  ctx.translate(W/2,H/2);
+
+  let curves=600;
+  for(let i=0;i<curves;i++){
+    let t=i/curves*Math.PI*2;
+    let u=time;
+    let x=Math.cos(t*params.hopfW);
+    let y=Math.sin(t*params.hopfW);
+    let z=Math.cos(t*params.cliffW+u);
+    let w=Math.sin(t*params.cliffW+u);
+
+    let p=rotate4D([x,y,z,w],time);
+    let pr=stereo(p);
+
+    let scale=300;
+    let sx=pr[0]*scale;
+    let sy=pr[1]*scale;
+
+    let hue=(t/(Math.PI*2)*360 + time*50)%360;
+    let amp=J0(params.besselOrder*Math.abs(pr[2]));
+    let v=smoothstep(-1,1,amp);
+    ctx.strokeStyle=hsv(hue,1,v);
+    ctx.lineWidth=1.2;
+    ctx.beginPath();
+    ctx.arc(sx,sy,1.5,0,Math.PI*2);
+    ctx.stroke();
+
+    if(synthOn && voices[i%voices.length]){
+      let vce=voices[i%voices.length];
+      vce.osc.frequency.value=200+Math.abs(params.spin.xy*200);
+      vce.mod.frequency.value=50+Math.abs(params.spin.xz*100);
+      vce.pan.pan.value=Math.max(-1,Math.min(1,sx/W));
+    }
+  }
+
+  drawEpicycles();
+
+  ctx.restore();
+  requestAnimationFrame(draw);
+}
+
+function drawEpicycles(){
+  let x=0,y=0;
+  for(let e of params.epicycles){
+    x+=e.amp*Math.cos(e.freq*time+e.phase);
+    y+=e.amp*Math.sin(e.freq*time+e.phase);
+  }
+  ctx.strokeStyle=hsv((time*100)%360,1,1);
+  ctx.beginPath();
+  ctx.arc(x,y,3,0,Math.PI*2);
+  ctx.stroke();
+}
+
+addEventListener("keydown",e=>{
+  if(e.code==="Space"){randomize();}
+  if(e.key==="h"||e.key==="H"){
+    hud.style.display=hud.style.display==="none"?"block":"none";
+  }
+  if(e.key==="s"||e.key==="S"){toggleAudio();}
+});
+
+canvas.addEventListener("click",randomize);
+
+setInterval(()=>{
+  if(hud.style.display!=="none"){
+    hud.textContent=
+`Symmetry: ${params.symmetry}
+xy:${params.spin.xy.toFixed(2)}
+xz:${params.spin.xz.toFixed(2)}
+xw:${params.spin.xw.toFixed(2)}
+yz:${params.spin.yz.toFixed(2)}
+yw:${params.spin.yw.toFixed(2)}
+zw:${params.spin.zw.toFixed(2)}`;
+  }
+},200);
+
+draw();
+</script>
+</body>
+</html>

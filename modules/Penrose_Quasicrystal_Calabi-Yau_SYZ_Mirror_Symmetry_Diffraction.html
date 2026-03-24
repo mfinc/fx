@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Penrose Quasicrystal Calabi-Yau SYZ Mirror Symmetry Diffraction</title>
+<meta name="description" content="Interactive WebGL2 visualization: Penrose quasicrystal tiling with Calabi-Yau manifold geometry, SYZ mirror symmetry torus fibrations, 10-fold diffraction Bragg peaks, and granular synthesis audio.">
+<meta name="keywords" content="Penrose tiling Calabi-Yau manifold SYZ mirror symmetry quasicrystal diffraction generative visualization">
+<meta property="og:title" content="Penrose Quasicrystal Calabi-Yau SYZ Mirror Symmetry Diffraction">
+<meta property="og:description" content="Interactive WebGL2 visualization: Penrose quasicrystal with Calabi-Yau topology, SYZ torus fibrations, FFT Bragg diffraction, granular synthesis.">
+<meta property="og:type" content="website">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Penrose Quasicrystal · Calabi-Yau · SYZ Diffraction">
+<meta name="twitter:description" content="WebGL2 quasicrystal diffraction visualization with Calabi-Yau geometry and SYZ mirror symmetry.">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#000;overflow:hidden;font-family:'Courier New',monospace}
+  canvas{position:absolute;top:0;left:0}
+  #ov{pointer-events:none}
+  #ui{
+    position:absolute;bottom:12px;left:0;right:0;text-align:center;
+    color:rgba(80,180,255,0.4);font-size:10.5px;letter-spacing:0.15em;
+    pointer-events:none;text-transform:uppercase;
+    text-shadow:0 0 12px rgba(0,180,255,0.3)
+  }
+  #hud{
+    position:absolute;top:12px;left:12px;
+    color:#0df;font-size:11px;line-height:1.9;
+    background:rgba(0,4,18,0.88);
+    padding:12px 18px;
+    border:1px solid rgba(0,200,255,0.2);
+    border-radius:3px;display:none;
+    pointer-events:none;
+    text-shadow:0 0 8px rgba(0,220,255,0.6);
+    backdrop-filter:blur(6px);
+    min-width:260px
+  }
+  #hud .label{color:rgba(0,180,255,0.55);font-size:9.5px;letter-spacing:0.2em}
+  #hud .val{color:#7ff;font-weight:bold}
+  #hud h3{color:#0ef;font-size:10px;letter-spacing:0.25em;margin-bottom:6px;
+          border-bottom:1px solid rgba(0,220,255,0.2);padding-bottom:5px}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<canvas id="ov"></canvas>
+<div id="hud"></div>
+<div id="ui">SPACE · CLICK — Randomize &nbsp;|&nbsp; H — HUD &nbsp;|&nbsp; S — Audio</div>
+<script>
+'use strict';
+// ═══════════════════════════════════════════════════════════════════
+//  PENROSE QUASICRYSTAL · CALABI-YAU · SYZ MIRROR SYMMETRY
+//  WebGL2 + Web Audio API Generative Visualization
+// ═══════════════════════════════════════════════════════════════════
+
+const glc  = document.getElementById('gl');
+const ovc  = document.getElementById('ov');
+const hudEl= document.getElementById('hud');
+
+let W = glc.width = ovc.width = innerWidth;
+let H = glc.height= ovc.height= innerHeight;
+
+const gl  = glc.getContext('webgl2',{antialias:true,alpha:false,powerPreference:'high-performance'});
+const ctx = ovc.getContext('2d');
+if(!gl){ document.body.innerHTML='<p style="color:#0df;padding:20px;font-family:monospace">WebGL2 required</p>'; }
+
+// ── MOBILE DETECT ─────────────────────────────────────────────────
+const MOBILE = /Mobi|Android|iPhone/i.test(navigator.userAgent);
+const N_GRID = MOBILE ? 5 : 7;   // pentagrid range
+const FFT_N  = MOBILE ? 128 : 256;
+
+// ── HALTON QUASI-RANDOM ───────────────────────────────────────────
+let hIdx = 1;
+function halton(i,b){let r=0,f=1;while(i>0){f/=b;r+=f*(i%b);i=Math.floor(i/b);}return r;}
+function nextH8(){const i=hIdx++;return[halton(i,2),halton(i,3),halton(i,5),halton(i,7),halton(i,11),halton(i,13),halton(i,17),halton(i,19)];}
+
+// ── STATE ────────────────────────────────────────────────────────
+const S = {
+  gammas:   [0.11,0.27,0.45,0.62,0.79],
+  cyModuli: [0.50, 0.33, 0.67],
+  syzBase:  [0.17, 0.43],
+  fftWin:   0,
+  chebyC:   new Float32Array([.75,.28,-.42,.19,.63,-.21,.12,.38]),
+  so6:      new Float32Array(6),
+  so6spd:   new Float32Array([.00113,.00087,.00071,.00097,.00062,.00134]),
+  hudOn:    false,
+  audioOn:  false,
+  time:     0,
+  iter:     0,
+};
+
+// Stats
+let nRhomb=0, nVert=0, nSing=0, fftPeaks=[], fftPower=null;
+let fftDirty = true;
+let fftOffscreen = null;
+
+// ── WEBGL2 SHADERS ────────────────────────────────────────────────
+const VS = `#version 300 es
+precision highp float;
+in vec2 a_pos;
+in float a_type;
+in vec2 a_uv;
+uniform vec2 u_res;
+uniform float u_scale;
+uniform vec2 u_off;
+uniform float u_time;
+uniform float u_so6[6];
+out vec2 v_pos;
+out float v_type;
+out vec2 v_uv;
+out float v_phi;
+void main(){
+  float phi=0.;
+  for(int i=0;i<6;i++){
+    float ki=float(i)*1.04720;  // pi/3
+    float wave=a_pos.x*cos(ki)*0.06+a_pos.y*sin(ki)*0.06;
+    phi+=sin(u_so6[i]+wave)/6.;
+  }
+  // 6D hyperplane slice perturbation → subtle vertex breathe
+  float amp=0.04+0.02*sin(u_time*0.7);
+  vec2 p=a_pos+vec2(cos(phi*6.2832),sin(phi*6.2832))*amp;
+  p=p*u_scale+u_off;
+  gl_Position=vec4(p.x/u_res.x*2.-1.,1.-p.y/u_res.y*2.,0.,1.);
+  v_pos=a_pos; v_type=a_type; v_uv=a_uv; v_phi=phi;
+}`;
+
+const FS = `#version 300 es
+precision highp float;
+in vec2 v_pos;
+in float v_type;
+in vec2 v_uv;
+in float v_phi;
+uniform float u_time;
+uniform float u_moduli[3];
+uniform float u_syz[2];
+uniform float u_cheby[8];
+out vec4 fragColor;
+
+vec3 hsl(float h,float s,float l){
+  vec3 c=clamp(abs(mod(h*6.+vec3(0,4,2),6.)-3.)-1.,0.,1.);
+  return l+s*(c-.5)*(1.-abs(2.*l-1.));
+}
+
+// Chebyshev T_n(x) iterated
+float cheby8(float x){
+  float t0=1.,t1=x,sum=u_cheby[0]*t0+u_cheby[1]*t1;
+  float t2=2.*x*t1-t0; sum+=u_cheby[2]*t2;
+  float t3=2.*x*t2-t1; sum+=u_cheby[3]*t3;
+  float t4=2.*x*t3-t2; sum+=u_cheby[4]*t4;
+  float t5=2.*x*t4-t3; sum+=u_cheby[5]*t5;
+  float t6=2.*x*t5-t4; sum+=u_cheby[6]*t6;
+  float t7=2.*x*t6-t5; sum+=u_cheby[7]*t7;
+  return sum/8.;
+}
+
+void main(){
+  // Edge sharpness from UV
+  vec2 uv=v_uv;
+  float bdr=min(min(uv.x,1.-uv.x),min(uv.y,1.-uv.y));
+  float fill=smoothstep(0.,0.055,bdr);
+  float rim =1.-fill;
+
+  // CY moduli → spectral hue via Chebyshev expansion
+  float r=length(v_pos)*0.038;
+  float cx=sin(r+u_moduli[0]*3.14+u_time*0.025)*0.95;
+  float hue=fract(cheby8(cx)*0.5+0.5
+    +u_time*0.013
+    +v_phi*0.22
+    +(v_type>.5?0.52:0.)
+    +u_moduli[1]*0.28);
+
+  // CY algebraic variety shift (weighted projective space projection)
+  float cyv=u_moduli[0]*sin(r*1.7+u_time*0.04)
+           +u_moduli[1]*cos(v_phi*3.14)
+           +u_moduli[2]*sin(v_pos.x*0.05)*0.5;
+  hue=fract(hue+cyv*0.14);
+
+  // SYZ torus fibration: special Lagrangian torus degeneration
+  float tu=fract(v_pos.x*0.08+u_syz[0]+u_time*0.004);
+  float tv=fract(v_pos.y*0.08+u_syz[1]+u_time*0.003);
+  // Base+fiber foliation modulation
+  float fiber=.5+.45*sin(tu*6.2832)*sin(tv*6.2832);
+  float fib2 =.5+.45*cos(tu*12.566)*cos(tv*9.425);
+  float sat=0.62+0.32*fiber;
+  float lit=0.15+0.22*(v_type*.6+fiber*0.7+fib2*0.3)*0.8;
+
+  // Interior rhombus fill
+  vec3 col=hsl(hue,sat,lit)*fill;
+
+  // Glowing rim (complementary hue for CY boundary highlighting)
+  float rimH=fract(hue+0.5+u_moduli[2]*0.2);
+  vec3 rimC=hsl(rimH,1.,0.55)*rim;
+  col+=rimC*0.35;
+
+  // Fibration highlight for thick rhombuses (CY smooth fibers)
+  if(v_type>.5) col+=hsl(fract(hue+.25),0.9,0.4)*fill*fib2*0.3;
+
+  fragColor=vec4(col, fill*0.88+rim*0.45);
+}`;
+
+// ── GL INIT ──────────────────────────────────────────────────────
+function mkShader(src,type){
+  const s=gl.createShader(type);
+  gl.shaderSource(s,src); gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)) throw gl.getShaderInfoLog(s);
+  return s;
+}
+function mkProg(vs,fs){
+  const p=gl.createProgram();
+  gl.attachShader(p,mkShader(vs,gl.VERTEX_SHADER));
+  gl.attachShader(p,mkShader(fs,gl.FRAGMENT_SHADER));
+  gl.linkProgram(p);
+  if(!gl.getProgramParameter(p,gl.LINK_STATUS)) throw gl.getProgramInfoLog(p);
+  return p;
+}
+
+let prog, vao, vbo, ibo, indexCount=0;
+let u={};
+
+function initGL(){
+  prog=mkProg(VS,FS);
+  gl.useProgram(prog);
+  const aPos =gl.getAttribLocation(prog,'a_pos');
+  const aType=gl.getAttribLocation(prog,'a_type');
+  const aUV  =gl.getAttribLocation(prog,'a_uv');
+  u.res   =gl.getUniformLocation(prog,'u_res');
+  u.scale =gl.getUniformLocation(prog,'u_scale');
+  u.off   =gl.getUniformLocation(prog,'u_off');
+  u.time  =gl.getUniformLocation(prog,'u_time');
+  u.so6   =gl.getUniformLocation(prog,'u_so6[0]');
+  u.moduli=gl.getUniformLocation(prog,'u_moduli[0]');
+  u.syz   =gl.getUniformLocation(prog,'u_syz[0]');
+  u.cheby =gl.getUniformLocation(prog,'u_cheby[0]');
+  vao=gl.createVertexArray(); gl.bindVertexArray(vao);
+  vbo=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,vbo);
+  // Interleaved: pos(2),type(1),uv(2) = 5 floats × 4 bytes = 20 bytes stride
+  gl.enableVertexAttribArray(aPos);  gl.vertexAttribPointer(aPos, 2,gl.FLOAT,false,20,0);
+  gl.enableVertexAttribArray(aType); gl.vertexAttribPointer(aType,1,gl.FLOAT,false,20,8);
+  gl.enableVertexAttribArray(aUV);   gl.vertexAttribPointer(aUV,  2,gl.FLOAT,false,20,12);
+  ibo=gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,ibo);
+  gl.bindVertexArray(null);
+  gl.clearColor(0.005,0.007,0.02,1);
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
+}
+
+// ── DE BRUIJN PENTAGRID → PENROSE TILING ─────────────────────────
+const COS5=[],SIN5=[];
+for(let k=0;k<5;k++){COS5[k]=Math.cos(2*Math.PI*k/5);SIN5[k]=Math.sin(2*Math.PI*k/5);}
+
+function generatePenrose(N,gammas){
+  const rhombs=[]; const verts=[]; let singCount=0;
+  for(let r=0;r<5;r++){
+    for(let s=r+1;s<5;s++){
+      const det=COS5[r]*SIN5[s]-SIN5[r]*COS5[s];
+      if(Math.abs(det)<1e-9) continue;
+      const idet=1/det;
+      for(let kr=-N;kr<=N;kr++){
+        for(let ks=-N;ks<=N;ks++){
+          const rr=kr+gammas[r], rs=ks+gammas[s];
+          // Pentagrid intersection in 2D
+          const ix=(rr*SIN5[s]-rs*SIN5[r])*idet;
+          const iy=(COS5[r]*rs-COS5[s]*rr)*idet;
+          // Integer coords in all 5 directions
+          const ns=new Int32Array(5);
+          for(let j=0;j<5;j++){
+            if(j===r) ns[j]=kr;
+            else if(j===s) ns[j]=ks;
+            else ns[j]=Math.ceil(COS5[j]*ix+SIN5[j]*iy-gammas[j]);
+          }
+          // Check SYZ fibration singularity (degenerate intersection)
+          let sing=false;
+          for(let j=0;j<5;j++){
+            if(j===r||j===s) continue;
+            const v=COS5[j]*ix+SIN5[j]*iy-gammas[j];
+            if(Math.abs(v-Math.round(v))<0.018){sing=true;break;}
+          }
+          if(sing) singCount++;
+          // Four rhombus corners
+          const pts=[];
+          for(let c=0;c<4;c++){
+            const dr=c===1||c===2?1:0, ds=c===2||c===3?1:0;
+            let vx=0,vy=0;
+            for(let j=0;j<5;j++){
+              const nj=ns[j]+(j===r?dr:0)+(j===s?ds:0);
+              vx+=nj*COS5[j]; vy+=nj*SIN5[j];
+            }
+            pts.push([vx,vy]);
+          }
+          // Rhombus type: diff 1 or 4 → thin (36°), else thick (72°)
+          const diff=(s-r+5)%5;
+          const thin=(diff===1||diff===4);
+          rhombs.push({pts,thin});
+          verts.push(pts[0]);
+        }
+      }
+    }
+  }
+  return{rhombs,verts,singCount};
+}
+
+function buildGLData(rhombs){
+  const nR=rhombs.length;
+  const vd=new Float32Array(nR*4*5);
+  const id=new Uint32Array(nR*6);
+  const UVS=[[0,0],[1,0],[1,1],[0,1]];
+  let vi=0,ii=0,base=0;
+  for(const rh of rhombs){
+    const t=rh.thin?0:1;
+    for(let c=0;c<4;c++){
+      vd[vi++]=rh.pts[c][0]; vd[vi++]=rh.pts[c][1];
+      vd[vi++]=t;
+      vd[vi++]=UVS[c][0];   vd[vi++]=UVS[c][1];
+    }
+    id[ii++]=base;id[ii++]=base+1;id[ii++]=base+2;
+    id[ii++]=base;id[ii++]=base+2;id[ii++]=base+3;
+    base+=4;
+  }
+  return{vd,id};
+}
+
+function uploadGeo(vd,id){
+  gl.bindVertexArray(vao);
+  gl.bindBuffer(gl.ARRAY_BUFFER,vbo);
+  gl.bufferData(gl.ARRAY_BUFFER,vd,gl.DYNAMIC_DRAW);
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,ibo);
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,id,gl.DYNAMIC_DRAW);
+  gl.bindVertexArray(null);
+}
+
+// ── FFT (COOLEY-TUKEY RADIX-2) ────────────────────────────────────
+function fft1d(re,im){
+  const n=re.length;
+  for(let i=0,j=0;i<n;i++){
+    if(i<j){[re[i],re[j]]=[re[j],re[i]];[im[i],im[j]]=[im[j],im[i]];}
+    let m=n>>1;while(j&m){j^=m;m>>=1;}j^=m;
+  }
+  for(let len=2;len<=n;len<<=1){
+    const ang=-2*Math.PI/len, wr=Math.cos(ang), wi=Math.sin(ang);
+    for(let i=0;i<n;i+=len){
+      let ur=1,ui=0;
+      for(let k=0;k<(len>>1);k++){
+        const p=i+k, q=i+k+(len>>1);
+        const vr=re[q]*ur-im[q]*ui, vi2=re[q]*ui+im[q]*ur;
+        re[q]=re[p]-vr; im[q]=im[p]-vi2;
+        re[p]+=vr;      im[p]+=vi2;
+        const nur=ur*wr-ui*wi; ui=ur*wi+ui*wr; ur=nur;
+      }
+    }
+  }
+}
+
+function winFunc(x,t){
+  if(t===0) return 0.54-0.46*Math.cos(2*Math.PI*x);   // Hamming
+  if(t===1) return 0.5*(1-Math.cos(2*Math.PI*x));       // Hann
+  return 0.42-0.5*Math.cos(2*Math.PI*x)+0.08*Math.cos(4*Math.PI*x); // Blackman
+}
+
+function computeFFT(verts){
+  const N=FFT_N;
+  const grid=new Float32Array(N*N);
+  let mnX=1e9,mxX=-1e9,mnY=1e9,mxY=-1e9;
+  for(const [x,y] of verts){
+    if(x<mnX)mnX=x;if(x>mxX)mxX=x;
+    if(y<mnY)mnY=y;if(y>mxY)mxY=y;
+  }
+  const sx=(mxX-mnX)||1, sy=(mxY-mnY)||1;
+  for(const [x,y] of verts){
+    const gx=Math.min(N-1,Math.floor((x-mnX)/sx*(N-1)));
+    const gy=Math.min(N-1,Math.floor((y-mnY)/sy*(N-1)));
+    grid[gy*N+gx]+=winFunc(gx/N,S.fftWin)*winFunc(gy/N,S.fftWin);
+  }
+  const re=new Float64Array(N*N), im=new Float64Array(N*N);
+  for(let i=0;i<N*N;i++) re[i]=grid[i];
+  const tr=new Float64Array(N), ti=new Float64Array(N);
+  // Row FFTs
+  for(let row=0;row<N;row++){
+    for(let j=0;j<N;j++){tr[j]=re[row*N+j];ti[j]=im[row*N+j];}
+    fft1d(tr,ti);
+    for(let j=0;j<N;j++){re[row*N+j]=tr[j];im[row*N+j]=ti[j];}
+  }
+  // Col FFTs
+  for(let col=0;col<N;col++){
+    for(let i=0;i<N;i++){tr[i]=re[i*N+col];ti[i]=im[i*N+col];}
+    fft1d(tr,ti);
+    for(let i=0;i<N;i++){re[i*N+col]=tr[i];im[i*N+col]=ti[i];}
+  }
+  // Power spectrum + fftshift
+  fftPower=new Float32Array(N*N);
+  let maxP=0;
+  for(let i=0;i<N*N;i++){
+    const row=Math.floor(i/N),col=i%N;
+    const sr=((row+(N>>1))%N)*N+((col+(N>>1))%N);
+    const p=Math.log(1+re[sr]*re[sr]+im[sr]*im[sr]);
+    fftPower[i]=p; if(p>maxP)maxP=p;
+  }
+  if(maxP>0) for(let i=0;i<N*N;i++) fftPower[i]/=maxP;
+  // Extract Bragg peaks for audio
+  fftPeaks=[];
+  for(let i=0;i<N*N;i++){
+    if(fftPower[i]>0.68){
+      const row=Math.floor(i/N),col=i%N;
+      fftPeaks.push({freq:80+fftPower[i]*900,amp:fftPower[i],x:col,y:row});
+    }
+  }
+  fftPeaks.sort((a,b)=>b.amp-a.amp);
+  fftPeaks=fftPeaks.slice(0,24);
+  // Bake to offscreen canvas
+  bakeFFTCanvas();
+}
+
+function hslRGB(h,s,l){
+  const c=(1-Math.abs(2*l-1))*s, x=c*(1-Math.abs((h*6)%2-1)), m=l-c/2;
+  const i=Math.floor(h*6)%6;
+  const t=[[c,x,0],[x,c,0],[0,c,x],[0,x,c],[x,0,c],[c,0,x]][i];
+  return[(t[0]+m)*255,(t[1]+m)*255,(t[2]+m)*255];
+}
+
+function bakeFFTCanvas(){
+  const N=FFT_N;
+  if(!fftOffscreen){fftOffscreen=document.createElement('canvas');fftOffscreen.width=fftOffscreen.height=N;}
+  const ftx=fftOffscreen.getContext('2d');
+  const img=ftx.createImageData(N,N);
+  const d=img.data;
+  for(let i=0;i<N*N;i++){
+    const p=fftPower[i];
+    if(p<0.05){d[i*4+3]=0;continue;}
+    const [r2,g2,b2]=hslRGB((p*0.7+0.55)%1, 0.95, Math.min(0.7,p*0.6));
+    d[i*4]=r2|0; d[i*4+1]=g2|0; d[i*4+2]=b2|0;
+    d[i*4+3]=Math.min(255,(p*p*220)|0);
+  }
+  ftx.putImageData(img,0,0);
+  fftDirty=false;
+}
+
+// ── OVERLAY RENDERING ─────────────────────────────────────────────
+let _lastFFTtime=0;
+function drawOverlay(ts){
+  ctx.clearRect(0,0,W,H);
+  const cx2=W/2, cy2=H/2;
+  const sz=Math.min(W,H)*0.28;
+  // Draw FFT diffraction as centered overlay (screen blend in CSS)
+  if(fftOffscreen){
+    ctx.save();
+    ctx.globalCompositeOperation='screen';
+    ctx.globalAlpha=0.55;
+    ctx.drawImage(fftOffscreen, cx2-sz/2, cy2-sz/2, sz, sz);
+    ctx.restore();
+  }
+  // SYZ fibration: torus fiber projections (special Lagrangian degenerations)
+  drawSYZ(ts);
+  // 10-fold Bragg peak ring markers
+  drawBraggRings(ts);
+}
+
+function drawSYZ(ts){
+  const t=ts*0.001;
+  ctx.save();
+  // 5 base coordinate circles = SYZ fibration base B
+  for(let k=0;k<5;k++){
+    const a=k/5*Math.PI*2+S.syzBase[0]*Math.PI*2+t*0.08;
+    const R=Math.min(W,H)*0.38;
+    const bx=W/2+Math.cos(a)*R*0.14, by=H/2+Math.sin(a)*R*0.14;
+    const fb=Math.min(W,H)*0.028;
+    const hue=(S.cyModuli[0]+k*0.2+t*0.05)%1;
+    ctx.strokeStyle=`hsla(${(hue*360)|0},80%,65%,0.45)`;
+    ctx.lineWidth=0.8;
+    ctx.beginPath();
+    // Ellipse: torus fiber T² projected → ellipse
+    ctx.ellipse(bx,by,
+      fb*(1.1+0.4*Math.sin(t*1.3+k)),
+      fb*(0.55+0.35*Math.cos(t*1.7+k)),
+      t*0.4+k*0.628, 0, Math.PI*2);
+    ctx.stroke();
+    // Inner Lagrangian fiber circle
+    ctx.strokeStyle=`hsla(${((hue+0.5)*360)|0},70%,55%,0.25)`;
+    ctx.beginPath();
+    ctx.arc(bx,by,fb*(0.4+0.2*Math.sin(t*2.1+k)),0,Math.PI*2);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawBraggRings(ts){
+  const t=ts*0.001;
+  const R0=Math.min(W,H)*0.38;
+  ctx.save();
+  ctx.lineWidth=0.6;
+  // 10-fold rotational symmetry peak markers
+  for(let ring=0;ring<3;ring++){
+    const r=R0*(0.08+ring*0.11);
+    for(let k=0;k<10;k++){
+      const a=k/10*Math.PI*2+t*0.015*(ring%2===0?1:-1);
+      const px=W/2+Math.cos(a)*r, py=H/2+Math.sin(a)*r;
+      const intensity=0.4+0.4*Math.sin(t*1.3+k+ring);
+      const hue=(0.55+ring*0.15+k*0.02)%1;
+      ctx.strokeStyle=`hsla(${(hue*360)|0},90%,70%,${intensity*0.6})`;
+      ctx.beginPath();
+      ctx.arc(px,py,2.5+ring,0,Math.PI*2);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+// ── AUDIO: GRANULAR SYNTHESIS ────────────────────────────────────
+let actx=null, masterGain=null, grainTimer=null;
+
+function initAudio(){
+  if(actx) return;
+  actx=new(window.AudioContext||window.webkitAudioContext)();
+  masterGain=actx.createGain();
+  masterGain.gain.value=0;
+  // Reverb convolver for spatial CY depth
+  const rev=actx.createConvolver();
+  const bLen=actx.sampleRate*1.8|0;
+  const buf=actx.createBuffer(2,bLen,actx.sampleRate);
+  for(let ch=0;ch<2;ch++){
+    const d=buf.getChannelData(ch);
+    for(let i=0;i<bLen;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/bLen,2.2);
+  }
+  rev.buffer=buf;
+  const revGain=actx.createGain(); revGain.gain.value=0.35;
+  masterGain.connect(revGain); revGain.connect(rev); rev.connect(actx.destination);
+  masterGain.connect(actx.destination);
+}
+
+function grain(freq,amp,dur){
+  if(!actx||!masterGain) return;
+  const now=actx.currentTime;
+  const osc=actx.createOscillator();
+  const env=actx.createGain();
+  const filt=actx.createBiquadFilter();
+  osc.type=Math.random()<0.5?'sine':'triangle';
+  osc.frequency.value=freq;
+  // Slight FM from CY moduli
+  const mod=actx.createOscillator();
+  const modGain=actx.createGain();
+  mod.frequency.value=freq*S.cyModuli[2]*0.5;
+  modGain.gain.value=freq*S.cyModuli[0]*0.08;
+  mod.connect(modGain); modGain.connect(osc.frequency);
+  mod.start(now); mod.stop(now+dur+0.01);
+  filt.type='bandpass';
+  filt.frequency.value=freq;
+  filt.Q.value=6+S.cyModuli[1]*8;
+  env.gain.setValueAtTime(0,now);
+  env.gain.linearRampToValueAtTime(amp*0.06,now+dur*0.12);
+  env.gain.setValueAtTime(amp*0.06,now+dur*0.75);
+  env.gain.exponentialRampToValueAtTime(0.0001,now+dur);
+  osc.connect(filt); filt.connect(env); env.connect(masterGain);
+  osc.start(now); osc.stop(now+dur+0.02);
+}
+
+function triggerGrains(){
+  if(!S.audioOn||!actx||fftPeaks.length===0) return;
+  const n=Math.min(5,fftPeaks.length);
+  for(let i=0;i<n;i++){
+    const pk=fftPeaks[Math.floor(Math.random()*fftPeaks.length)];
+    // Map SYZ base coords to frequency shimmer
+    const mult=1+S.syzBase[0]*0.4+S.syzBase[1]*0.3*Math.sin(S.time*0.0008);
+    grain(pk.freq*mult, pk.amp, 0.04+Math.random()*0.18);
+  }
+}
+
+function setAudio(on){
+  S.audioOn=on;
+  if(on){
+    initAudio();
+    if(actx.state==='suspended') actx.resume();
+    masterGain.gain.setTargetAtTime(0.5,actx.currentTime,0.15);
+    if(!grainTimer) grainTimer=setInterval(triggerGrains,100);
+  } else {
+    if(masterGain) masterGain.gain.setTargetAtTime(0,actx.currentTime,0.1);
+    if(grainTimer){clearInterval(grainTimer);grainTimer=null;}
+  }
+}
+
+// ── HUD ──────────────────────────────────────────────────────────
+function updateHUD(){
+  if(!S.hudOn){hudEl.style.display='none';return;}
+  hudEl.style.display='block';
+  const cyDim=(3+S.cyModuli.reduce((a,b)=>a+b,0)).toFixed(3);
+  const phases=Array.from(S.so6).map(v=>((v%(Math.PI*2)/(Math.PI*2))*360).toFixed(1)+'°').join(' ');
+  hudEl.innerHTML=`<h3>PENROSE · CALABI-YAU · SYZ</h3>
+<span class="label">VERTICES</span> <span class="val">${nVert}</span><br>
+<span class="label">RHOMBUSES</span> <span class="val">${nRhomb}</span><br>
+<span class="label">INFLATION ITER</span> <span class="val">${S.iter}</span><br>
+<span class="label">GRID RANGE N</span> <span class="val">±${N_GRID}</span><br>
+<span class="label">CY DIM ESTIMATE</span> <span class="val">${cyDim}</span><br>
+<span class="label">SYZ SINGULARITIES</span> <span class="val">${nSing}</span><br>
+<span class="label">BRAGG PEAKS (10-FOLD)</span> <span class="val">${fftPeaks.length}</span><br>
+<span class="label">FFT WINDOW</span> <span class="val">${['Hamming','Hann','Blackman'][S.fftWin]}</span><br>
+<span class="label">CY MODULI τ</span> <span class="val">[${S.cyModuli.map(v=>v.toFixed(3)).join(', ')}]</span><br>
+<span class="label">SYZ BASE COORDS</span> <span class="val">[${S.syzBase.map(v=>v.toFixed(3)).join(', ')}]</span><br>
+<span class="label">SO(6) PHASES</span> <span class="val" style="font-size:9px">${phases}</span><br>
+<span class="label">GRANULAR AUDIO</span> <span class="val" style="color:${S.audioOn?'#0f8':'#f44'}">${S.audioOn?'ACTIVE':'OFFLINE'}</span>`;
+}
+
+// ── REBUILD TILING ────────────────────────────────────────────────
+function rebuild(){
+  const {rhombs,verts,singCount}=generatePenrose(N_GRID,S.gammas);
+  nRhomb=rhombs.length; nVert=verts.length; nSing=singCount;
+  const {vd,id}=buildGLData(rhombs);
+  uploadGeo(vd,id);
+  indexCount=rhombs.length*6;
+  computeFFT(verts);
+  if(S.audioOn&&grainTimer){clearInterval(grainTimer);grainTimer=setInterval(triggerGrains,100);}
+}
+
+function randomize(){
+  const h=nextH8();
+  // Halton-sampled Penrose parameters
+  S.gammas   =[h[0]*.9+.05, h[1]*.9+.05, h[2]*.9+.05, h[3]*.9+.05, h[4]*.9+.05];
+  S.cyModuli =[h[0], h[1]*.6+.2, h[2]*.8+.1];
+  S.syzBase  =[h[3], h[4]];
+  S.fftWin   =Math.floor(h[5]*3);
+  // Halton-seeded Chebyshev coefficients
+  const h2=nextH8();
+  S.chebyC   =new Float32Array(8).map((_,i)=>h2[i]*2-1);
+  S.iter++;
+  rebuild();
+}
+
+// ── SCALE HELPERS ─────────────────────────────────────────────────
+function tileScale(){return Math.min(W,H)/(N_GRID*3.8);}
+
+// ── MAIN RENDER LOOP ──────────────────────────────────────────────
+function render(ts){
+  S.time=ts;
+  // Advance SO(6) phases
+  for(let i=0;i<6;i++) S.so6[i]+=S.so6spd[i];
+
+  const sc=tileScale();
+  // WebGL2: Penrose tiling
+  gl.viewport(0,0,W,H);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.useProgram(prog);
+  gl.uniform2f(u.res,W,H);
+  gl.uniform1f(u.scale,sc);
+  gl.uniform2f(u.off,W/2,H/2);
+  gl.uniform1f(u.time,ts*0.001);
+  gl.uniform1fv(u.so6,S.so6);
+  gl.uniform1fv(u.moduli,new Float32Array(S.cyModuli));
+  gl.uniform1fv(u.syz,new Float32Array(S.syzBase));
+  gl.uniform1fv(u.cheby,S.chebyC);
+  gl.bindVertexArray(vao);
+  gl.drawElements(gl.TRIANGLES,indexCount,gl.UNSIGNED_INT,0);
+  gl.bindVertexArray(null);
+
+  // 2D overlay
+  drawOverlay(ts);
+  updateHUD();
+
+  requestAnimationFrame(render);
+}
+
+// ── EVENTS ────────────────────────────────────────────────────────
+window.addEventListener('resize',()=>{
+  W=glc.width=ovc.width=innerWidth;
+  H=glc.height=ovc.height=innerHeight;
+});
+
+window.addEventListener('keydown',e=>{
+  if(e.code==='Space'){e.preventDefault();randomize();}
+  if(e.code==='KeyH'){S.hudOn=!S.hudOn;updateHUD();}
+  if(e.code==='KeyS'){setAudio(!S.audioOn);}
+});
+
+glc.addEventListener('click',()=>randomize());
+glc.addEventListener('touchend',e=>{e.preventDefault();randomize();},{passive:false});
+
+// ── BOOT ──────────────────────────────────────────────────────────
+initGL();
+rebuild();
+requestAnimationFrame(render);
+
+// Overlay canvas screen blend
+ovc.style.mixBlendMode='screen';
+</script>
+</body>
+</html>

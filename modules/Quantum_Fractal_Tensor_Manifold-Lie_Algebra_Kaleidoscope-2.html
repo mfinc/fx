@@ -1,0 +1,1026 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Quantum Fractal Tensor Manifold — Lie Algebra Kaleidoscope</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
+
+<!-- Primary SEO -->
+<meta name="description" content="Quantum Fractal Tensor Manifold: an immersive, self-contained WebGL-style Canvas generative artwork exploring Lie group symmetries, fractal manifolds, tensor field flows, quantum probability clouds, hyperbolic geometry, Fourier spectral gradients, and procedural synthesis audio — all in your browser with zero dependencies."/>
+<meta name="keywords" content="generative art, interactive art, quantum visualization, Lie group symmetry, Lie algebra, fractal manifold, kaleidoscope, WebGL canvas, procedural audio, tensor field visualization, spectral gradients, browser synthesizer, mathematical art, differential geometry, quantum mechanics, hyperbolic geometry, Fourier series, strange attractor, reaction diffusion, Voronoi pattern, cellular automata, creative coding, p5js alternative, shader art, GLSL art, visual music, algorithmic art, HTML5 canvas animation, symmetry art, sacred geometry, ambient generative music"/>
+<meta name="robots" content="index, follow"/>
+<meta name="author" content="Quantum Fractal Tensor Manifold"/>
+<link rel="canonical" href="https://example.com/quantum-fractal-tensor-manifold"/>
+
+<!-- Open Graph -->
+<meta property="og:title" content="Quantum Fractal Tensor Manifold — Lie Algebra Kaleidoscope"/>
+<meta property="og:description" content="Immersive generative art: Lie algebra kaleidoscopes, quantum probability clouds, tensor flows, hyperbolic geometry, and procedural sound — zero dependencies, pure browser math."/>
+<meta property="og:type" content="website"/>
+<meta property="og:image" content="https://example.com/og-quantum-fractal.jpg"/>
+<meta property="og:image:width" content="1200"/>
+<meta property="og:image:height" content="630"/>
+<meta property="og:locale" content="en_US"/>
+
+<!-- Twitter Card -->
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:title" content="Quantum Fractal Tensor Manifold — Lie Algebra Kaleidoscope"/>
+<meta name="twitter:description" content="Lie group kaleidoscopes, quantum probability clouds, tensor flows, spectral gradients & procedural sound. SPACE/click to regenerate. H for HUD. S for sound."/>
+<meta name="twitter:image" content="https://example.com/og-quantum-fractal.jpg"/>
+
+<!-- JSON-LD Structured Data -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "CreativeWork",
+  "name": "Quantum Fractal Tensor Manifold — Lie Algebra Kaleidoscope",
+  "description": "Interactive mathematical generative art visualizing quantum mechanics and differential geometry using Lie groups, fractal manifolds, tensor fields, hyperbolic geometry, Fourier series, and procedural synthesis audio. All rendered in real-time in the browser with zero dependencies.",
+  "keywords": ["generative art","quantum visualization","Lie group symmetry","Lie algebra","fractal manifold","kaleidoscope","procedural audio","tensor fields","spectral gradients","hyperbolic geometry","strange attractor","mathematical art","differential geometry","creative coding"],
+  "genre": "Generative Art",
+  "inLanguage": "en",
+  "isAccessibleForFree": true,
+  "learningResourceType": "Interactive visualization",
+  "educationalUse": ["exploration","visualization"],
+  "educationalLevel": "advanced",
+  "creator": {
+    "@type": "Organization",
+    "name": "Quantum Fractal Studio"
+  }
+}
+</script>
+
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{
+  width:100%;height:100%;
+  background:#000;
+  overflow:hidden;
+  font-family:'Courier New',monospace;
+  cursor:crosshair;
+  user-select:none;
+  -webkit-user-select:none;
+}
+canvas{
+  display:block;
+  position:fixed;
+  top:0;left:0;
+  width:100vw;height:100vh;
+  image-rendering:pixelated;
+}
+
+/* HUD */
+#hud{
+  display:none;
+  position:fixed;
+  top:14px;left:14px;
+  background:rgba(0,0,0,0.72);
+  border:1px solid rgba(255,255,255,0.12);
+  border-radius:10px;
+  padding:12px 16px;
+  font-size:11px;
+  line-height:1.75;
+  letter-spacing:0.06em;
+  color:rgba(255,255,255,0.55);
+  min-width:180px;
+  backdrop-filter:blur(8px);
+  -webkit-backdrop-filter:blur(8px);
+  pointer-events:none;
+}
+#hud .row{display:flex;justify-content:space-between;gap:20px;}
+#hud .label{color:rgba(255,255,255,0.3);}
+#hud .val{color:rgba(255,255,255,0.85);font-weight:bold;}
+#hud hr{border:none;border-top:1px solid rgba(255,255,255,0.08);margin:6px 0;}
+
+/* Keys hint — bottom right, always visible for 4s on load, then fades */
+#hint{
+  position:fixed;
+  bottom:14px;right:14px;
+  font-size:10px;
+  letter-spacing:0.1em;
+  color:rgba(255,255,255,0.18);
+  line-height:1.7;
+  text-align:right;
+  pointer-events:none;
+  transition:opacity 2s;
+}
+#hint.fade{opacity:0;}
+
+/* flash overlay on regenerate */
+#flash{
+  position:fixed;
+  inset:0;
+  background:#fff;
+  opacity:0;
+  pointer-events:none;
+  transition:opacity 0.08s;
+}
+</style>
+</head>
+
+<body>
+<main role="main" aria-label="Quantum Fractal Tensor Manifold — Lie Algebra Kaleidoscope">
+  <canvas id="c" aria-label="Interactive quantum fractal kaleidoscope canvas. Press SPACE or click to regenerate."></canvas>
+  <div id="hud" role="status" aria-live="polite"></div>
+  <div id="hint">
+    SPACE / CLICK / TAP &mdash; regenerate<br>
+    H &mdash; toggle HUD &nbsp;|&nbsp; S &mdash; toggle sound
+  </div>
+  <div id="flash"></div>
+</main>
+
+<script>
+(()=>{
+"use strict";
+
+/* ─────────────────────────────────────────
+   CONSTANTS & MATH
+───────────────────────────────────────── */
+const TAU = Math.PI*2;
+const PHI = (1+Math.sqrt(5))/2;
+const LN2 = Math.log(2);
+
+/* ─────────────────────────────────────────
+   LCG PRNG (seedable, fast)
+───────────────────────────────────────── */
+let _seed = 0;
+function setSeed(s){ _seed = s>>>0; }
+function rnd(){
+  _seed = (_seed*1664525 + 1013904223)>>>0;
+  return _seed/4294967296;
+}
+function rndRange(a,b){ return a+rnd()*(b-a); }
+function rndInt(a,b){ return Math.floor(rndRange(a,b)); }
+function rndChoice(arr){ return arr[rndInt(0,arr.length)]; }
+function rndGaussian(){
+  // Box-Muller
+  return Math.sqrt(-2*Math.log(rnd()+1e-9))*Math.cos(TAU*rnd());
+}
+
+/* ─────────────────────────────────────────
+   CANVAS SETUP
+───────────────────────────────────────── */
+const canvas = document.getElementById("c");
+const ctx    = canvas.getContext("2d", {alpha:false, willReadFrequently:false});
+const hud    = document.getElementById("hud");
+const flash  = document.getElementById("flash");
+const hint   = document.getElementById("hint");
+
+let W,H,DPR;
+function resize(){
+  DPR = Math.min(window.devicePixelRatio||1, 2);
+  W   = canvas.width  = innerWidth  * DPR;
+  H   = canvas.height = innerHeight * DPR;
+  canvas.style.width  = innerWidth  + "px";
+  canvas.style.height = innerHeight + "px";
+  // rebuild ImageData cache
+  imgData = ctx.createImageData(W,H);
+  px      = imgData.data;
+  // rebuild offscreen
+  buildOffscreen();
+}
+addEventListener("resize", resize);
+
+/* ─────────────────────────────────────────
+   PARAMETERS (randomized on each regen)
+───────────────────────────────────────── */
+let P = {};
+
+function randomizeParams(){
+  setSeed(Math.random()*0xFFFFFFFF|0);
+
+  P.seed       = _seed;
+  P.symmetry   = rndChoice([3,4,5,6,7,8,9,10,12,14,16,18,20,24,32,48,64]);
+  P.layers     = rndInt(4,9);                  // how many independent draw layers
+  P.mode       = rndInt(0,8);                  // rendering mode selector
+
+  // color
+  P.paletteMode = rndInt(0,6);
+  P.hueBase     = rnd()*360;
+  P.hueSpread   = rndRange(30,340);
+  P.saturation  = rndRange(55,100);
+  P.lightBase   = rndRange(35,65);
+  P.chromaShift = rndRange(0,3);
+
+  // motion
+  P.speed       = rndRange(0.4,2.2);
+  P.warpAmt     = rndRange(0,2.5);
+  P.warpFreq    = rndRange(0.5,4);
+  P.twist       = rndRange(-2,2);
+  P.breathe     = rndRange(0,1.2);
+  P.pulseFreq   = rndRange(0.3,3);
+
+  // geometry
+  P.fractalDepth = rndInt(3,8);
+  P.julia_cr     = rndGaussian()*0.5;
+  P.julia_ci     = rndGaussian()*0.5;
+  P.sierpZoom    = rndRange(1.5,2.8);
+  P.lyapunov     = rndRange(0.3,0.9);
+  P.curvature    = rndRange(-1,1);
+  P.power        = rndRange(1.5,5);
+
+  // orbit trap color weights
+  P.trapW  = [rnd(),rnd(),rnd()];
+
+  // particle system
+  P.particleCount = rndInt(200,1200);
+  P.particleLife  = rndRange(60,300);
+
+  // trail persistence (lower = longer trails)
+  P.trailAlpha = rndRange(0.04,0.28);
+
+  // Fourier harmonics for path generation
+  P.harmonics = Array.from({length:rndInt(3,9)}, ()=>({
+    freq : rndRange(1,12),
+    amp  : rndRange(0.05,1),
+    phase: rnd()*TAU
+  }));
+
+  // Line / stroke style
+  P.lineWidth  = rndRange(0.3,2.0)*DPR;
+  P.dotRadius  = rndRange(1,4)*DPR;
+  P.strokeMode = rndInt(0,4); // 0=lines, 1=dots, 2=filled, 3=mixed
+
+  // Blend
+  P.blendMode  = rndChoice(["source-over","lighter","screen","overlay","hard-light","color-dodge"]);
+
+  // SDF / field
+  P.sdfShape   = rndInt(0,7);
+  P.fieldScale = rndRange(0.002,0.015)/DPR;
+
+  // audio derived
+  P.baseFreq   = rndRange(50,200);
+  P.harmonicRatios = rndChoice([
+    [1,2,3,4,5,6],
+    [1,1.5,2,2.5,3],
+    [1,PHI,PHI*PHI,PHI*3],
+    [1,9/8,5/4,4/3,3/2,5/3,15/8,2],
+    [1,1.1,1.25,1.5,1.75,2.0],
+    [1,2,4,8,16,32]
+  ]);
+
+  resetParticles();
+}
+
+/* ─────────────────────────────────────────
+   OFFSCREEN (for symmetry mirroring)
+───────────────────────────────────────── */
+let offscreen, offCtx, offW, offH;
+function buildOffscreen(){
+  offW = W; offH = H;
+  offscreen = document.createElement("canvas");
+  offscreen.width=W; offscreen.height=H;
+  offCtx = offscreen.getContext("2d",{alpha:true, willReadFrequently:false});
+}
+
+/* ─────────────────────────────────────────
+   PIXEL BUFFER (for scanline field effects)
+───────────────────────────────────────── */
+let imgData, px;
+
+/* ─────────────────────────────────────────
+   PALETTE FUNCTIONS
+───────────────────────────────────────── */
+// HSL → [r,g,b] 0..255
+function hsl2rgb(h,s,l){
+  h=((h%360)+360)%360; s/=100; l/=100;
+  const a=s*Math.min(l,1-l);
+  const f=n=>{ const k=(n+h/30)%12; return l-a*Math.max(-1,Math.min(k-3,9-k,1)); };
+  return [f(0)*255|0, f(8)*255|0, f(4)*255|0];
+}
+
+// Smooth palette: cosine gradient
+function cosinePalette(t, dc,dd,ec,ed){
+  const r=dc[0]+dd[0]*Math.cos(TAU*(ec[0]*t+ed[0]));
+  const g=dc[1]+dd[1]*Math.cos(TAU*(ec[1]*t+ed[1]));
+  const b=dc[2]+dd[2]*Math.cos(TAU*(ec[2]*t+ed[2]));
+  return [r*255|0, g*255|0, b*255|0];
+}
+
+// Generate palette vectors from params
+let palVecs;
+function buildPaletteVecs(){
+  const h=P.hueBase/360, sp=P.hueSpread/360;
+  switch(P.paletteMode){
+    case 0: palVecs=[[.5,.5,.5],[.5,.5,.5],[1,1,1],[h,h+sp/3,h+sp/2]]; break;
+    case 1: palVecs=[[.5,.5,.5],[.5,.5,.5],[1,1,1],[h,h+.1,h+.2]]; break;
+    case 2: palVecs=[[.8,.5,.4],[.2,.4,.2],[2,1,1],[0,.25,.25]]; break;
+    case 3: palVecs=[[.5,.5,.5],[.5,.5,.5],[2,1,.5],[h,h+.33,h+.67]]; break;
+    case 4: palVecs=[[.5,.5,.5],[.5,.5,.5],[1,2,3],[h,h+.2,h+.4]]; break;
+    default:palVecs=[[.5,.5,.5],[.5,.5,.5],[1,1,.5],[h,h+.15,h+.35]]; break;
+  }
+}
+
+function getColor(t, alpha){
+  const [dc,dd,ec,ed]=palVecs;
+  const [r,g,b]=cosinePalette(t,dc,dd,ec,ed);
+  const light = P.lightBase/100;
+  // mix with hsl for saturation control
+  const sat = P.saturation/100;
+  const rr = Math.min(255, (r*sat + 128*(1-sat)) | 0);
+  const gg = Math.min(255, (g*sat + 128*(1-sat)) | 0);
+  const bb = Math.min(255, (b*sat + 128*(1-sat)) | 0);
+  if(alpha===undefined) return `rgb(${rr},${gg},${bb})`;
+  return `rgba(${rr},${gg},${bb},${alpha})`;
+}
+
+function getColorArr(t){
+  const [dc,dd,ec,ed]=palVecs;
+  return cosinePalette(t,dc,dd,ec,ed);
+}
+
+/* ─────────────────────────────────────────
+   SDF / FIELD UTILS
+───────────────────────────────────────── */
+function sdfCircle(x,y,r){ return Math.sqrt(x*x+y*y)-r; }
+function sdfBox(x,y,bx,by){ const dx=Math.abs(x)-bx, dy=Math.abs(y)-by; return Math.min(Math.max(dx,dy),0)+Math.sqrt(Math.max(dx,0)**2+Math.max(dy,0)**2); }
+function sdfHex(x,y,r){
+  const k=[Math.cos(Math.PI/6),Math.sin(Math.PI/6),Math.tan(Math.PI/6)];
+  const ax=Math.abs(x), ay=Math.abs(y);
+  const px2=ax-2*k[0]*Math.max(ax*k[0]+ay*k[1],0), py2=ay-2*k[1]*Math.max(ax*k[0]+ay*k[1],0);
+  return Math.sqrt(px2*px2+py2*py2)*Math.sign(py2)-r;
+}
+function sdfStar(x,y,r,n,m){
+  const an=TAU/(2*n);
+  const bn=Math.atan2(y,x)%an;
+  const bn2=Math.abs(bn-an/2);
+  const p2=[Math.sqrt(x*x+y*y)*Math.cos(bn2)-r, Math.sqrt(x*x+y*y)*Math.sin(bn2)];
+  const bc=r*m/r;
+  const pa=Math.abs(p2[0]-bc);
+  return Math.sqrt(pa*pa+p2[1]*p2[1])*Math.sign(p2[0]);
+}
+
+function evalSDF(x,y,shape,t,r){
+  switch(shape%7){
+    case 0: return sdfCircle(x,y,r);
+    case 1: return sdfBox(x,y,r*0.8,r*0.8);
+    case 2: return sdfBox(x,y,r*1.3,r*0.4);
+    case 3: return sdfHex(x,y,r);
+    case 4: return sdfStar(x,y,r,5,0.5);
+    case 5: return sdfStar(x,y,r,8,0.6);
+    default:return Math.abs(Math.sin(Math.atan2(y,x)*4)*Math.sqrt(x*x+y*y)-r);
+  }
+}
+
+/* ─────────────────────────────────────────
+   FRACTAL UTILS
+───────────────────────────────────────── */
+// Mandelbrot / Julia iteration count (0..1)
+function juliaIter(zx,zy,cx,cy,maxIter){
+  let zx2=zx,zy2=zy,i=0;
+  while(i<maxIter){
+    const nx=zx2*zx2-zy2*zy2+cx;
+    const ny=2*zx2*zy2+cy;
+    zx2=nx;zy2=ny;
+    if(zx2*zx2+zy2*zy2>4) break;
+    i++;
+  }
+  if(i===maxIter) return 0;
+  const mag=Math.sqrt(zx2*zx2+zy2*zy2);
+  return (i+1-Math.log(Math.log(mag+1e-9)/LN2)/LN2)/maxIter;
+}
+
+// Mandelbulb cross-section approx (2D escape time with power)
+function bulbIter(zx,zy,power,maxIter){
+  let zr2=zx,zi2=zy,i=0,r2;
+  while(i<maxIter){
+    r2=zr2*zr2+zi2*zi2;
+    if(r2>4) break;
+    const r=Math.sqrt(r2);
+    const theta=Math.atan2(zi2,zr2)*power;
+    const rp=Math.pow(r,power);
+    zr2=rp*Math.cos(theta)+zx;
+    zi2=rp*Math.sin(theta)+zy;
+    i++;
+  }
+  if(i===maxIter) return 0;
+  const mag=Math.sqrt(zr2*zr2+zi2*zi2);
+  return (i+1-Math.log2(Math.log(mag+1e-9)))/maxIter;
+}
+
+// Lyapunov exponent approx along a path
+function lyapunov(x,r,maxIter){
+  let lam=0;
+  for(let i=0;i<maxIter;i++){
+    x=r*x*(1-x);
+    lam+=Math.log(Math.abs(r*(1-2*x))+1e-9);
+  }
+  return Math.tanh(lam/maxIter);
+}
+
+/* ─────────────────────────────────────────
+   FOURIER PATH
+───────────────────────────────────────── */
+function fourierPath(t, harmonics, scale){
+  let x=0, y=0;
+  for(const h of harmonics){
+    x += h.amp*Math.cos(h.freq*t+h.phase);
+    y += h.amp*Math.sin(h.freq*t+h.phase);
+  }
+  const mag=Math.sqrt(x*x+y*y)||1;
+  return [x*scale/mag, y*scale/mag];
+}
+
+/* ─────────────────────────────────────────
+   QUATERNION ROTATION (SO3)
+───────────────────────────────────────── */
+function quatRotate(vx,vy,vz, qa,qb,qc,qd){
+  const ix = qa*vx + qb*vz - qc*vy;
+  const iy = qa*vy + qc*vx - qd*vz;
+  const iz = qa*vz + qd*vy - qb*vx;
+  const iw =-qb*vx - qc*vy - qd*vz;
+  return [
+    ix*qa+iw*(-qb)+iy*(-qc)-iz*(-qd),
+    iy*qa+iw*(-qc)+iz*(-qb)-ix*(-qd),
+    iz*qa+iw*(-qd)+ix*(-qc)-iy*(-qb)
+  ];
+}
+
+/* ─────────────────────────────────────────
+   HYPERBOLIC POINCARÉ DISK
+───────────────────────────────────────── */
+function poincareMobius(zx,zy, ax,ay){
+  // Möbius transform: (z - a)/(1 - conj(a)*z)
+  const denom_r = 1 - ax*zx - ay*zy;
+  const denom_i =     ax*zy - ay*zx;
+  const denom2  = denom_r*denom_r + denom_i*denom_i + 1e-9;
+  const num_r   = zx - ax;
+  const num_i   = zy - ay;
+  return [
+    (num_r*denom_r + num_i*denom_i)/denom2,
+    (num_i*denom_r - num_r*denom_i)/denom2
+  ];
+}
+
+/* ─────────────────────────────────────────
+   PARTICLE SYSTEM
+───────────────────────────────────────── */
+let particles=[];
+function resetParticles(){
+  particles=[];
+  for(let i=0;i<P.particleCount;i++) spawnParticle(i);
+}
+function spawnParticle(i){
+  const angle=rnd()*TAU;
+  const r=rnd();
+  particles[i]={
+    x: Math.cos(angle)*r,
+    y: Math.sin(angle)*r,
+    vx:0,vy:0,
+    life:rnd()*P.particleLife|0,
+    maxLife:P.particleLife,
+    t: rnd()*TAU
+  };
+}
+function updateParticles(t){
+  for(let i=0;i<particles.length;i++){
+    const p=particles[i];
+    p.life--;
+    if(p.life<=0){ spawnParticle(i); continue; }
+
+    // vector field: curl noise + fractal influence
+    const angle = (Math.sin(p.x*P.warpFreq+t)*Math.cos(p.y*P.warpFreq+t))*P.warpAmt;
+    const fx = Math.cos(angle + p.x*P.curvature + t*0.3)*0.004;
+    const fy = Math.sin(angle + p.y*P.curvature + t*0.3)*0.004;
+
+    p.vx = p.vx*0.92 + fx;
+    p.vy = p.vy*0.92 + fy;
+    p.x += p.vx;
+    p.y += p.vy;
+    p.t += 0.02;
+
+    // wrap
+    const mag=Math.sqrt(p.x*p.x+p.y*p.y);
+    if(mag>1.4){ p.x*=0.1; p.y*=0.1; }
+  }
+}
+
+/* ─────────────────────────────────────────
+   NOISE (value noise, 2D)
+───────────────────────────────────────── */
+const NOISE_SIZE=512;
+const noiseTable=new Float32Array(NOISE_SIZE);
+{
+  // fill with seedless noise (it's just for texture variety, not seed-dependent)
+  for(let i=0;i<NOISE_SIZE;i++) noiseTable[i]=Math.random();
+}
+function smoothstep(t){ return t*t*(3-2*t); }
+function valueNoise(x,y){
+  const xi=Math.floor(x)&(NOISE_SIZE-1);
+  const yi=Math.floor(y)&(NOISE_SIZE-1);
+  const xf=x-Math.floor(x);
+  const yf=y-Math.floor(y);
+  const u=smoothstep(xf), v=smoothstep(yf);
+  const aa=noiseTable[(xi  +yi*NOISE_SIZE/16)%NOISE_SIZE];
+  const ba=noiseTable[(xi+1+yi*NOISE_SIZE/16)%NOISE_SIZE];
+  const ab=noiseTable[(xi  +(yi+1)*NOISE_SIZE/16)%NOISE_SIZE];
+  const bb=noiseTable[(xi+1+(yi+1)*NOISE_SIZE/16)%NOISE_SIZE];
+  return aa*(1-u)*(1-v)+ba*u*(1-v)+ab*(1-u)*v+bb*u*v;
+}
+function fbm(x,y,oct){
+  let v=0,amp=1,freq=1,max=0;
+  for(let i=0;i<oct;i++){
+    v+=valueNoise(x*freq,y*freq)*amp;
+    max+=amp; amp*=0.5; freq*=2;
+  }
+  return v/max;
+}
+
+/* ─────────────────────────────────────────
+   DRAW ENGINE
+───────────────────────────────────────── */
+let animT=0;
+let lastNow=0;
+let fps=0,fpsFrames=0,fpsLast=0;
+
+function drawKaleidoscope(t){
+  const CX=W/2, CY=H/2;
+  const maxR=Math.min(CX,CY)*0.93;
+  const sym=P.symmetry;
+  const sliceAng=TAU/sym;
+
+  ctx.save();
+  ctx.globalCompositeOperation = P.blendMode;
+
+  // draw into offscreen, then mirror
+  offCtx.clearRect(0,0,W,H);
+  offCtx.save();
+  offCtx.translate(CX,CY);
+
+  // Draw one "slice" worth of content
+  for(let layer=0; layer<P.layers; layer++){
+    const layerT = t + layer*0.4 + layer*0.1*P.speed;
+    const layerAlpha = 1/(layer+1)*0.85;
+    offCtx.lineWidth = P.lineWidth * (1+layer*0.15);
+
+    switch((P.mode+layer)%8){
+      case 0: drawSpiral(offCtx, layerT, maxR, layer, layerAlpha); break;
+      case 1: drawOrbitTrap(offCtx, layerT, maxR, layer, layerAlpha); break;
+      case 2: drawFourierRibbon(offCtx, layerT, maxR, layer, layerAlpha); break;
+      case 3: drawHyperbolicTiling(offCtx, layerT, maxR, layer, layerAlpha); break;
+      case 4: drawTensorLines(offCtx, layerT, maxR, layer, layerAlpha); break;
+      case 5: drawFlowField(offCtx, layerT, maxR, layer, layerAlpha); break;
+      case 6: drawParametricMesh(offCtx, layerT, maxR, layer, layerAlpha); break;
+      case 7: drawLissajous(offCtx, layerT, maxR, layer, layerAlpha); break;
+    }
+  }
+
+  offCtx.restore();
+
+  // Blit with symmetry (kaleidoscope slice)
+  ctx.save();
+  ctx.translate(CX,CY);
+  for(let k=0; k<sym; k++){
+    ctx.save();
+    ctx.rotate(sliceAng*k + t*0.04*P.speed);
+    // clip to pie slice
+    ctx.beginPath();
+    ctx.moveTo(0,0);
+    const angA=-sliceAng/2, angB=sliceAng/2;
+    const farR=maxR*1.5;
+    ctx.lineTo(Math.cos(angA)*farR, Math.sin(angA)*farR);
+    ctx.arc(0,0,farR,angA,angB);
+    ctx.closePath();
+    ctx.clip();
+    ctx.drawImage(offscreen,-CX,-CY);
+    ctx.restore();
+  }
+  ctx.restore();
+
+  ctx.globalCompositeOperation="source-over";
+  ctx.restore();
+}
+
+/* ── DRAW MODES ── */
+
+function drawSpiral(c,t,maxR,layer,alpha){
+  const steps=280+layer*40;
+  const col0=getColorArr(layer*0.17+t*0.1);
+  for(let i=0;i<steps;i++){
+    const f=i/steps;
+    const angle=f*TAU*7*(1+layer*0.3)+t*P.speed+P.twist*f*TAU;
+    const r=maxR*Math.pow(f,0.7)*(1+P.breathe*Math.sin(f*TAU*P.pulseFreq+t));
+    const warp=fbm(Math.cos(angle)*f*3+t,Math.sin(angle)*f*3+t,3)*P.warpAmt*40;
+    const x=(r+warp)*Math.cos(angle);
+    const y=(r+warp)*Math.sin(angle);
+    const col=getColorArr(f+layer*0.2+t*0.05);
+    const a=alpha*Math.sin(f*Math.PI)*0.7;
+    c.fillStyle=`rgba(${col[0]},${col[1]},${col[2]},${a})`;
+    c.beginPath();
+    c.arc(x,y,P.dotRadius*(1-f*0.5),0,TAU);
+    c.fill();
+  }
+}
+
+function drawOrbitTrap(c,t,maxR,layer,alpha){
+  const steps=180+layer*30;
+  const trap_cx=Math.cos(t*0.3)*0.3+P.julia_cr;
+  const trap_cy=Math.sin(t*0.2)*0.3+P.julia_ci;
+  c.lineWidth=P.lineWidth;
+  for(let i=0;i<steps;i++){
+    const f=i/steps;
+    const angle=f*TAU*(3+layer);
+    const r=maxR*Math.sqrt(f)*0.98;
+    const zx=(r*Math.cos(angle))/maxR*2;
+    const zy=(r*Math.sin(angle))/maxR*2;
+    let v;
+    if(P.fractalDepth>5) v=bulbIter(zx,zy,P.power,24);
+    else v=juliaIter(zx,zy,trap_cx,trap_cy,32);
+    const col=getColorArr(v*(1+P.chromaShift)+layer*0.25+t*0.04);
+    const a=alpha*(v>0?0.9:0.1);
+    const x=r*Math.cos(angle)*(1+v*0.4);
+    const y=r*Math.sin(angle)*(1+v*0.4);
+    if(i===0){ c.beginPath(); c.moveTo(x,y); }
+    else {
+      c.strokeStyle=`rgba(${col[0]},${col[1]},${col[2]},${a})`;
+      c.lineTo(x,y);
+      if(i%12===0){ c.stroke(); c.beginPath(); c.moveTo(x,y); }
+    }
+  }
+  c.stroke();
+}
+
+function drawFourierRibbon(c,t,maxR,layer,alpha){
+  const steps=300+layer*50;
+  const pts=[];
+  for(let i=0;i<steps;i++){
+    const f=i/steps;
+    const angle=f*TAU;
+    const [hx,hy]=fourierPath(angle+t*P.speed*0.5, P.harmonics, 1);
+    const r=maxR*(0.2+0.8*Math.abs(hx));
+    const a2=angle+hx*P.twist;
+    pts.push([r*Math.cos(a2+hy*0.5), r*Math.sin(a2+hy*0.5), f]);
+  }
+  // draw ribbon with width variation
+  for(let i=0;i<pts.length-1;i++){
+    const [x0,y0,f0]=pts[i];
+    const [x1,y1,f1]=pts[i+1];
+    const col=getColorArr(f0+layer*0.2+t*0.07);
+    const a=alpha*0.6;
+    c.strokeStyle=`rgba(${col[0]},${col[1]},${col[2]},${a})`;
+    c.lineWidth=P.lineWidth*(1+2*Math.sin(f0*TAU*5+t));
+    c.beginPath(); c.moveTo(x0,y0); c.lineTo(x1,y1); c.stroke();
+  }
+}
+
+function drawHyperbolicTiling(c,t,maxR,layer,alpha){
+  const n=Math.min(60+layer*15,120);
+  const ax=Math.cos(t*0.15)*0.35+P.julia_cr*0.4;
+  const ay=Math.sin(t*0.11)*0.35+P.julia_ci*0.4;
+  for(let i=0;i<n;i++){
+    const theta=i/n*TAU+t*P.speed*0.3;
+    const r=0.8*(i/n);
+    let [hx,hy]=poincareMobius(r*Math.cos(theta), r*Math.sin(theta), ax, ay);
+    const mag2=hx*hx+hy*hy;
+    if(mag2>0.98) continue;
+    const px=hx*maxR, py=hy*maxR;
+    const f=Math.sqrt(mag2);
+    const col=getColorArr(f+layer*0.25+t*0.05);
+    const a=alpha*(1-f)*0.75;
+    c.fillStyle=`rgba(${col[0]},${col[1]},${col[2]},${a})`;
+    c.beginPath();
+    c.arc(px,py,P.dotRadius*(1+f*2)*(1+layer*0.2),0,TAU);
+    c.fill();
+  }
+}
+
+function drawTensorLines(c,t,maxR,layer,alpha){
+  const lines=12+layer*4;
+  for(let li=0;li<lines;li++){
+    const baseAngle=(li/lines)*TAU+t*0.2*P.speed;
+    const pts=[];
+    let x=0,y=0;
+    for(let step=0;step<120;step++){
+      const r=Math.sqrt(x*x+y*y);
+      const ang=Math.atan2(y,x);
+      const fv=fbm(x*P.fieldScale*1000+t,y*P.fieldScale*1000+t,4);
+      const dx=Math.cos(ang+fv*P.warpAmt*TAU+baseAngle)*2.5;
+      const dy=Math.sin(ang+fv*P.warpAmt*TAU+baseAngle)*2.5;
+      x+=dx; y+=dy;
+      if(Math.sqrt(x*x+y*y)>maxR*1.05) break;
+      pts.push([x,y,step/120]);
+    }
+    for(let i=0;i<pts.length-1;i++){
+      const col=getColorArr(pts[i][2]+li/lines*0.5+layer*0.2+t*0.06);
+      const a=alpha*0.55*(1-pts[i][2]*0.5);
+      c.strokeStyle=`rgba(${col[0]},${col[1]},${col[2]},${a})`;
+      c.lineWidth=P.lineWidth*(1.5-pts[i][2]);
+      c.beginPath(); c.moveTo(pts[i][0],pts[i][1]); c.lineTo(pts[i+1][0],pts[i+1][1]); c.stroke();
+    }
+  }
+}
+
+function drawFlowField(c,t,maxR,layer,alpha){
+  // draw particles in flow field
+  updateParticles(t);
+  for(const p of particles){
+    const x=p.x*maxR, y=p.y*maxR;
+    const f=p.life/p.maxLife;
+    const col=getColorArr(p.t+layer*0.2+t*0.04);
+    const a=alpha*f*0.5;
+    c.fillStyle=`rgba(${col[0]},${col[1]},${col[2]},${a})`;
+    c.beginPath();
+    c.arc(x,y,P.dotRadius*(0.5+f),0,TAU);
+    c.fill();
+  }
+}
+
+function drawParametricMesh(c,t,maxR,layer,alpha){
+  const steps=40+layer*8;
+  for(let ui=0;ui<=steps;ui++){
+    const u=ui/steps;
+    c.beginPath();
+    let first=true;
+    for(let vi=0;vi<=steps;vi++){
+      const v=vi/steps;
+      // toroidal parametric surface cross section
+      const R=0.7, r2=0.3+P.curvature*0.2;
+      const theta=u*TAU+t*P.speed*0.2;
+      const phi=v*TAU+t*P.speed*0.35;
+      const warp=fbm(u*3+t*0.2,v*3+t*0.15,3)*P.warpAmt*0.4;
+      const r3=(R+(r2+warp)*Math.cos(phi));
+      const px=r3*Math.cos(theta)*maxR;
+      const py=((r2+warp)*Math.sin(phi)+warp*0.2)*maxR;
+      if(first){ c.moveTo(px,py); first=false; }
+      else c.lineTo(px,py);
+    }
+    const col=getColorArr(u+layer*0.25+t*0.06);
+    const a=alpha*0.35;
+    c.strokeStyle=`rgba(${col[0]},${col[1]},${col[2]},${a})`;
+    c.lineWidth=P.lineWidth*0.8;
+    c.stroke();
+  }
+}
+
+function drawLissajous(c,t,maxR,layer,alpha){
+  const steps=500+layer*80;
+  const a=2+layer, b=3+layer%3;
+  const delta=t*P.speed*0.12+layer*0.5;
+  c.beginPath();
+  for(let i=0;i<=steps;i++){
+    const f=i/steps;
+    const theta=f*TAU;
+    const warp=fbm(Math.cos(theta)+t,Math.sin(theta)+t,3)*P.warpAmt*0.3;
+    const x=(Math.sin(a*theta+delta)+warp)*maxR*0.5*(1+P.breathe*Math.sin(theta*P.pulseFreq+t)*0.3);
+    const y=(Math.sin(b*theta)+warp)*maxR*0.5*(1+P.breathe*Math.cos(theta*P.pulseFreq+t)*0.3);
+    const col=getColorArr(f+layer*0.2+t*0.05);
+    const a2=alpha*0.65;
+    c.strokeStyle=`rgba(${col[0]},${col[1]},${col[2]},${a2})`;
+    if(i===0) c.moveTo(x,y);
+    else{
+      c.lineTo(x,y);
+      if(i%30===0){ c.stroke(); c.beginPath(); c.moveTo(x,y); }
+    }
+  }
+  c.stroke();
+}
+
+/* ─────────────────────────────────────────
+   RADIAL VIGNETTE
+───────────────────────────────────────── */
+function drawVignette(){
+  const CX=W/2,CY=H/2;
+  const maxR=Math.sqrt(CX*CX+CY*CY);
+  const g=ctx.createRadialGradient(CX,CY,maxR*0.4,CX,CY,maxR);
+  g.addColorStop(0,"rgba(0,0,0,0)");
+  g.addColorStop(1,"rgba(0,0,0,0.65)");
+  ctx.fillStyle=g;
+  ctx.fillRect(0,0,W,H);
+}
+
+/* ─────────────────────────────────────────
+   NOISE GRAIN overlay
+───────────────────────────────────────── */
+let grainCanvas, grainCtx;
+function buildGrain(){
+  grainCanvas=document.createElement("canvas");
+  grainCanvas.width=grainCanvas.height=256;
+  grainCtx=grainCanvas.getContext("2d");
+}
+function drawGrain(){
+  // randomize every frame for film grain effect
+  const d=grainCtx.createImageData(256,256);
+  for(let i=0;i<d.data.length;i+=4){
+    const v=Math.random()*30|0;
+    d.data[i]=d.data[i+1]=d.data[i+2]=v;
+    d.data[i+3]=18;
+  }
+  grainCtx.putImageData(d,0,0);
+  ctx.save();
+  ctx.globalCompositeOperation="overlay";
+  ctx.globalAlpha=0.35;
+  for(let x=0;x<W;x+=256) for(let y=0;y<H;y+=256)
+    ctx.drawImage(grainCanvas,x,y);
+  ctx.restore();
+}
+
+/* ─────────────────────────────────────────
+   CENTRAL GLOW
+───────────────────────────────────────── */
+function drawCenterGlow(t){
+  const CX=W/2,CY=H/2;
+  const pulse=1+P.breathe*Math.sin(t*P.pulseFreq)*0.25;
+  const size=Math.min(W,H)*0.18*pulse;
+  const col0=getColorArr(t*0.07);
+  const col1=getColorArr(t*0.07+0.5);
+  const g=ctx.createRadialGradient(CX,CY,0,CX,CY,size);
+  g.addColorStop(0, `rgba(${col0[0]},${col0[1]},${col0[2]},0.45)`);
+  g.addColorStop(0.4,`rgba(${col1[0]},${col1[1]},${col1[2]},0.12)`);
+  g.addColorStop(1,  "rgba(0,0,0,0)");
+  ctx.save();
+  ctx.globalCompositeOperation="lighter";
+  ctx.fillStyle=g;
+  ctx.beginPath();
+  ctx.arc(CX,CY,size,0,TAU);
+  ctx.fill();
+  ctx.restore();
+}
+
+/* ─────────────────────────────────────────
+   MAIN LOOP
+───────────────────────────────────────── */
+function frame(now){
+  requestAnimationFrame(frame);
+
+  const dt=Math.min((now-lastNow)*0.001,0.05);
+  lastNow=now;
+  animT+=dt*P.speed;
+
+  // FPS counter
+  fpsFrames++;
+  if(now-fpsLast>1000){ fps=fpsFrames; fpsFrames=0; fpsLast=now; }
+
+  // Trail
+  ctx.fillStyle=`rgba(0,0,0,${P.trailAlpha})`;
+  ctx.fillRect(0,0,W,H);
+
+  // Main art
+  drawKaleidoscope(animT);
+  drawCenterGlow(animT);
+  drawVignette();
+  // drawGrain(); // optional: slight perf cost
+
+  // HUD
+  if(showHUD) updateHUD();
+}
+
+/* ─────────────────────────────────────────
+   HUD
+───────────────────────────────────────── */
+let showHUD=false;
+function updateHUD(){
+  hud.innerHTML=`
+    <div class="row"><span class="label">MODE</span><span class="val">${P.mode} / ${(P.mode+1)%8}</span></div>
+    <div class="row"><span class="label">SYMMETRY</span><span class="val">${P.symmetry}×</span></div>
+    <div class="row"><span class="label">LAYERS</span><span class="val">${P.layers}</span></div>
+    <div class="row"><span class="label">BLEND</span><span class="val">${P.blendMode}</span></div>
+    <hr>
+    <div class="row"><span class="label">PALETTE</span><span class="val">${P.paletteMode}</span></div>
+    <div class="row"><span class="label">HUE</span><span class="val">${P.hueBase|0}°</span></div>
+    <div class="row"><span class="label">SPEED</span><span class="val">${P.speed.toFixed(2)}</span></div>
+    <div class="row"><span class="label">WARP</span><span class="val">${P.warpAmt.toFixed(2)}</span></div>
+    <hr>
+    <div class="row"><span class="label">JULIA</span><span class="val">${P.julia_cr.toFixed(3)} + ${P.julia_ci.toFixed(3)}i</span></div>
+    <div class="row"><span class="label">POWER</span><span class="val">${P.power.toFixed(2)}</span></div>
+    <div class="row"><span class="label">PARTICLES</span><span class="val">${P.particleCount}</span></div>
+    <hr>
+    <div class="row"><span class="label">SOUND</span><span class="val">${soundRunning?"ON ♪":"OFF"}</span></div>
+    <div class="row"><span class="label">FPS</span><span class="val">${fps}</span></div>
+    <div class="row"><span class="label">T</span><span class="val">${animT.toFixed(2)}</span></div>
+  `;
+}
+
+/* ─────────────────────────────────────────
+   AUDIO
+───────────────────────────────────────── */
+let audioCtx, masterGain, oscBank=[], lfoBank=[], reverbNode, filterNode;
+let soundRunning=false;
+
+function initAudio(){
+  audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+
+  // Reverb via convolver (impulse response)
+  reverbNode=audioCtx.createConvolver();
+  const len=audioCtx.sampleRate*2;
+  const ir=audioCtx.createBuffer(2,len,audioCtx.sampleRate);
+  for(let ch=0;ch<2;ch++){
+    const d=ir.getChannelData(ch);
+    for(let i=0;i<len;i++) d[i]=(Math.random()*2-1)*Math.exp(-i/len*5);
+  }
+  reverbNode.buffer=ir;
+
+  // Filter
+  filterNode=audioCtx.createBiquadFilter();
+  filterNode.type="lowpass";
+  filterNode.frequency.value=800+P.hueBase*4;
+  filterNode.Q.value=2;
+
+  masterGain=audioCtx.createGain();
+  masterGain.gain.value=0;
+
+  filterNode.connect(reverbNode);
+  reverbNode.connect(masterGain);
+  masterGain.connect(audioCtx.destination);
+
+  // Fade in
+  masterGain.gain.linearRampToValueAtTime(0.18, audioCtx.currentTime+1.5);
+}
+
+function startSound(){
+  if(soundRunning) return;
+  if(!audioCtx) initAudio();
+  soundRunning=true;
+
+  const base=P.baseFreq;
+  const ratios=P.harmonicRatios;
+  const waveforms=["sine","sine","triangle","sawtooth","square","sine"];
+
+  oscBank=[];
+  lfoBank=[];
+
+  ratios.forEach((ratio,i)=>{
+    const osc=audioCtx.createOscillator();
+    const g=audioCtx.createGain();
+    const lfo=audioCtx.createOscillator();
+    const lfoGain=audioCtx.createGain();
+
+    osc.type=waveforms[i%waveforms.length];
+    osc.frequency.value=base*ratio;
+
+    // vibrato LFO
+    lfo.frequency.value=0.3+i*0.15;
+    lfoGain.gain.value=base*ratio*0.008;
+    lfo.connect(lfoGain).connect(osc.frequency);
+    lfo.start();
+
+    const vol=0.12/(i+1)/(i%2===0?1:1.5);
+    g.gain.value=vol;
+    osc.connect(g).connect(filterNode);
+    osc.start();
+
+    oscBank.push({osc,g});
+    lfoBank.push({lfo,lfoGain});
+  });
+}
+
+function stopSound(){
+  soundRunning=false;
+  const fade=0.8;
+  if(masterGain) masterGain.gain.linearRampToValueAtTime(0,audioCtx.currentTime+fade);
+  setTimeout(()=>{
+    [...oscBank,...lfoBank].forEach(v=>{
+      try{v.osc?v.osc.stop():v.lfo.stop();}catch(e){}
+    });
+    oscBank=[]; lfoBank=[];
+  },fade*1000+100);
+}
+
+function rebuildSound(){
+  if(!soundRunning) return;
+  stopSound();
+  setTimeout(startSound, 1000);
+}
+
+/* ─────────────────────────────────────────
+   REGENERATE
+───────────────────────────────────────── */
+function regenerate(){
+  randomizeParams();
+  buildPaletteVecs();
+  rebuildSound();
+  // flash
+  flash.style.opacity="0.15";
+  setTimeout(()=>{ flash.style.opacity="0"; },80);
+}
+
+/* ─────────────────────────────────────────
+   INPUT
+───────────────────────────────────────── */
+addEventListener("keydown",e=>{
+  if(e.code==="Space"){ e.preventDefault(); regenerate(); }
+  if(e.key==="h"||e.key==="H"){
+    showHUD=!showHUD;
+    hud.style.display=showHUD?"block":"none";
+  }
+  if(e.key==="s"||e.key==="S"){
+    soundRunning?stopSound():startSound();
+  }
+});
+addEventListener("mousedown",e=>{ if(e.button===0) regenerate(); });
+addEventListener("touchstart",e=>{ e.preventDefault(); regenerate(); },{passive:false});
+
+/* ─────────────────────────────────────────
+   INIT
+───────────────────────────────────────── */
+buildGrain();
+resize();
+randomizeParams();
+buildPaletteVecs();
+lastNow=performance.now();
+requestAnimationFrame(frame);
+
+// Fade out hint after 5s
+setTimeout(()=>{ hint.classList.add("fade"); },5000);
+
+})();
+</script>
+</body>
+</html>

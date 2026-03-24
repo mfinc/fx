@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Perceptual Illusion Color Laboratory | Chromatic Adaptation & Afterimage Science</title>
+<meta name="description" content="An immersive, scientifically-inspired perceptual illusion laboratory exploring afterimage effects, simultaneous contrast, chromatic adaptation, rotating color wheels, and harmonic palette transitions through dynamic canvas animation.">
+<meta name="keywords" content="color illusion, perceptual illusion, afterimage effect, simultaneous contrast, chromatic adaptation, color wheel, optical illusion, color science, visual perception, spectral cycling">
+<meta property="og:title" content="Perceptual Illusion Color Laboratory">
+<meta property="og:description" content="Mind-bending chromatic illusions: afterimage, simultaneous contrast, and chromatic adaptation fused into a living visual spectacle.">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#000011">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%;
+    background: #000011;
+    overflow: hidden;
+    font-family: 'Courier New', monospace;
+  }
+  canvas {
+    display: block;
+    position: fixed;
+    top: 0; left: 0;
+    width: 100vw; height: 100vh;
+  }
+  #hud {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    display: none;
+    z-index: 10;
+  }
+  #hud.visible { display: block; }
+  #hud-panel {
+    position: absolute;
+    top: 18px; left: 18px;
+    background: rgba(0,0,0,0.72);
+    border: 1px solid rgba(255,255,255,0.13);
+    color: #e0e0e0;
+    padding: 14px 18px;
+    font-size: 11px;
+    line-height: 1.7;
+    letter-spacing: 0.06em;
+    min-width: 220px;
+    backdrop-filter: blur(8px);
+  }
+  #hud-panel h2 {
+    font-size: 10px;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: #fff;
+    margin-bottom: 8px;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+    padding-bottom: 6px;
+  }
+  .hud-val { color: #7fffff; font-weight: bold; }
+  #hud-controls {
+    position: absolute;
+    bottom: 18px; right: 18px;
+    background: rgba(0,0,0,0.65);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: rgba(255,255,255,0.55);
+    padding: 10px 14px;
+    font-size: 10px;
+    line-height: 1.9;
+    letter-spacing: 0.08em;
+    backdrop-filter: blur(6px);
+    text-align: right;
+  }
+  #hud-controls kbd {
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.2);
+    padding: 1px 5px;
+    color: #fff;
+    font-family: inherit;
+    font-size: 9px;
+  }
+  #toast {
+    position: fixed;
+    bottom: 30px; left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: rgba(0,0,0,0.8);
+    color: #fff;
+    padding: 8px 20px;
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    opacity: 0;
+    transition: opacity 0.4s, transform 0.4s;
+    pointer-events: none;
+    z-index: 20;
+    border: 1px solid rgba(255,255,255,0.15);
+  }
+  #toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="hud">
+  <div id="hud-panel">
+    <h2>⬡ Illusion Laboratory</h2>
+    <div>MODE: <span class="hud-val" id="h-mode">—</span></div>
+    <div>PHASE: <span class="hud-val" id="h-phase">—</span></div>
+    <div>HUE DRIFT: <span class="hud-val" id="h-hue">—</span></div>
+    <div>CONTRAST: <span class="hud-val" id="h-contrast">—</span></div>
+    <div>ADAPTATION: <span class="hud-val" id="h-adapt">—</span></div>
+    <div>SPECTRAL ƒ: <span class="hud-val" id="h-freq">—</span></div>
+    <div>INTENSITY: <span class="hud-val" id="h-intensity">—</span></div>
+    <div>FPS: <span class="hud-val" id="h-fps">—</span></div>
+  </div>
+  <div id="hud-controls">
+    <kbd>H</kbd> Toggle HUD<br>
+    <kbd>S</kbd> Toggle Sound<br>
+    <kbd>R</kbd> Randomize<br>
+    <kbd>Space</kbd> Pause<br>
+    <kbd>1–5</kbd> Select Mode
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+(function(){
+'use strict';
+
+// ─── Canvas Setup ───────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H;
+
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ─── State ───────────────────────────────────────────────────────────────────
+let t = 0;
+let paused = false;
+let hudVisible = false;
+let soundEnabled = false;
+let mode = 0; // 0=auto-cycle through all
+let currentScene = 0;
+const SCENES = ['AFTERIMAGE','CONTRAST','ADAPTATION','SPECTRAL','HARMONIC'];
+let sceneOrder = [0,1,2,3,4];
+let sceneOrderIdx = 0;
+let sceneTimer = 0;
+
+function shuffleScenes() {
+  for (let i = sceneOrder.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [sceneOrder[i], sceneOrder[j]] = [sceneOrder[j], sceneOrder[i]];
+  }
+  sceneOrderIdx = 0;
+  currentScene = sceneOrder[0];
+}
+shuffleScenes();
+const SCENE_DURATION = 420; // frames
+let lastTime = 0;
+let fps = 0;
+let frameCount = 0;
+let fpsTimer = 0;
+
+// Randomizable params
+let params = {};
+
+function randomize() {
+  params = {
+    hueOffset: Math.random() * 360,
+    hueDrift: (Math.random() * 1.5 + 0.3) * (Math.random() < 0.5 ? 1 : -1),
+    contrastAmp: Math.random() * 0.6 + 0.4,
+    adaptSpeed: Math.random() * 0.015 + 0.005,
+    spectralFreq: Math.random() * 0.04 + 0.01,
+    wheelCount: Math.floor(Math.random() * 4) + 3,
+    swatchRows: Math.floor(Math.random() * 3) + 3,
+    swatchCols: Math.floor(Math.random() * 4) + 4,
+    layerAlpha: Math.random() * 0.3 + 0.2,
+    gradientAngle: Math.random() * Math.PI * 2,
+    intensity: Math.random() * 0.5 + 0.5,
+    noiseAmp: Math.random() * 20 + 5,
+    afterBrightness: Math.random() * 0.4 + 0.6,
+  };
+  shuffleScenes();
+  sceneTimer = 0;
+}
+randomize();
+
+// ─── Audio ───────────────────────────────────────────────────────────────────
+let audioCtx = null;
+let oscillators = [];
+let masterGain = null;
+
+function initAudio() {
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  masterGain = audioCtx.createGain();
+  masterGain.gain.value = 0.0;
+  masterGain.connect(audioCtx.destination);
+}
+
+function startSounds() {
+  initAudio();
+  oscillators.forEach(o => { try { o.stop(); } catch(e){} });
+  oscillators = [];
+
+  const freqs = [55, 82.4, 110, 146.8, 220, 329.6];
+  freqs.forEach((f, i) => {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    const filt = audioCtx.createBiquadFilter();
+    osc.type = ['sine','triangle','sawtooth'][i % 3];
+    osc.frequency.value = f;
+    filt.type = 'bandpass';
+    filt.frequency.value = f * 2;
+    filt.Q.value = 3;
+    gain.gain.value = 0.04 / (i + 1);
+    osc.connect(filt);
+    filt.connect(gain);
+    gain.connect(masterGain);
+    osc.start();
+    oscillators.push({ osc, gain, filt });
+  });
+}
+
+function updateAudio(intensity, sceneIdx) {
+  if (!audioCtx || !soundEnabled) return;
+  masterGain.gain.setTargetAtTime(0.25 * intensity, audioCtx.currentTime, 0.1);
+  oscillators.forEach((o, i) => {
+    const base = [55, 82.4, 110, 146.8, 220, 329.6][i];
+    const mod = base * (1 + Math.sin(t * params.spectralFreq + i) * 0.08 * intensity);
+    o.osc.frequency.setTargetAtTime(mod, audioCtx.currentTime, 0.2);
+    o.gain.gain.setTargetAtTime((0.04 / (i + 1)) * intensity, audioCtx.currentTime, 0.1);
+  });
+}
+
+function toggleSound() {
+  soundEnabled = !soundEnabled;
+  if (soundEnabled) {
+    startSounds();
+    toast('SOUND ON');
+  } else {
+    if (masterGain) masterGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.3);
+    toast('SOUND OFF');
+  }
+}
+
+// ─── Math Helpers ─────────────────────────────────────────────────────────────
+const TAU = Math.PI * 2;
+const sin = Math.sin, cos = Math.cos, abs = Math.abs, floor = Math.floor;
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+function hsl(h, s, l, a=1) {
+  return `hsla(${h % 360},${s}%,${l}%,${a})`;
+}
+function complementary(h) { return (h + 180) % 360; }
+function triadic(h, i) { return (h + i * 120) % 360; }
+function analogous(h, i) { return (h + i * 30) % 360; }
+
+// ─── Scene 0: AFTERIMAGE ──────────────────────────────────────────────────────
+function drawAfterimage() {
+  const cx = W / 2, cy = H / 2;
+  const phase = (t * 0.008) % 1;
+  const baseHue = (params.hueOffset + t * params.hueDrift * 0.5) % 360;
+  const compHue = complementary(baseHue);
+
+  // Dark adaptation surround
+  ctx.fillStyle = `hsl(${baseHue + 30},15%,4%)`;
+  ctx.fillRect(0, 0, W, H);
+
+  // Outer ring — complementary fatigue zone
+  for (let ring = 0; ring < 6; ring++) {
+    const r = H * 0.42 - ring * H * 0.045;
+    const hue = (compHue + ring * 15 + t * 0.3) % 360;
+    const sat = 95 - ring * 8;
+    const lit = 30 + ring * 5;
+    const alpha = (0.85 - ring * 0.1) * params.intensity;
+    const grd = ctx.createRadialGradient(cx, cy, r * 0.7, cx, cy, r);
+    grd.addColorStop(0, hsl(hue, sat, lit, 0));
+    grd.addColorStop(1, hsl(hue, sat, lit, alpha));
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, TAU);
+    ctx.fillStyle = grd;
+    ctx.fill();
+  }
+
+  // Spinning chromatic sectors — the "fixate here" pattern
+  const sectorCount = 12;
+  for (let i = 0; i < sectorCount; i++) {
+    const angle = (i / sectorCount) * TAU + t * 0.02;
+    const hue = (baseHue + i * (360 / sectorCount)) % 360;
+    const flickerAlpha = 0.6 + 0.4 * sin(t * 0.15 + i * 0.7);
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, H * 0.35, angle, angle + TAU / sectorCount);
+    ctx.closePath();
+    ctx.fillStyle = hsl(hue, 100, 55, flickerAlpha * params.intensity);
+    ctx.fill();
+  }
+
+  // Center white afterimage trigger point
+  const pulse = 0.5 + 0.5 * sin(t * 0.25);
+  const wGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, H * 0.1);
+  wGrad.addColorStop(0, `rgba(255,255,255,${0.95 * pulse})`);
+  wGrad.addColorStop(0.4, `rgba(255,255,255,${0.3 * pulse})`);
+  wGrad.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.beginPath();
+  ctx.arc(cx, cy, H * 0.1, 0, TAU);
+  ctx.fillStyle = wGrad;
+  ctx.fill();
+
+  // Afterimage ghost layer (complementary overlay)
+  const ghostAlpha = 0.12 + 0.08 * sin(t * 0.07);
+  const ghostGrd = ctx.createRadialGradient(cx, cy, 0, cx, cy, H * 0.45);
+  ghostGrd.addColorStop(0, hsl(baseHue, 100, 60, ghostAlpha));
+  ghostGrd.addColorStop(0.5, hsl(baseHue + 60, 80, 40, ghostAlpha * 0.5));
+  ghostGrd.addColorStop(1, hsl(compHue, 100, 50, 0));
+  ctx.fillStyle = ghostGrd;
+  ctx.fillRect(0, 0, W, H);
+
+  // Rotating afterimage halo rings
+  for (let r = 0; r < 4; r++) {
+    const radius = H * (0.15 + r * 0.07);
+    const hue = (baseHue + 180 + r * 20 + t * 0.4) % 360;
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, TAU);
+    ctx.strokeStyle = hsl(hue, 100, 70, 0.25 - r * 0.04);
+    ctx.lineWidth = 3 - r * 0.4;
+    ctx.stroke();
+  }
+
+  updateHUD('AFTERIMAGE', phase, baseHue, params.contrastAmp, params.adaptSpeed, params.spectralFreq);
+}
+
+// ─── Scene 1: SIMULTANEOUS CONTRAST ──────────────────────────────────────────
+function drawSimultaneousContrast() {
+  const baseHue = (params.hueOffset + t * params.hueDrift) % 360;
+  const gridR = params.swatchRows;
+  const gridC = params.swatchCols;
+  const cellW = W / gridC;
+  const cellH = H / gridR;
+
+  // Surround backgrounds alternating contrast
+  for (let row = 0; row < gridR; row++) {
+    for (let col = 0; col < gridC; col++) {
+      const surroundHue = (baseHue + (row * gridC + col) * (360 / (gridR * gridC)) + t * 0.2) % 360;
+      const parity = (row + col) % 2;
+      const sat = parity ? 90 : 10;
+      const lit = parity ? 35 : 65;
+      ctx.fillStyle = hsl(surroundHue, sat, lit);
+      ctx.fillRect(col * cellW, row * cellH, cellW, cellH);
+    }
+  }
+
+  // Inner "identical" swatches that LOOK different due to surround
+  const innerW = cellW * 0.4;
+  const innerH = cellH * 0.4;
+  const sharedHue = (baseHue + 90 + t * 0.1) % 360;
+  const sharedSat = 70;
+  const sharedLit = 55;
+
+  for (let row = 0; row < gridR; row++) {
+    for (let col = 0; col < gridC; col++) {
+      const cx = col * cellW + cellW * 0.5;
+      const cy = row * cellH + cellH * 0.5;
+      // Every inner patch is same color — but appears different!
+      ctx.fillStyle = hsl(sharedHue, sharedSat, sharedLit);
+      ctx.fillRect(cx - innerW / 2, cy - innerH / 2, innerW, innerH);
+
+      // Subtle glowing border to amplify illusion
+      ctx.strokeStyle = `rgba(255,255,255,0.15)`;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(cx - innerW / 2, cy - innerH / 2, innerW, innerH);
+    }
+  }
+
+  // Flowing contrast gradient overlay
+  const flowGrd = ctx.createLinearGradient(
+    W * 0.5 + cos(params.gradientAngle + t * 0.005) * W * 0.5,
+    H * 0.5 + sin(params.gradientAngle + t * 0.005) * H * 0.5,
+    W * 0.5 - cos(params.gradientAngle + t * 0.005) * W * 0.5,
+    H * 0.5 - sin(params.gradientAngle + t * 0.005) * H * 0.5
+  );
+  flowGrd.addColorStop(0, hsl(baseHue, 100, 50, 0.08));
+  flowGrd.addColorStop(0.5, hsl(baseHue + 180, 100, 50, 0));
+  flowGrd.addColorStop(1, hsl(baseHue + 60, 100, 50, 0.08));
+  ctx.fillStyle = flowGrd;
+  ctx.fillRect(0, 0, W, H);
+
+  // Wave distortion lines
+  for (let y = 0; y < H; y += H / 20) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    for (let x = 0; x <= W; x += 8) {
+      const wave = sin(x * 0.02 + t * 0.05 + y * 0.01) * 4 * params.contrastAmp;
+      ctx.lineTo(x, y + wave);
+    }
+    ctx.strokeStyle = `rgba(255,255,255,0.04)`;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+
+  updateHUD('SIMULTANEOUS CONTRAST', (t * 0.01) % 1, baseHue, params.contrastAmp, params.adaptSpeed, params.spectralFreq);
+}
+
+// ─── Scene 2: CHROMATIC ADAPTATION ────────────────────────────────────────────
+function drawChromaticAdaptation() {
+  const adaptPhase = (t * params.adaptSpeed) % TAU;
+  const baseHue = (params.hueOffset + t * params.hueDrift * 0.3) % 360;
+
+  // Slowly shifting illuminant — the "white balance" shift
+  const illuminantHue = (sin(adaptPhase) * 60 + baseHue) % 360;
+  const illuminantR = floor(lerp(180, 255, (sin(adaptPhase) + 1) * 0.5));
+  const illuminantG = floor(lerp(180, 255, (sin(adaptPhase + 2) + 1) * 0.5));
+  const illuminantB = floor(lerp(180, 255, (sin(adaptPhase + 4) + 1) * 0.5));
+
+  ctx.fillStyle = `rgb(${illuminantR * 0.05},${illuminantG * 0.05},${illuminantB * 0.05})`;
+  ctx.fillRect(0, 0, W, H);
+
+  // Concentric adaptation rings
+  const rings = 18;
+  for (let i = rings; i >= 0; i--) {
+    const frac = i / rings;
+    const r = frac * Math.min(W, H) * 0.52;
+    const hue = (illuminantHue + i * 12 + t * 0.3 * (i % 2 ? 1 : -1)) % 360;
+    const sat = 80 + 20 * sin(adaptPhase + i * 0.5);
+    const lit = 30 + 30 * frac;
+    const alpha = (1 - frac * 0.5) * params.intensity;
+    ctx.beginPath();
+    ctx.arc(W / 2, H / 2, r, 0, TAU);
+    ctx.fillStyle = hsl(hue, sat, lit, alpha * 0.35);
+    ctx.fill();
+  }
+
+  // Von Kries adaptation checkerboard
+  const sqSize = Math.min(W, H) / 14;
+  const offX = W / 2 - sqSize * 7;
+  const offY = H / 2 - sqSize * 7;
+  for (let row = 0; row < 14; row++) {
+    for (let col = 0; col < 14; col++) {
+      const parity = (row + col) % 2;
+      // Colors that appear neutral under shifted illuminant
+      const hue = parity
+        ? (illuminantHue + 180) % 360
+        : illuminantHue;
+      const adapt = 0.7 + 0.3 * sin(adaptPhase + (row + col) * 0.3);
+      ctx.fillStyle = hsl(hue, 60 * adapt, 50, 0.45 * params.intensity);
+      ctx.fillRect(offX + col * sqSize, offY + row * sqSize, sqSize, sqSize);
+    }
+  }
+
+  // Rotating color wheel overlay showing adaptation
+  const wheelR = Math.min(W, H) * 0.28;
+  const steps = 72;
+  for (let i = 0; i < steps; i++) {
+    const a1 = (i / steps) * TAU + adaptPhase;
+    const a2 = ((i + 1) / steps) * TAU + adaptPhase;
+    const hue = (i / steps) * 360;
+    ctx.beginPath();
+    ctx.moveTo(W / 2, H / 2);
+    ctx.arc(W / 2, H / 2, wheelR, a1, a2);
+    ctx.closePath();
+    ctx.fillStyle = hsl(hue, 95, 55, 0.15 * params.intensity);
+    ctx.fill();
+  }
+
+  // Illuminant glow center
+  const igrd = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, wheelR * 0.35);
+  igrd.addColorStop(0, `rgba(${illuminantR},${illuminantG},${illuminantB},0.3)`);
+  igrd.addColorStop(1, `rgba(${illuminantR},${illuminantG},${illuminantB},0)`);
+  ctx.fillStyle = igrd;
+  ctx.fillRect(0, 0, W, H);
+
+  updateHUD('CHROMATIC ADAPTATION', adaptPhase / TAU, illuminantHue, params.contrastAmp, params.adaptSpeed, params.spectralFreq);
+}
+
+// ─── Scene 3: SPECTRAL CYCLING ────────────────────────────────────────────────
+function drawSpectralCycling() {
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, W, H);
+
+  const freq = params.spectralFreq;
+  const amp = params.noiseAmp;
+
+  // Full-spectrum horizontal bands with wave interference
+  const bandH = 4;
+  for (let y = 0; y < H; y += bandH) {
+    const phase = y / H;
+    const hue = ((phase * 360 + t * 0.8) % 360 + params.hueOffset) % 360;
+    const wave = sin(y * freq * 10 + t * 0.12) * amp;
+    const wave2 = sin(y * freq * 7 - t * 0.09 + 1.3) * amp * 0.6;
+    const xOffset = wave + wave2;
+    const sat = 90 + 10 * sin(t * 0.05 + y * 0.02);
+    const lit = 40 + 20 * sin(t * 0.07 + y * 0.015);
+    const alpha = params.intensity * (0.7 + 0.3 * sin(phase * TAU + t * 0.1));
+
+    const grd = ctx.createLinearGradient(xOffset, y, W + xOffset, y + bandH);
+    grd.addColorStop(0, hsl(hue, sat, lit * 0.6, 0));
+    grd.addColorStop(0.1, hsl(hue, sat, lit, alpha));
+    grd.addColorStop(0.5, hsl((hue + 30) % 360, sat, lit, alpha));
+    grd.addColorStop(0.9, hsl((hue + 180) % 360, sat, lit * 0.8, alpha));
+    grd.addColorStop(1, hsl(hue, sat, lit * 0.6, 0));
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, y, W, bandH);
+  }
+
+  // Spinning spectral wheels
+  const wheelCount = params.wheelCount;
+  const positions = [];
+  for (let i = 0; i < wheelCount; i++) {
+    const angle = (i / wheelCount) * TAU + t * 0.004;
+    const dist = Math.min(W, H) * 0.3;
+    positions.push({
+      x: W / 2 + cos(angle) * dist,
+      y: H / 2 + sin(angle) * dist,
+      r: Math.min(W, H) * (0.1 + 0.05 * sin(t * 0.03 + i)),
+      hueBase: (params.hueOffset + i * (360 / wheelCount) + t * 0.5) % 360,
+      spin: t * (0.03 + i * 0.01) * (i % 2 ? 1 : -1),
+    });
+  }
+
+  positions.forEach(pos => {
+    const steps = 48;
+    for (let s = 0; s < steps; s++) {
+      const a1 = (s / steps) * TAU + pos.spin;
+      const a2 = ((s + 1) / steps) * TAU + pos.spin;
+      const hue = (pos.hueBase + s * (360 / steps)) % 360;
+      ctx.beginPath();
+      ctx.moveTo(pos.x, pos.y);
+      ctx.arc(pos.x, pos.y, pos.r, a1, a2);
+      ctx.closePath();
+      ctx.fillStyle = hsl(hue, 100, 55, 0.5 * params.intensity);
+      ctx.fill();
+    }
+
+    // Wheel glow
+    const grd = ctx.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, pos.r);
+    grd.addColorStop(0, `rgba(255,255,255,${0.15 * params.intensity})`);
+    grd.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = grd;
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, pos.r, 0, TAU);
+    ctx.fill();
+  });
+
+  // Interference pattern overlay
+  for (let r = 0; r < 5; r++) {
+    const radius = H * (0.05 + r * 0.09) + sin(t * 0.04 + r) * H * 0.03;
+    const hue = (params.hueOffset + r * 60 + t * 0.6) % 360;
+    ctx.beginPath();
+    ctx.arc(W / 2, H / 2, radius, 0, TAU);
+    ctx.strokeStyle = hsl(hue, 100, 60, 0.2 * params.intensity);
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+
+  updateHUD('SPECTRAL CYCLING', (t * freq) % 1, params.hueOffset, params.contrastAmp, params.adaptSpeed, freq);
+}
+
+// ─── Scene 4: HARMONIC PALETTE ─────────────────────────────────────────────────
+function drawHarmonicPalette() {
+  const baseHue = (params.hueOffset + t * params.hueDrift * 0.4) % 360;
+
+  ctx.fillStyle = `hsl(${baseHue},8%,5%)`;
+  ctx.fillRect(0, 0, W, H);
+
+  // Flowing gradient mesh background
+  const meshCols = 6, meshRows = 5;
+  for (let row = 0; row < meshRows; row++) {
+    for (let col = 0; col < meshCols; col++) {
+      const x = (col / meshCols) * W;
+      const y = (row / meshRows) * H;
+      const cw = W / meshCols;
+      const ch = H / meshRows;
+      const hue = (baseHue + col * 25 + row * 18 + t * 0.3) % 360;
+      const wave = sin(t * 0.04 + col * 0.8 + row * 0.6) * 0.5 + 0.5;
+      const sat = 70 + 30 * wave;
+      const lit = 20 + 25 * wave;
+      const grd = ctx.createRadialGradient(x + cw / 2, y + ch / 2, 0, x + cw / 2, y + ch / 2, Math.max(cw, ch) * 0.7);
+      grd.addColorStop(0, hsl(hue, sat, lit, 0.6 * params.intensity));
+      grd.addColorStop(1, hsl(hue, sat, lit, 0));
+      ctx.fillStyle = grd;
+      ctx.fillRect(x, y, cw, ch);
+    }
+  }
+
+  // Triadic harmonic swatch columns
+  const swatchW = W / 6;
+  const triadicHues = [baseHue, triadic(baseHue, 1), triadic(baseHue, 2)];
+  const analogHues = [
+    analogous(baseHue, -2), analogous(baseHue, -1), baseHue,
+    analogous(baseHue, 1), analogous(baseHue, 2), analogous(baseHue, 3)
+  ];
+
+  // Swatch array with chromatic motion
+  const rows = 8;
+  const swatchH = H / rows;
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < 6; col++) {
+      const hue = (analogHues[col] + row * 8 + t * 0.15) % 360;
+      const wave = sin(t * 0.04 + col * 1.1 + row * 0.7) * 0.5 + 0.5;
+      const sat = 60 + 40 * wave;
+      const lit = 25 + 35 * wave;
+      const alpha = (0.55 + 0.2 * wave) * params.intensity;
+      const padding = 3;
+      ctx.fillStyle = hsl(hue, sat, lit, alpha);
+      ctx.fillRect(col * swatchW + padding, row * swatchH + padding, swatchW - padding * 2, swatchH - padding * 2);
+    }
+  }
+
+  // Transparent harmonic chord overlay — spinning rings of triadic color
+  for (let t2 = 0; t2 < 3; t2++) {
+    const hue = triadicHues[t2];
+    const phase = t * 0.018 + t2 * (TAU / 3);
+    const r = Math.min(W, H) * (0.18 + 0.06 * sin(t * 0.03 + t2));
+    const cx = W / 2 + cos(phase) * W * 0.2;
+    const cy = H / 2 + sin(phase) * H * 0.2;
+    const grd = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+    grd.addColorStop(0, hsl(hue, 100, 60, 0.35 * params.intensity));
+    grd.addColorStop(0.5, hsl(hue, 100, 45, 0.15 * params.intensity));
+    grd.addColorStop(1, hsl(hue, 100, 30, 0));
+    ctx.fillStyle = grd;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, TAU);
+    ctx.fill();
+  }
+
+  // Spectral spine — vertical rainbow column
+  const spineGrd = ctx.createLinearGradient(W / 2 - 30, 0, W / 2 + 30, 0);
+  for (let i = 0; i <= 6; i++) {
+    spineGrd.addColorStop(i / 6, hsl((baseHue + i * 60) % 360, 100, 55, 0.08));
+  }
+  const vGrd = ctx.createLinearGradient(0, 0, 0, H);
+  for (let i = 0; i <= 12; i++) {
+    const hue = (baseHue + i * 30 + t * 0.5) % 360;
+    vGrd.addColorStop(i / 12, hsl(hue, 100, 55, 0.12 * params.intensity));
+  }
+  ctx.fillStyle = vGrd;
+  ctx.fillRect(0, 0, W, H);
+
+  updateHUD('HARMONIC PALETTE', (t * 0.005) % 1, baseHue, params.contrastAmp, params.adaptSpeed, params.spectralFreq);
+}
+
+// ─── Overlay: Swatch Array Transition ────────────────────────────────────────
+function drawTransitionEffects() {
+  // Global vignette
+  const vig = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.3, W / 2, H / 2, Math.min(W, H) * 0.75);
+  vig.addColorStop(0, 'rgba(0,0,0,0)');
+  vig.addColorStop(1, 'rgba(0,0,0,0.55)');
+  ctx.fillStyle = vig;
+  ctx.fillRect(0, 0, W, H);
+
+  // Scanlines
+  ctx.fillStyle = 'rgba(0,0,0,0.04)';
+  for (let y = 0; y < H; y += 3) {
+    ctx.fillRect(0, y, W, 1);
+  }
+
+  // Scene fade
+  const sceneFrac = sceneTimer / SCENE_DURATION;
+  if (sceneFrac < 0.06) {
+    ctx.fillStyle = `rgba(0,0,0,${1 - sceneFrac / 0.06})`;
+    ctx.fillRect(0, 0, W, H);
+  } else if (sceneFrac > 0.92) {
+    ctx.fillStyle = `rgba(0,0,0,${(sceneFrac - 0.92) / 0.08})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+}
+
+// ─── HUD Update ───────────────────────────────────────────────────────────────
+function updateHUD(modeName, phase, hue, contrast, adapt, freq) {
+  if (!hudVisible) return;
+  document.getElementById('h-mode').textContent = modeName;
+  document.getElementById('h-phase').textContent = (phase * 100).toFixed(1) + '%';
+  document.getElementById('h-hue').textContent = hue.toFixed(1) + '°';
+  document.getElementById('h-contrast').textContent = (contrast * 100).toFixed(0) + '%';
+  document.getElementById('h-adapt').textContent = (adapt * 1000).toFixed(2);
+  document.getElementById('h-freq').textContent = freq.toFixed(4);
+  document.getElementById('h-intensity').textContent = (params.intensity * 100).toFixed(0) + '%';
+  document.getElementById('h-fps').textContent = fps.toFixed(1);
+}
+
+// ─── Toast ────────────────────────────────────────────────────────────────────
+var toastTimer = null;
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 1800);
+}
+
+// ─── Main Loop ────────────────────────────────────────────────────────────────
+const sceneFns = [
+  drawAfterimage,
+  drawSimultaneousContrast,
+  drawChromaticAdaptation,
+  drawSpectralCycling,
+  drawHarmonicPalette,
+];
+
+function loop(now) {
+  requestAnimationFrame(loop);
+  if (paused) return;
+
+  const dt = now - lastTime;
+  lastTime = now;
+  frameCount++;
+  fpsTimer += dt;
+  if (fpsTimer > 500) {
+    fps = frameCount / (fpsTimer / 1000);
+    frameCount = 0;
+    fpsTimer = 0;
+  }
+
+  t++;
+  sceneTimer++;
+  if (sceneTimer >= SCENE_DURATION) {
+    sceneTimer = 0;
+    sceneOrderIdx = (sceneOrderIdx + 1) % sceneOrder.length;
+    if (sceneOrderIdx === 0) shuffleScenes(); // reshuffle on full cycle
+    currentScene = sceneOrder[sceneOrderIdx];
+  }
+
+  const scene = mode === 0 ? currentScene : mode - 1;
+  sceneFns[scene]();
+  drawTransitionEffects();
+
+  const intensity = params.intensity * (0.8 + 0.2 * Math.sin(t * 0.02));
+  updateAudio(intensity, scene);
+}
+
+requestAnimationFrame(ts => { lastTime = ts; loop(ts); });
+
+// ─── Input ────────────────────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  switch(e.key.toLowerCase()) {
+    case 'h':
+      hudVisible = !hudVisible;
+      document.getElementById('hud').classList.toggle('visible', hudVisible);
+      toast(hudVisible ? 'HUD ON' : 'HUD OFF');
+      break;
+    case 's':
+      toggleSound();
+      break;
+    case 'r':
+      randomize();
+      break;
+    case ' ':
+      e.preventDefault();
+      paused = !paused;
+      toast(paused ? 'PAUSED' : 'RESUMED');
+      break;
+    case '1': case '2': case '3': case '4': case '5':
+      mode = parseInt(e.key);
+      currentScene = mode - 1;
+      sceneTimer = 0;
+      toast('MODE: ' + SCENES[mode - 1]);
+      break;
+    case '0':
+      mode = 0;
+      toast('MODE: AUTO');
+      break;
+  }
+});
+
+// Touch: tap to randomize
+var tapTimer = null;
+canvas.addEventListener('click', () => {
+  clearTimeout(tapTimer);
+  tapTimer = setTimeout(() => randomize(), 50);
+});
+
+// Show initial controls hint
+setTimeout(() => toast('PRESS H FOR HUD · S FOR SOUND · R TO RANDOMIZE'), 800);
+
+})();
+</script>
+
+<!-- Structured Data for SEO -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "Perceptual Illusion Color Laboratory",
+  "description": "An immersive, scientifically-inspired perceptual illusion laboratory exploring afterimage effects, simultaneous contrast, chromatic adaptation, rotating color wheels, and harmonic palette transitions.",
+  "applicationCategory": "EntertainmentApplication",
+  "operatingSystem": "Web Browser",
+  "keywords": ["color illusion", "perceptual illusion", "afterimage", "simultaneous contrast", "chromatic adaptation", "color science", "optical illusion", "visual perception"],
+  "author": { "@type": "Organization", "name": "Perceptual Science Lab" },
+  "offers": { "@type": "Offer", "price": "0" }
+}
+</script>
+</body>
+</html>

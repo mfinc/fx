@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Penrose Chaotic Pendulum Lattice</title>
+<meta name="description" content="A generative audiovisual simulation engine featuring Penrose tiling physics — every vertex hosts multi-pendulum systems, every edge becomes a spring-damper constraint forming a chaotic oscillatory lattice. Symplectic Verlet integration drives quasicrystal wave propagation, torsional resonance, and fractal motion trails. Procedurally generated sound derived from pendulum frequencies and spring tension. A never-before-seen computational art experience.">
+<meta name="keywords" content="generative art, Penrose tiling physics simulation, chaotic pendulum networks, computational art, audiovisual procedural animation, quasicrystal simulation, spring mass lattice, symplectic integrator, Verlet physics, chaos theory visualization, interactive generative music, fractal motion trails, spectral interference patterns, WebAudio synthesis, canvas animation, pendulum chaos, procedural art engine, mathematical art, tiling theory, aperiodic tiling">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+  canvas { display: block; position: fixed; top: 0; left: 0; }
+  #hud {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none; display: none; font-family: 'Courier New', monospace;
+    font-size: 11px; color: rgba(255,255,255,0.7);
+  }
+  #hud-panel {
+    position: absolute; top: 18px; left: 18px;
+    background: rgba(0,0,0,0.55); border: 1px solid rgba(255,255,255,0.12);
+    padding: 12px 16px; line-height: 1.9; min-width: 220px;
+    backdrop-filter: blur(4px);
+  }
+  #hud-panel span { color: rgba(160,220,255,0.9); }
+  #hint {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    font-family: 'Courier New', monospace; font-size: 11px;
+    color: rgba(255,255,255,0.28); letter-spacing: 0.12em;
+    pointer-events: none; transition: opacity 1s;
+    white-space: nowrap;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"><div id="hud-panel">
+  PENROSE CHAOTIC LATTICE<br>
+  ─────────────────────<br>
+  Nodes: <span id="h-nodes">0</span><br>
+  Edges: <span id="h-edges">0</span><br>
+  Pendula: <span id="h-pend">0</span><br>
+  Avg Velocity: <span id="h-vel">0</span><br>
+  Total Energy: <span id="h-energy">0</span><br>
+  Chaos Index: <span id="h-chaos">0</span><br>
+  Palette: <span id="h-palette">—</span><br>
+  ─────────────────────<br>
+  [SPACE/CLICK] Regenerate<br>
+  [H] Toggle HUD<br>
+  [S] Toggle Sound
+</div></div>
+<div id="hint">SPACE · CLICK · TAP &nbsp;→&nbsp; REGENERATE &nbsp;|&nbsp; H &nbsp;→&nbsp; HUD &nbsp;|&nbsp; S &nbsp;→&nbsp; SOUND</div>
+<script>
+'use strict';
+// ═══════════════════════════════════════════════════════════
+//  PENROSE CHAOTIC PENDULUM LATTICE
+//  Generative Audiovisual Engine
+// ═══════════════════════════════════════════════════════════
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H, cx, cy;
+
+// ─── Global State ───────────────────────────────────────────
+let nodes = [], edges = [], pendula = [];
+let trails = [];        // per-node ring buffers
+let frame = 0;
+let soundOn = false;
+let hudOn = false;
+let audioCtx = null;
+let masterGain = null;
+let oscillators = [];
+let reverbNode = null;
+let palette = {};
+let params = {};
+let animId = null;
+let lastRegen = 0;
+
+// ─── Resize ─────────────────────────────────────────────────
+function resize() {
+  W = canvas.width  = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  cx = W / 2; cy = H / 2;
+}
+window.addEventListener('resize', () => { resize(); regen(); });
+resize();
+
+// ═══════════════════════════════════════════════════════════
+//  PALETTE SYSTEM
+// ═══════════════════════════════════════════════════════════
+const PALETTES = [
+  { name:'Void Plasma',   bg:'#000005', hues:[200,220,260,300,340], sat:[80,100], lum:[40,80], glow:[190,280] },
+  { name:'Solar Forge',   bg:'#050200', hues:[10,30,50,70,200],  sat:[90,100], lum:[45,85], glow:[20,60] },
+  { name:'Abyssal Rime',  bg:'#000308', hues:[170,190,210,230,280],sat:[70,95], lum:[35,75], glow:[180,230] },
+  { name:'Neon Fracture', bg:'#02000a', hues:[270,300,330,60,120], sat:[95,100],lum:[50,90], glow:[280,320] },
+  { name:'Verdant Surge', bg:'#000500', hues:[80,110,140,160,40],  sat:[75,100],lum:[40,80], glow:[100,150] },
+  { name:'Crimson Void',  bg:'#080000', hues:[340,0,20,40,270],    sat:[85,100],lum:[40,80], glow:[350,30] },
+  { name:'Phosphene',     bg:'#000408', hues:[150,180,210,60,300],  sat:[80,100],lum:[50,85], glow:[160,210] },
+  { name:'Molten Quasar', bg:'#040200', hues:[20,40,60,200,240],    sat:[90,100],lum:[45,85], glow:[30,55] },
+];
+
+function randomPalette() {
+  const p = PALETTES[Math.floor(Math.random() * PALETTES.length)];
+  const randHue = () => p.hues[Math.floor(Math.random()*p.hues.length)] + (Math.random()-0.5)*20;
+  const randSat = () => p.sat[0] + Math.random()*(p.sat[1]-p.sat[0]);
+  const randLum = () => p.lum[0] + Math.random()*(p.lum[1]-p.lum[0]);
+  return {
+    name: p.name,
+    bg: p.bg,
+    node: (i) => `hsl(${(p.hues[i % p.hues.length] + frame*0.02 + i*7) % 360},${randSat()}%,${randLum()}%)`,
+    edge: (t) => `hsl(${(p.glow[0] + t*(p.glow[1]-p.glow[0]) + frame*0.015) % 360},90%,60%)`,
+    glow0: p.glow[0], glow1: p.glow[1],
+    hues: p.hues,
+    sat: p.sat, lum: p.lum,
+    bg2: p.bg,
+  };
+}
+
+function hsl(h,s,l,a=1) { return `hsla(${h%360},${s}%,${l}%,${a})`; }
+
+// ═══════════════════════════════════════════════════════════
+//  PENROSE P3 TILING  (de Bruijn / subdivision method)
+// ═══════════════════════════════════════════════════════════
+const PHI = (1 + Math.sqrt(5)) / 2;
+
+function penrose(cx, cy, size, depth) {
+  // Generate P3 (rhombus) Penrose tiling via subdivision
+  // Returns { verts: Map<key,{x,y}>, triangles: [{a,b,c,type}] }
+  let tris = [];
+  // Start with 10 golden gnomons around center
+  for (let i = 0; i < 10; i++) {
+    const a1 = (2*i - 1) * Math.PI / 10;
+    const a2 = (2*i + 1) * Math.PI / 10;
+    const type = (i % 2 === 0) ? 0 : 1; // 0=thin, 1=thick
+    const p0 = {x: cx, y: cy};
+    const p1 = {x: cx + size * Math.cos(a1), y: cy + size * Math.sin(a1)};
+    const p2 = {x: cx + size * Math.cos(a2), y: cy + size * Math.sin(a2)};
+    if (i % 2 === 0) tris.push({a:p0,b:p2,c:p1,t:0});
+    else             tris.push({a:p0,b:p1,c:p2,t:0});
+  }
+
+  // Subdivide
+  for (let d = 0; d < depth; d++) {
+    const next = [];
+    for (const tri of tris) {
+      const {a,b,c,t} = tri;
+      if (t === 0) { // thin gnomon
+        const p = {x: a.x + (b.x-a.x)/PHI, y: a.y + (b.y-a.y)/PHI};
+        const q = {x: b.x + (c.x-b.x)/PHI, y: b.y + (c.y-b.y)/PHI};
+        next.push({a:q,b:p,c:b,t:0});
+        next.push({a:q,b:c,c:a,t:1});
+        next.push({a:p,b:a,c:q,t:1});
+      } else { // thick gnomon
+        const p = {x: b.x + (a.x-b.x)/PHI, y: b.y + (a.y-b.y)/PHI};
+        next.push({a:p,b:c,c:a,t:0});
+        next.push({a:c,b:p,c:b,t:1});
+      }
+    }
+    tris = next;
+  }
+  return tris;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  BUILD PHYSICS GRAPH FROM PENROSE TRIANGLES
+// ═══════════════════════════════════════════════════════════
+function buildGraph(tris) {
+  const eps = 0.5;
+  const vmap = new Map();
+  const key = (p) => `${Math.round(p.x/eps)*eps},${Math.round(p.y/eps)*eps}`;
+
+  const getOrAdd = (p) => {
+    const k = key(p);
+    if (!vmap.has(k)) {
+      const id = vmap.size;
+      vmap.set(k, {id, x:p.x, y:p.y, vx:0, vy:0, ax:0, ay:0,
+        mass: params.nodeMass + Math.random()*params.nodeMassVar,
+        pinned: false, energy:0, color:0 });
+    }
+    return vmap.get(k);
+  };
+
+  const edgeSet = new Map();
+  for (const tri of tris) {
+    const va = getOrAdd(tri.a), vb = getOrAdd(tri.b), vc = getOrAdd(tri.c);
+    [[va,vb],[vb,vc],[vc,va]].forEach(([u,v]) => {
+      const ek = u.id < v.id ? `${u.id}-${v.id}` : `${v.id}-${u.id}`;
+      if (!edgeSet.has(ek)) {
+        const dx = u.x-v.x, dy = u.y-v.y;
+        const restLen = Math.sqrt(dx*dx+dy*dy);
+        edgeSet.set(ek, {a:u, b:v, restLen,
+          k: params.springK * (0.8 + Math.random()*0.4),
+          damping: params.damping * (0.8 + Math.random()*0.4),
+          strain:0, phase: Math.random()*Math.PI*2 });
+      }
+    });
+  }
+
+  const verts = [...vmap.values()];
+  const edgeList = [...edgeSet.values()];
+
+  // Give initial velocities (chaotic seed)
+  verts.forEach((v, i) => {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = params.initSpeed * (0.5 + Math.random());
+    v.vx = Math.cos(angle) * speed;
+    v.vy = Math.sin(angle) * speed;
+    v.color = i;
+    // Assign pendulum data
+    v.theta  = Math.random() * Math.PI * 2;
+    v.dtheta = (Math.random()-0.5) * params.pendulumSpeed;
+    v.pendLen = params.pendulumLen * (0.5 + Math.random());
+    v.pendMass = 0.5 + Math.random() * 1.5;
+  });
+
+  // Trails
+  const TRAIL = params.trailLen;
+  const trailArr = verts.map(() => ({ pts: new Float32Array(TRAIL*2), head:0, len:0 }));
+
+  return { verts, edges: edgeList, trails: trailArr };
+}
+
+// ═══════════════════════════════════════════════════════════
+//  PHYSICS: SYMPLECTIC VERLET + PENDULUM + TORSION
+// ═══════════════════════════════════════════════════════════
+function physicsStep(dt) {
+  const N = nodes.length;
+  const g = params.gravity;
+  const chaos = params.chaosAmp;
+
+  // Reset accelerations
+  for (let i = 0; i < N; i++) {
+    nodes[i].ax = 0;
+    nodes[i].ay = g; // gravity
+  }
+
+  // Spring-damper forces
+  for (let e = 0; e < edges.length; e++) {
+    const ed = edges[e];
+    const a = ed.a, b = ed.b;
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const dist = Math.sqrt(dx*dx + dy*dy) || 0.001;
+    const stretch = dist - ed.restLen;
+    ed.strain = stretch / ed.restLen;
+
+    // Spring force
+    const fx_s = ed.k * stretch * dx / dist;
+    const fy_s = ed.k * stretch * dy / dist;
+    // Damping force (relative velocity along spring)
+    const dvx = b.vx - a.vx, dvy = b.vy - a.vy;
+    const relV = (dvx*dx + dvy*dy) / dist;
+    const fd = ed.damping * relV;
+    const fx = fx_s + fd * dx/dist;
+    const fy = fy_s + fd * dy/dist;
+
+    a.ax += fx / a.mass;
+    a.ay += fy / a.mass;
+    b.ax -= fx / b.mass;
+    b.ay -= fy / b.mass;
+  }
+
+  // Pendulum torque feeds back into node position (chaotic coupling)
+  for (let i = 0; i < N; i++) {
+    const v = nodes[i];
+    // Double pendulum simplified: pendulum angle drives small positional nudge
+    const torque = -g * v.pendLen * Math.sin(v.theta) * params.pendCoupling;
+    v.dtheta += torque * dt;
+    v.dtheta *= 1 - params.pendDamp * dt;
+    v.theta += v.dtheta * dt;
+
+    // Chaotic resonance: coupling between neighboring pendula
+    v.ax += Math.sin(v.theta) * chaos * v.pendMass;
+    v.ay += Math.cos(v.theta * PHI) * chaos * v.pendMass;
+  }
+
+  // Symplectic Euler (velocity first, then position)
+  for (let i = 0; i < N; i++) {
+    const v = nodes[i];
+    if (v.pinned) continue;
+    v.vx += v.ax * dt;
+    v.vy += v.ay * dt;
+
+    // Velocity damping (global)
+    v.vx *= params.globalDamp;
+    v.vy *= params.globalDamp;
+
+    // Clamp velocity
+    const spd = Math.sqrt(v.vx*v.vx + v.vy*v.vy);
+    if (spd > params.maxSpeed) { v.vx *= params.maxSpeed/spd; v.vy *= params.maxSpeed/spd; }
+
+    v.x += v.vx * dt;
+    v.y += v.vy * dt;
+
+    // Soft boundary: attract back toward original position (restoring force)
+    v.ax += (v.ox - v.x) * params.restoreK;
+    v.ay += (v.oy - v.y) * params.restoreK;
+
+    v.energy = 0.5 * v.mass * (v.vx*v.vx + v.vy*v.vy);
+  }
+
+  // Store trail
+  const TRAIL = params.trailLen;
+  for (let i = 0; i < N; i++) {
+    const tr = trails[i];
+    const h = tr.head;
+    tr.pts[h*2]   = nodes[i].x;
+    tr.pts[h*2+1] = nodes[i].y;
+    tr.head = (h+1) % TRAIL;
+    if (tr.len < TRAIL) tr.len++;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  RENDER
+// ═══════════════════════════════════════════════════════════
+function render() {
+  const t = frame * 0.001;
+  const N = nodes.length;
+  const E = edges.length;
+
+  // Background fade
+  ctx.fillStyle = palette.bg + 'ee';
+  ctx.fillRect(0, 0, W, H);
+
+  // ── Spectral interference field (background wave patterns)
+  if (params.showInterference && N > 0) {
+    const imgd = ctx.createImageData(W >> 2, H >> 2);
+    const d = imgd.data;
+    const sw = W >> 2, sh = H >> 2;
+    // Sample a few nodes as wave sources
+    const sources = [];
+    const step = Math.max(1, Math.floor(N / 8));
+    for (let i = 0; i < N && sources.length < 8; i += step) {
+      sources.push(nodes[i]);
+    }
+    for (let py = 0; py < sh; py++) {
+      for (let px = 0; px < sw; px++) {
+        const wx = px * 4, wy = py * 4;
+        let wave = 0;
+        for (const s of sources) {
+          const dx = wx - s.x, dy = wy - s.y;
+          const r = Math.sqrt(dx*dx+dy*dy)+1;
+          wave += Math.sin(r * params.waveK - t * params.waveSpeed + s.theta) / r;
+        }
+        wave = (wave * 40 + 0.5);
+        const idx = (py * sw + px) * 4;
+        const hv = (palette.glow0 + wave * 60) % 360;
+        // HSL to RGB approx
+        const [r2,g2,b2] = hslToRgb(hv/360, 0.8, Math.max(0, Math.min(0.25, wave*0.04+0.02)));
+        d[idx]   = r2; d[idx+1] = g2; d[idx+2] = b2; d[idx+3] = 35;
+      }
+    }
+    ctx.putImageData(imgd, 0, 0);
+    ctx.drawImage(canvas, 0, 0, W>>2, H>>2, 0, 0, W, H);
+  }
+
+  // ── Trails
+  ctx.lineCap = 'round';
+  for (let i = 0; i < N; i++) {
+    const tr = trails[i];
+    if (tr.len < 2) continue;
+    const TRAIL = params.trailLen;
+    const hue = (palette.hues[i % palette.hues.length] + t * 20 + i * 13) % 360;
+    ctx.beginPath();
+    let started = false;
+    for (let j = 0; j < tr.len; j++) {
+      const idx = ((tr.head - tr.len + j + TRAIL) % TRAIL);
+      const px = tr.pts[idx*2], py = tr.pts[idx*2+1];
+      const alpha = (j / tr.len) * 0.35;
+      if (!started) { ctx.moveTo(px, py); started = true; }
+      else ctx.lineTo(px, py);
+    }
+    const lw = 0.5 + (nodes[i].energy / params.maxSpeed) * 1.5;
+    ctx.strokeStyle = hsl(hue, 90, 70, 0.18);
+    ctx.lineWidth = lw;
+    ctx.stroke();
+  }
+
+  // ── Edges (spring-damper filaments)
+  for (let e = 0; e < E; e++) {
+    const ed = edges[e];
+    const a = ed.a, b = ed.b;
+    const strain = Math.abs(ed.strain);
+    const t2 = Math.min(1, strain * 3);
+    const hue = (palette.glow0 + t2 * (palette.glow1 - palette.glow0) + frame * 0.008) % 360;
+    const lum = 35 + t2 * 35;
+    const alpha = 0.12 + t2 * 0.55;
+    const lw = 0.4 + t2 * 1.8;
+
+    const grad = ctx.createLinearGradient(a.x, a.y, b.x, b.y);
+    grad.addColorStop(0, hsl(hue, 85, lum, alpha));
+    grad.addColorStop(0.5, hsl((hue+30)%360, 95, lum+15, alpha*1.4));
+    grad.addColorStop(1, hsl(hue, 85, lum, alpha));
+
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    // Bezier droop based on strain
+    const mx = (a.x+b.x)/2 + Math.sin(ed.phase + t*2)*strain*30;
+    const my = (a.y+b.y)/2 + Math.cos(ed.phase + t*1.7)*strain*30;
+    ctx.quadraticCurveTo(mx, my, b.x, b.y);
+    ctx.strokeStyle = grad;
+    ctx.lineWidth = lw;
+    ctx.stroke();
+
+    // Glow pass for high-strain edges
+    if (t2 > 0.5) {
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.quadraticCurveTo(mx, my, b.x, b.y);
+      ctx.strokeStyle = hsl(hue, 100, 85, (t2-0.5)*0.4);
+      ctx.lineWidth = lw * 3;
+      ctx.globalAlpha = 0.3;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  // ── Pendulum arms (drawn from node positions)
+  for (let i = 0; i < N; i++) {
+    const v = nodes[i];
+    const px = v.x + Math.sin(v.theta) * v.pendLen;
+    const py = v.y - Math.cos(v.theta) * v.pendLen; // hang down
+    const hue = (palette.hues[i % palette.hues.length] + t * 30) % 360;
+    // Arm
+    ctx.beginPath();
+    ctx.moveTo(v.x, v.y);
+    ctx.lineTo(px, py);
+    ctx.strokeStyle = hsl(hue, 80, 65, 0.25);
+    ctx.lineWidth = 0.6;
+    ctx.stroke();
+    // Bob
+    const r = 2 + v.pendMass * 1.5;
+    ctx.beginPath();
+    ctx.arc(px, py, r, 0, Math.PI*2);
+    ctx.fillStyle = hsl(hue, 95, 75, 0.5);
+    ctx.fill();
+  }
+
+  // ── Nodes (luminous)
+  for (let i = 0; i < N; i++) {
+    const v = nodes[i];
+    const spd = Math.sqrt(v.vx*v.vx + v.vy*v.vy);
+    const hue = (palette.hues[i % palette.hues.length] + t*25 + i*11.3) % 360;
+    const r = 2.5 + spd * 0.3 + Math.sin(t * 3 + i) * 0.5;
+    const glowR = r * (3 + spd * 0.5);
+
+    // Outer glow
+    const grd = ctx.createRadialGradient(v.x, v.y, 0, v.x, v.y, glowR);
+    grd.addColorStop(0, hsl(hue, 100, 85, 0.7));
+    grd.addColorStop(0.3, hsl(hue, 90, 65, 0.3));
+    grd.addColorStop(1, hsl(hue, 80, 50, 0));
+    ctx.beginPath();
+    ctx.arc(v.x, v.y, glowR, 0, Math.PI*2);
+    ctx.fillStyle = grd;
+    ctx.fill();
+
+    // Core
+    ctx.beginPath();
+    ctx.arc(v.x, v.y, r, 0, Math.PI*2);
+    ctx.fillStyle = hsl(hue, 100, 92, 0.9);
+    ctx.fill();
+  }
+
+  // ── Dynamic banded color field overlay (subtle)
+  {
+    const banded = ctx.createLinearGradient(0, 0, W, H);
+    const numBands = 6;
+    for (let b2 = 0; b2 <= numBands; b2++) {
+      const bt = b2 / numBands;
+      const bh = (palette.glow0 + bt * 120 + t * 15) % 360;
+      banded.addColorStop(bt, hsl(bh, 60, 40, 0.015));
+    }
+    ctx.fillStyle = banded;
+    ctx.fillRect(0, 0, W, H);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  AUDIO ENGINE
+// ═══════════════════════════════════════════════════════════
+function initAudio() {
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  masterGain = audioCtx.createGain();
+  masterGain.gain.value = 0;
+  masterGain.connect(audioCtx.destination);
+
+  // Reverb (convolver with synthesized IR)
+  reverbNode = audioCtx.createConvolver();
+  const irLen = audioCtx.sampleRate * 2.5;
+  const irBuf = audioCtx.createBuffer(2, irLen, audioCtx.sampleRate);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = irBuf.getChannelData(ch);
+    for (let i = 0; i < irLen; i++) d[i] = (Math.random()*2-1) * Math.pow(1 - i/irLen, 2.5);
+  }
+  reverbNode.buffer = irBuf;
+  reverbNode.connect(masterGain);
+}
+
+function buildOscillators() {
+  // Clear old
+  oscillators.forEach(o => { try { o.osc.stop(); } catch(e){} });
+  oscillators = [];
+  if (!audioCtx || !soundOn) return;
+
+  const N = Math.min(nodes.length, params.audioVoices);
+  for (let i = 0; i < N; i++) {
+    const v = nodes[i];
+    const freq = params.baseFreq * (1 + (v.pendLen / 80)) * (0.8 + 0.4 * (i/N));
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    const panner = audioCtx.createStereoPanner();
+    const filter = audioCtx.createBiquadFilter();
+
+    osc.type = ['sine','triangle','sawtooth','square'][i % 4];
+    osc.frequency.value = freq;
+    filter.type = 'bandpass';
+    filter.frequency.value = freq * 2;
+    filter.Q.value = 8 + Math.random() * 12;
+    gain.gain.value = 0.002;
+    panner.pan.value = (v.x / W) * 2 - 1;
+
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(panner);
+    if (Math.random() > 0.5) panner.connect(reverbNode);
+    else panner.connect(masterGain);
+
+    osc.start();
+    oscillators.push({ osc, gain, panner, filter, node: v, baseFreq: freq });
+  }
+}
+
+function updateAudio() {
+  if (!soundOn || !audioCtx || oscillators.length === 0) return;
+  const t = audioCtx.currentTime;
+  for (let i = 0; i < oscillators.length; i++) {
+    const o = oscillators[i];
+    const v = o.node;
+    const spd = Math.sqrt(v.vx*v.vx + v.vy*v.vy);
+    const tension = edges.length > 0 ? (edges[i % edges.length]?.strain || 0) : 0;
+
+    // Map velocity to volume
+    const vol = Math.min(0.018, spd * 0.0008 + Math.abs(tension) * 0.003);
+    o.gain.gain.setTargetAtTime(vol, t, 0.05);
+
+    // Map pendulum to pitch
+    const freqMod = o.baseFreq * (1 + Math.sin(v.theta) * 0.15 + Math.abs(tension) * 0.3);
+    o.osc.frequency.setTargetAtTime(Math.max(20, freqMod), t, 0.1);
+
+    // Spatialization
+    const pan = Math.max(-1, Math.min(1, (v.x / W) * 2 - 1));
+    o.panner.pan.setTargetAtTime(pan, t, 0.1);
+
+    // Filter modulation from chaos
+    const ffreq = o.baseFreq * (1 + spd * 0.5);
+    o.filter.frequency.setTargetAtTime(ffreq, t, 0.08);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  RANDOM PHYSICS PARAMETERS
+// ═══════════════════════════════════════════════════════════
+function randomParams() {
+  return {
+    depth:        3 + Math.floor(Math.random() * 2),   // Penrose subdivision depth
+    scale:        Math.min(W, H) * (0.32 + Math.random() * 0.18),
+    springK:      0.003 + Math.random() * 0.012,
+    damping:      0.02 + Math.random() * 0.06,
+    globalDamp:   0.990 + Math.random() * 0.009,
+    nodeMass:     1.0 + Math.random() * 2.0,
+    nodeMassVar:  0.5 + Math.random(),
+    gravity:      (Math.random() - 0.7) * 0.02,
+    initSpeed:    0.5 + Math.random() * 2.5,
+    maxSpeed:     8 + Math.random() * 12,
+    chaosAmp:     0.002 + Math.random() * 0.015,
+    restoreK:     0.0002 + Math.random() * 0.001,
+    pendulumLen:  15 + Math.random() * 40,
+    pendulumSpeed:0.5 + Math.random() * 2.5,
+    pendCoupling: 0.005 + Math.random() * 0.02,
+    pendDamp:     0.01 + Math.random() * 0.05,
+    trailLen:     40 + Math.floor(Math.random() * 60),
+    waveK:        0.02 + Math.random() * 0.04,
+    waveSpeed:    1.5 + Math.random() * 3,
+    showInterference: Math.random() > 0.3,
+    audioVoices:  8 + Math.floor(Math.random() * 8),
+    baseFreq:     55 + Math.random() * 110,
+    dt:           0.28 + Math.random() * 0.12,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════
+//  REGEN
+// ═══════════════════════════════════════════════════════════
+function regen() {
+  const now = Date.now();
+  if (now - lastRegen < 400) return;
+  lastRegen = now;
+
+  frame = 0;
+  params = randomParams();
+  palette = randomPalette();
+
+  const tris = penrose(cx, cy, params.scale, params.depth);
+  const graph = buildGraph(tris);
+
+  // Store original positions for restore force
+  graph.verts.forEach(v => { v.ox = v.x; v.oy = v.y; });
+
+  nodes = graph.verts;
+  edges = graph.edges;
+  trails = graph.trails;
+
+  // Rebuild audio
+  if (soundOn && audioCtx) buildOscillators();
+
+  // Update HUD
+  document.getElementById('h-nodes').textContent   = nodes.length;
+  document.getElementById('h-edges').textContent   = edges.length;
+  document.getElementById('h-pend').textContent    = nodes.length;
+  document.getElementById('h-palette').textContent = palette.name;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  MAIN LOOP
+// ═══════════════════════════════════════════════════════════
+let lastTime = 0;
+function loop(ts) {
+  animId = requestAnimationFrame(loop);
+  const dt = Math.min(32, ts - lastTime);
+  lastTime = ts;
+
+  const steps = 3;
+  const subDt = params.dt / steps;
+  for (let s = 0; s < steps; s++) physicsStep(subDt);
+
+  render();
+  updateAudio();
+  frame++;
+
+  // HUD update (every 10 frames)
+  if (hudOn && frame % 10 === 0 && nodes.length > 0) {
+    let totalE = 0, avgV = 0;
+    for (const v of nodes) {
+      const spd = Math.sqrt(v.vx*v.vx + v.vy*v.vy);
+      totalE += 0.5 * v.mass * spd * spd;
+      avgV += spd;
+    }
+    avgV /= nodes.length;
+    let chaosIdx = 0;
+    for (const e of edges) chaosIdx += Math.abs(e.strain);
+    chaosIdx /= (edges.length || 1);
+    document.getElementById('h-vel').textContent    = avgV.toFixed(2);
+    document.getElementById('h-energy').textContent = totalE.toFixed(0);
+    document.getElementById('h-chaos').textContent  = chaosIdx.toFixed(4);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  INPUT
+// ═══════════════════════════════════════════════════════════
+function toggleSound() {
+  if (!audioCtx) initAudio();
+  soundOn = !soundOn;
+  if (soundOn) {
+    audioCtx.resume();
+    masterGain.gain.setTargetAtTime(0.7, audioCtx.currentTime, 0.3);
+    buildOscillators();
+  } else {
+    masterGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.5);
+    setTimeout(() => {
+      oscillators.forEach(o => { try { o.osc.stop(); } catch(e){} });
+      oscillators = [];
+    }, 600);
+  }
+}
+
+function toggleHUD() {
+  hudOn = !hudOn;
+  document.getElementById('hud').style.display = hudOn ? 'block' : 'none';
+}
+
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space') { e.preventDefault(); regen(); }
+  if (e.key === 'h' || e.key === 'H') toggleHUD();
+  if (e.key === 's' || e.key === 'S') toggleSound();
+});
+canvas.addEventListener('click', () => regen());
+canvas.addEventListener('touchend', e => { e.preventDefault(); regen(); });
+
+// Hint fade
+setTimeout(() => { document.getElementById('hint').style.opacity = '0'; }, 5000);
+
+// ═══════════════════════════════════════════════════════════
+//  UTILITY: HSL → RGB
+// ═══════════════════════════════════════════════════════════
+function hslToRgb(h, s, l) {
+  let r, g, b;
+  if (s === 0) { r = g = b = l; }
+  else {
+    const hue2rgb = (p, q, t) => {
+      if (t < 0) t += 1; if (t > 1) t -= 1;
+      if (t < 1/6) return p + (q-p)*6*t;
+      if (t < 1/2) return q;
+      if (t < 2/3) return p + (q-p)*(2/3-t)*6;
+      return p;
+    };
+    const q = l < 0.5 ? l*(1+s) : l+s-l*s;
+    const p = 2*l - q;
+    r = hue2rgb(p, q, h + 1/3);
+    g = hue2rgb(p, q, h);
+    b = hue2rgb(p, q, h - 1/3);
+  }
+  return [Math.round(r*255), Math.round(g*255), Math.round(b*255)];
+}
+
+// ═══════════════════════════════════════════════════════════
+//  BOOT
+// ═══════════════════════════════════════════════════════════
+regen();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

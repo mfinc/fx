@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Neurotechnological Synapse Flow | Neural Network Visualization</title>
+<meta name="description" content="An interactive real-time visualization of transhumanoid neural activity using directed graphs, Poincaré disk topology, Barycentric coordinate mapping, and FFT-driven spectral oscillations. Features binaural beat audio synthesis and synaptic weight HUD.">
+<meta name="keywords" content="neural network visualization, neurotechnology, synapse flow, directed graph, Poincaré disk, Barycentric coordinates, FFT visualization, binaural beats, brain simulation, transhumanist, Hilbert space, spectral gradient, WebGL canvas, interactive neural art, electrode grid, synaptic plasticity, brainwave entrainment, generative art, computational neuroscience, real-time animation">
+<meta name="author" content="Neurotechnological Synapse Flow">
+<meta name="robots" content="index, follow">
+<meta property="og:title" content="Neurotechnological Synapse Flow | Neural Network Visualization">
+<meta property="og:description" content="Interactive real-time transhumanoid neural activity simulation with FFT harmonics, Poincaré topology, and binaural beat synthesis.">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Neurotechnological Synapse Flow">
+<meta name="twitter:description" content="Real-time directed-graph neural simulation with FFT oscillations, Poincaré disk layout, and binaural beat audio. Press SPACE or tap to regenerate.">
+<link rel="canonical" href="https://neurotechnological-synapse-flow.example.com/">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@300;400;600&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #020408;
+    --c0: #00ffcc; --c1: #0088ff; --c2: #aa00ff;
+    --c3: #ff0066; --c4: #ffaa00; --c5: #00ff44;
+    --hud: rgba(0,255,200,0.85);
+    --mono: 'Share Tech Mono', monospace;
+    --body: 'Rajdhani', sans-serif;
+  }
+
+  html, body {
+    width: 100%; height: 100%;
+    background: var(--bg);
+    overflow: hidden;
+    font-family: var(--mono);
+    color: var(--c0);
+    cursor: crosshair;
+  }
+
+  canvas {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    display: block;
+  }
+
+  /* ── Controls overlay ── */
+  #controls {
+    position: fixed;
+    bottom: 22px; left: 50%;
+    transform: translateX(-50%);
+    display: flex; gap: 18px;
+    z-index: 20;
+    pointer-events: none;
+  }
+  .key-hint {
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    color: rgba(0,255,200,0.45);
+    text-transform: uppercase;
+    border: 1px solid rgba(0,255,200,0.18);
+    padding: 4px 10px;
+    border-radius: 3px;
+    background: rgba(0,0,0,0.35);
+  }
+  .key-hint b { color: rgba(0,255,200,0.8); }
+
+  /* ── Title ── */
+  #title {
+    position: fixed;
+    top: 18px; left: 26px;
+    z-index: 20;
+    pointer-events: none;
+  }
+  #title .main {
+    font-family: var(--body);
+    font-weight: 600;
+    font-size: 15px;
+    letter-spacing: 0.28em;
+    color: rgba(0,255,200,0.7);
+    text-transform: uppercase;
+  }
+  #title .sub {
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    color: rgba(0,136,255,0.45);
+    margin-top: 3px;
+  }
+
+  /* ── HUD ── */
+  #hud {
+    position: fixed;
+    top: 18px; right: 22px;
+    width: 210px;
+    z-index: 20;
+    background: rgba(2,8,14,0.82);
+    border: 1px solid rgba(0,255,200,0.22);
+    border-radius: 4px;
+    padding: 12px 14px;
+    display: none;
+    backdrop-filter: blur(6px);
+  }
+  #hud.visible { display: block; }
+  #hud .hud-title {
+    font-size: 10px; letter-spacing: 0.22em;
+    color: var(--c0); opacity: 0.6;
+    text-transform: uppercase; margin-bottom: 10px;
+    border-bottom: 1px solid rgba(0,255,200,0.15);
+    padding-bottom: 6px;
+  }
+  #hud .row {
+    display: flex; justify-content: space-between;
+    font-size: 11px; margin-bottom: 6px;
+    line-height: 1.3;
+  }
+  #hud .lbl { color: rgba(0,136,255,0.7); }
+  #hud .val { color: var(--c0); font-weight: bold; }
+  #hud .bar-wrap {
+    width: 100%; height: 4px;
+    background: rgba(255,255,255,0.06);
+    border-radius: 2px; margin-bottom: 8px;
+    overflow: hidden;
+  }
+  #hud .bar-fill {
+    height: 100%; border-radius: 2px;
+    transition: width 0.15s linear;
+  }
+
+  /* ── Audio indicator ── */
+  #audio-indicator {
+    position: fixed;
+    bottom: 60px; left: 50%;
+    transform: translateX(-50%);
+    font-size: 10px; letter-spacing: 0.18em;
+    color: rgba(255,170,0,0.6);
+    pointer-events: none;
+    z-index: 20;
+    opacity: 0;
+    transition: opacity 0.4s;
+  }
+  #audio-indicator.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<canvas id="c"></canvas>
+
+<div id="title">
+  <div class="main">Neurotechnological Synapse Flow</div>
+  <div class="sub">Directed Graph · FFT Harmonics · Poincaré Topology</div>
+</div>
+
+<div id="hud">
+  <div class="hud-title">⬡ Synaptic Weight Matrix</div>
+  <div class="row"><span class="lbl">Network Nodes</span><span class="val" id="h-nodes">—</span></div>
+  <div class="row"><span class="lbl">Active Synapses</span><span class="val" id="h-syns">—</span></div>
+  <div class="row"><span class="lbl">FFT Dominant Hz</span><span class="val" id="h-fft">—</span></div>
+  <div class="row"><span class="lbl">Phase Coherence</span><span class="val" id="h-phase">—</span></div>
+  <div class="row"><span class="lbl">Φ Flux (Hilbert)</span><span class="val" id="h-flux">—</span></div>
+  <div class="row"><span class="lbl">Poincaré Radius</span><span class="val" id="h-poincare">—</span></div>
+  <div class="row"><span class="lbl">Bary Centroid</span><span class="val" id="h-bary">—</span></div>
+  <div class="lbl" style="font-size:10px;margin-bottom:4px;">Spectral Energy</div>
+  <div class="bar-wrap"><div class="bar-fill" id="h-energy-bar" style="width:60%;background:linear-gradient(90deg,#0088ff,#00ffcc)"></div></div>
+  <div class="lbl" style="font-size:10px;margin-bottom:4px;">Synaptic Plasticity</div>
+  <div class="bar-wrap"><div class="bar-fill" id="h-plastic-bar" style="width:40%;background:linear-gradient(90deg,#aa00ff,#ff0066)"></div></div>
+  <div class="row" style="margin-top:6px;"><span class="lbl">Binaural Beat</span><span class="val" id="h-binaural">OFF</span></div>
+  <div class="row"><span class="lbl">Frame Time</span><span class="val" id="h-ft">—</span></div>
+</div>
+
+<div id="audio-indicator">◈ BINAURAL SYNC ACTIVE</div>
+
+<div id="controls">
+  <span class="key-hint"><b>H</b> · HUD</span>
+  <span class="key-hint"><b>S</b> · Audio</span>
+  <span class="key-hint"><b>SPACE / TAP</b> · Regenerate</span>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════
+//  NEUROTECHNOLOGICAL SYNAPSE FLOW
+//  Architecture: Poincaré disk layout + Hilbert-space nodes
+//  FFT drives oscillation envelopes
+//  Barycentric coordinate edge routing
+// ═══════════════════════════════════════════════════════
+(function() {
+  'use strict';
+
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  let W, H, cx, cy, R;
+
+  // ── Resize ──────────────────────────────────────────
+  function resize() {
+    W = canvas.width = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+    cx = W / 2; cy = H / 2;
+    R = Math.min(W, H) * 0.44;
+    buildNetwork();
+  }
+  window.addEventListener('resize', resize);
+
+  // ── FFT / Oscillator bank ────────────────────────────
+  const FFT_SIZE = 256;
+  const NUM_BINS = FFT_SIZE / 2;
+  // Pre-baked frequency magnitudes driven by analytic waves
+  // Simulates a real FFT without WebAudio overhead
+  const fftData = new Float32Array(NUM_BINS);
+  const fftPhase = new Float32Array(NUM_BINS).map(() => Math.random() * Math.PI * 2);
+  const fftFreqs = new Float32Array(NUM_BINS).map((_, i) => 0.3 + i * 0.11);
+
+  function updateFFT(t) {
+    let domIdx = 0, domVal = 0;
+    for (let i = 0; i < NUM_BINS; i++) {
+      const f = fftFreqs[i];
+      fftData[i] = 0.5 + 0.5 * Math.sin(t * f + fftPhase[i])
+                 + 0.2 * Math.sin(t * f * 2.3 + fftPhase[i] * 1.7)
+                 + 0.1 * Math.sin(t * f * 5.1 + fftPhase[i] * 0.5);
+      // Add harmonic bursts
+      if ((i % 17) === 0) fftData[i] += 0.6 * Math.abs(Math.sin(t * 0.7 + i));
+      fftData[i] = Math.max(0, Math.min(1, fftData[i] * 0.5));
+      if (fftData[i] > domVal) { domVal = fftData[i]; domIdx = i; }
+    }
+    return { domIdx, domVal };
+  }
+
+  // ── Randomizable color & render params ──────────────
+  let colorHueBase   = 240;
+  let colorHueSweep  = 300;
+  let colorSatBase   = 85;
+  let colorLitBase   = 45;
+  let motionBlurAlpha = 0.18;
+
+  // ── Spectral color mapping ───────────────────────────
+  // Maps [0..1] → deliciously complex spectral gradient
+  function spectralColor(t, alpha = 1) {
+    const hue = (colorHueBase - t * colorHueSweep + 720) % 360;
+    const sat = colorSatBase + 15 * Math.sin(t * Math.PI * 3);
+    const lit = colorLitBase + 20 * Math.cos(t * Math.PI * 2);
+    return `hsla(${hue.toFixed(1)},${sat.toFixed(1)}%,${lit.toFixed(1)}%,${alpha})`;
+  }
+
+// ── Poincaré disk helpers ────────────────────────────
+  // Map hyperbolic (r,θ) → screen (x,y) inside Poincaré disk
+  function poincareToScreen(r, theta) {
+    // r ∈ [0,1), maps to disk of radius R
+    const pr = Math.tanh(r * 1.4) * R;
+    return {
+      x: cx + pr * Math.cos(theta),
+      y: cy + pr * Math.sin(theta)
+    };
+  }
+
+  // ── Hilbert-space node placement ─────────────────────
+  // Nodes placed on concentric "Hilbert rings" (conceptual)
+  // Ring k has 2^k nodes (k=0..3) + random Poincaré scatter
+  function hilbertRingAngle(k, i, n) {
+    // Slight angular offset per ring for Hilbert-space feel
+    return (2 * Math.PI * i / n) + (k * 0.37) + Math.PI * 0.11;
+  }
+
+  // ── Network ──────────────────────────────────────────
+  const RINGS = [1, 6, 12, 18, 10];   // nodes per ring
+  let nodes = [], edges = [];
+  let totalNodes = 0;
+
+  function buildNetwork() {
+    nodes = []; edges = [];
+    const ringRadii = [0, 0.28, 0.52, 0.72, 0.88];
+
+    // Build nodes
+    RINGS.forEach((count, k) => {
+      for (let i = 0; i < count; i++) {
+        const theta = hilbertRingAngle(k, i, count);
+        // Small random perturbation for organic feel
+        const rPerturb = ringRadii[k] + (Math.random() - 0.5) * 0.06;
+        const tPerturb = theta + (Math.random() - 0.5) * 0.18;
+        const pos = poincareToScreen(rPerturb, tPerturb);
+        nodes.push({
+          id: totalNodes++,
+          ring: k,
+          r: rPerturb,
+          theta: tPerturb,
+          x: pos.x, y: pos.y,
+          baseX: pos.x, baseY: pos.y,
+          phase: Math.random() * Math.PI * 2,
+          freq: 0.4 + Math.random() * 1.6,
+          weight: 0.3 + Math.random() * 0.7,
+          colorT: Math.random(),
+          radius: 3 + (RINGS.length - k) * 1.2,
+          // Barycentric coords (relative to 3 anchor nodes for routing)
+          bary: [Math.random(), Math.random(), Math.random()].map(v => v),
+          charge: Math.random() > 0.5 ? 1 : -1,
+          pulsePhase: Math.random() * Math.PI * 2,
+        });
+      }
+    });
+    totalNodes = nodes.length;
+
+    // Normalize bary
+    nodes.forEach(n => {
+      const s = n.bary.reduce((a, b) => a + b, 0);
+      n.bary = n.bary.map(v => v / s);
+    });
+
+    // Build directed edges
+    // 1. Ring→Ring connections (inner→outer radial)
+    let offset = 0;
+    RINGS.forEach((count, k) => {
+      if (k < RINGS.length - 1) {
+        const nextOffset = offset + count;
+        const nextCount = RINGS[k + 1];
+        for (let i = 0; i < count; i++) {
+          const targets = Math.floor(1 + Math.random() * 2);
+          for (let t = 0; t < targets; t++) {
+            const j = (Math.floor(Math.random() * nextCount));
+            edges.push({
+              from: offset + i,
+              to: nextOffset + j,
+              weight: 0.2 + Math.random() * 0.8,
+              colorT: Math.random(),
+              phase: Math.random() * Math.PI * 2,
+              speed: 0.3 + Math.random() * 1.2,
+              // Barycentric control point influence
+              baryCtrl: Math.random(),
+              pulses: [],    // active signal pulses
+              lastPulse: Math.random() * 3,
+            });
+          }
+        }
+      }
+      // Intra-ring lateral connections
+      for (let i = 0; i < count; i++) {
+        if (Math.random() < 0.35) {
+          const j = (i + 1 + Math.floor(Math.random() * (count - 1))) % count;
+          if (i !== j) {
+            edges.push({
+              from: offset + i,
+              to: offset + j,
+              weight: 0.1 + Math.random() * 0.4,
+              colorT: Math.random(),
+              phase: Math.random() * Math.PI * 2,
+              speed: 0.5 + Math.random() * 1.5,
+              baryCtrl: Math.random(),
+              pulses: [],
+              lastPulse: Math.random() * 3,
+            });
+          }
+        }
+      }
+      offset += count;
+    });
+
+    // A few long-range skip connections (transhumanoid!)
+    for (let i = 0; i < 12; i++) {
+      const a = Math.floor(Math.random() * nodes.length);
+      const b = Math.floor(Math.random() * nodes.length);
+      if (a !== b) {
+        edges.push({
+          from: a, to: b,
+          weight: 0.05 + Math.random() * 0.3,
+          colorT: Math.random(),
+          phase: Math.random() * Math.PI * 6,
+          speed: 0.8 + Math.random() * 2,
+          baryCtrl: Math.random(),
+          pulses: [],
+          lastPulse: Math.random() * 3,
+          longRange: true,
+        });
+      }
+    }
+  }
+
+  // ── Barycentric control point for edge curves ────────
+  // Given two endpoints and barycentric coords, compute a curved midpoint
+  function baryCtrlPoint(n0, n1, baryCtrl, t) {
+    // Interpolate toward a "virtual" third barycentric anchor
+    // Use the origin (center) weighted by baryCtrl
+    const anchorX = cx + Math.cos(t * 2.1) * R * 0.15;
+    const anchorY = cy + Math.sin(t * 1.7) * R * 0.15;
+    const α = baryCtrl;
+    return {
+      x: α * anchorX + (1 - α) * (n0.x + n1.x) * 0.5,
+      y: α * anchorY + (1 - α) * (n0.y + n1.y) * 0.5,
+    };
+  }
+
+  // ── Signal pulse update ──────────────────────────────
+  function updatePulses(dt, t) {
+    edges.forEach(e => {
+      // Spawn new pulse based on FFT energy
+      const fftIdx = Math.floor(e.colorT * (NUM_BINS - 1));
+      const energy = fftData[fftIdx];
+      const interval = 1.5 - energy * 1.0; // higher energy = more frequent
+      if (t - e.lastPulse > interval) {
+        e.pulses.push({ pos: 0, alpha: 1 });
+        e.lastPulse = t;
+      }
+      // Advance pulses
+      e.pulses = e.pulses.filter(p => p.alpha > 0.01);
+      e.pulses.forEach(p => {
+        p.pos += dt * e.speed;
+        if (p.pos > 1) p.alpha = 0;
+        else p.alpha = Math.max(0, 1 - p.pos * 0.4);
+      });
+    });
+  }
+
+  // ── Draw Poincaré disk background ───────────────────
+  function drawPoincareDisk(t) {
+    // Outer glow
+    const gOuter = ctx.createRadialGradient(cx, cy, R * 0.5, cx, cy, R * 1.3);
+    gOuter.addColorStop(0, 'rgba(0,255,200,0.02)');
+    gOuter.addColorStop(0.6, 'rgba(0,80,255,0.04)');
+    gOuter.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = gOuter;
+    ctx.fillRect(0, 0, W, H);
+
+    // Geodesic grid lines (Poincaré hyperbolic grid)
+    const numLines = 8;
+    ctx.save();
+    for (let k = 0; k < numLines; k++) {
+      const angle = (Math.PI * 2 * k / numLines) + t * 0.01;
+      // Draw a geodesic: in Poincaré disk, geodesics through origin are diameters
+      const x0 = cx + Math.cos(angle) * R;
+      const y0 = cy + Math.sin(angle) * R;
+      const x1 = cx - Math.cos(angle) * R;
+      const y1 = cy - Math.sin(angle) * R;
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      ctx.lineTo(x1, y1);
+      ctx.strokeStyle = `rgba(0,136,255,${0.04 + 0.02 * Math.sin(t * 0.3 + k)})`;
+      ctx.lineWidth = 0.5;
+      ctx.stroke();
+    }
+    // Concentric circles
+    for (let r = 1; r <= 4; r++) {
+      const pr = Math.tanh(r * 0.35) * R;
+      ctx.beginPath();
+      ctx.arc(cx, cy, pr, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(0,255,200,${0.04 + 0.01 * r})`;
+      ctx.lineWidth = 0.5;
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // Disk boundary ring
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, 0, Math.PI * 2);
+    const ringGrad = ctx.createLinearGradient(cx - R, cy, cx + R, cy);
+    ringGrad.addColorStop(0, 'rgba(170,0,255,0.15)');
+    ringGrad.addColorStop(0.5, 'rgba(0,255,200,0.25)');
+    ringGrad.addColorStop(1, 'rgba(0,136,255,0.15)');
+    ctx.strokeStyle = ringGrad;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+
+  // ── Draw electrode grid ──────────────────────────────
+  function drawElectrodeGrid(t) {
+    // Subtle hexagonal electrode overlay
+    const gridR = 28 + 4 * Math.sin(t * 0.4);
+    const cols = Math.ceil(W / (gridR * 1.73)) + 2;
+    const rows = Math.ceil(H / (gridR * 1.5)) + 2;
+    ctx.save();
+    for (let row = -1; row < rows; row++) {
+      for (let col = -1; col < cols; col++) {
+        const ex = col * gridR * 1.73 + (row % 2) * gridR * 0.87;
+        const ey = row * gridR * 1.5;
+        const dist = Math.hypot(ex - cx, ey - cy) / R;
+        if (dist > 1.1) continue;
+        const alpha = Math.max(0, (0.06 - dist * 0.05)) * (0.5 + 0.5 * Math.sin(t * 1.1 + col * 0.5 + row * 0.3));
+        ctx.beginPath();
+        for (let s = 0; s < 6; s++) {
+          const a = s * Math.PI / 3;
+          const px = ex + gridR * 0.46 * Math.cos(a);
+          const py = ey + gridR * 0.46 * Math.sin(a);
+          s === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.strokeStyle = `rgba(0,255,200,${alpha})`;
+        ctx.lineWidth = 0.4;
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
+  // ── Animate node positions ───────────────────────────
+  function animateNodes(t) {
+    nodes.forEach(n => {
+      const fftIdx = Math.floor(n.colorT * (NUM_BINS - 1));
+      const energy = fftData[fftIdx];
+      // Hilbert-space oscillation: breathing motion
+      const amp = 2.5 + energy * 5;
+      n.x = n.baseX + amp * Math.sin(t * n.freq + n.phase);
+      n.y = n.baseY + amp * Math.cos(t * n.freq * 0.73 + n.phase * 1.3);
+    });
+  }
+
+  // ── Draw edges ───────────────────────────────────────
+  function drawEdges(t) {
+    edges.forEach(e => {
+      const n0 = nodes[e.from], n1 = nodes[e.to];
+      if (!n0 || !n1) return;
+
+      const cp = baryCtrlPoint(n0, n1, e.baryCtrl, t);
+      const fftIdx = Math.floor(e.colorT * (NUM_BINS - 1));
+      const energy = fftData[fftIdx];
+      const baseAlpha = (e.longRange ? 0.06 : 0.12) * (0.5 + energy * 0.8);
+
+      // Edge line
+      ctx.beginPath();
+      ctx.moveTo(n0.x, n0.y);
+      ctx.quadraticCurveTo(cp.x, cp.y, n1.x, n1.y);
+      ctx.strokeStyle = spectralColor(e.colorT + energy * 0.2, baseAlpha);
+      ctx.lineWidth = e.longRange ? 0.4 : (0.6 + energy * 0.8);
+      ctx.stroke();
+
+      // Draw signal pulses along the curve
+      e.pulses.forEach(p => {
+        // Quadratic Bezier position at t=p.pos
+        const mt = 1 - p.pos;
+        const px = mt * mt * n0.x + 2 * mt * p.pos * cp.x + p.pos * p.pos * n1.x;
+        const py = mt * mt * n0.y + 2 * mt * p.pos * cp.y + p.pos * p.pos * n1.y;
+
+        const pulseAlpha = p.alpha * (0.6 + energy * 0.4);
+        const pulseR = 3 + energy * 3;
+
+        const pg = ctx.createRadialGradient(px, py, 0, px, py, pulseR);
+        pg.addColorStop(0, spectralColor(e.colorT, pulseAlpha));
+        pg.addColorStop(0.5, spectralColor((e.colorT + 0.15) % 1, pulseAlpha * 0.5));
+        pg.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.beginPath();
+        ctx.arc(px, py, pulseR, 0, Math.PI * 2);
+        ctx.fillStyle = pg;
+        ctx.fill();
+      });
+    });
+  }
+
+  // ── Draw nodes ───────────────────────────────────────
+  function drawNodes(t) {
+    nodes.forEach(n => {
+      const fftIdx = Math.floor(n.colorT * (NUM_BINS - 1));
+      const energy = fftData[fftIdx];
+      const pulse = 0.5 + 0.5 * Math.sin(t * n.freq * 1.5 + n.pulsePhase);
+      const r = n.radius * (1 + 0.35 * pulse * energy);
+      const alpha = 0.6 + 0.4 * pulse;
+
+      // Outer glow
+      const glowR = r * 3.5;
+      const glow = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, glowR);
+      glow.addColorStop(0, spectralColor(n.colorT, alpha * 0.7));
+      glow.addColorStop(0.4, spectralColor((n.colorT + 0.1) % 1, alpha * 0.2));
+      glow.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, glowR, 0, Math.PI * 2);
+      ctx.fillStyle = glow;
+      ctx.fill();
+
+      // Core
+      const core = ctx.createRadialGradient(n.x - r * 0.2, n.y - r * 0.2, r * 0.1, n.x, n.y, r);
+      core.addColorStop(0, spectralColor(n.colorT, 1));
+      core.addColorStop(0.6, spectralColor((n.colorT + 0.2) % 1, 0.8));
+      core.addColorStop(1, spectralColor((n.colorT + 0.4) % 1, 0.3));
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
+      ctx.fillStyle = core;
+      ctx.fill();
+
+      // Ring electrode marker
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, r * 1.5, 0, Math.PI * 2);
+      ctx.strokeStyle = spectralColor(n.colorT, 0.25 * energy);
+      ctx.lineWidth = 0.8;
+      ctx.stroke();
+    });
+  }
+
+  // ── Draw FFT spectrum bar (bottom) ───────────────────
+  function drawFFTSpectrum(t) {
+    const barW = W * 0.6;
+    const barH = 40;
+    const bx = (W - barW) / 2;
+    const by = H - 80;
+    const binsToShow = 80;
+    const binW = barW / binsToShow;
+
+    for (let i = 0; i < binsToShow; i++) {
+      const val = fftData[Math.floor(i * NUM_BINS / binsToShow)];
+      const h = val * barH;
+      const colorT = i / binsToShow;
+      ctx.fillStyle = spectralColor(colorT, 0.5 * val);
+      ctx.fillRect(bx + i * binW, by + barH - h, binW - 0.5, h);
+    }
+  }
+
+  // ── Ambient particle field ───────────────────────────
+  const PARTICLES = 80;
+  const particles = Array.from({length: PARTICLES}, () => ({
+    x: Math.random() * 1, y: Math.random() * 1,
+    vx: (Math.random() - 0.5) * 0.0003,
+    vy: (Math.random() - 0.5) * 0.0003,
+    colorT: Math.random(),
+    phase: Math.random() * Math.PI * 2,
+    size: 0.5 + Math.random() * 1.5,
+  }));
+
+  function drawParticles(t) {
+    particles.forEach(p => {
+      p.x += p.vx + Math.sin(t * 0.2 + p.phase) * 0.00015;
+      p.y += p.vy + Math.cos(t * 0.15 + p.phase * 1.3) * 0.00015;
+      if (p.x < 0) p.x = 1; if (p.x > 1) p.x = 0;
+      if (p.y < 0) p.y = 1; if (p.y > 1) p.y = 0;
+      const px = p.x * W, py = p.y * H;
+      const fftIdx = Math.floor(p.colorT * (NUM_BINS - 1));
+      const energy = fftData[fftIdx];
+      ctx.beginPath();
+      ctx.arc(px, py, p.size * (1 + energy), 0, Math.PI * 2);
+      ctx.fillStyle = spectralColor(p.colorT, 0.15 + energy * 0.2);
+      ctx.fill();
+    });
+  }
+
+  // ── Audio (binaural beats) ───────────────────────────
+  let audioCtx = null, audioOn = false;
+  let leftOsc = null, rightOsc = null, beatOsc = null;
+  let gainNode = null;
+
+  function initAudio() {
+    if (audioCtx) return;
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    gainNode = audioCtx.createGain();
+    gainNode.gain.value = 0.08;
+    gainNode.connect(audioCtx.destination);
+  }
+
+  function startBinaural() {
+    initAudio();
+    const base = 200; // 200Hz carrier
+    const beat = 7;   // 7Hz theta binaural beat
+
+    // Left channel
+    const mergerL = audioCtx.createChannelMerger(2);
+    leftOsc = audioCtx.createOscillator();
+    leftOsc.type = 'sine';
+    leftOsc.frequency.value = base;
+    const gainL = audioCtx.createGain(); gainL.gain.value = 0.5;
+    leftOsc.connect(gainL); gainL.connect(mergerL, 0, 0);
+
+    // Right channel (base + beat)
+    rightOsc = audioCtx.createOscillator();
+    rightOsc.type = 'sine';
+    rightOsc.frequency.value = base + beat;
+    const gainR = audioCtx.createGain(); gainR.gain.value = 0.5;
+    rightOsc.connect(gainR); gainR.connect(mergerL, 0, 1);
+    mergerL.connect(gainNode);
+
+    // Subtle harmonic wobble
+    beatOsc = audioCtx.createOscillator();
+    beatOsc.type = 'triangle';
+    beatOsc.frequency.value = base * 2.5;
+    const gainB = audioCtx.createGain(); gainB.gain.value = 0.05;
+    beatOsc.connect(gainB); gainB.connect(gainNode);
+
+    leftOsc.start(); rightOsc.start(); beatOsc.start();
+    audioOn = true;
+    document.getElementById('audio-indicator').classList.add('show');
+    if (document.getElementById('h-binaural')) document.getElementById('h-binaural').textContent = '7Hz THETA';
+  }
+
+  function stopBinaural() {
+    if (leftOsc) { leftOsc.stop(); leftOsc = null; }
+    if (rightOsc) { rightOsc.stop(); rightOsc = null; }
+    if (beatOsc) { beatOsc.stop(); beatOsc = null; }
+    audioOn = false;
+    document.getElementById('audio-indicator').classList.remove('show');
+    if (document.getElementById('h-binaural')) document.getElementById('h-binaural').textContent = 'OFF';
+  }
+
+  // ── HUD ─────────────────────────────────────────────
+  let hudVisible = false;
+  let hudTimer = 0;
+
+  function updateHUD(t, dt, fftResult) {
+    if (!hudVisible) return;
+    hudTimer++;
+    if (hudTimer % 4 !== 0) return; // Update at ~15fps
+
+    const energy = fftData.reduce((a, b) => a + b, 0) / NUM_BINS;
+    const coherence = 0.4 + 0.6 * Math.abs(Math.sin(t * 0.11));
+    const flux = 0.3 + 0.7 * Math.abs(Math.cos(t * 0.07));
+    const poincareR = (Math.tanh(1.3) * R).toFixed(1);
+    const bary = nodes[0] ? nodes[0].bary.map(v => v.toFixed(2)).join(',') : '—';
+    const domFreq = (fftResult.domIdx * 0.11).toFixed(1);
+
+    document.getElementById('h-nodes').textContent = nodes.length;
+    document.getElementById('h-syns').textContent = edges.length;
+    document.getElementById('h-fft').textContent = domFreq + ' Hz';
+    document.getElementById('h-phase').textContent = (coherence * 100).toFixed(1) + '%';
+    document.getElementById('h-flux').textContent = flux.toFixed(3) + ' Wb';
+    document.getElementById('h-poincare').textContent = poincareR + 'px';
+    document.getElementById('h-bary').textContent = bary;
+    document.getElementById('h-energy-bar').style.width = (energy * 200).toFixed(1) + '%';
+    document.getElementById('h-plastic-bar').style.width = (flux * 80).toFixed(1) + '%';
+    document.getElementById('h-ft').textContent = (dt * 1000).toFixed(2) + 'ms';
+  }
+
+  // ── Main render loop ─────────────────────────────────
+  let lastTime = 0;
+  let frameCount = 0;
+
+  function frame(ts) {
+    const t = ts * 0.001;
+    const dt = Math.min(0.05, t - lastTime);
+    lastTime = t;
+    frameCount++;
+
+    // Update FFT
+    const fftResult = updateFFT(t);
+
+    // Clear with motion blur
+    ctx.fillStyle = `rgba(2,4,8,${motionBlurAlpha})`;
+    ctx.fillRect(0, 0, W, H);
+
+    // Draw layers
+    drawPoincareDisk(t);
+    drawElectrodeGrid(t);
+    drawParticles(t);
+    animateNodes(t);
+    updatePulses(dt, t);
+    drawEdges(t);
+    drawNodes(t);
+    drawFFTSpectrum(t);
+
+    // HUD sync with FFT energy for audio wobble
+    if (audioOn && audioCtx && gainNode) {
+      const energy = fftData.reduce((a, b) => a + b, 0) / NUM_BINS;
+      gainNode.gain.setTargetAtTime(0.05 + energy * 0.06, audioCtx.currentTime, 0.1);
+    }
+
+    updateHUD(t, dt, fftResult);
+
+    requestAnimationFrame(frame);
+  }
+
+  // ── Randomize all parameters + colors ───────────────
+  function randomizeAll() {
+    // Randomize spectral color mapping: shift hue base and sweep
+    colorHueBase   = Math.random() * 360;
+    colorHueSweep  = 180 + Math.random() * 200;
+    colorSatBase   = 70  + Math.random() * 25;
+    colorLitBase   = 38  + Math.random() * 20;
+
+    // Randomize FFT phases & frequencies for fresh oscillation texture
+    for (let i = 0; i < NUM_BINS; i++) {
+      fftPhase[i] = Math.random() * Math.PI * 2;
+      fftFreqs[i] = 0.15 + Math.random() * 0.6 + i * (0.04 + Math.random() * 0.09);
+    }
+
+    // Randomize motion blur decay
+    motionBlurAlpha = 0.12 + Math.random() * 0.14;
+
+    // Randomize particle velocities and colors
+    particles.forEach(p => {
+      p.vx      = (Math.random() - 0.5) * 0.0005;
+      p.vy      = (Math.random() - 0.5) * 0.0005;
+      p.colorT  = Math.random();
+      p.size    = 0.4 + Math.random() * 2.0;
+      p.phase   = Math.random() * Math.PI * 2;
+    });
+
+    // Rebuild network topology with fresh random wiring
+    buildNetwork();
+  }
+
+  // ── Keyboard controls ────────────────────────────────
+  document.addEventListener('keydown', e => {
+    const key = e.key.toUpperCase();
+    if (key === 'H') {
+      hudVisible = !hudVisible;
+      document.getElementById('hud').classList.toggle('visible', hudVisible);
+    }
+    if (key === 'S') {
+      if (audioOn) stopBinaural();
+      else startBinaural();
+    }
+    if (key === ' ' || e.code === 'Space' || key === 'R') {
+      e.preventDefault();
+      randomizeAll();
+    }
+  });
+
+  // ── Click / tap → randomize ──────────────────────────
+  canvas.addEventListener('click', () => randomizeAll());
+  canvas.addEventListener('touchend', e => { e.preventDefault(); randomizeAll(); }, { passive: false });
+
+  // ── Boot ─────────────────────────────────────────────
+  resize();
+  requestAnimationFrame(frame);
+
+})();
+</script>
+</body>
+</html>

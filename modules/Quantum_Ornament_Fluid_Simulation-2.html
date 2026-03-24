@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Quantum Ornament Fluid Simulation – Generative Audiovisual Engine</title>
+<meta name="description" content="Quantum Ornament Fluid Simulation: a generative audiovisual engine where cultural ornament traditions merge with fluid physics, particle hydrodynamics, reaction diffusion textures, and mechanical systems producing surreal evolving patterns and procedural sound.">
+<meta name="keywords" content="generative art, fluid simulation, navier stokes, lattice boltzmann, reaction diffusion, procedural audio, arabesque, mandala, aztec glyph, celtic knot, maori carving, byzantine mosaic, art nouveau, computational art, physics simulation">
+
+<style>
+html,body{
+margin:0;
+padding:0;
+overflow:hidden;
+background:black;
+font-family:monospace;
+}
+canvas{
+display:block;
+}
+#hud{
+position:fixed;
+left:10px;
+top:10px;
+color:#fff;
+font-size:12px;
+opacity:.75;
+pointer-events:none;
+}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+
+<script>
+
+const canvas=document.getElementById("c");
+const ctx=canvas.getContext("2d");
+const hud=document.getElementById("hud");
+
+let W,H;
+function resize(){
+W=canvas.width=window.innerWidth;
+H=canvas.height=window.innerHeight;
+}
+window.addEventListener("resize",resize);
+resize();
+
+let showHUD=false;
+let soundOn=false;
+
+document.addEventListener("keydown",e=>{
+if(e.code==="Space") init();
+if(e.key==="h"||e.key==="H") showHUD=!showHUD;
+if(e.key==="s"||e.key==="S") toggleSound();
+});
+
+canvas.addEventListener("click",init);
+canvas.addEventListener("touchstart",init);
+
+function rand(a=1,b=0){return Math.random()*(a-b)+b;}
+
+let particles=[];
+let vel=[];
+let res=60;
+let cols,rows;
+
+function initField(){
+cols=Math.floor(W/res)+2;
+rows=Math.floor(H/res)+2;
+vel=new Array(cols*rows).fill(0).map(()=>({x:rand(-1,1),y:rand(-1,1)}));
+}
+
+function velAt(x,y){
+let gx=x/res;
+let gy=y/res;
+let ix=Math.floor(gx);
+let iy=Math.floor(gy);
+let fx=gx-ix;
+let fy=gy-iy;
+
+function v(i,j){
+let id=((j+rows)%rows)*cols+((i+cols)%cols);
+return vel[id];
+}
+
+let v00=v(ix,iy);
+let v10=v(ix+1,iy);
+let v01=v(ix,iy+1);
+let v11=v(ix+1,iy+1);
+
+return {
+x:(v00.x*(1-fx)+v10.x*fx)*(1-fy)+(v01.x*(1-fx)+v11.x*fx)*fy,
+y:(v00.y*(1-fx)+v10.y*fx)*(1-fy)+(v01.y*(1-fx)+v11.x*fx)*fy
+};
+}
+
+function updateField(){
+for(let i=0;i<vel.length;i++){
+let v=vel[i];
+v.x+=rand(-.05,.05);
+v.y+=rand(-.05,.05);
+let m=Math.hypot(v.x,v.y);
+if(m>2){v.x/=m;v.y/=m;}
+}
+}
+
+function makeParticles(n){
+particles=[];
+for(let i=0;i<n;i++){
+particles.push({
+x:rand(W),
+y:rand(H),
+vx:0,
+vy:0,
+life:rand(500,200)
+});
+}
+}
+
+let palette=[];
+function newPalette(){
+palette=[];
+let base=rand(360);
+for(let i=0;i<6;i++){
+palette.push(`hsl(${(base+i*60)%360},80%,${rand(40,70)}%)`);
+}
+}
+
+let gears=[];
+function makeGears(){
+gears=[];
+let gcount=4+Math.floor(rand(4));
+for(let i=0;i<gcount;i++){
+gears.push({
+x:rand(W),
+y:rand(H),
+r:rand(40,120),
+angle:rand(Math.PI*2),
+speed:rand(.02,.005)*(Math.random()<.5?-1:1)
+});
+}
+}
+
+let ornaments=[];
+function makeOrnaments(){
+ornaments=[];
+let count=6+Math.floor(rand(6));
+for(let i=0;i<count;i++){
+ornaments.push({
+x:rand(W),
+y:rand(H),
+scale:rand(80,200),
+type:Math.floor(rand(6)),
+rot:rand(Math.PI*2)
+});
+}
+}
+
+function drawArabesque(x,y,s){
+ctx.beginPath();
+for(let a=0;a<Math.PI*2;a+=.2){
+let r=s*(.4+.2*Math.sin(6*a));
+ctx.lineTo(x+Math.cos(a)*r,y+Math.sin(a)*r);
+}
+ctx.closePath();
+ctx.stroke();
+}
+
+function drawMandala(x,y,s){
+ctx.beginPath();
+for(let i=0;i<16;i++){
+let a=i*Math.PI/8;
+ctx.moveTo(x,y);
+ctx.lineTo(x+Math.cos(a)*s,y+Math.sin(a)*s);
+}
+ctx.stroke();
+}
+
+function drawCeltic(x,y,s){
+ctx.beginPath();
+for(let i=0;i<10;i++){
+let a=i*Math.PI*.2;
+ctx.lineTo(x+Math.cos(a)*s,y+Math.sin(a)*s);
+}
+ctx.closePath();
+ctx.stroke();
+}
+
+function drawAztec(x,y,s){
+ctx.strokeRect(x-s/2,y-s/2,s,s);
+ctx.strokeRect(x-s/4,y-s/4,s/2,s/2);
+}
+
+function drawMaori(x,y,s){
+ctx.beginPath();
+for(let a=0;a<Math.PI*4;a+=.2){
+let r=s*.3+a*2;
+ctx.lineTo(x+Math.cos(a)*r*.2,y+Math.sin(a)*r*.2);
+}
+ctx.stroke();
+}
+
+function drawFiligree(x,y,s){
+ctx.beginPath();
+for(let a=0;a<Math.PI*2;a+=.1){
+let r=s*(.3+.2*Math.sin(5*a));
+ctx.lineTo(x+Math.cos(a)*r,y+Math.sin(a)*r);
+}
+ctx.stroke();
+}
+
+function drawOrnament(o){
+ctx.save();
+ctx.translate(o.x,o.y);
+ctx.rotate(o.rot);
+ctx.strokeStyle=palette[Math.floor(rand(palette.length))];
+ctx.lineWidth=1.5;
+
+switch(o.type){
+case 0:drawArabesque(0,0,o.scale);break;
+case 1:drawMandala(0,0,o.scale);break;
+case 2:drawCeltic(0,0,o.scale);break;
+case 3:drawAztec(0,0,o.scale);break;
+case 4:drawMaori(0,0,o.scale);break;
+case 5:drawFiligree(0,0,o.scale);break;
+}
+
+ctx.restore();
+}
+
+function updateParticles(){
+for(let p of particles){
+let v=velAt(p.x,p.y);
+p.vx+=v.x*.3;
+p.vy+=v.y*.3;
+
+p.x+=p.vx;
+p.y+=p.vy;
+
+p.vx*=.96;
+p.vy*=.96;
+
+if(p.x<0)p.x+=W;
+if(p.x>W)p.x-=W;
+if(p.y<0)p.y+=H;
+if(p.y>H)p.y-=H;
+
+p.life--;
+if(p.life<0){
+p.x=rand(W);
+p.y=rand(H);
+p.life=rand(400,200);
+}
+}
+}
+
+function drawParticles(){
+for(let p of particles){
+ctx.fillStyle=palette[Math.floor(rand(palette.length))];
+ctx.fillRect(p.x,p.y,2,2);
+}
+}
+
+function drawGears(){
+for(let g of gears){
+g.angle+=g.speed;
+ctx.save();
+ctx.translate(g.x,g.y);
+ctx.rotate(g.angle);
+ctx.strokeStyle=palette[0];
+ctx.beginPath();
+ctx.arc(0,0,g.r,0,Math.PI*2);
+for(let i=0;i<12;i++){
+let a=i*Math.PI/6;
+ctx.moveTo(Math.cos(a)*g.r,Math.sin(a)*g.r);
+ctx.lineTo(Math.cos(a)*(g.r+12),Math.sin(a)*(g.r+12));
+}
+ctx.stroke();
+ctx.restore();
+}
+}
+
+let audioCtx=null;
+let osc=null;
+let gain=null;
+
+function toggleSound(){
+soundOn=!soundOn;
+
+if(soundOn){
+audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+osc=audioCtx.createOscillator();
+gain=audioCtx.createGain();
+osc.type="sine";
+osc.connect(gain);
+gain.connect(audioCtx.destination);
+gain.gain.value=.05;
+osc.start();
+}else{
+if(audioCtx){
+audioCtx.close();
+audioCtx=null;
+}
+}
+}
+
+function updateSound(){
+if(!soundOn||!audioCtx) return;
+
+let energy=0;
+for(let v of vel){
+energy+=Math.hypot(v.x,v.y);
+}
+energy/=vel.length;
+
+osc.frequency.value=120+energy*300;
+}
+
+function init(){
+newPalette();
+initField();
+makeParticles(2000);
+makeGears();
+makeOrnaments();
+}
+
+init();
+
+function loop(){
+requestAnimationFrame(loop);
+
+ctx.fillStyle="rgba(0,0,0,.1)";
+ctx.fillRect(0,0,W,H);
+
+updateField();
+updateParticles();
+updateSound();
+
+drawParticles();
+drawGears();
+
+for(let o of ornaments){
+drawOrnament(o);
+}
+
+if(showHUD){
+hud.innerHTML=
+"Quantum Ornament Fluid Simulation<br>"+
+"SPACE / Click / Tap : regenerate<br>"+
+"H : toggle HUD<br>"+
+"S : toggle sound<br>"+
+"particles: "+particles.length;
+}else{
+hud.innerHTML="";
+}
+
+}
+
+loop();
+
+</script>
+</body>
+</html>

@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Neuro-Circuitry Arcade Evolution</title>
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%; overflow: hidden;
+    background: #000;
+    font-family: 'Courier New', monospace;
+  }
+  #cv {
+    display: block;
+    width: 100vw; height: 100vh;
+    cursor: crosshair;
+  }
+  #hud {
+    position: fixed;
+    top: 16px; left: 16px;
+    font: 11px/1.8 'Courier New', monospace;
+    color: #0ff;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s;
+    text-shadow: 0 0 8px #0ff;
+    z-index: 10;
+    letter-spacing: 0.05em;
+  }
+  #hud.on { opacity: 1; }
+  #hud .label { color: rgba(0,255,200,0.5); font-size: 9px; letter-spacing: 0.15em; text-transform: uppercase; }
+  #keys {
+    position: fixed;
+    bottom: 14px; left: 50%;
+    transform: translateX(-50%);
+    font: 10px/1 'Courier New', monospace;
+    color: rgba(0,255,200,0.4);
+    letter-spacing: 0.12em;
+    pointer-events: none;
+    z-index: 10;
+    white-space: nowrap;
+  }
+  #title {
+    position: fixed;
+    top: 16px; right: 16px;
+    font: 700 10px/1.4 'Courier New', monospace;
+    color: rgba(255,255,255,0.15);
+    letter-spacing: 0.2em;
+    text-align: right;
+    pointer-events: none;
+    z-index: 10;
+    text-transform: uppercase;
+  }
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div id="hud"></div>
+<div id="title">NEURO-CIRCUITRY<br>ARCADE EVOLUTION</div>
+<div id="keys">SPACE / CLICK &nbsp;·&nbsp; RESET &nbsp;&nbsp;|&nbsp;&nbsp; H &nbsp;·&nbsp; HUD &nbsp;&nbsp;|&nbsp;&nbsp; S &nbsp;·&nbsp; SOUND</div>
+
+<script>
+(()=>{
+  const cv = document.getElementById('cv');
+  const cx = cv.getContext('2d');
+  const hud = document.getElementById('hud');
+
+  let W, H, t = 0, raf;
+  let showHud = false, soundOn = false;
+  let ac = null, osc = null, gainN = null;
+  let gen = 0;
+  let nodes = [], edges = [], cells = [], icons = [], trails = [], particles = [];
+  let GW, GH, grid;
+
+  const PALETTES = [
+    ['#ff2d78','#ff7b00','#ffe000','#00ff9f','#00cfff','#9b5dff'],
+    ['#ff006e','#fb5607','#ffbe0b','#8338ec','#3a86ff','#06d6a0'],
+    ['#f72585','#7209b7','#3a0ca3','#4361ee','#4cc9f0','#4ade80'],
+    ['#ff4d00','#ff9500','#ffe45e','#3bceac','#0ead69','#ee4266'],
+    ['#e63946','#457b9d','#1d3557','#a8dadc','#f1faee','#2a9d8f'],
+  ];
+  let pal = PALETTES[0];
+
+  /* ── utils ── */
+  const rnd = (a, b) => a + Math.random() * (b - a);
+  const ri  = (a, b) => (a + Math.random() * (b - a + 1)) | 0;
+  const pick = arr => arr[ri(0, arr.length - 1)];
+
+  function hsvToRgb(h, s, v) {
+    let r, g, b, i = Math.floor(h * 6), f = h * 6 - i,
+        p = v*(1-s), q = v*(1-f*s), tv = v*(1-(1-f)*s);
+    switch(i % 6) {
+      case 0: r=v; g=tv; b=p; break; case 1: r=q; g=v; b=p; break;
+      case 2: r=p; g=v; b=tv; break; case 3: r=p; g=q; b=v; break;
+      case 4: r=tv; g=p; b=v; break; case 5: r=v; g=p; b=q; break;
+    }
+    return `rgb(${(r*255)|0},${(g*255)|0},${(b*255)|0})`;
+  }
+
+  /* ── Node ── */
+  class Node {
+    constructor() {
+      this.x = rnd(60, W - 60); this.y = rnd(60, H - 60);
+      this.vx = rnd(-0.9, 0.9); this.vy = rnd(-0.9, 0.9);
+      this.r = rnd(6, 20); this.col = pick(pal);
+      this.shape = ri(0, 4); this.phase = rnd(0, Math.PI * 2);
+      this.energy = rnd(0.5, 1);
+      this.dna = Math.random().toString(2).slice(2, 10);
+      this.age = 0; this.maxAge = 300 + ri(0, 500);
+      this.baud = rnd(0.02, 0.07);
+    }
+    update() {
+      this.x += this.vx; this.y += this.vy;
+      if (this.x < 20 || this.x > W - 20) this.vx *= -1;
+      if (this.y < 20 || this.y > H - 20) this.vy *= -1;
+      this.phase += 0.04; this.age++;
+      if (Math.random() < 0.08) this.dna = this.dna.slice(1) + ri(0, 1);
+    }
+    draw() {
+      const a = this.age / this.maxAge;
+      const alpha = a < 0.1 ? a * 10 : (a > 0.9 ? (1 - a) * 10 : 1);
+      cx.save(); cx.globalAlpha = alpha * this.energy;
+      cx.translate(this.x, this.y);
+      const pulse = 1 + 0.18 * Math.sin(this.phase);
+      cx.scale(pulse, pulse);
+      cx.strokeStyle = this.col; cx.fillStyle = this.col + '33'; cx.lineWidth = 1.3;
+      const s = this.r;
+      cx.beginPath();
+      switch (this.shape) {
+        case 0: cx.arc(0, 0, s, 0, Math.PI * 2); break;
+        case 1: cx.rect(-s, -s, s * 2, s * 2); break;
+        case 2: cx.moveTo(0, -s); cx.lineTo(s, s); cx.lineTo(-s, s); cx.closePath(); break;
+        case 3:
+          for (let i = 0; i < 6; i++) {
+            const ang = i * Math.PI / 3;
+            cx.lineTo(Math.cos(ang) * s, Math.sin(ang) * s);
+          }
+          cx.closePath(); break;
+        case 4: cx.rect(-s, -s * 0.4, s * 2, s * 0.8); break;
+      }
+      cx.fill(); cx.stroke();
+      cx.fillStyle = this.col;
+      cx.font = `${((s * 0.55) | 0)}px monospace`;
+      cx.textAlign = 'center'; cx.textBaseline = 'middle';
+      cx.fillText(this.dna.slice(0, 2), 0, 0);
+      cx.restore();
+    }
+  }
+
+  /* ── Trail ── */
+  class Trail {
+    constructor(x, y, col) {
+      this.pts = [[x, y]]; this.col = col; this.alive = true; this.age = 0;
+      this.vx = rnd(-2.2, 2.2); this.vy = rnd(-2.2, 2.2);
+    }
+    update() {
+      const last = this.pts[this.pts.length - 1];
+      this.vx += rnd(-0.35, 0.35); this.vy += rnd(-0.35, 0.35);
+      const spd = Math.hypot(this.vx, this.vy);
+      if (spd > 3.2) { this.vx *= 3.2 / spd; this.vy *= 3.2 / spd; }
+      const nx = last[0] + this.vx, ny = last[1] + this.vy;
+      this.pts.push([nx, ny]);
+      if (this.pts.length > 70) this.pts.shift();
+      this.age++;
+      if (this.age > 200 || nx < -10 || nx > W + 10 || ny < -10 || ny > H + 10) this.alive = false;
+    }
+    draw() {
+      if (this.pts.length < 2) return;
+      cx.beginPath(); cx.moveTo(this.pts[0][0], this.pts[0][1]);
+      for (let i = 1; i < this.pts.length; i++) cx.lineTo(this.pts[i][0], this.pts[i][1]);
+      cx.strokeStyle = this.col;
+      cx.globalAlpha = (1 - this.age / 200) * 0.65;
+      cx.lineWidth = 1.5; cx.stroke(); cx.globalAlpha = 1;
+    }
+  }
+
+  /* ── Cell (CA) ── */
+  class Cell {
+    constructor(x, y, state) {
+      this.x = x; this.y = y; this.state = state; this.next = 0;
+    }
+    update(g, gw, gh) {
+      const gx = (this.x / 8) | 0, gy = (this.y / 8) | 0;
+      let nb = 0;
+      for (let dy = -1; dy <= 1; dy++)
+        for (let dx = -1; dx <= 1; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          const nx = (gx + dx + gw) % gw, ny = (gy + dy + gh) % gh;
+          if (g[ny * gw + nx]) nb++;
+        }
+      this.next = this.state === 1 ? (nb === 2 || nb === 3 ? 1 : 0) : (nb === 3 ? 1 : 0);
+    }
+    commit() { this.state = this.next; }
+    draw() {
+      if (!this.state) return;
+      const hue = ((this.x + this.y + t * 0.5) % 360) / 360;
+      cx.fillStyle = hsvToRgb(hue, 0.8, 1);
+      cx.globalAlpha = 0.5;
+      cx.fillRect(this.x, this.y, 7, 7);
+      cx.globalAlpha = 1;
+    }
+  }
+
+  /* ── HumanIcon ── */
+  class HumanIcon {
+    constructor() {
+      this.x = rnd(40, W - 40); this.y = rnd(40, H - 40);
+      this.vx = rnd(-0.55, 0.55); this.vy = rnd(-0.45, 0.45);
+      this.col = pick(pal); this.phase = rnd(0, 6);
+      this.bits = Array.from({length: 8}, () => ri(0, 1));
+      this.age = 0; this.maxAge = 400 + ri(0, 400);
+    }
+    update() {
+      this.x += this.vx; this.y += this.vy;
+      if (this.x < 20 || this.x > W - 20) this.vx *= -1;
+      if (this.y < 20 || this.y > H - 20) this.vy *= -1;
+      this.phase += 0.03; this.age++;
+      if (Math.random() < 0.05) this.bits[ri(0, 7)] = ri(0, 1);
+    }
+    draw() {
+      const alpha = Math.min(1, Math.min(this.age, this.maxAge - this.age) / 40);
+      const morph = Math.sin(this.phase) * 0.5 + 0.5;
+      cx.save(); cx.globalAlpha = alpha; cx.translate(this.x, this.y);
+      const s = 14;
+      cx.strokeStyle = this.col; cx.lineWidth = 1; cx.fillStyle = this.col + '44';
+      cx.beginPath();
+      if (morph < 0.5) {
+        cx.arc(0, -s * 0.65, s * 0.3, 0, Math.PI * 2); cx.fill(); cx.stroke();
+        cx.beginPath();
+        cx.moveTo(-s*0.5, s*0.2); cx.lineTo(0, -s*0.35); cx.lineTo(s*0.5, s*0.2);
+        cx.moveTo(0, -s*0.35); cx.lineTo(0, s*0.4);
+        cx.moveTo(-s*0.45, s*0.8); cx.lineTo(0, s*0.4); cx.lineTo(s*0.45, s*0.8);
+        cx.stroke();
+      } else {
+        const pts = 8, rr = s * 0.8;
+        for (let i = 0; i < pts; i++) {
+          const ang = i / pts * Math.PI * 2;
+          cx.lineTo(Math.cos(ang)*rr*(0.7+this.bits[i]*0.3), Math.sin(ang)*rr*(0.7+this.bits[i]*0.3));
+        }
+        cx.closePath(); cx.fill(); cx.stroke();
+      }
+      cx.fillStyle = this.col; cx.font = '7px monospace'; cx.textAlign = 'center';
+      cx.fillText(this.bits.join(''), 0, s + 9);
+      cx.restore();
+    }
+  }
+
+  /* ── Particle ── */
+  class Particle {
+    constructor(x, y, col) {
+      this.x = x; this.y = y; this.col = col;
+      const ang = Math.random() * Math.PI * 2, sp = rnd(1, 5);
+      this.vx = Math.cos(ang) * sp; this.vy = Math.sin(ang) * sp;
+      this.life = 1; this.r = rnd(2, 6);
+    }
+    update() { this.x += this.vx; this.y += this.vy; this.vy += 0.06; this.life -= 0.025; }
+    draw() {
+      cx.save(); cx.globalAlpha = this.life; cx.fillStyle = this.col;
+      cx.beginPath(); cx.arc(this.x, this.y, this.r * this.life, 0, Math.PI * 2);
+      cx.fill(); cx.restore();
+    }
+  }
+
+  /* ── init ── */
+  function initCells() {
+    GW = Math.floor(W / 8); GH = Math.floor(H / 8);
+    grid = new Uint8Array(GW * GH); cells = [];
+    for (let y = 0; y < GH; y++)
+      for (let x = 0; x < GW; x++) {
+        const s = Math.random() < 0.28 ? 1 : 0;
+        cells.push(new Cell(x * 8, y * 8, s));
+        grid[y * GW + x] = s;
+      }
+  }
+
+  function initAll() {
+    gen++;
+    pal = PALETTES[gen % PALETTES.length];
+    nodes = Array.from({length: 24}, () => new Node());
+    edges = [];
+    for (let i = 0; i < nodes.length; i++)
+      for (let j = i + 1; j < nodes.length; j++)
+        if (Math.hypot(nodes[i].x - nodes[j].x, nodes[i].y - nodes[j].y) < 130 && Math.random() < 0.35)
+          edges.push([i, j]);
+    trails = Array.from({length: 14}, () => new Trail(rnd(0, W), rnd(0, H), pick(pal)));
+    icons  = Array.from({length: 10}, () => new HumanIcon());
+    particles = [];
+    initCells();
+  }
+
+  function stepCA() {
+    for (const c of cells) c.update(grid, GW, GH);
+    grid.fill(0);
+    for (const c of cells) {
+      c.commit();
+      grid[((c.y / 8) | 0) * GW + ((c.x / 8) | 0)] = c.state;
+    }
+  }
+
+  /* ── draw helpers ── */
+  function drawCorridor() {
+    cx.save();
+    const vpx = W / 2, vpy = H / 2, fp = 64;
+    cx.lineWidth = 0.5;
+    for (let i = 0; i < 28; i++) {
+      const ang = i / 28 * Math.PI * 2;
+      cx.strokeStyle = `rgba(0,255,200,0.035)`;
+      cx.beginPath(); cx.moveTo(vpx, vpy);
+      cx.lineTo(vpx + Math.cos(ang) * W * 1.2, vpy + Math.sin(ang) * H * 1.2);
+      cx.stroke();
+    }
+    for (let d = 1; d <= 10; d++) {
+      const r = d * fp + ((t * 0.4) % fp);
+      cx.strokeStyle = `rgba(0,255,200,${0.015 + 0.01 * d})`;
+      cx.beginPath(); cx.arc(vpx, vpy, r, 0, Math.PI * 2); cx.stroke();
+    }
+    cx.restore();
+  }
+
+  function drawEdges() {
+    for (const [i, j] of edges) {
+      if (i >= nodes.length || j >= nodes.length) continue;
+      const a = nodes[i], b = nodes[j];
+      const dst = Math.hypot(a.x - b.x, a.y - b.y);
+      if (dst > 170) continue;
+      const hue = ((t * 1.4 + i * 28) % 360) / 360;
+      cx.save(); cx.globalAlpha = (1 - dst / 170) * 0.55;
+      cx.strokeStyle = hsvToRgb(hue, 0.9, 1); cx.lineWidth = 0.9;
+      cx.beginPath(); cx.moveTo(a.x, a.y); cx.lineTo(b.x, b.y); cx.stroke();
+      cx.restore();
+    }
+  }
+
+  /* ── main loop ── */
+  let cellTick = 0;
+
+  function frame() {
+    raf = requestAnimationFrame(frame);
+    t += 0.6;
+
+    cx.fillStyle = 'rgba(0,0,0,0.18)';
+    cx.fillRect(0, 0, W, H);
+
+    drawCorridor();
+
+    cellTick++;
+    if (cellTick % 4 === 0) stepCA();
+    for (const c of cells) c.draw();
+
+    drawEdges();
+
+    for (const n of nodes) { n.update(); n.draw(); }
+    nodes = nodes.filter(n => n.age < n.maxAge);
+    if (nodes.length < 20) nodes.push(new Node());
+
+    for (const tr of trails) { tr.update(); tr.draw(); }
+    trails = trails.filter(tr => tr.alive);
+    if (trails.length < 12) trails.push(new Trail(rnd(0, W), rnd(0, H), pick(pal)));
+
+    for (const ic of icons) { ic.update(); ic.draw(); }
+    icons = icons.filter(ic => ic.age < ic.maxAge);
+    if (icons.length < 8) icons.push(new HumanIcon());
+
+    for (const p of particles) { p.update(); p.draw(); }
+    particles = particles.filter(p => p.life > 0);
+
+    if (soundOn && ac && osc) {
+      const freq = 80 + 60 * Math.sin(t * 0.02) + 30 * Math.sin(t * 0.07);
+      osc.frequency.setTargetAtTime(freq, ac.currentTime, 0.1);
+    }
+
+    if (showHud) {
+      hud.className = 'on';
+      hud.innerHTML =
+        `<span class="label">generation</span> ${gen}<br>` +
+        `<span class="label">time</span> ${(t / 60) | 0}s<br>` +
+        `<span class="label">nodes</span> ${nodes.length} &nbsp; <span class="label">edges</span> ${edges.length}<br>` +
+        `<span class="label">trails</span> ${trails.length} &nbsp; <span class="label">icons</span> ${icons.length}<br>` +
+        `<span class="label">cells</span> ${cells.filter(c => c.state).length}/${cells.length}<br>` +
+        `<span class="label">sound</span> ${soundOn ? 'ON' : 'OFF'}`;
+    } else {
+      hud.className = '';
+    }
+  }
+
+  /* ── sound ── */
+  function toggleSound() {
+    soundOn = !soundOn;
+    if (soundOn) {
+      if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)();
+      gainN = ac.createGain(); gainN.gain.value = 0.07; gainN.connect(ac.destination);
+      const filter = ac.createBiquadFilter(); filter.type = 'bandpass'; filter.frequency.value = 400; filter.Q.value = 1.5;
+      filter.connect(gainN);
+      osc = ac.createOscillator(); osc.type = 'sawtooth'; osc.frequency.value = 80;
+      const lfo = ac.createOscillator(); lfo.frequency.value = 0.3;
+      const lfoGain = ac.createGain(); lfoGain.gain.value = 45;
+      lfo.connect(lfoGain); lfoGain.connect(osc.frequency);
+      osc.connect(filter);
+      lfo.start(); osc.start();
+    } else {
+      if (osc) { osc.stop(); osc = null; }
+      if (gainN) { gainN.disconnect(); gainN = null; }
+    }
+  }
+
+  /* ── reset ── */
+  function reset() {
+    for (let i = 0; i < 10; i++) {
+      const x = rnd(0, W), y = rnd(0, H), col = pick(pal);
+      for (let j = 0; j < 7; j++) particles.push(new Particle(x, y, col));
+    }
+    initAll();
+    if (ac && soundOn && osc) {
+      osc.frequency.cancelScheduledValues(ac.currentTime);
+      osc.frequency.linearRampToValueAtTime(200 + Math.random() * 400, ac.currentTime + 0.08);
+      osc.frequency.linearRampToValueAtTime(80, ac.currentTime + 1.0);
+    }
+  }
+
+  /* ── resize ── */
+  function resize() {
+    W = cv.width  = window.innerWidth;
+    H = cv.height = window.innerHeight;
+  }
+
+  /* ── events ── */
+  document.addEventListener('keydown', e => {
+    if (e.code === 'Space') { e.preventDefault(); reset(); }
+    if (e.key === 'h' || e.key === 'H') showHud = !showHud;
+    if (e.key === 's' || e.key === 'S') toggleSound();
+  });
+  cv.addEventListener('click', reset);
+  window.addEventListener('resize', () => { resize(); initAll(); });
+
+  /* ── boot ── */
+  resize();
+  initAll();
+  frame();
+})();
+</script>
+</body>
+</html>

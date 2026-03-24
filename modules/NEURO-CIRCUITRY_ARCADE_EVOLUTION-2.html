@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>NEURO-CIRCUITRY ARCADE EVOLUTION</title>
+    <meta name="description" content="A recursive neurotechnology simulation merging infinite arcade corridors, cellular automata, and Bauhaus-inspired graph-rewriting architectures.">
+    <meta name="keywords" content="Generative Art, Neurotechnology, CRISPR Simulation, Bauhaus Design, Arcade Aesthetics, Cellular Automata, Audiovisual Engine">
+    <style>
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; cursor: crosshair; }
+        canvas { display: block; width: 100vw; height: 100vh; background: #000; }
+        #hud {
+            position: absolute; top: 20px; left: 20px; pointer-events: none;
+            color: #ff00ff; font-family: 'Courier New', monospace; font-size: 11px;
+            background: rgba(0, 0, 0, 0.85); padding: 15px; border-left: 3px solid #0ff;
+            display: none; z-index: 10; text-transform: uppercase; line-height: 1.6;
+            box-shadow: 0 0 20px rgba(255, 0, 255, 0.2);
+        }
+        .ui {
+            position: absolute; bottom: 20px; width: 100%; text-align: center;
+            color: rgba(255, 255, 255, 0.3); font-family: monospace; font-size: 10px;
+            letter-spacing: 5px; pointer-events: none; text-transform: uppercase;
+        }
+    </style>
+</head>
+<body>
+    <div id="hud">
+        EVOLUTION_CYCLE: <span id="h-cycle">0</span><br>
+        NEURAL_NODES: <span id="h-nodes">0</span><br>
+        GENE_FLUX: <span id="h-flux">0</span>%<br>
+        ARCADE_DEPTH: <span id="h-depth">0</span><br>
+        AUDIO_ENGINE: <span id="h-audio">OFF</span>
+    </div>
+    <div class="ui">SPACE/TAP: RECURSIVE UPGRADE | H: HUD | S: SOUND</div>
+    <canvas id="c"></canvas>
+
+<script>
+/**
+ * NEURO-CIRCUITRY ARCADE EVOLUTION
+ * A Stochastic Hybrid Fusion of Bauhaus Geometry and Arcade Cybernetics
+ */
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d', { alpha: false });
+const hud = document.getElementById('hud');
+
+let w, h, dpr;
+let nodes = [], paths = [], cells = [];
+let audioCtx, masterGain, verb;
+let audioEnabled = false, showHud = false;
+let palette = [], hueBase = Math.random() * 360;
+let frame = 0, cycle = 0;
+
+class NeuralNode {
+    constructor(x, y, z) {
+        this.x = x; this.y = y; this.z = z;
+        this.size = Math.random() * 20 + 5;
+        this.color = palette[Math.floor(Math.random() * palette.length)];
+        this.type = Math.random() > 0.5 ? 'circle' : 'rect'; // Bauhaus primitives
+    }
+    update() {
+        this.z -= 0.02;
+        if (this.z < 0.1) {
+            this.z = 5;
+            this.x = (Math.random() - 0.5) * 2;
+            this.y = (Math.random() - 0.5) * 2;
+        }
+    }
+    draw() {
+        const perspective = 400 / this.z;
+        const screenX = w/2 + this.x * perspective;
+        const screenY = h/2 + this.y * perspective;
+        const s = this.size * (perspective / 100);
+
+        ctx.strokeStyle = this.color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        if (this.type === 'circle') ctx.arc(screenX, screenY, s, 0, Math.PI * 2);
+        else ctx.rect(screenX - s, screenY - s, s * 2, s * 2);
+        ctx.stroke();
+        
+        // Internal "binary" icon remapping
+        if (this.z < 1) {
+            ctx.fillStyle = '#fff';
+            ctx.font = `${Math.floor(s)}px monospace`;
+            ctx.fillText(Math.random() > 0.5 ? "1" : "0", screenX - s/3, screenY + s/3);
+        }
+    }
+}
+
+function init() {
+    w = canvas.width = window.innerWidth;
+    h = canvas.height = window.innerHeight;
+    cycle++;
+    hueBase = Math.random() * 360;
+    palette = [];
+    for(let i=0; i<5; i++) palette.push(`hsl(${(hueBase + i * 45) % 360}, 100%, 50%)`);
+
+    nodes = [];
+    for(let i=0; i<150; i++) {
+        nodes.push(new NeuralNode((Math.random()-0.5)*2, (Math.random()-0.5)*2, Math.random()*5));
+    }
+
+    // Grid representing Cellular Automata / CRISPR zones
+    cells = [];
+    const rows = 20, cols = 20;
+    for(let i=0; i<rows*cols; i++) cells.push(Math.random() > 0.8 ? 1 : 0);
+
+    document.getElementById('h-cycle').innerText = cycle;
+    document.getElementById('h-nodes').innerText = nodes.length;
+}
+
+function draw() {
+    // Shimmering Spectral Flow Trail
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
+    ctx.fillRect(0, 0, w, h);
+
+    // Render Infinite Arcade Corridor Lines
+    ctx.strokeStyle = `hsla(${hueBase}, 100%, 50%, 0.1)`;
+    ctx.lineWidth = 1;
+    for(let i=0; i<10; i++) {
+        const ang = (i / 10) * Math.PI * 2;
+        ctx.beginPath();
+        ctx.moveTo(w/2, h/2);
+        ctx.lineTo(w/2 + Math.cos(ang) * w, h/2 + Math.sin(ang) * h);
+        ctx.stroke();
+    }
+
+    // Draw Bauhaus Neural Nodes
+    nodes.forEach(n => {
+        n.update();
+        n.draw();
+        if (audioEnabled && n.z < 0.2 && Math.random() > 0.95) playPulse(n.color);
+    });
+
+    // CRISPR Cellular Automata Overlay
+    const cellSize = 40;
+    ctx.globalAlpha = 0.05;
+    for(let i=0; i<20; i++) {
+        for(let j=0; j<20; j++) {
+            if (cells[i*20+j]) {
+                ctx.fillStyle = palette[i % palette.length];
+                ctx.fillRect(i * cellSize, j * cellSize, cellSize-2, cellSize-2);
+                if (Math.random() > 0.99) cells[i*20+j] = 0; // Simple decay
+            } else if (Math.random() > 0.999) cells[i*20+j] = 1;
+        }
+    }
+    ctx.globalAlpha = 1.0;
+
+    frame++;
+    document.getElementById('h-flux').innerText = (Math.sin(frame*0.02)*50 + 50).toFixed(1);
+    document.getElementById('h-depth').innerText = frame;
+    requestAnimationFrame(draw);
+}
+
+function initAudio() {
+    if (audioCtx) return;
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    masterGain = audioCtx.createGain();
+    verb = audioCtx.createConvolver(); // Potential for spatial echo
+    masterGain.gain.value = 0.1;
+    masterGain.connect(audioCtx.destination);
+}
+
+function playPulse(color) {
+    if (!audioEnabled) return;
+    const osc = audioCtx.createOscillator();
+    const env = audioCtx.createGain();
+    
+    // Granular pitch based on color hue
+    const hue = parseInt(color.split('(')[1]);
+    osc.frequency.setValueAtTime(100 + hue * 2, audioCtx.currentTime);
+    osc.type = 'triangle';
+    
+    env.gain.setValueAtTime(0.2, audioCtx.currentTime);
+    env.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.1);
+    
+    osc.connect(env);
+    env.connect(masterGain);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.1);
+}
+
+window.addEventListener('keydown', e => {
+    if (e.code === 'Space') init();
+    if (e.key.toLowerCase() === 'h') {
+        showHud = !showHud;
+        hud.style.display = showHud ? 'block' : 'none';
+    }
+    if (e.key.toLowerCase() === 's') {
+        audioEnabled = !audioEnabled;
+        if (audioEnabled) initAudio();
+        document.getElementById('h-audio').innerText = audioEnabled ? 'ON' : 'OFF';
+    }
+});
+
+window.addEventListener('mousedown', init);
+window.addEventListener('resize', init);
+
+init();
+draw();
+
+</script>
+</body>
+</html>

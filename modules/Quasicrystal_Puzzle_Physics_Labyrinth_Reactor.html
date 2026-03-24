@@ -1,0 +1,1241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Quasicrystal Puzzle-Physics Labyrinth Reactor</title>
+<meta name="description" content="A generative audiovisual engine featuring Penrose tilings, quasicrystal lattices, physics simulations, maze reactors, and procedural audio in a mesmerizing real-time experience.">
+<meta name="keywords" content="quasicrystal, Penrose tiling, generative art, physics simulation, labyrinth, procedural audio, WebAudio, canvas, maze, reaction diffusion">
+<meta name="author" content="Quasicrystal Reactor Engine">
+<meta property="og:title" content="Quasicrystal Puzzle-Physics Labyrinth Reactor">
+<meta property="og:description" content="Real-time generative audiovisual engine with Penrose tilings, chaos physics, and modal synthesis audio.">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#000011">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000;cursor:crosshair}
+canvas{display:block;position:fixed;top:0;left:0;width:100%;height:100%}
+#hud{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;display:none;z-index:10}
+#hud-inner{position:absolute;top:16px;left:16px;color:#0ff;font-family:'Courier New',monospace;font-size:11px;line-height:1.7;text-shadow:0 0 8px #0ff,0 0 16px #0ff4;background:rgba(0,0,32,0.72);border:1px solid #0ff4;padding:12px 16px;border-radius:4px;max-width:320px}
+#hud-title{font-size:14px;font-weight:bold;color:#fff;text-shadow:0 0 10px #fff,0 0 20px #08f;letter-spacing:2px;margin-bottom:6px}
+#toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);color:#fff;font-family:'Courier New',monospace;font-size:12px;background:rgba(0,0,40,0.85);border:1px solid #08f6;padding:8px 18px;border-radius:20px;opacity:0;transition:opacity .4s;pointer-events:none;z-index:20;text-shadow:0 0 8px #08f}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"><div id="hud-inner">
+  <div id="hud-title">⬡ QUASICRYSTAL REACTOR</div>
+  <div id="h-mode">MODE: —</div>
+  <div id="h-tiles">TILES: —</div>
+  <div id="h-bodies">BODIES: —</div>
+  <div id="h-particles">PARTICLES: —</div>
+  <div id="h-maze">MAZE: —</div>
+  <div id="h-palette">PALETTE: —</div>
+  <div id="h-fps">FPS: —</div>
+  <div id="h-sound">SOUND: OFF</div>
+  <div style="margin-top:8px;color:#08f8;font-size:10px">SPACE/TAP → NEW UNIVERSE<br>H → HUD  S → SOUND</div>
+</div></div>
+<div id="toast"></div>
+<script>
+(function(){
+'use strict';
+// ─── GLOBALS ──────────────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H, CX, CY;
+let hudVisible = false;
+let soundOn = false;
+let audioCtx = null;
+let masterGain = null;
+let frameCount = 0;
+let lastFPS = 0, fpsTimer = 0, fps = 60;
+let universe = null;
+let animId = null;
+let lastTime = 0;
+
+// ─── TOAST ────────────────────────────────────────────────────────────────────
+const toast = document.getElementById('toast');
+let toastTimer = null;
+function showToast(msg){
+  toast.textContent = msg; toast.style.opacity = '1';
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>toast.style.opacity='0', 1800);
+}
+
+// ─── RESIZE ───────────────────────────────────────────────────────────────────
+function resize(){
+  const dpr = Math.min(window.devicePixelRatio||1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  canvas.style.width = W+'px'; canvas.style.height = H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  CX = W/2; CY = H/2;
+}
+window.addEventListener('resize', ()=>{resize(); if(universe) universe.onResize();});
+resize();
+
+// ─── MATH UTILS ───────────────────────────────────────────────────────────────
+const TAU = Math.PI*2;
+const PHI = (1+Math.sqrt(5))/2;
+const rnd = (a,b)=>a+(b-a)*Math.random();
+const rndI = (n)=>Math.floor(Math.random()*n);
+const pick = (arr)=>arr[rndI(arr.length)];
+const lerp = (a,b,t)=>a+(b-a)*t;
+const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
+const fract = (x)=>x-Math.floor(x);
+const mod = (a,b)=>((a%b)+b)%b;
+const v2dist = (ax,ay,bx,by)=>Math.hypot(bx-ax,by-ay);
+const v2len = (x,y)=>Math.hypot(x,y);
+const v2norm = (x,y)=>{const l=v2len(x,y)||1e-9;return[x/l,y/l]};
+const v2dot = (ax,ay,bx,by)=>ax*bx+ay*by;
+const v2cross = (ax,ay,bx,by)=>ax*by-ay*bx;
+function hslToRgb(h,s,l){
+  h=mod(h,360)/360; s/=100; l/=100;
+  const q=l<.5?l*(1+s):l+s-l*s, p=2*l-q;
+  const hue2=(t)=>{t=mod(t,1);if(t<1/6)return p+(q-p)*6*t;if(t<.5)return q;if(t<2/3)return p+(q-p)*(2/3-t)*6;return p;};
+  return[hue2(h+1/3)*255|0, hue2(h)*255|0, hue2(h-1/3)*255|0];
+}
+function rgbStr(r,g,b,a=1){return `rgba(${r|0},${g|0},${b|0},${a})`;}
+
+// ─── SIMPLEX-LIKE NOISE (portable, no external) ───────────────────────────────
+const PERM = new Uint8Array(512);
+(function buildNoise(){
+  const p=new Uint8Array(256);
+  for(let i=0;i<256;i++) p[i]=i;
+  for(let i=255;i>0;i--){const j=Math.random()*(i+1)|0;[p[i],p[j]]=[p[j],p[i]];}
+  for(let i=0;i<512;i++) PERM[i]=p[i&255];
+})();
+function fade(t){return t*t*t*(t*(t*6-15)+10);}
+function ngrad(h,x,y){const v=h&3;const u=v<2?x:y,w=v<2?y:x;return((h&1)?-u:u)+((h&2)?-w:w);}
+function noise2(x,y){
+  const X=Math.floor(x)&255, Y=Math.floor(y)&255;
+  x-=Math.floor(x); y-=Math.floor(y);
+  const u=fade(x),v=fade(y);
+  const a=PERM[X]+Y,b=PERM[X+1]+Y;
+  return lerp(lerp(ngrad(PERM[a],x,y),ngrad(PERM[b],x-1,y),u),
+              lerp(ngrad(PERM[a+1],x,y-1),ngrad(PERM[b+1],x-1,y-1),u),v);
+}
+function fbm(x,y,oct=4){let v=0,amp=.5,freq=1;for(let i=0;i<oct;i++){v+=noise2(x*freq,y*freq)*amp;freq*=2;amp*=.5;}return v;}
+
+// ─── PALETTE SYSTEM ───────────────────────────────────────────────────────────
+const PALETTE_NAMES = ['Spectral Void','Neon Banded','Luminous Chord','Chaos Fire','Deep Teal','Quantum Iris','Solar Wind','Cosmic Decay','Hyperviolet','Molten Gold'];
+function makePalette(seed){
+  const r=()=>Math.random();
+  const type = rndI(10);
+  const pals = [];
+  if(type===0){// spectral gradient
+    const h0=r()*360, spread=rnd(60,300);
+    for(let i=0;i<8;i++){const t=i/7; pals.push(hslToRgb(h0+spread*t, rnd(70,100), rnd(40,75)));}
+  } else if(type===1){// neon bands
+    const hues=[r()*360, r()*360+120, r()*360+240];
+    for(let i=0;i<8;i++){const c=hslToRgb(hues[i%3]+rnd(-15,15),100,rnd(55,70)); pals.push(c);}
+  } else if(type===2){// luminous chord
+    const root=r()*360;
+    const chord=[0,4,7,11,14].map(s=>root+s*12);
+    for(let i=0;i<8;i++) pals.push(hslToRgb(chord[i%5]+rnd(-5,5),rnd(80,100),rnd(50,70)));
+  } else if(type===3){// chaos fire
+    for(let i=0;i<8;i++) pals.push(hslToRgb(rnd(-10,50),rnd(80,100),rnd(40,80)));
+  } else if(type===4){// deep teal
+    for(let i=0;i<8;i++) pals.push(hslToRgb(rnd(160,210),rnd(60,100),rnd(30,65)));
+  } else if(type===5){// quantum iris
+    for(let i=0;i<8;i++) pals.push(hslToRgb(rnd(240,310),rnd(70,100),rnd(40,70)));
+  } else if(type===6){// solar wind
+    for(let i=0;i<8;i++) pals.push(hslToRgb(rnd(20,70),rnd(80,100),rnd(50,80)));
+  } else if(type===7){// cosmic decay
+    for(let i=0;i<8;i++) pals.push(hslToRgb(rnd(200,280),rnd(20,60),rnd(20,50)));
+  } else if(type===8){// hyperviolet
+    for(let i=0;i<8;i++) pals.push(hslToRgb(rnd(270,330),rnd(80,100),rnd(40,70)));
+  } else {// molten gold
+    for(let i=0;i<8;i++) pals.push(hslToRgb(rnd(30,55),rnd(75,100),rnd(45,75)));
+  }
+  return {colors: pals, name: PALETTE_NAMES[type], bgBrightness: type===7?0.03:0.01};
+}
+function palColor(pal, t, alpha=1){
+  const n=pal.colors.length;
+  const idx = mod(t*(n-1), n-1);
+  const i=Math.floor(idx), f=idx-i;
+  const a=pal.colors[i%n], b=pal.colors[(i+1)%n];
+  return rgbStr(lerp(a[0],b[0],f),lerp(a[1],b[1],f),lerp(a[2],b[2],f),alpha);
+}
+
+// ─── PENROSE TILING (P3 rhombus deflation) ───────────────────────────────────
+class PenroseTiling {
+  constructor(cx,cy,size,iters){
+    this.cx=cx; this.cy=cy; this.size=size;
+    this.tiles=[];
+    this._init(iters);
+  }
+  _init(iters){
+    // Start with 10 thick rhombuses around center
+    const tiles=[];
+    for(let i=0;i<10;i++){
+      const angle=TAU/10*i + Math.PI/10;
+      const x1=this.cx, y1=this.cy;
+      const x2=x1+this.size*Math.cos(angle), y2=y1+this.size*Math.sin(angle);
+      const x3=x2+this.size*Math.cos(angle+TAU/5), y3=y2+this.size*Math.sin(angle+TAU/5);
+      tiles.push({type:i%2===0?'thick':'thin', verts:[[x1,y1],[x2,y2],[x3,y3]]});
+    }
+    let cur=tiles;
+    for(let d=0;d<iters;d++) cur=this._deflate(cur);
+    this.tiles=cur;
+  }
+  _deflate(tiles){
+    const next=[];
+    const s=1/PHI;
+    for(const t of tiles){
+      const [A,B,C]=t.verts;
+      if(t.type==='thick'){
+        const P=[A[0]+s*(B[0]-A[0]), A[1]+s*(B[1]-A[1])];
+        const Q=[A[0]+s*(C[0]-A[0]), A[1]+s*(C[1]-A[1])];
+        next.push({type:'thick',verts:[C,Q,B]});
+        next.push({type:'thin', verts:[Q,P,B]});
+        next.push({type:'thick',verts:[Q,A,P]});
+      } else {
+        const P=[B[0]+s*(A[0]-B[0]), B[1]+s*(A[1]-B[1])];
+        next.push({type:'thin', verts:[C,P,A]});
+        next.push({type:'thick',verts:[P,C,B]});
+      }
+    }
+    return next;
+  }
+  draw(ctx, pal, t, alpha=0.85){
+    for(let i=0;i<this.tiles.length;i++){
+      const tile=this.tiles[i];
+      const hue=i/this.tiles.length + t*0.05 + noise2(tile.verts[0][0]*0.005,tile.verts[0][1]*0.005)*0.3;
+      const col=palColor(pal, mod(hue,1), alpha);
+      ctx.beginPath();
+      ctx.moveTo(tile.verts[0][0],tile.verts[0][1]);
+      for(let j=1;j<tile.verts.length;j++) ctx.lineTo(tile.verts[j][0],tile.verts[j][1]);
+      ctx.closePath();
+      ctx.fillStyle=col;
+      ctx.fill();
+      ctx.strokeStyle=rgbStr(0,0,0,0.3);
+      ctx.lineWidth=0.5;
+      ctx.stroke();
+    }
+  }
+}
+
+// ─── VORONOI PACKING ──────────────────────────────────────────────────────────
+class VoronoiPacking {
+  constructor(w,h,n){
+    this.w=w; this.h=h;
+    this.sites=[];
+    this.cells=[];
+    for(let i=0;i<n;i++) this.sites.push([rnd(0,w),rnd(0,h)]);
+    this._build();
+  }
+  _build(){
+    // Simplified grid-based Voronoi
+    const gs=16;
+    const gw=Math.ceil(this.w/gs), gh=Math.ceil(this.h/gs);
+    this.cells=this.sites.map(()=>({pts:[]}));
+    for(let gy=0;gy<gh;gy++){
+      for(let gx=0;gx<gw;gx++){
+        const px=(gx+0.5)*gs, py=(gy+0.5)*gs;
+        let best=0, bd=1e9;
+        for(let i=0;i<this.sites.length;i++){
+          const d=v2dist(px,py,this.sites[i][0],this.sites[i][1]);
+          if(d<bd){bd=d;best=i;}
+        }
+        this.cells[best].pts.push([gx*gs,gy*gs]);
+      }
+    }
+  }
+  draw(ctx,pal,t,alpha=0.4){
+    for(let i=0;i<this.sites.length;i++){
+      const hue=i/this.sites.length+t*0.03;
+      const c=palColor(pal,mod(hue,1),alpha);
+      ctx.fillStyle=c;
+      // draw grid cells
+      for(const [px,py] of this.cells[i].pts){
+        ctx.fillRect(px,py,16,16);
+      }
+      // draw site
+      ctx.beginPath();
+      ctx.arc(this.sites[i][0],this.sites[i][1],3,0,TAU);
+      ctx.fillStyle=palColor(pal,mod(hue+0.5,1),0.9);
+      ctx.fill();
+    }
+  }
+}
+
+// ─── HAT MONOTILE (simplified Wang-tile approximation) ────────────────────────
+class HatMonotile {
+  constructor(cx,cy,scale,count){
+    this.shapes=[];
+    const base=scale;
+    // Generate hat-like shapes tiling the plane
+    for(let row=-3;row<count+3;row++){
+      for(let col=-3;col<count+3;col++){
+        const ox=cx + (col*base*1.73 + (row%2)*base*0.87) - W*0.5;
+        const oy=cy + row*base*1.5 - H*0.5;
+        if(ox<-base*2||ox>W+base*2||oy<-base*2||oy>H+base*2) continue;
+        const flipped=(row+col)%2===0;
+        this.shapes.push({x:ox,y:oy,s:base,flipped,phase:(row*7+col*13)&255});
+      }
+    }
+  }
+  _hatPath(ctx,x,y,s,flipped){
+    // Approximate hat monotile (11-sided polygon)
+    const pts=[];
+    const angles=[0,60,90,150,180,210,270,300,330,30,0];
+    let cx=x, cy=y;
+    const sides=[1,1,1,1,.5,.5,1,1,.5,.5,1].map(v=>v*s);
+    let a=0;
+    pts.push([cx,cy]);
+    for(let i=0;i<10;i++){
+      const rad=(a + (flipped?-1:1)*0)*(Math.PI/180);
+      const ang=angles[i]*(Math.PI/180)*(flipped?-1:1);
+      cx+=Math.cos(ang)*sides[i]; cy+=Math.sin(ang)*sides[i];
+      pts.push([cx,cy]);
+      a+=60*(flipped?-1:1);
+    }
+    ctx.moveTo(pts[0][0],pts[0][1]);
+    for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i][0],pts[i][1]);
+    ctx.closePath();
+  }
+  draw(ctx,pal,t,alpha=0.7){
+    for(const sh of this.shapes){
+      const hue=sh.phase/255 + t*0.04;
+      ctx.beginPath();
+      this._hatPath(ctx,sh.x,sh.y,sh.s,sh.flipped);
+      ctx.fillStyle=palColor(pal,mod(hue,1),alpha);
+      ctx.fill();
+      ctx.strokeStyle=rgbStr(0,0,0,0.4);
+      ctx.lineWidth=0.7;
+      ctx.stroke();
+    }
+  }
+}
+
+// ─── RHOMBITRIHEXAGONAL LATTICE ───────────────────────────────────────────────
+class RhombitrihexLattice {
+  constructor(cx,cy,r,w,h){
+    this.polys=[];
+    const s=r;
+    const dx=s*(1+Math.sqrt(3)), dy=s*2;
+    for(let row=-3;row<Math.ceil(h/dy)+3;row++){
+      for(let col=-3;col<Math.ceil(w/dx)+3;col++){
+        const bx=cx+col*dx+(row%2)*dx*0.5-w*0.5, by=cy+row*dy-h*0.5;
+        // hexagon
+        this.polys.push({type:'hex',cx:bx,cy:by,r:s,hue:(row*5+col*7)%360});
+        // squares
+        for(let i=0;i<6;i++){
+          const a=i*60*(Math.PI/180);
+          const mx=bx+Math.cos(a)*s*(1+0.577), my=by+Math.sin(a)*s*(1+0.577);
+          this.polys.push({type:'sq',cx:mx,cy:my,r:s*0.577,hue:(row*3+col*11+i*17)%360});
+        }
+        // triangles
+        for(let i=0;i<6;i++){
+          const a=(i+0.5)*60*(Math.PI/180);
+          const tx=bx+Math.cos(a)*s*1.73, ty=by+Math.sin(a)*s*1.73;
+          this.polys.push({type:'tri',cx:tx,cy:ty,r:s*0.577,hue:(row*11+col*3+i*23)%360,ang:a});
+        }
+      }
+    }
+  }
+  draw(ctx,pal,t,alpha=0.65){
+    for(const p of this.polys){
+      const hue=p.hue/360 + t*0.02;
+      ctx.beginPath();
+      if(p.type==='hex'){
+        for(let i=0;i<6;i++){const a=i*60*(Math.PI/180);ctx.lineTo(p.cx+Math.cos(a)*p.r,p.cy+Math.sin(a)*p.r);}
+      } else if(p.type==='sq'){
+        for(let i=0;i<4;i++){const a=(i*90+45)*(Math.PI/180);ctx.lineTo(p.cx+Math.cos(a)*p.r,p.cy+Math.sin(a)*p.r);}
+      } else {
+        for(let i=0;i<3;i++){const a=p.ang+i*120*(Math.PI/180);ctx.lineTo(p.cx+Math.cos(a)*p.r,p.cy+Math.sin(a)*p.r);}
+      }
+      ctx.closePath();
+      ctx.fillStyle=palColor(pal,mod(hue,1),alpha);
+      ctx.fill();
+      ctx.strokeStyle=rgbStr(255,255,255,0.08);
+      ctx.lineWidth=0.5;
+      ctx.stroke();
+    }
+  }
+}
+
+// ─── REACTION-DIFFUSION SKIN ──────────────────────────────────────────────────
+class ReactionDiffusion {
+  constructor(w,h,scale=4){
+    this.scale=scale;
+    this.gw=Math.ceil(w/scale);
+    this.gh=Math.ceil(h/scale);
+    const n=this.gw*this.gh;
+    this.A=new Float32Array(n).fill(1);
+    this.B=new Float32Array(n).fill(0);
+    this.tmpA=new Float32Array(n);
+    this.tmpB=new Float32Array(n);
+    // seed
+    const cx=this.gw/2|0, cy=this.gh/2|0;
+    for(let dy=-3;dy<=3;dy++){
+      for(let dx=-3;dx<=3;dx++){
+        const i=(cy+dy)*this.gw+(cx+dx);
+        if(i>=0&&i<n){this.A[i]=0.5;this.B[i]=0.25+Math.random()*0.5;}
+      }
+    }
+    // random F,k params for Turing patterns
+    this.F=rnd(0.012,0.055); this.k=rnd(0.045,0.07);
+    this.dA=rnd(0.8,1.1); this.dB=rnd(0.3,0.6);
+    this.img=null;
+    this.canvas2=document.createElement('canvas');
+    this.canvas2.width=this.gw; this.canvas2.height=this.gh;
+    this.ctx2=this.canvas2.getContext('2d');
+    this.imgData=this.ctx2.createImageData(this.gw,this.gh);
+  }
+  step(n=4){
+    const {gw,gh,A,B,tmpA,tmpB,F,k,dA,dB}=this;
+    for(let iter=0;iter<n;iter++){
+      for(let y=0;y<gh;y++){
+        for(let x=0;x<gw;x++){
+          const i=y*gw+x;
+          const l=y*gw+mod(x-1,gw), r=y*gw+mod(x+1,gw);
+          const u=mod(y-1,gh)*gw+x, d=mod(y+1,gh)*gw+x;
+          const lapA=A[l]+A[r]+A[u]+A[d]-4*A[i];
+          const lapB=B[l]+B[r]+B[u]+B[d]-4*B[i];
+          const a=A[i], b=B[i];
+          const react=a*b*b;
+          tmpA[i]=clamp(a+dA*lapA-react+F*(1-a),0,1);
+          tmpB[i]=clamp(b+dB*lapB+react-(F+k)*b,0,1);
+        }
+      }
+      A.set(tmpA); B.set(tmpB);
+    }
+  }
+  render(pal,t){
+    const {gw,gh,A,B,imgData}=this;
+    const d=imgData.data;
+    for(let i=0;i<gw*gh;i++){
+      const v=clamp(A[i]-B[i],0,1);
+      const hue=v+t*0.05;
+      const [r,g,b]=palColor(pal,mod(hue,1),1).match(/[\d.]+/g).map(Number);
+      d[i*4]=r; d[i*4+1]=g; d[i*4+2]=b; d[i*4+3]=(v*200+55)|0;
+    }
+    this.ctx2.putImageData(imgData,0,0);
+    return this.canvas2;
+  }
+}
+
+// ─── MAZE GENERATOR (recursive backtracker + Möbius twist) ───────────────────
+class MazeSystem {
+  constructor(cols,rows,type){
+    this.cols=cols; this.rows=rows; this.type=type;
+    this.cells=new Uint8Array(cols*rows); // walls as bitfield: N1 E2 S4 W8
+    this.visited=new Uint8Array(cols*rows);
+    this._generate();
+    this.animPaths=[];
+    this.solverPos=0;
+    this._seedPaths();
+  }
+  _idx(c,r){return r*this.cols+c;}
+  _generate(){
+    const {cols,rows,cells,visited}=this;
+    cells.fill(15); // all walls
+    const stack=[[0,0]]; visited[0]=1;
+    const dirs=[[0,-1,1,4],[1,0,2,8],[0,1,4,1],[-1,0,8,2]]; // dx,dy,removeWall,neighborWall
+    while(stack.length){
+      const [c,r]=stack[stack.length-1];
+      const shuffled=dirs.slice().sort(()=>Math.random()-.5);
+      let moved=false;
+      for(const [dc,dr,wall,nwall] of shuffled){
+        let nc=c+dc, nr=r+dr;
+        if(this.type==='toroidal'){nc=mod(nc,cols);nr=mod(nr,rows);}
+        else if(this.type==='mobius'){
+          if(nc<0){nc=cols-1;nr=rows-1-nr;}
+          else if(nc>=cols){nc=0;nr=rows-1-nr;}
+          nr=mod(nr,rows);
+        } else {nc=clamp(nc,0,cols-1);nr=clamp(nr,0,rows-1);}
+        const ni=this._idx(nc,nr);
+        if(!visited[ni]){
+          cells[this._idx(c,r)]&=~wall;
+          cells[ni]&=~nwall;
+          visited[ni]=1;
+          stack.push([nc,nr]);
+          moved=true; break;
+        }
+      }
+      if(!moved) stack.pop();
+    }
+  }
+  _seedPaths(){
+    for(let i=0;i<8;i++){
+      this.animPaths.push({
+        c:rndI(this.cols), r:rndI(this.rows),
+        trail:[], maxTrail:20+rndI(30),
+        hue:rnd(0,1), speed:rnd(0.5,2)
+      });
+    }
+  }
+  updatePaths(dt){
+    const {cols,rows,cells}=this;
+    for(const p of this.animPaths){
+      p.trail.push([p.c,p.r]);
+      if(p.trail.length>p.maxTrail) p.trail.shift();
+      const dirs=[[0,-1,1],[1,0,2],[0,1,4],[-1,0,8]].filter(([dc,dr,w])=>{
+        const nc=mod(p.c+dc,cols), nr=mod(p.r+dr,rows);
+        return !(cells[this._idx(p.c,p.r)]&w);
+      });
+      if(dirs.length){const d=pick(dirs);p.c=mod(p.c+d[0],cols);p.r=mod(p.r+d[1],rows);}
+      p.hue=mod(p.hue+dt*0.1,1);
+    }
+  }
+  draw(ctx,x0,y0,cw,ch,pal,t,alpha=0.8){
+    const {cols,rows,cells}=this;
+    const lw=0.8;
+    ctx.strokeStyle=palColor(pal,mod(t*0.05,1),alpha*0.6);
+    ctx.lineWidth=lw;
+    for(let r=0;r<rows;r++){
+      for(let c=0;c<cols;c++){
+        const wx=x0+c*cw, wy=y0+r*ch;
+        const cell=cells[this._idx(c,r)];
+        ctx.beginPath();
+        if(cell&1){ctx.moveTo(wx,wy);ctx.lineTo(wx+cw,wy);}
+        if(cell&2){ctx.moveTo(wx+cw,wy);ctx.lineTo(wx+cw,wy+ch);}
+        if(cell&4){ctx.moveTo(wx,wy+ch);ctx.lineTo(wx+cw,wy+ch);}
+        if(cell&8){ctx.moveTo(wx,wy);ctx.lineTo(wx,wy+ch);}
+        ctx.stroke();
+      }
+    }
+    // draw trails
+    for(const p of this.animPaths){
+      for(let i=0;i<p.trail.length;i++){
+        const [tc,tr]=p.trail[i];
+        const a=(i/p.trail.length)*alpha;
+        const hue=mod(p.hue+i*0.05,1);
+        ctx.fillStyle=palColor(pal,hue,a);
+        ctx.fillRect(x0+tc*cw+1,y0+tr*ch+1,cw-2,ch-2);
+      }
+    }
+  }
+}
+
+// ─── RIGID BODY PHYSICS ───────────────────────────────────────────────────────
+class RigidBody {
+  constructor(x,y,mass,shape,params){
+    this.x=x; this.y=y; this.vx=rnd(-50,50); this.vy=rnd(-50,50);
+    this.angle=rnd(0,TAU); this.omega=rnd(-2,2);
+    this.mass=mass; this.invMass=1/mass;
+    this.shape=shape; // 'circle','rect','polygon'
+    this.params=params; // {r} or {w,h} or {verts:[...]}
+    this.inertia=this._calcInertia();
+    this.invInertia=1/this.inertia;
+    this.fx=0; this.fy=0; this.torque=0;
+    this.hue=Math.random();
+    this.trail=[];
+  }
+  _calcInertia(){
+    const m=this.mass;
+    if(this.shape==='circle') return 0.5*m*this.params.r*this.params.r;
+    if(this.shape==='rect') return m*(this.params.w**2+this.params.h**2)/12;
+    return m*50*50/6;
+  }
+  applyGravity(gx,gy){this.fx+=this.mass*gx;this.fy+=this.mass*gy;}
+  integrate(dt){
+    this.vx+=this.fx*this.invMass*dt;
+    this.vy+=this.fy*this.invMass*dt;
+    this.x+=this.vx*dt; this.y+=this.vy*dt;
+    this.omega+=this.torque*this.invInertia*dt;
+    this.angle+=this.omega*dt;
+    this.fx=0; this.fy=0; this.torque=0;
+    // damping
+    this.vx*=0.999; this.vy*=0.999; this.omega*=0.999;
+    // boundary
+    const r=this.params.r||Math.max(this.params.w||30,this.params.h||30)*0.7;
+    if(this.x<r){this.x=r;this.vx=Math.abs(this.vx)*0.8;}
+    if(this.x>W-r){this.x=W-r;this.vx=-Math.abs(this.vx)*0.8;}
+    if(this.y<r){this.y=r;this.vy=Math.abs(this.vy)*0.8;}
+    if(this.y>H-r){this.y=H-r;this.vy=-Math.abs(this.vy)*0.8;}
+    // trail
+    this.trail.push([this.x,this.y]);
+    if(this.trail.length>20) this.trail.shift();
+  }
+  draw(ctx,pal,t){
+    ctx.save();
+    // trail
+    for(let i=1;i<this.trail.length;i++){
+      const a=i/this.trail.length*0.4;
+      ctx.strokeStyle=palColor(pal,mod(this.hue+i*0.05,1),a);
+      ctx.lineWidth=2;
+      ctx.beginPath();
+      ctx.moveTo(this.trail[i-1][0],this.trail[i-1][1]);
+      ctx.lineTo(this.trail[i][0],this.trail[i][1]);
+      ctx.stroke();
+    }
+    ctx.translate(this.x,this.y);
+    ctx.rotate(this.angle);
+    const col=palColor(pal,mod(this.hue+t*0.02,1),0.85);
+    ctx.fillStyle=col;
+    ctx.strokeStyle=rgbStr(255,255,255,0.3);
+    ctx.lineWidth=1.5;
+    ctx.beginPath();
+    if(this.shape==='circle'){
+      ctx.arc(0,0,this.params.r,0,TAU);
+    } else if(this.shape==='rect'){
+      const {w,h}=this.params;
+      ctx.rect(-w/2,-h/2,w,h);
+    } else if(this.shape==='polygon'){
+      const n=this.params.n||6;
+      for(let i=0;i<n;i++){const a=i/n*TAU;ctx.lineTo(Math.cos(a)*this.params.r,Math.sin(a)*this.params.r);}
+      ctx.closePath();
+    }
+    ctx.fill(); ctx.stroke();
+    ctx.restore();
+  }
+}
+
+// ─── PENDULUM CHAIN ───────────────────────────────────────────────────────────
+class PendulumChain {
+  constructor(x0,y0,n,l){
+    this.pivotX=x0; this.pivotY=y0;
+    this.n=n; this.l=l;
+    this.theta=Array.from({length:n},()=>rnd(-Math.PI,Math.PI));
+    this.omega=Array.from({length:n},()=>rnd(-1,1));
+    this.g=600; this.damping=0.998;
+    this.trail=[];
+  }
+  // RK4 integration for double pendulum style
+  step(dt){
+    const {theta,omega,n,l,g,damping}=this;
+    // Simplified: treat as independent pendula with coupling
+    for(let i=0;i<n;i++){
+      const prev=i>0?theta[i-1]:0;
+      const coupling=i>0?3*(Math.sin(prev-theta[i])):0;
+      const alpha=-g/l*Math.sin(theta[i])+coupling*0.5;
+      omega[i]+=alpha*dt; omega[i]*=damping;
+      theta[i]+=omega[i]*dt;
+    }
+    // record tip
+    let x=this.pivotX, y=this.pivotY;
+    for(let i=0;i<n;i++){x+=Math.sin(theta[i])*l;y+=Math.cos(theta[i])*l;}
+    this.trail.push([x,y]);
+    if(this.trail.length>150) this.trail.shift();
+  }
+  draw(ctx,pal,t){
+    // draw trail
+    if(this.trail.length>1){
+      ctx.beginPath();
+      ctx.moveTo(this.trail[0][0],this.trail[0][1]);
+      for(let i=1;i<this.trail.length;i++){
+        const a=i/this.trail.length;
+        ctx.lineTo(this.trail[i][0],this.trail[i][1]);
+      }
+      const grad=ctx.createLinearGradient(this.trail[0][0],this.trail[0][1],this.trail[this.trail.length-1][0],this.trail[this.trail.length-1][1]);
+      grad.addColorStop(0,palColor(pal,mod(t*0.05,1),0.05));
+      grad.addColorStop(1,palColor(pal,mod(t*0.05+0.5,1),0.8));
+      ctx.strokeStyle=grad; ctx.lineWidth=1.5; ctx.stroke();
+    }
+    // draw links
+    let x=this.pivotX, y=this.pivotY;
+    for(let i=0;i<this.n;i++){
+      const nx=x+Math.sin(this.theta[i])*this.l;
+      const ny=y+Math.cos(this.theta[i])*this.l;
+      ctx.strokeStyle=palColor(pal,mod(i/this.n+t*0.03,1),0.9);
+      ctx.lineWidth=2.5-i*0.15;
+      ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(nx,ny); ctx.stroke();
+      ctx.beginPath(); ctx.arc(nx,ny,4,0,TAU);
+      ctx.fillStyle=palColor(pal,mod(i/this.n+t*0.03+0.3,1),0.95);
+      ctx.fill();
+      x=nx; y=ny;
+    }
+    // pivot
+    ctx.beginPath(); ctx.arc(this.pivotX,this.pivotY,6,0,TAU);
+    ctx.fillStyle=palColor(pal,mod(t*0.04,1),0.9);
+    ctx.fill();
+  }
+}
+
+// ─── GEAR TRAIN ───────────────────────────────────────────────────────────────
+class GearTrain {
+  constructor(x,y,n){
+    this.gears=[];
+    let cx=x, cy=y, r=rnd(30,70), angle=0;
+    for(let i=0;i<n;i++){
+      const teeth=Math.round(r*0.4+4);
+      this.gears.push({x:cx,y:cy,r,teeth,angle,dir:i%2===0?1:-1,hue:i/n});
+      const nr=rnd(20,60);
+      const a=rnd(0,TAU);
+      cx+=Math.cos(a)*(r+nr+3); cy+=Math.sin(a)*(r+nr+3);
+      r=nr; angle+=Math.PI/teeth*(i%2===0?1:-1);
+    }
+    this.speed=rnd(0.3,1.2);
+  }
+  update(dt){
+    const base=this.gears[0];
+    base.angle+=this.speed*dt;
+    for(let i=1;i<this.gears.length;i++){
+      const prev=this.gears[i-1], cur=this.gears[i];
+      const ratio=prev.r/cur.r;
+      cur.angle+=this.speed*dt*ratio*(i%2===0?1:-1);
+    }
+  }
+  draw(ctx,pal,t){
+    for(const g of this.gears){
+      ctx.save();
+      ctx.translate(g.x,g.y);
+      ctx.rotate(g.angle);
+      const col=palColor(pal,mod(g.hue+t*0.02,1),0.85);
+      ctx.fillStyle=col;
+      ctx.strokeStyle=rgbStr(255,255,255,0.3);
+      ctx.lineWidth=1.5;
+      ctx.beginPath();
+      const toothH=g.r*0.15, toothW=TAU/(g.teeth*2)*0.7;
+      for(let i=0;i<g.teeth;i++){
+        const a=i/g.teeth*TAU;
+        ctx.lineTo(Math.cos(a-toothW)*(g.r),Math.sin(a-toothW)*(g.r));
+        ctx.lineTo(Math.cos(a-toothW)*(g.r+toothH),Math.sin(a-toothW)*(g.r+toothH));
+        ctx.lineTo(Math.cos(a+toothW)*(g.r+toothH),Math.sin(a+toothW)*(g.r+toothH));
+        ctx.lineTo(Math.cos(a+toothW)*(g.r),Math.sin(a+toothW)*(g.r));
+      }
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.arc(0,0,g.r*0.25,0,TAU);
+      ctx.fillStyle=palColor(pal,mod(g.hue+0.5+t*0.02,1),0.9); ctx.fill();
+      ctx.restore();
+    }
+  }
+}
+
+// ─── PARTICLE SWARM ───────────────────────────────────────────────────────────
+class ParticleSwarm {
+  constructor(n,w,h){
+    this.particles=[];
+    this.w=w; this.h=h;
+    for(let i=0;i<n;i++){
+      this.particles.push({
+        x:rnd(0,w), y:rnd(0,h),
+        vx:rnd(-100,100), vy:rnd(-100,100),
+        hue:Math.random(), size:rnd(1.5,4),
+        charge:(Math.random()>.5)?1:-1
+      });
+    }
+    this.attractors=Array.from({length:3},()=>({x:rnd(0,w),y:rnd(0,h),strength:rnd(0.5,2)*100000}));
+    this.time=0;
+  }
+  update(dt){
+    this.time+=dt;
+    // Move attractors
+    for(let i=0;i<this.attractors.length;i++){
+      const a=this.attractors[i];
+      a.x=this.w*0.5+Math.cos(this.time*0.2+i*2.1)*this.w*0.35;
+      a.y=this.h*0.5+Math.sin(this.time*0.17+i*1.7)*this.h*0.35;
+    }
+    for(const p of this.particles){
+      let fx=0, fy=0;
+      // gravitational attractors
+      for(const a of this.attractors){
+        const dx=a.x-p.x, dy=a.y-p.y;
+        const d2=dx*dx+dy*dy+100;
+        const f=a.strength/d2;
+        fx+=dx/Math.sqrt(d2)*f; fy+=dy/Math.sqrt(d2)*f;
+      }
+      // electrostatic: repel same charge, attract different
+      for(const q of this.particles){
+        if(q===p) continue;
+        const dx=q.x-p.x, dy=q.y-p.y;
+        const d2=dx*dx+dy*dy+1;
+        if(d2>40000) continue;
+        const charge=p.charge*q.charge;
+        const f=-charge*200/d2;
+        const inv=1/Math.sqrt(d2);
+        fx+=dx*inv*f; fy+=dy*inv*f;
+      }
+      p.vx+=fx*dt; p.vy+=fy*dt;
+      p.vx*=0.97; p.vy*=0.97;
+      p.x+=p.vx*dt; p.y+=p.vy*dt;
+      // wrap
+      p.x=mod(p.x,this.w); p.y=mod(p.y,this.h);
+      p.hue=mod(p.hue+dt*0.05,1);
+    }
+  }
+  draw(ctx,pal,t){
+    // draw connections
+    for(let i=0;i<this.particles.length;i++){
+      const p=this.particles[i];
+      for(let j=i+1;j<this.particles.length;j++){
+        const q=this.particles[j];
+        const d=v2dist(p.x,p.y,q.x,q.y);
+        if(d>80) continue;
+        const a=(1-d/80)*0.4;
+        ctx.strokeStyle=palColor(pal,mod((p.hue+q.hue)*0.5+t*0.02,1),a);
+        ctx.lineWidth=0.8;
+        ctx.beginPath();
+        ctx.moveTo(p.x,p.y); ctx.lineTo(q.x,q.y); ctx.stroke();
+      }
+    }
+    // draw particles
+    for(const p of this.particles){
+      ctx.beginPath();
+      ctx.arc(p.x,p.y,p.size,0,TAU);
+      ctx.fillStyle=palColor(pal,mod(p.hue+t*0.03,1),0.9);
+      ctx.fill();
+    }
+    // draw attractors
+    for(let i=0;i<this.attractors.length;i++){
+      const a=this.attractors[i];
+      ctx.beginPath();
+      ctx.arc(a.x,a.y,8,0,TAU);
+      ctx.fillStyle=palColor(pal,mod(i/3+t*0.04,1),0.8);
+      ctx.fill();
+      ctx.strokeStyle='rgba(255,255,255,0.5)';
+      ctx.lineWidth=2; ctx.stroke();
+    }
+  }
+}
+
+// ─── LINKAGE MECHANISM ────────────────────────────────────────────────────────
+class ArticulatedLinkage {
+  constructor(x,y){
+    this.x=x; this.y=y;
+    this.links=Array.from({length:6},(_,i)=>({
+      len:rnd(30,80), angle:i/6*TAU, omega:rnd(-1,1)*(1+i*0.5)
+    }));
+    this.hue=Math.random();
+    this.trail=[];
+  }
+  update(dt,t){
+    // Klann/Jansen-like coupled rotation
+    for(let i=0;i<this.links.length;i++){
+      this.links[i].angle+=this.links[i].omega*dt*(1+Math.sin(t*0.5+i)*0.3);
+    }
+    // tip position
+    let x=this.x, y=this.y;
+    for(const l of this.links){x+=Math.cos(l.angle)*l.len;y+=Math.sin(l.angle)*l.len;}
+    this.trail.push([x,y]);
+    if(this.trail.length>200) this.trail.shift();
+  }
+  draw(ctx,pal,t){
+    // trail (Lissajous-like)
+    if(this.trail.length>2){
+      ctx.beginPath();
+      ctx.moveTo(this.trail[0][0],this.trail[0][1]);
+      for(let i=1;i<this.trail.length;i++) ctx.lineTo(this.trail[i][0],this.trail[i][1]);
+      ctx.strokeStyle=palColor(pal,mod(this.hue+t*0.03,1),0.5);
+      ctx.lineWidth=1; ctx.stroke();
+    }
+    // links
+    let x=this.x, y=this.y;
+    ctx.beginPath(); ctx.arc(x,y,5,0,TAU);
+    ctx.fillStyle=palColor(pal,mod(this.hue+t*0.02,1),0.9);
+    ctx.fill();
+    for(let i=0;i<this.links.length;i++){
+      const l=this.links[i];
+      const nx=x+Math.cos(l.angle)*l.len, ny=y+Math.sin(l.angle)*l.len;
+      ctx.strokeStyle=palColor(pal,mod(this.hue+i/this.links.length+t*0.02,1),0.85);
+      ctx.lineWidth=3-i*0.3;
+      ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(nx,ny); ctx.stroke();
+      ctx.beginPath(); ctx.arc(nx,ny,3,0,TAU);
+      ctx.fillStyle=palColor(pal,mod(this.hue+i/this.links.length+0.3+t*0.02,1),0.9);
+      ctx.fill();
+      x=nx; y=ny;
+    }
+  }
+}
+
+// ─── SLITHERLINK / GRID LOGIC OVERLAY ─────────────────────────────────────────
+class GridLogicOverlay {
+  constructor(x0,y0,cols,rows,cs){
+    this.x0=x0; this.y0=y0; this.cols=cols; this.rows=rows; this.cs=cs;
+    // Random slitherlink-style edges
+    this.hEdges=new Uint8Array((cols)*(rows+1));
+    this.vEdges=new Uint8Array((cols+1)*rows);
+    this.nums=new Int8Array(cols*rows).fill(-1);
+    const n=cols*rows;
+    for(let i=0;i<n;i++) if(Math.random()>.6) this.nums[i]=rndI(4);
+    this._solve();
+    this.animT=0;
+  }
+  _solve(){
+    // Random partial solve
+    const {cols,rows,hEdges,vEdges}=this;
+    for(let r=0;r<=rows;r++) for(let c=0;c<cols;c++) if(Math.random()>.5) hEdges[r*cols+c]=1;
+    for(let r=0;r<rows;r++) for(let c=0;c<=cols;c++) if(Math.random()>.5) vEdges[r*(cols+1)+c]=1;
+  }
+  update(dt){this.animT+=dt;}
+  draw(ctx,pal,t){
+    const {x0,y0,cols,rows,cs,hEdges,vEdges,nums}=this;
+    ctx.lineWidth=2;
+    // horizontal edges
+    for(let r=0;r<=rows;r++){
+      for(let c=0;c<cols;c++){
+        if(hEdges[r*cols+c]){
+          const pulse=Math.sin(this.animT*2+r*0.3+c*0.2)*0.3+0.7;
+          ctx.strokeStyle=palColor(pal,mod((r+c)*0.05+t*0.03,1),pulse);
+          ctx.beginPath();
+          ctx.moveTo(x0+c*cs,y0+r*cs); ctx.lineTo(x0+(c+1)*cs,y0+r*cs);
+          ctx.stroke();
+        }
+      }
+    }
+    // vertical edges
+    for(let r=0;r<rows;r++){
+      for(let c=0;c<=cols;c++){
+        if(vEdges[r*(cols+1)+c]){
+          const pulse=Math.sin(this.animT*2+r*0.2+c*0.3)*0.3+0.7;
+          ctx.strokeStyle=palColor(pal,mod((r+c)*0.07+t*0.03+0.3,1),pulse);
+          ctx.beginPath();
+          ctx.moveTo(x0+c*cs,y0+r*cs); ctx.lineTo(x0+c*cs,y0+(r+1)*cs);
+          ctx.stroke();
+        }
+      }
+    }
+    // number clues
+    ctx.font=`${cs*0.45}px monospace`;
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    for(let r=0;r<rows;r++){
+      for(let c=0;c<cols;c++){
+        const n=nums[r*cols+c];
+        if(n>=0){
+          ctx.fillStyle=palColor(pal,mod((r+c)*0.05+t*0.04+0.6,1),0.9);
+          ctx.fillText(n,x0+(c+0.5)*cs,y0+(r+0.5)*cs);
+        }
+      }
+    }
+  }
+}
+
+// ─── TANGRAM OVERLAY ──────────────────────────────────────────────────────────
+class TangramOverlay {
+  constructor(x,y,size){
+    this.x=x; this.y=y; this.s=size;
+    this.pieces=this._makePieces();
+    this.vel=this.pieces.map(()=>({vx:rnd(-20,20),vy:rnd(-20,20),vr:rnd(-0.5,0.5)}));
+  }
+  _makePieces(){
+    const s=this.s, x=this.x, y=this.y;
+    // Standard tangram: 7 pieces relative to center
+    return [
+      {verts:[[0,0],[s,0],[s/2,s/2]],hue:0/7},    // large tri 1
+      {verts:[[0,0],[0,s],[s/2,s/2]],hue:1/7},    // large tri 2
+      {verts:[[s/2,0],[s,0],[s,s/2],[s/2,s/2]],hue:2/7}, // square
+      {verts:[[0,s/2],[s/2,s/2],[s/2,s]],hue:3/7},// medium tri
+      {verts:[[0,s/2],[0,s],[s/4,s*3/4]],hue:4/7},// small tri 1
+      {verts:[[s/4,s*3/4],[s/2,s],[s/2,s*3/4]],hue:5/7},// small tri 2
+      {verts:[[s/2,s/2],[s,s/2],[s*3/4,s*3/4],[s/2,s]],hue:6/7}// parallelogram
+    ].map(p=>({...p,x:0,y:0,r:0,bverts:p.verts}));
+  }
+  update(dt,t){
+    for(let i=0;i<this.pieces.length;i++){
+      const p=this.pieces[i], v=this.vel[i];
+      p.x+=v.vx*dt; p.y+=v.vy*dt; p.r+=v.vr*dt;
+      // oscillate back
+      v.vx+=(0-p.x)*0.5*dt; v.vy+=(0-p.y)*0.5*dt;
+      v.vr+=(0-p.r)*0.5*dt;
+      v.vx*=0.98; v.vy*=0.98; v.vr*=0.98;
+    }
+  }
+  draw(ctx,pal,t){
+    for(const p of this.pieces){
+      ctx.save();
+      ctx.translate(this.x+p.x, this.y+p.y);
+      ctx.rotate(p.r);
+      ctx.beginPath();
+      for(let i=0;i<p.bverts.length;i++){
+        const [vx,vy]=p.bverts[i];
+        i===0?ctx.moveTo(vx-this.s/2,vy-this.s/2):ctx.lineTo(vx-this.s/2,vy-this.s/2);
+      }
+      ctx.closePath();
+      ctx.fillStyle=palColor(pal,mod(p.hue+t*0.03,1),0.8);
+      ctx.fill();
+      ctx.strokeStyle=rgbStr(255,255,255,0.4);
+      ctx.lineWidth=1.5; ctx.stroke();
+      ctx.restore();
+    }
+  }
+}
+
+// ─── AUDIO ENGINE ─────────────────────────────────────────────────────────────
+function initAudio(){
+  if(audioCtx) return;
+  audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+  masterGain=audioCtx.createGain();
+  masterGain.gain.value=0.12;
+  masterGain.connect(audioCtx.destination);
+}
+function playTone(freq,dur,type='sine',vol=0.1){
+  if(!soundOn||!audioCtx) return;
+  try{
+    const osc=audioCtx.createOscillator();
+    const g=audioCtx.createGain();
+    osc.type=type;
+    osc.frequency.value=freq;
+    g.gain.setValueAtTime(0,audioCtx.currentTime);
+    g.gain.linearRampToValueAtTime(vol,audioCtx.currentTime+0.01);
+    g.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+dur);
+    osc.connect(g); g.connect(masterGain);
+    osc.start(); osc.stop(audioCtx.currentTime+dur+0.05);
+  }catch(e){}
+}
+function playGranular(buf,rate,vol=0.08){
+  if(!soundOn||!audioCtx||!buf) return;
+  try{
+    const src=audioCtx.createBufferSource();
+    const g=audioCtx.createGain();
+    src.buffer=buf; src.playbackRate.value=rate;
+    g.gain.setValueAtTime(vol,audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+0.2);
+    src.connect(g); g.connect(masterGain);
+    src.start();
+  }catch(e){}
+}
+let noiseBuffer=null;
+function getNoiseBuffer(){
+  if(!audioCtx||noiseBuffer) return noiseBuffer;
+  const buf=audioCtx.createBuffer(1,audioCtx.sampleRate*0.5,audioCtx.sampleRate);
+  const d=buf.getChannelData(0);
+  for(let i=0;i<d.length;i++) d[i]=(Math.random()*2-1)*0.3;
+  noiseBuffer=buf; return buf;
+}
+function audioTick(t,bodies,particles){
+  if(!soundOn||!audioCtx) return;
+  // modal synthesis: resonance tones from physics
+  if(Math.random()<0.03){
+    const modes=[1,2,3,5,8,13];
+    const f=rnd(80,400)*pick(modes)*0.1;
+    playTone(f, rnd(0.3,1.5), pick(['sine','triangle','sawtooth']), 0.06);
+  }
+  // collision granular
+  if(bodies&&Math.random()<0.05){
+    getNoiseBuffer();
+    if(noiseBuffer) playGranular(noiseBuffer, rnd(0.5,4), 0.04);
+  }
+  // oscillator network
+  if(Math.random()<0.02){
+    const f=220*Math.pow(2, rndI(12)/12);
+    playTone(f, 0.1, 'square', 0.03);
+  }
+}
+
+// ─── UNIVERSE ─────────────────────────────────────────────────────────────────
+class Universe {
+  constructor(){
+    this.t=0;
+    this.pal=makePalette();
+    this.mode=pick(['penrose','hat','rhombitrihex','voronoi','reaction']);
+    this.bg=this._makeBg();
+    // Systems
+    this.penrose=null; this.hat=null; this.rhombi=null; this.voronoi=null; this.rd=null;
+    this.maze=null;
+    this.bodies=[]; this.pendulums=[]; this.gears=[]; this.swarm=null;
+    this.linkages=[]; this.gridLogic=null; this.tangram=null;
+    this._build();
+  }
+  _makeBg(){
+    const p=this.pal;
+    const bg=p.bgBrightness;
+    if(p.colors.length>0){const c=p.colors[0];return rgbStr(c[0]*bg,c[1]*bg,c[2]*bg,1);}
+    return '#000011';
+  }
+  _build(){
+    const p=this.pal;
+    const iters=Math.min(4, W<500?3:4);
+    // Tiling layer
+    if(this.mode==='penrose') this.penrose=new PenroseTiling(CX,CY,Math.min(W,H)*1.1,iters);
+    else if(this.mode==='hat') this.hat=new HatMonotile(CX,CY,rnd(30,60),Math.ceil(Math.max(W,H)/50)+4);
+    else if(this.mode==='rhombitrihex') this.rhombi=new RhombitrihexLattice(CX,CY,rnd(18,35),W,H);
+    else if(this.mode==='voronoi') this.voronoi=new VoronoiPacking(W,H,rnd(20,60)|0);
+    else if(this.mode==='reaction') this.rd=new ReactionDiffusion(W,H,6);
+    // Maze
+    const mazeTypes=['standard','toroidal','mobius','spiral'];
+    const mt=pick(mazeTypes);
+    const cs=Math.max(12, Math.min(W,H)/30|0);
+    this.maze=new MazeSystem(Math.ceil(W/cs),Math.ceil(H/cs),mt==='spiral'?'standard':mt);
+    this.mazeCS=cs; this.mazeType=mt;
+    // Bodies
+    const nb=Math.min(12,Math.max(4, (W*H/50000)|0));
+    const shapes=['circle','rect','polygon'];
+    for(let i=0;i<nb;i++){
+      const s=pick(shapes);
+      const r=rnd(12,35);
+      this.bodies.push(new RigidBody(rnd(r,W-r),rnd(r,H-r),rnd(1,5),s,
+        s==='circle'?{r}:s==='rect'?{w:r*2,h:r*1.5}:{n:rndI(4)+3,r}));
+    }
+    // Pendulums
+    const np=Math.min(4,Math.max(2,(W/250)|0));
+    for(let i=0;i<np;i++){
+      this.pendulums.push(new PendulumChain(rnd(W*0.2,W*0.8),rnd(H*0.1,H*0.3),rndI(3)+3,rnd(40,90)));
+    }
+    // Gears
+    const ng=Math.min(3,(W/300)|0)+1;
+    for(let i=0;i<ng;i++){
+      this.gears.push(new GearTrain(rnd(W*0.1,W*0.9),rnd(H*0.1,H*0.9),rndI(3)+2));
+    }
+    // Particle swarm
+    this.swarm=new ParticleSwarm(Math.min(60,(W*H/8000)|0),W,H);
+    // Linkages
+    const nl=Math.min(3,(W/250)|0)+1;
+    for(let i=0;i<nl;i++){
+      this.linkages.push(new ArticulatedLinkage(rnd(W*0.15,W*0.85),rnd(H*0.15,H*0.85)));
+    }
+    // Grid logic
+    const gcs=Math.max(20,Math.min(W,H)/18|0);
+    const gc=Math.min(10,W/gcs|0), gr=Math.min(8,H/gcs|0);
+    this.gridLogic=new GridLogicOverlay(rnd(20,W*0.5),rnd(20,H*0.5),gc,gr,gcs);
+    // Tangram
+    this.tangram=new TangramOverlay(rnd(W*0.3,W*0.7),rnd(H*0.3,H*0.7),rnd(60,120));
+    // Gravity direction rotates
+    this.gravAngle=rnd(0,TAU); this.gravStrength=rnd(50,200);
+    this.gravOmega=rnd(-0.2,0.2);
+  }
+  onResize(){
+    CX=W/2; CY=H/2;
+    // rebuild on significant resize
+  }
+  update(dt){
+    this.t+=dt;
+    const gx=Math.cos(this.gravAngle)*this.gravStrength;
+    const gy=Math.sin(this.gravAngle)*this.gravStrength+this.gravStrength*0.5;
+    this.gravAngle+=this.gravOmega*dt;
+    // Physics
+    for(const b of this.bodies){b.applyGravity(gx*0.05,gy*0.05);b.integrate(dt);}
+    for(const p of this.pendulums) p.step(dt);
+    for(const g of this.gears) g.update(dt);
+    if(this.swarm) this.swarm.update(dt);
+    for(const l of this.linkages) l.update(dt,this.t);
+    if(this.gridLogic) this.gridLogic.update(dt);
+    if(this.tangram) this.tangram.update(dt,this.t);
+    if(this.maze) this.maze.updatePaths(dt);
+    if(this.rd&&frameCount%3===0) this.rd.step(2);
+    // Audio
+    if(frameCount%10===0) audioTick(this.t,this.bodies,this.swarm?.particles);
+  }
+  draw(){
+    const {t,pal}=this;
+    // Background
+    ctx.fillStyle=this.bg;
+    ctx.fillRect(0,0,W,H);
+    // Tiling layer
+    ctx.save();
+    if(this.penrose) this.penrose.draw(ctx,pal,t,0.7);
+    if(this.hat) this.hat.draw(ctx,pal,t,0.65);
+    if(this.rhombi) this.rhombi.draw(ctx,pal,t,0.6);
+    if(this.voronoi) this.voronoi.draw(ctx,pal,t,0.35);
+    if(this.rd){
+      const rdCanvas=this.rd.render(pal,t);
+      ctx.globalAlpha=0.5;
+      ctx.drawImage(rdCanvas,0,0,W,H);
+      ctx.globalAlpha=1;
+    }
+    ctx.restore();
+    // Flowing noise overlay
+    ctx.save();
+    const noiseScale=0.003;
+    const step=Math.max(20,Math.min(W,H)/25|0);
+    for(let y=0;y<H;y+=step){
+      for(let x=0;x<W;x+=step){
+        const n=fbm(x*noiseScale+t*0.05,y*noiseScale+t*0.03,3);
+        if(Math.abs(n)<0.05){
+          ctx.fillStyle=palColor(pal,mod(n*3+t*0.04,1),0.25);
+          ctx.fillRect(x,y,step,step);
+        }
+      }
+    }
+    ctx.restore();
+    // Maze
+    if(this.maze) this.maze.draw(ctx,0,0,this.mazeCS,this.mazeCS,pal,t,0.55);
+    // Grid logic
+    if(this.gridLogic) this.gridLogic.draw(ctx,pal,t);
+    // Swarm
+    if(this.swarm) this.swarm.draw(ctx,pal,t);
+    // Gears
+    for(const g of this.gears) g.draw(ctx,pal,t);
+    // Linkages
+    for(const l of this.linkages) l.draw(ctx,pal,t);
+    // Bodies
+    for(const b of this.bodies) b.draw(ctx,pal,t);
+    // Pendulums
+    for(const p of this.pendulums) p.draw(ctx,pal,t);
+    // Tangram
+    if(this.tangram) this.tangram.draw(ctx,pal,t);
+    // Global chromatic glow pass
+    const wave=Math.sin(t*0.7)*0.5+0.5;
+    const [rc,gc2,bc]=hslToRgb(mod(t*15,360),80,50);
+    ctx.fillStyle=rgbStr(rc,gc2,bc,wave*0.04+0.01);
+    ctx.fillRect(0,0,W,H);
+    // Vignette
+    const vgrad=ctx.createRadialGradient(CX,CY,Math.min(W,H)*0.3,CX,CY,Math.min(W,H)*0.85);
+    vgrad.addColorStop(0,'rgba(0,0,0,0)');
+    vgrad.addColorStop(1,'rgba(0,0,0,0.55)');
+    ctx.fillStyle=vgrad;
+    ctx.fillRect(0,0,W,H);
+  }
+}
+
+// ─── MAIN LOOP ────────────────────────────────────────────────────────────────
+function newUniverse(){
+  universe=new Universe();
+  updateHUD();
+  if(soundOn&&audioCtx){
+    playTone(rnd(60,120),2,'sine',0.08);
+    setTimeout(()=>playTone(rnd(200,600),1.5,'triangle',0.06),300);
+  }
+}
+function updateHUD(){
+  if(!universe) return;
+  document.getElementById('h-mode').textContent=`MODE: ${universe.mode.toUpperCase()}`;
+  document.getElementById('h-tiles').textContent=`TILES: ${universe.penrose?.tiles?.length||universe.hat?.shapes?.length||universe.rhombi?.polys?.length||universe.voronoi?.sites?.length||'—'}`;
+  document.getElementById('h-bodies').textContent=`BODIES: ${universe.bodies.length}`;
+  document.getElementById('h-particles').textContent=`PARTICLES: ${universe.swarm?.particles?.length||0}`;
+  document.getElementById('h-maze').textContent=`MAZE: ${universe.mazeType?.toUpperCase()||'—'}`;
+  document.getElementById('h-palette').textContent=`PALETTE: ${universe.pal.name}`;
+  document.getElementById('h-sound').textContent=`SOUND: ${soundOn?'ON':'OFF'}`;
+}
+function loop(ts){
+  animId=requestAnimationFrame(loop);
+  const dt=Math.min((ts-lastTime)/1000,0.05);
+  lastTime=ts;
+  frameCount++;
+  fpsTimer+=dt;
+  if(fpsTimer>=1){fps=Math.round(frameCount/fpsTimer);frameCount=0;fpsTimer=0;lastFPS=fps;}
+  if(universe){
+    universe.update(dt);
+    universe.draw();
+  }
+  if(hudVisible) document.getElementById('h-fps').textContent=`FPS: ${fps}`;
+}
+
+// ─── INPUT ────────────────────────────────────────────────────────────────────
+let lastTap=0;
+document.addEventListener('keydown',e=>{
+  const k=e.key.toLowerCase();
+  if(k===' '||k==='enter'){e.preventDefault();newUniverse();showToast('NEW UNIVERSE');}
+  if(k==='h'){
+    hudVisible=!hudVisible;
+    document.getElementById('hud').style.display=hudVisible?'block':'none';
+    showToast('HUD '+(hudVisible?'ON':'OFF'));
+    updateHUD();
+  }
+  if(k==='s'){
+    soundOn=!soundOn;
+    if(soundOn){initAudio();if(audioCtx&&audioCtx.state==='suspended')audioCtx.resume();}
+    updateHUD();
+    showToast('SOUND '+(soundOn?'ON':'OFF'));
+  }
+});
+canvas.addEventListener('click',e=>{
+  const now=Date.now();
+  if(now-lastTap<400){newUniverse();showToast('NEW UNIVERSE');}
+  lastTap=now;
+});
+canvas.addEventListener('touchend',e=>{
+  const now=Date.now();
+  if(now-lastTap<400){e.preventDefault();newUniverse();showToast('NEW UNIVERSE');}
+  lastTap=now;
+},{passive:false});
+
+// ─── INIT ─────────────────────────────────────────────────────────────────────
+newUniverse();
+lastTime=performance.now();
+requestAnimationFrame(loop);
+
+// Performance adaptive: reduce RD resolution on low fps
+setInterval(()=>{
+  if(fps<25&&universe&&universe.rd){
+    // skip extra steps next frames - already handled by frameCount%3
+  }
+},3000);
+
+})();
+</script>
+</body>
+</html>

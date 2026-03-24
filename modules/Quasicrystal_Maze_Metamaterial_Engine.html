@@ -1,0 +1,1016 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Quasicrystal Maze Metamaterial Engine</title>
+<meta name="description" content="A fully self-contained generative art simulation featuring Penrose tilings, Ammann–Beenker patterns, Danzer tilings, hat monotiles, and Socolar–Taylor tessellations interlocked with hexagonal, toroidal, and spiral maze algorithms, animated as dynamic mechanical metamaterials with spring-mass physics, Verlet integration, and spectral chromatic evolution. Synthesizes Islamic geometric art, Celtic knot grids, Persian ornamentation, and Bauhaus geometry into a living computational universe with synchronized generative audio.">
+<meta name="keywords" content="quasicrystal tilings, Penrose tiling, Ammann–Beenker, Danzer tiling, hat monotile, Socolar–Taylor monotile, generative art engine, maze algorithms, hexagonal maze, toroidal maze, spiral maze, braid maze, physics simulation, Verlet integration, Runge–Kutta, position-based dynamics, metamaterial, spring-mass system, lattice vibration, Islamic geometric art, Celtic knot, Persian miniature, Bauhaus geometry, procedural generation, WebGL, canvas animation, spectral color cycling, generative audio, oscillator network, modal resonance, algorithmic art">
+<meta property="og:title" content="Quasicrystal Maze Metamaterial Engine">
+<meta property="og:description" content="Living computational universe of quasicrystal tilings, maze structures, and physics-driven metamaterial dynamics with generative audio synthesis.">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000}
+  canvas{display:block;position:fixed;top:0;left:0;width:100%;height:100%}
+  #hud{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;display:none;font-family:'Courier New',monospace;font-size:11px;color:rgba(255,255,255,0.7)}
+  #hud.visible{display:block}
+  #hud-panel{position:absolute;top:16px;left:16px;background:rgba(0,0,0,0.6);border:1px solid rgba(255,255,255,0.15);padding:12px 16px;line-height:1.8;letter-spacing:0.05em;text-transform:uppercase}
+  #hud-panel span{color:rgba(120,220,255,0.9)}
+  #hint{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);font-family:'Courier New',monospace;font-size:10px;color:rgba(255,255,255,0.3);letter-spacing:0.15em;text-transform:uppercase;pointer-events:none;transition:opacity 1s}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div id="hud-panel">
+    <div>Mode: <span id="h-mode">—</span></div>
+    <div>Tiling: <span id="h-tile">—</span></div>
+    <div>Maze: <span id="h-maze">—</span></div>
+    <div>Deco: <span id="h-deco">—</span></div>
+    <div>Physics: <span id="h-phys">—</span></div>
+    <div>Nodes: <span id="h-nodes">—</span></div>
+    <div>FPS: <span id="h-fps">—</span></div>
+    <div>Sound: <span id="h-snd">OFF</span></div>
+  </div>
+</div>
+<div id="hint">SPACE / CLICK — NEW UNIVERSE &nbsp;|&nbsp; H — HUD &nbsp;|&nbsp; S — SOUND</div>
+<script>
+(()=>{
+"use strict";
+
+// ─── Canvas setup ─────────────────────────────────────────────────────────────
+const canvas=document.getElementById('c');
+const ctx=canvas.getContext('2d',{alpha:false});
+let W,H,CX,CY;
+function resize(){
+  W=canvas.width=window.innerWidth;
+  H=canvas.height=window.innerHeight;
+  CX=W/2; CY=H/2;
+}
+resize();
+window.addEventListener('resize',()=>{resize();init()});
+
+// ─── State ────────────────────────────────────────────────────────────────────
+let HUD=false,SOUND=false,frameCount=0,lastFPS=0,fpsTimer=0,fpsCount=0;
+let universe={};
+let audioCtx=null,masterGain=null,oscillators=[],soundNodes=[];
+
+// ─── RNG ──────────────────────────────────────────────────────────────────────
+let seed=Date.now();
+function rng(){seed^=seed<<13;seed^=seed>>17;seed^=seed<<5;return((seed>>>0)/4294967296)}
+function ri(a,b){return Math.floor(rng()*(b-a+1))+a}
+function rf(a,b){return rng()*(b-a)+a}
+function pick(arr){return arr[ri(0,arr.length-1)]}
+function shuffle(arr){for(let i=arr.length-1;i>0;i--){const j=ri(0,i);[arr[i],arr[j]]=[arr[j],arr[i]]}return arr}
+
+// ─── Color utilities ─────────────────────────────────────────────────────────
+function hsl(h,s,l,a=1){return`hsla(${h%360},${s}%,${l}%,${a})`}
+function lerp(a,b,t){return a+(b-a)*t}
+function lerpColor(c1,c2,t){
+  return[lerp(c1[0],c2[0],t),lerp(c1[1],c2[1],t),lerp(c1[2],c2[2],t)]
+}
+
+// ─── Palette system ──────────────────────────────────────────────────────────
+const PALETTE_MODES=['spectral','harmonic','interference','chromatic','persian','bauhaus','islamic','celtic','kimono'];
+function makePalette(){
+  const mode=pick(PALETTE_MODES);
+  const baseHue=rf(0,360);
+  const sat=rf(60,100);
+  return{mode,baseHue,sat,shift:0};
+}
+function getPaletteColor(p,t,depth=0){
+  const{mode,baseHue,sat,shift}=p;
+  const tt=t+shift;
+  switch(mode){
+    case'spectral': return hsl(baseHue+tt*360,sat,40+Math.sin(tt*6.28)*20);
+    case'harmonic':{
+      const h=baseHue+Math.sin(tt*Math.PI*2)*60+Math.sin(tt*Math.PI*5)*30;
+      return hsl(h,sat,35+depth*15);
+    }
+    case'interference':{
+      const h=baseHue+Math.sin(tt*7.3)*90+Math.cos(tt*3.7)*45;
+      const l=30+Math.sin(tt*11+depth)*25;
+      return hsl(h,sat,l);
+    }
+    case'chromatic':{
+      const h=(baseHue+tt*240+depth*60)%360;
+      return hsl(h,sat+10,40+Math.sin(tt*4)*15);
+    }
+    case'persian':{
+      const palette=[[30,80,50],[200,70,40],[50,90,55],[280,60,35],[15,85,45]];
+      const idx=Math.floor(tt*5)%5;
+      const nxt=(idx+1)%5;
+      const f=tt*5-Math.floor(tt*5);
+      const [h1,s1,l1]=palette[idx],[h2,s2,l2]=palette[nxt];
+      return hsl(lerp(h1,h2,f),lerp(s1,s2,f),lerp(l1,l2,f));
+    }
+    case'bauhaus':{
+      const cols=[[0,100,50],[240,100,50],[60,100,50],[0,0,20],[0,0,95]];
+      const c=cols[Math.floor(tt*cols.length+depth)%cols.length];
+      return hsl(c[0],c[1],c[2]);
+    }
+    case'islamic':{
+      const h=baseHue+depth*72+Math.sin(tt*Math.PI)*40;
+      return hsl(h,sat,20+depth*10+Math.sin(tt*8)*15);
+    }
+    case'celtic':{
+      const greens=[120,160,80];
+      const h=greens[Math.floor(tt*3+depth)%3]+Math.sin(tt*4)*20;
+      return hsl(h,60,30+Math.sin(tt*6)*20);
+    }
+    case'kimono':{
+      const h=baseHue+Math.sin(tt*2*Math.PI)*120;
+      const l=Math.sin(tt*Math.PI*3+depth)*20+45;
+      return hsl(h,sat*0.8,l);
+    }
+    default: return hsl(baseHue,sat,50);
+  }
+}
+
+// ─── Tiling generators ────────────────────────────────────────────────────────
+// Penrose P3 (rhombus) via inflation
+function penroseTiles(cx,cy,scale,depth){
+  const tiles=[];
+  const PHI=(1+Math.sqrt(5))/2;
+
+  function tri(type,ax,ay,bx,by,cx2,cy2,d){
+    if(d===0){tiles.push({type,ax,ay,bx,by,cx2,cy2});return}
+    if(type===0){// thick
+      const qx=ax+(bx-ax)/PHI,qy=ay+(by-ay)/PHI;
+      tri(0,cx2,cy2,qx,qy,bx,by,d-1);
+      tri(1,qx,qy,cx2,cy2,ax,ay,d-1);
+    } else {// thin
+      const px=bx+(ax-bx)/PHI,py=by+(ay-by)/PHI;
+      tri(1,cx2,cy2,px,py,ax,ay,d-1);
+      tri(0,px,py,bx,by,cx2,cy2,d-1);
+    }
+  }
+  const r=scale;
+  for(let i=0;i<10;i++){
+    const a=((2*i-1)*Math.PI/10);
+    const b=((2*i+1)*Math.PI/10);
+    const type=i%2;
+    tri(type,cx,cy,cx+r*Math.cos(a),cy+r*Math.sin(a),cx+r*Math.cos(b),cy+r*Math.sin(b),depth);
+  }
+  return tiles;
+}
+
+// Ammann-Beenker via substitution (octagonal)
+function ammannBeenker(cx,cy,scale){
+  const tiles=[];
+  const sqrt2=Math.sqrt(2);
+  const dirs8=[];
+  for(let i=0;i<8;i++)dirs8.push([Math.cos(i*Math.PI/4),Math.sin(i*Math.PI/4)]);
+
+  function addSquare(x,y,s,angle){
+    const pts=[];
+    for(let i=0;i<4;i++){
+      const a=angle+i*Math.PI/2;
+      pts.push([x+s*Math.cos(a),y+s*Math.sin(a)]);
+    }
+    tiles.push({type:'square',pts});
+  }
+  function addRhombus(x,y,s,angle){
+    const pts=[
+      [x,y],
+      [x+s*Math.cos(angle),y+s*Math.sin(angle)],
+      [x+s*(Math.cos(angle)+Math.cos(angle+Math.PI*3/4)),
+       y+s*(Math.sin(angle)+Math.sin(angle+Math.PI*3/4))],
+      [x+s*Math.cos(angle+Math.PI*3/4),y+s*Math.sin(angle+Math.PI*3/4)]
+    ];
+    tiles.push({type:'rhombus',pts});
+  }
+  const s=scale*0.12;
+  const rings=[1,2,3];
+  for(const r of rings){
+    const n=r*8;
+    for(let i=0;i<n;i++){
+      const a=i*2*Math.PI/n;
+      const rx=cx+r*scale*0.35*Math.cos(a);
+      const ry=cy+r*scale*0.35*Math.sin(a);
+      if(i%2===0)addSquare(rx,ry,s,a+Math.PI/4);
+      else addRhombus(rx,ry,s,a);
+    }
+  }
+  addSquare(cx,cy,s,Math.PI/4);
+  return tiles;
+}
+
+// Hat monotile (simplified polyhex)
+function hatMonotile(cx,cy,scale){
+  const tiles=[];
+  const sz=scale*0.08;
+  function hatAt(x,y,flip,angle){
+    const pts=[];
+    // Hat is a polykite on hex grid - simplified as 13-gon approximation
+    const baseAngles=flip?
+      [0,60,120,120,180,240,240,300,300,0,0,60,0]:
+      [0,300,240,240,180,120,120,60,60,0,0,300,0];
+    let px=x,py=y;
+    pts.push([px,py]);
+    for(let i=0;i<12;i++){
+      const a=(baseAngles[i]+angle)*Math.PI/180;
+      const step=(i%3===2)?sz*1.732:sz;
+      px+=step*Math.cos(a);py+=step*Math.sin(a);
+      pts.push([px,py]);
+    }
+    tiles.push({type:'hat',pts,flip});
+  }
+  const rows=Math.ceil(H/sz/3)+2;
+  const cols=Math.ceil(W/sz/2)+2;
+  for(let row=-2;row<rows;row++){
+    for(let col=-2;col<cols;col++){
+      const x=cx+col*sz*2.5-W/2;
+      const y=cy+row*sz*3-H/2;
+      hatAt(x,y,(row+col)%2===0,(row+col)*15);
+    }
+  }
+  return tiles;
+}
+
+// Danzer tiling (icosahedral)
+function danzerTiles(cx,cy,scale){
+  const tiles=[];
+  const PHI=(1+Math.sqrt(5))/2;
+  const r=scale*0.15;
+  // Three Danzer prototiles: A, B, C (approximated)
+  for(let ring=0;ring<4;ring++){
+    const n=ring===0?1:ring*6;
+    for(let i=0;i<n;i++){
+      const a=i*2*Math.PI/n+(ring*Math.PI/12);
+      const dist=ring*r*0.9;
+      const x=cx+dist*Math.cos(a);
+      const y=cy+dist*Math.sin(a);
+      const ttype=i%3;
+      const pts=[];
+      const sides=ttype===0?3:ttype===1?4:5;
+      const sr=r*(0.6+ttype*0.15);
+      for(let j=0;j<sides;j++){
+        const ja=a+j*2*Math.PI/sides+Math.PI/sides;
+        pts.push([x+sr*Math.cos(ja),y+sr*Math.sin(ja)]);
+      }
+      tiles.push({type:'danzer'+ttype,pts});
+    }
+  }
+  return tiles;
+}
+
+// Socolar-Taylor monotile (hexagonal base)
+function socolarTaylor(cx,cy,scale){
+  const tiles=[];
+  const r=scale*0.09;
+  const h=r*Math.sqrt(3);
+  // Hexagonal grid with modified connectivity (non-local matching rules)
+  const offsets=[];
+  const rows=Math.ceil(H/(h*2))+3;
+  const cols=Math.ceil(W/(r*3))+3;
+  for(let row=-2;row<rows;row++){
+    for(let col=-2;col<cols;col++){
+      const x=cx+col*r*3-W/2;
+      const y=cy+row*h*2+(col%2)*h-H/2;
+      const pts=[];
+      for(let i=0;i<6;i++){
+        const a=i*Math.PI/3+Math.PI/6;
+        pts.push([x+r*Math.cos(a),y+r*Math.sin(a)]);
+      }
+      // Add connecting "arm" to make it non-local
+      const armAngle=((row*3+col*7)*37+seed)%(Math.PI*2);
+      tiles.push({type:'socolar',pts,cx:x,cy:y,armAngle,armLen:r*1.5});
+    }
+  }
+  return tiles;
+}
+
+// ─── Maze generators ──────────────────────────────────────────────────────────
+function hexMaze(cols,rows){
+  const cells=new Map();
+  const walls=[];
+  for(let r=0;r<rows;r++){
+    for(let c=0;c<cols;c++){
+      cells.set(`${c},${r}`,{c,r,visited:false,walls:[1,1,1,1,1,1]});
+    }
+  }
+  // DFS
+  const stack=[];
+  const startCell=cells.get('0,0');
+  startCell.visited=true;
+  stack.push(startCell);
+  const hexNeighbors=(c,r)=>{
+    const even=r%2===0;
+    return[
+      [c,r-1],[c+1,r-1+(even?1:0)],[c+1,r],[c,r+1],[c-1,r],[c-1,r-1+(even?1:0)]
+    ].filter(([nc,nr])=>nc>=0&&nr>=0&&nc<cols&&nr<rows);
+  };
+  while(stack.length){
+    const cell=stack[stack.length-1];
+    const unvisited=hexNeighbors(cell.c,cell.r)
+      .map(([nc,nr])=>cells.get(`${nc},${nr}`))
+      .filter(n=>n&&!n.visited);
+    if(unvisited.length){
+      const next=pick(unvisited);
+      next.visited=true;
+      walls.push([cell,next]);
+      stack.push(next);
+    } else stack.pop();
+  }
+  return{cells,walls,cols,rows};
+}
+
+function spiralMaze(rings,segments){
+  const nodes=[];
+  const edges=[];
+  // Generate spiral nodes
+  for(let r=1;r<=rings;r++){
+    const segs=segments*r;
+    for(let s=0;s<segs;s++){
+      const angle=s*2*Math.PI/segs+r*0.3;
+      const radius=r*50;
+      nodes.push({x:CX+radius*Math.cos(angle),y:CY+radius*Math.sin(angle),ring:r,seg:s,segs});
+    }
+  }
+  // Connect along spiral and across rings
+  for(let i=0;i<nodes.length;i++){
+    const n=nodes[i];
+    // Radial connections (approximate)
+    for(let j=0;j<nodes.length;j++){
+      if(i===j)continue;
+      const m=nodes[j];
+      const dx=n.x-m.x,dy=n.y-m.y;
+      const dist=Math.sqrt(dx*dx+dy*dy);
+      if(dist<65&&dist>20&&rng()<0.3){
+        edges.push([i,j]);
+      }
+    }
+  }
+  return{nodes,edges};
+}
+
+function toroidalMaze(cols,rows){
+  const cells=[];
+  const passages=new Set();
+  for(let r=0;r<rows;r++)for(let c=0;c<cols;c++)cells.push({c,r,visited:false});
+  const idx=(c,r)=>((c%cols+cols)%cols)*rows+((r%rows+rows)%rows);
+  const neighbors=(c,r)=>[[c+1,r],[c-1,r],[c,r+1],[c,r-1]];
+  const stack=[cells[0]];
+  cells[0].visited=true;
+  while(stack.length){
+    const cell=stack[stack.length-1];
+    const unv=neighbors(cell.c,cell.r)
+      .map(([nc,nr])=>cells[idx(nc,nr)])
+      .filter(n=>!n.visited);
+    if(unv.length){
+      const next=pick(unv);
+      next.visited=true;
+      passages.add(`${Math.min(idx(cell.c,cell.r),idx(next.c,next.r))}-${Math.max(idx(cell.c,cell.r),idx(next.c,next.r))}`);
+      stack.push(next);
+    } else stack.pop();
+  }
+  return{cells,passages,cols,rows};
+}
+
+function braidMaze(cols,rows){
+  // Braid: no dead ends, every cell has >= 2 connections
+  const maze=toroidalMaze(cols,rows);
+  // Remove dead ends by adding extra passages
+  const{cells,passages,cols:c,rows:r}=maze;
+  const idx=(col,row)=>((col%c+c)%c)*r+((row%r+r)%r);
+  const neighbors=(col,row)=>[[col+1,row],[col-1,row],[col,row+1],[col,row-1]];
+  for(const cell of cells){
+    const conns=neighbors(cell.c,cell.r).filter(([nc,nr])=>{
+      const a=idx(cell.c,cell.r),b=idx(nc,nr);
+      return passages.has(`${Math.min(a,b)}-${Math.max(a,b)}`);
+    });
+    if(conns.length<2){
+      const add=pick(neighbors(cell.c,cell.r));
+      const[nc,nr]=add;
+      const a=idx(cell.c,cell.r),b=idx(nc,nr);
+      passages.add(`${Math.min(a,b)}-${Math.max(a,b)}`);
+    }
+  }
+  return maze;
+}
+
+// ─── Physics (Verlet / RK4 / PBD) ────────────────────────────────────────────
+function buildPhysics(nodePositions){
+  const nodes=nodePositions.map(([x,y],i)=>({
+    x,y,px:x+rf(-0.5,0.5),py:y+rf(-0.5,0.5),
+    vx:rf(-0.2,0.2),vy:rf(-0.2,0.2),
+    mass:rf(0.5,2),id:i,fixed:rng()<0.02
+  }));
+  const springs=[];
+  const N=Math.min(nodes.length,400);
+  for(let i=0;i<N;i++){
+    for(let j=i+1;j<N;j++){
+      const dx=nodes[i].x-nodes[j].x;
+      const dy=nodes[i].y-nodes[j].y;
+      const d=Math.sqrt(dx*dx+dy*dy);
+      if(d<80&&d>5){
+        springs.push({a:i,b:j,rest:d,k:rf(0.02,0.15),damp:rf(0.03,0.08)});
+      }
+    }
+  }
+  return{nodes,springs,method:pick(['verlet','rk4','pbd'])};
+}
+
+function stepVerlet(phys,dt){
+  const{nodes,springs}=phys;
+  // Compute forces
+  for(const n of nodes){n.fx=rf(-0.05,0.05);n.fy=rf(-0.05,0.05)+0.005}
+  for(const s of springs){
+    const a=nodes[s.a],b=nodes[s.b];
+    const dx=b.x-a.x,dy=b.y-a.y;
+    const d=Math.sqrt(dx*dx+dy*dy)||1;
+    const f=s.k*(d-s.rest)/d;
+    const damp=s.damp*(a.vx-b.vx);
+    const fx=f*dx-damp*dx/d;
+    const fy=f*dy-damp*dy/d;
+    if(!a.fixed){a.fx+=fx/a.mass;a.fy+=fy/a.mass}
+    if(!b.fixed){b.fx-=fx/b.mass;b.fy-=fy/b.mass}
+  }
+  // Verlet integrate
+  for(const n of nodes){
+    if(n.fixed)continue;
+    const nx=2*n.x-n.px+n.fx*dt*dt;
+    const ny=2*n.y-n.py+n.fy*dt*dt;
+    n.vx=(nx-n.px)/(2*dt);n.vy=(ny-n.py)/(2*dt);
+    n.px=n.x;n.py=n.y;n.x=nx;n.y=ny;
+    // Boundary wrap
+    if(n.x<-W)n.x+=W*2;if(n.x>W*2)n.x-=W*2;
+    if(n.y<-H)n.y+=H*2;if(n.y>H*2)n.y-=H*2;
+  }
+}
+
+function stepRK4(phys,dt){
+  // Simplified RK4 on spring forces
+  const{nodes,springs}=phys;
+  const forces=(ns)=>{
+    const fx=new Float32Array(ns.length);
+    const fy=new Float32Array(ns.length);
+    for(const s of springs){
+      const a=ns[s.a],b=ns[s.b];
+      const dx=b.x-a.x,dy=b.y-a.y;
+      const d=Math.sqrt(dx*dx+dy*dy)||1;
+      const f=s.k*(d-s.rest)/d;
+      fx[s.a]+=f*dx/a.mass;fy[s.a]+=f*dy/a.mass;
+      fx[s.b]-=f*dx/b.mass;fy[s.b]-=f*dy/b.mass;
+    }
+    return[fx,fy];
+  };
+  const[fx,fy]=forces(nodes);
+  for(let i=0;i<nodes.length;i++){
+    const n=nodes[i];
+    if(n.fixed)continue;
+    const k1vx=fx[i]*dt,k1vy=fy[i]*dt;
+    n.vx+=k1vx;n.vy+=k1vy;
+    n.x+=n.vx*dt;n.y+=n.vy*dt;
+    n.vx*=0.995;n.vy*=0.995;
+  }
+}
+
+function stepPBD(phys,dt){
+  const{nodes,springs}=phys;
+  for(const n of nodes){
+    if(n.fixed)continue;
+    n.vy+=0.01;
+    n.x+=n.vx*dt;n.y+=n.vy*dt;
+  }
+  // Position-based constraints
+  for(let iter=0;iter<2;iter++){
+    for(const s of springs){
+      const a=nodes[s.a],b=nodes[s.b];
+      const dx=b.x-a.x,dy=b.y-a.y;
+      const d=Math.sqrt(dx*dx+dy*dy)||1;
+      const diff=(d-s.rest)/d*0.5*s.k;
+      if(!a.fixed){a.x+=dx*diff;a.y+=dy*diff}
+      if(!b.fixed){b.x-=dx*diff;b.y-=dy*diff}
+    }
+  }
+  for(const n of nodes){
+    if(n.fixed)continue;
+    n.vx=(n.x-n.px)/dt*0.99;n.vy=(n.y-n.py)/dt*0.99;
+    n.px=n.x;n.py=n.y;
+  }
+}
+
+// ─── Decorative overlays ─────────────────────────────────────────────────────
+const DECO_STYLES=['islamic','persian','celtic','chinese','kimono','bauhaus'];
+
+function drawIslamicStar(ctx,x,y,r,points,t,color){
+  ctx.beginPath();
+  for(let i=0;i<points*2;i++){
+    const angle=i*Math.PI/points+t;
+    const rad=i%2===0?r:r*0.4;
+    if(i===0)ctx.moveTo(x+rad*Math.cos(angle),y+rad*Math.sin(angle));
+    else ctx.lineTo(x+rad*Math.cos(angle),y+rad*Math.sin(angle));
+  }
+  ctx.closePath();
+  ctx.strokeStyle=color;
+  ctx.lineWidth=0.8;
+  ctx.stroke();
+}
+
+function drawCelticKnot(ctx,x,y,sz,t,color){
+  ctx.beginPath();
+  for(let i=0;i<100;i++){
+    const a=i*0.12+t;
+    const r=sz*(0.5+0.3*Math.sin(a*3));
+    const r2=sz*(0.3+0.2*Math.cos(a*5));
+    const px=x+r*Math.cos(a)+r2*Math.cos(a*2);
+    const py=y+r*Math.sin(a)+r2*Math.sin(a*2);
+    i===0?ctx.moveTo(px,py):ctx.lineTo(px,py);
+  }
+  ctx.strokeStyle=color;
+  ctx.lineWidth=1;
+  ctx.stroke();
+}
+
+function drawChineseCloud(ctx,x,y,sz,t,color){
+  ctx.beginPath();
+  const bumps=5;
+  for(let i=0;i<bumps*2+1;i++){
+    const a=i*Math.PI/bumps+t;
+    const r=sz*(i%2===0?1:0.65);
+    const cx2=x+sz*0.3*Math.cos(t);
+    const cy2=y+sz*0.3*Math.sin(t*1.3);
+    if(i===0)ctx.moveTo(cx2+r*Math.cos(a),cy2+r*Math.sin(a));
+    else ctx.arcTo(cx2+r*Math.cos(a),cy2+r*Math.sin(a),cx2+r*Math.cos(a+Math.PI/bumps),cy2+r*Math.sin(a+Math.PI/bumps),sz*0.2);
+  }
+  ctx.strokeStyle=color;
+  ctx.lineWidth=1;
+  ctx.stroke();
+}
+
+function drawKimonoPattern(ctx,x,y,sz,t,color){
+  // Diamond grid with floral centers
+  ctx.save();
+  ctx.translate(x,y);ctx.rotate(t*0.1);
+  for(let i=-1;i<=1;i++){
+    for(let j=-1;j<=1;j++){
+      const px=i*sz,py=j*sz;
+      ctx.beginPath();
+      ctx.moveTo(px,py-sz*0.4);
+      ctx.lineTo(px+sz*0.4,py);
+      ctx.lineTo(px,py+sz*0.4);
+      ctx.lineTo(px-sz*0.4,py);
+      ctx.closePath();
+      ctx.strokeStyle=color;ctx.lineWidth=0.8;ctx.stroke();
+      // Center dot
+      ctx.beginPath();ctx.arc(px,py,Math.max(0.5,sz*0.08),0,Math.PI*2);
+      ctx.fillStyle=color;ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+function drawBauhausGrid(ctx,x,y,sz,t,color){
+  ctx.save();ctx.translate(x,y);ctx.rotate(Math.PI/4+t*0.05);
+  // Concentric squares and circles
+  for(let i=1;i<=3;i++){
+    ctx.beginPath();ctx.rect(-sz*i*0.3,-sz*i*0.3,sz*i*0.6,sz*i*0.6);
+    ctx.strokeStyle=color;ctx.lineWidth=0.7;ctx.stroke();
+    ctx.beginPath();ctx.arc(0,0,Math.max(0.5,sz*i*0.25),0,Math.PI*2);
+    ctx.strokeStyle=color;ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// ─── Audio engine ─────────────────────────────────────────────────────────────
+function initAudio(){
+  if(audioCtx)return;
+  audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+  masterGain=audioCtx.createGain();
+  masterGain.gain.setValueAtTime(0.12,audioCtx.currentTime);
+  const reverb=audioCtx.createConvolver();
+  const reverbLen=audioCtx.sampleRate*2;
+  const reverbBuf=audioCtx.createBuffer(2,reverbLen,audioCtx.sampleRate);
+  for(let c=0;c<2;c++){
+    const d=reverbBuf.getChannelData(c);
+    for(let i=0;i<reverbLen;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/reverbLen,3);
+  }
+  reverb.buffer=reverbBuf;
+  masterGain.connect(reverb);
+  reverb.connect(audioCtx.destination);
+}
+
+function spawnOscillators(freqs){
+  stopAudio();
+  if(!audioCtx)return;
+  for(const freq of freqs){
+    const osc=audioCtx.createOscillator();
+    const gain=audioCtx.createGain();
+    osc.type=pick(['sine','triangle','sawtooth']);
+    osc.frequency.setValueAtTime(freq,audioCtx.currentTime);
+    gain.gain.setValueAtTime(0.02+rng()*0.04,audioCtx.currentTime);
+    // Modal resonance: slight detune
+    osc.detune.setValueAtTime(rf(-8,8),audioCtx.currentTime);
+    osc.connect(gain);
+    gain.connect(masterGain);
+    osc.start();
+    oscillators.push(osc);
+    soundNodes.push(gain);
+    // LFO for vibrato
+    const lfo=audioCtx.createOscillator();
+    const lfoGain=audioCtx.createGain();
+    lfo.frequency.setValueAtTime(rf(0.5,4),audioCtx.currentTime);
+    lfoGain.gain.setValueAtTime(rf(1,8),audioCtx.currentTime);
+    lfo.connect(lfoGain);lfoGain.connect(osc.frequency);
+    lfo.start();oscillators.push(lfo);
+  }
+}
+
+function stopAudio(){
+  for(const o of oscillators){try{o.stop();o.disconnect()}catch(e){}}
+  for(const n of soundNodes){try{n.disconnect()}catch(e){}}
+  oscillators=[];soundNodes=[];
+}
+
+function latticeFreqs(phys){
+  // Derive modal frequencies from spring network
+  const freqs=[];
+  const baseFreq=110;
+  const PHI=(1+Math.sqrt(5))/2;
+  const harmonics=[1,PHI,2,2*PHI,3,4,5,6,8];
+  for(let i=0;i<8;i++){
+    const k=phys.springs[ri(0,phys.springs.length-1)]?.k||0.1;
+    const m=phys.nodes[ri(0,phys.nodes.length-1)]?.mass||1;
+    const naturalFreq=baseFreq*harmonics[i%harmonics.length]*(1+k/m*0.5);
+    freqs.push(Math.min(naturalFreq,2000));
+  }
+  return freqs;
+}
+
+// ─── Tiling-to-geometry bridges ──────────────────────────────────────────────
+function tilesToPhysicsNodes(tiles,style){
+  const pts=[];
+  for(const tile of tiles){
+    if(tile.pts)for(const[x,y] of tile.pts)pts.push([x,y]);
+    else if(tile.ax!==undefined){
+      pts.push([tile.ax,tile.ay]);
+      pts.push([tile.bx,tile.by]);
+      pts.push([tile.cx2,tile.cy2]);
+    }
+  }
+  // Deduplicate approx
+  const uniq=[];const seen=new Set();
+  for(const[x,y] of pts){
+    const key=`${Math.round(x/3)*3},${Math.round(y/3)*3}`;
+    if(!seen.has(key)){seen.add(key);uniq.push([x,y])}
+  }
+  return uniq.slice(0,350);
+}
+
+// ─── Main init / draw ─────────────────────────────────────────────────────────
+function init(){
+  seed=Date.now()^(Math.random()*0xFFFFFFFF>>>0);
+  stopAudio();
+
+  const tilingTypes=['penrose','ammann','hat','danzer','socolar'];
+  const mazeTypes=['hex','spiral','toroidal','braid'];
+  const decoStyle=pick(DECO_STYLES);
+  const tilingType=pick(tilingTypes);
+  const mazeType=pick(mazeTypes);
+  const palette=makePalette();
+
+  // Generate tiling
+  let tiles=[];
+  const scale=Math.min(W,H)*0.55;
+  switch(tilingType){
+    case'penrose': tiles=penroseTiles(CX,CY,scale,ri(4,6));break;
+    case'ammann': tiles=ammannBeenker(CX,CY,scale);break;
+    case'hat': tiles=hatMonotile(CX,CY,scale);break;
+    case'danzer': tiles=danzerTiles(CX,CY,scale);break;
+    case'socolar': tiles=socolarTaylor(CX,CY,scale);break;
+  }
+
+  // Generate maze
+  let maze=null;
+  const mCols=ri(8,14),mRows=ri(6,10);
+  switch(mazeType){
+    case'hex': maze=hexMaze(mCols,mRows);break;
+    case'spiral': maze=spiralMaze(ri(4,7),ri(8,12));break;
+    case'toroidal': maze=toroidalMaze(mCols,mRows);break;
+    case'braid': maze=braidMaze(mCols,mRows);break;
+  }
+
+  // Build physics
+  const physNodes=tilesToPhysicsNodes(tiles,tilingType);
+  const phys=buildPhysics(physNodes);
+
+  // Sound
+  if(SOUND){
+    initAudio();
+    const freqs=latticeFreqs(phys);
+    spawnOscillators(freqs);
+  }
+
+  universe={tiles,maze,phys,palette,decoStyle,tilingType,mazeType,
+    t:0,energy:1,bgPhase:rf(0,1)};
+
+  // Update HUD
+  document.getElementById('h-mode').textContent=tilingType.toUpperCase();
+  document.getElementById('h-tile').textContent=tilingType;
+  document.getElementById('h-maze').textContent=mazeType;
+  document.getElementById('h-deco').textContent=decoStyle;
+  document.getElementById('h-phys').textContent=phys.method.toUpperCase();
+  document.getElementById('h-nodes').textContent=phys.nodes.length;
+  document.getElementById('h-snd').textContent=SOUND?'ON':'OFF';
+}
+
+function drawTiles(u,t){
+  const{tiles,palette,tilingType}=u;
+  const alpha=0.65+Math.sin(t*0.7)*0.15;
+
+  ctx.save();
+  // Add slight global oscillation transform
+  const wobble=Math.sin(t*0.3)*3;
+  ctx.translate(wobble,Math.cos(t*0.2)*2);
+
+  for(let i=0;i<tiles.length;i++){
+    const tile=tiles[i];
+    const phase=i/tiles.length;
+    const pulseT=(t*0.08+phase)%1;
+    const col=getPaletteColor(palette,pulseT,Math.floor(i%5));
+
+    if(tile.pts){
+      ctx.beginPath();
+      ctx.moveTo(tile.pts[0][0],tile.pts[0][1]);
+      for(let j=1;j<tile.pts.length;j++)ctx.lineTo(tile.pts[j][0],tile.pts[j][1]);
+      ctx.closePath();
+      ctx.fillStyle=col.replace('hsla','hsla').replace(/,([\d.]+)\)$/,`,${alpha*0.25})`);
+      ctx.fill();
+      ctx.strokeStyle=col;
+      ctx.lineWidth=0.8+Math.sin(t*0.5+phase*Math.PI*2)*0.3;
+      ctx.stroke();
+    } else if(tile.ax!==undefined){
+      // Penrose triangle
+      ctx.beginPath();
+      ctx.moveTo(tile.ax,tile.ay);
+      ctx.lineTo(tile.bx,tile.by);
+      ctx.lineTo(tile.cx2,tile.cy2);
+      ctx.closePath();
+      const fillCol=getPaletteColor(palette,(pulseT+0.1*(tile.type||0))%1,tile.type||0);
+      ctx.fillStyle=fillCol.replace(/,([\d.]+)\)$/,`,${alpha*0.3})`);
+      ctx.fill();
+      ctx.strokeStyle=col;
+      ctx.lineWidth=0.7;
+      ctx.stroke();
+    }
+
+    // Socolar arms
+    if(tile.armAngle!==undefined){
+      ctx.beginPath();
+      ctx.moveTo(tile.cx,tile.cy);
+      const ax=tile.cx+tile.armLen*Math.cos(tile.armAngle+t*0.02);
+      const ay=tile.cy+tile.armLen*Math.sin(tile.armAngle+t*0.02);
+      ctx.lineTo(ax,ay);
+      ctx.strokeStyle=col.replace(/,([\d.]+)\)$/,`,${alpha*0.5})`);
+      ctx.lineWidth=1;
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+function drawPhysics(u,t){
+  const{phys,palette}=u;
+  const{nodes,springs}=phys;
+
+  // Draw springs
+  ctx.save();
+  for(const s of springs){
+    const a=nodes[s.a],b=nodes[s.b];
+    const dx=b.x-a.x,dy=b.y-a.y;
+    const stretch=Math.sqrt(dx*dx+dy*dy)/s.rest;
+    const phase=(a.x+b.y)/(W+H);
+    const col=getPaletteColor(palette,(t*0.05+phase)%1,2);
+    const energy=Math.abs(stretch-1);
+    ctx.beginPath();
+    ctx.moveTo(a.x,a.y);
+    // Elastic curve
+    const mx=(a.x+b.x)/2+Math.sin(t+s.rest)*energy*15;
+    const my=(a.y+b.y)/2+Math.cos(t+s.rest)*energy*15;
+    ctx.quadraticCurveTo(mx,my,b.x,b.y);
+    ctx.strokeStyle=col.replace(/,([\d.]+)\)$/,`,${0.3+energy*0.4})`);
+    ctx.lineWidth=0.5+energy*1.5;
+    ctx.stroke();
+  }
+
+  // Draw nodes
+  for(let i=0;i<nodes.length;i++){
+    const n=nodes[i];
+    const speed=Math.sqrt(n.vx*n.vx+n.vy*n.vy);
+    const col=getPaletteColor(palette,(t*0.06+i/nodes.length)%1,3);
+    const r=Math.max(0.5,1.5+speed*2);
+    ctx.beginPath();ctx.arc(n.x,n.y,r,0,Math.PI*2);
+    ctx.fillStyle=col.replace(/,([\d.]+)\)$/,`,${0.6+speed*0.2})`);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawMaze(u,t){
+  const{maze,mazeType,palette}=u;
+  if(!maze)return;
+  ctx.save();
+  const col=getPaletteColor(palette,(t*0.04+0.5)%1,1);
+
+  if(mazeType==='spiral'&&maze.nodes){
+    // Draw spiral maze
+    for(const[i,j] of maze.edges){
+      const a=maze.nodes[i],b=maze.nodes[j];
+      ctx.beginPath();
+      ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);
+      ctx.strokeStyle=col.replace(/,([\d.]+)\)$/,`,${0.4+Math.sin(t+i*0.1)*0.2})`);
+      ctx.lineWidth=1;ctx.stroke();
+    }
+    for(const n of maze.nodes){
+      ctx.beginPath();ctx.arc(n.x,n.y,3,0,Math.PI*2);
+      ctx.fillStyle=col;ctx.fill();
+    }
+  } else if(maze.cells){
+    // Grid maze (hex/toroidal/braid)
+    const{cols,rows}=maze;
+    const cellW=W/cols,cellH=H/rows;
+    if(maze.passages){
+      const idx=(c,r)=>((c%cols+cols)%cols)*rows+((r%rows+rows)%rows);
+      for(const cell of maze.cells){
+        const px=cell.c*cellW+cellW/2;
+        const py=cell.r*cellH+cellH/2;
+        // Draw connections
+        for(const[dc,dr] of [[1,0],[0,1]]){
+          const nc=(cell.c+dc+cols)%cols,nr=(cell.r+dr+rows)%rows;
+          const a=idx(cell.c,cell.r),b=idx(nc,nr);
+          const key=`${Math.min(a,b)}-${Math.max(a,b)}`;
+          if(maze.passages.has(key)){
+            const nx2=nc*cellW+cellW/2,ny2=nr*cellH+cellH/2;
+            ctx.beginPath();ctx.moveTo(px,py);
+            ctx.lineTo(nx2,ny2);
+            ctx.strokeStyle=col.replace(/,([\d.]+)\)$/,`,${0.25+Math.sin(t*0.5+cell.c+cell.r)*0.1})`);
+            ctx.lineWidth=0.8;ctx.stroke();
+          }
+        }
+        // Node dot
+        ctx.beginPath();ctx.arc(px,py,1.5,0,Math.PI*2);
+        ctx.fillStyle=col.replace(/,([\d.]+)\)$/,',0.5)');ctx.fill();
+      }
+    }
+  }
+  ctx.restore();
+}
+
+function drawDecorations(u,t){
+  const{decoStyle,palette}=u;
+  const n=10;
+  const baseCol=getPaletteColor(palette,(t*0.03)%1,4);
+  for(let i=0;i<n;i++){
+    const phase=i/n;
+    const angle=phase*Math.PI*2+t*0.15;
+    const r=Math.min(W,H)*0.35;
+    const x=CX+r*Math.cos(angle);
+    const y=CY+r*Math.sin(angle);
+    const sz=Math.max(4, 20+Math.sin(t*0.5+phase*Math.PI*2)*8);
+    const col=getPaletteColor(palette,(t*0.04+phase)%1,4);
+    ctx.globalAlpha=0.35+Math.sin(t*0.8+phase*Math.PI*4)*0.1;
+    switch(decoStyle){
+      case'islamic':drawIslamicStar(ctx,x,y,sz,ri(6,12),t*0.1+phase,col);break;
+      case'celtic':drawCelticKnot(ctx,x,y,sz,t*0.08+phase*2,col);break;
+      case'chinese':drawChineseCloud(ctx,x,y,sz,t*0.06+phase,col);break;
+      case'kimono':drawKimonoPattern(ctx,x,y,sz,t,col);break;
+      case'bauhaus':drawBauhausGrid(ctx,x,y,sz,t,col);break;
+      case'persian':
+        ctx.beginPath();
+        for(let j=0;j<8;j++){
+          const a2=j*Math.PI/4+t*0.05+phase;
+          const r2=sz*(j%2===0?1:0.5);
+          j===0?ctx.moveTo(x+r2*Math.cos(a2),y+r2*Math.sin(a2)):
+                ctx.lineTo(x+r2*Math.cos(a2),y+r2*Math.sin(a2));
+        }
+        ctx.closePath();ctx.strokeStyle=col;ctx.lineWidth=1;ctx.stroke();
+        break;
+    }
+    ctx.globalAlpha=1;
+  }
+}
+
+function drawInterferenceBackground(u,t){
+  const{palette,bgPhase}=u;
+  // Fast imageData-based interference pattern (sampled)
+  const step=6;
+  for(let y=0;y<H;y+=step){
+    for(let x=0;x<W;x+=step){
+      const dx=x-CX,dy=y-CY;
+      const d=Math.sqrt(dx*dx+dy*dy);
+      const v=Math.sin(d*0.04-t*0.8+bgPhase*6.28)*0.5+
+              Math.sin((dx+dy)*0.03+t*0.5)*0.3+
+              Math.cos(dx*0.025-dy*0.02+t*0.3)*0.2;
+      const phase=((v+1)/2+t*0.015)%1;
+      ctx.fillStyle=getPaletteColor(palette,phase,0).replace(/,([\d.]+)\)$/,',0.18)');
+      ctx.fillRect(x,y,step,step);
+    }
+  }
+}
+
+function drawHints(u,t){
+  // Draw interference rings from active nodes
+  const{phys,palette}=u;
+  if(!phys.nodes.length)return;
+  ctx.save();
+  for(let i=0;i<phys.nodes.length;i+=12){
+    const n=phys.nodes[i];
+    const speed=Math.sqrt(n.vx*n.vx+n.vy*n.vy);
+    if(speed<0.01)continue;
+    const rings=3;
+    for(let r=0;r<rings;r++){
+      const rad=Math.max(0,(t*30+r*50+i*10)%Math.max(W,H));
+      const alpha=Math.max(0,(1-rad/Math.max(W,H))*speed*0.3);
+      ctx.beginPath();ctx.arc(n.x,n.y,rad,0,Math.PI*2);
+      const col=getPaletteColor(palette,(t*0.05+i*0.003)%1,1);
+      ctx.strokeStyle=col.replace(/,([\d.]+)\)$/,`,${alpha})`);
+      ctx.lineWidth=0.5;ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+// ─── Main loop ────────────────────────────────────────────────────────────────
+const DT=1/60;
+let lastTime=0;
+
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt=Math.min((now-lastTime)/1000,0.05);lastTime=now;
+  frameCount++;
+  // FPS
+  fpsTimer+=dt;fpsCount++;
+  if(fpsTimer>=0.5){lastFPS=Math.round(fpsCount/fpsTimer);fpsTimer=0;fpsCount=0;
+    document.getElementById('h-fps').textContent=lastFPS;}
+
+  const u=universe;
+  if(!u.tiles)return;
+  u.t+=dt;
+  u.palette.shift=(u.palette.shift+dt*0.018)%1;
+
+  // Physics step
+  const{phys}=u;
+  switch(phys.method){
+    case'verlet':stepVerlet(phys,DT);break;
+    case'rk4':stepRK4(phys,DT);break;
+    case'pbd':stepPBD(phys,DT);break;
+  }
+
+  // Background
+  ctx.fillStyle='rgba(0,0,0,0.15)';
+  ctx.fillRect(0,0,W,H);
+
+  // Draw layers
+  drawInterferenceBackground(u,u.t);
+  drawTiles(u,u.t);
+  drawMaze(u,u.t);
+  drawHints(u,u.t);
+  drawPhysics(u,u.t);
+  drawDecorations(u,u.t);
+
+  // Vignette
+  const grad=ctx.createRadialGradient(CX,CY,Math.min(W,H)*0.3,CX,CY,Math.max(W,H)*0.8);
+  grad.addColorStop(0,'rgba(0,0,0,0)');
+  grad.addColorStop(1,'rgba(0,0,0,0.7)');
+  ctx.fillStyle=grad;ctx.fillRect(0,0,W,H);
+
+  // Chromatic pulse overlay
+  const pulse=Math.sin(u.t*1.2)*0.05+0.05;
+  const pCol=getPaletteColor(u.palette,(u.t*0.02)%1,2).replace(/,([\d.]+)\)$/,`,${pulse})`);
+  ctx.fillStyle=pCol;ctx.fillRect(0,0,W,H);
+}
+
+// ─── Input ────────────────────────────────────────────────────────────────────
+window.addEventListener('keydown',e=>{
+  if(e.key===' '){e.preventDefault();init()}
+  else if(e.key==='h'||e.key==='H'){
+    HUD=!HUD;
+    document.getElementById('hud').classList.toggle('visible',HUD);
+  } else if(e.key==='s'||e.key==='S'){
+    SOUND=!SOUND;
+    document.getElementById('h-snd').textContent=SOUND?'ON':'OFF';
+    if(SOUND){
+      initAudio();
+      if(audioCtx&&audioCtx.state==='suspended')audioCtx.resume();
+      if(universe.phys)spawnOscillators(latticeFreqs(universe.phys));
+    } else {
+      stopAudio();
+    }
+  }
+});
+canvas.addEventListener('click',()=>init());
+canvas.addEventListener('touchstart',e=>{e.preventDefault();init()},{passive:false});
+
+// ─── Hint fade ────────────────────────────────────────────────────────────────
+setTimeout(()=>{document.getElementById('hint').style.opacity='0'},4000);
+
+// ─── Boot ─────────────────────────────────────────────────────────────────────
+init();
+lastTime=performance.now();
+requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

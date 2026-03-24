@@ -1,0 +1,1338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Ornament Physics Cosmology Engine</title>
+<meta name="description" content="Real-time generative mathematical physics art engine rendering an endlessly evolving ornament-physics universe where decorative pattern systems become physical laws. Features Penrose tilings, Islamic geometry, hyperbolic tilings, reaction-diffusion chemistry, lattice Boltzmann fluids, and multi-dimensional polytope projections animated by mechanical linkages, vortex turbulence, and wave interference networks.">
+<meta name="keywords" content="generative art, mathematical physics, Penrose tiling, Islamic geometry, reaction diffusion, WebGL, sacred geometry, ornament physics, fractal cosmology, procedural animation, hyperbolic tiling, lattice Boltzmann, vortex simulation, stained glass, spectral art, real-time generative, tessellation, space-filling curves, cellular automata, polytope projection">
+<meta name="author" content="Ornament Physics Cosmology Engine">
+<meta property="og:title" content="Ornament Physics Cosmology Engine">
+<meta property="og:description" content="Real-time generative mathematical physics art engine where decorative patterns become physical laws and geometry operates as machinery.">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Courier New',monospace}
+  canvas{display:block;width:100vw;height:100vh;position:fixed;top:0;left:0}
+  #hud{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;display:none;z-index:10}
+  #hud-content{position:absolute;top:16px;left:16px;color:rgba(255,255,255,0.85);font-size:11px;line-height:1.7;background:rgba(0,0,0,0.55);padding:12px 16px;border:1px solid rgba(255,255,255,0.15);max-width:320px;backdrop-filter:blur(4px)}
+  #hud-content h2{font-size:13px;letter-spacing:3px;margin-bottom:8px;color:rgba(255,220,100,0.9);text-transform:uppercase}
+  #hud-right{position:absolute;top:16px;right:16px;color:rgba(255,255,255,0.7);font-size:10px;text-align:right;line-height:1.8}
+  #keys{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,0.45);font-size:10px;letter-spacing:2px;text-align:center;white-space:nowrap}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div id="hud-content">
+    <h2>Ornament Cosmology</h2>
+    <div id="hud-info">Loading...</div>
+  </div>
+  <div id="hud-right" id="hud-right-info"></div>
+  <div id="keys">SPACE / CLICK / TAP — New Universe &nbsp;|&nbsp; H — HUD &nbsp;|&nbsp; S — Sound</div>
+</div>
+<script>
+(function(){
+'use strict';
+
+// ═══════════════════════════════════════════════════════════════
+// CORE ENGINE
+// ═══════════════════════════════════════════════════════════════
+
+const canvas = document.getElementById('c');
+const gl = canvas.getContext('webgl2', {antialias:false, alpha:false, powerPreference:'high-performance'}) ||
+           canvas.getContext('webgl', {antialias:false, alpha:false, powerPreference:'high-performance'});
+
+if(!gl){ document.body.innerHTML='<p style="color:white;padding:20px">WebGL not supported</p>'; return; }
+
+let W, H, frame=0, startTime=Date.now(), lastRegen=0;
+let hudVisible=false, soundOn=false;
+let universe = null;
+let audioCtx=null, masterGain=null, oscillators=[];
+
+// ═══════════════════════════════════════════════════════════════
+// RANDOM UTILITIES
+// ═══════════════════════════════════════════════════════════════
+
+let seed = Math.random()*99999|0;
+function rng(){ seed=(seed*1664525+1013904223)&0xffffffff; return (seed>>>0)/4294967296; }
+function rr(a,b){ return a+rng()*(b-a); }
+function ri(a,b){ return Math.floor(rr(a,b+1)); }
+function rc(arr){ return arr[ri(0,arr.length-1)]; }
+function shuffle(a){ for(let i=a.length-1;i>0;i--){const j=ri(0,i);[a[i],a[j]]=[a[j],a[i]]}return a; }
+function choose(arr,n){ return shuffle([...arr]).slice(0,n); }
+
+// ═══════════════════════════════════════════════════════════════
+// PATTERN GRAMMAR LIBRARY
+// ═══════════════════════════════════════════════════════════════
+
+const GRAMMAR_NAMES = [
+  'penrose_p2','penrose_p3','ammann_beenker','socolar_taylor',
+  'voronoi','delaunay','apollonian','hyperbolic_443','hyperbolic_633',
+  'islamic_star_6','islamic_star_8','islamic_star_10','islamic_star_12',
+  'mughal_rosette','arabesque','celtic_knot','germanic_interlace',
+  'korean_celadon','chinese_window','labyrinth_maze','hilbert_curve',
+  'peano_curve','hamiltonian_grid','braid_topology','cellular_automata',
+  'fractal_subdivision','polytope_4d','polytope_6d','polytope_8d',
+  'rubik_field','reaction_diffusion_base','spring_lattice','wave_grid',
+  'gear_cluster','gyroscope_field','vortex_lattice'
+];
+
+// ═══════════════════════════════════════════════════════════════
+// UNIVERSE PARAMETERS
+// ═══════════════════════════════════════════════════════════════
+
+function randomPalette(){
+  const palettes=[
+    [[0.05,0.02,0.15],[0.8,0.2,0.9],[0.2,0.8,1.0],[1.0,0.6,0.1],[0.9,0.1,0.4]],
+    [[0.02,0.05,0.08],[0.0,0.7,0.8],[0.0,0.4,0.9],[0.5,0.9,0.4],[1.0,0.9,0.0]],
+    [[0.1,0.02,0.02],[1.0,0.2,0.0],[1.0,0.8,0.0],[0.9,0.5,0.1],[0.2,0.05,0.05]],
+    [[0.02,0.08,0.04],[0.1,1.0,0.4],[0.0,0.8,0.6],[0.8,1.0,0.2],[0.0,0.4,0.3]],
+    [[0.08,0.05,0.12],[0.7,0.0,1.0],[0.3,0.5,1.0],[1.0,0.0,0.7],[0.5,0.0,0.8]],
+    [[0.02,0.02,0.08],[0.2,0.4,1.0],[0.0,0.8,1.0],[0.8,0.2,1.0],[1.0,1.0,1.0]],
+    [[0.08,0.06,0.02],[1.0,0.9,0.3],[1.0,0.6,0.0],[0.8,0.3,0.1],[0.4,0.15,0.0]],
+    [[0.03,0.03,0.06],[0.4,0.8,1.0],[0.8,0.4,1.0],[0.4,1.0,0.8],[1.0,0.4,0.6]],
+  ];
+  const p=rc(palettes);
+  // randomly permute and add variation
+  const base=p.map(c=>[c[0]+rr(-0.02,0.02),c[1]+rr(-0.05,0.05),c[2]+rr(-0.05,0.05)]);
+  return base;
+}
+
+function newUniverse(){
+  seed = Math.floor(Math.random()*999999);
+  const grammars = choose(GRAMMAR_NAMES, ri(2,5));
+  const simTypes = choose([
+    'linkage','stewart','gears','gyro','vortex','boltzmann',
+    'convection','reaction_diffusion','spring_mass','oscillator',
+    'wave_interference','vector_potential','energy_diffusion'
+  ], ri(2,4));
+
+  return {
+    grammars,
+    simTypes,
+    palette: randomPalette(),
+    paletteB: randomPalette(),
+    paletteMix: 0,
+    paletteMixSpeed: rr(0.0003,0.002),
+
+    // Tiling parameters
+    symmetryOrder: ri(3,12),
+    recursionDepth: ri(2,6),
+    tilingScale: rr(0.3,2.5),
+    latticeCurvature: rr(-1,1),
+    tilingAngle: rr(0, Math.PI*2),
+
+    // Physics parameters
+    fieldStrength: rr(0.5,3.0),
+    turbulenceEnergy: rr(0.2,2.0),
+    viscosity: rr(0.0,0.8),
+    reactionRate: rr(0.02,0.1),
+    feedRate: rr(0.012,0.06),
+    killRate: rr(0.04,0.065),
+    springK: rr(0.1,0.8),
+    damping: rr(0.85,0.99),
+    waveSpeed: rr(0.3,1.5),
+    gearRatio: rr(0.5,4.0),
+    gyroPrec: rr(0.01,0.2),
+
+    // Pattern mixing weights (how much each grammar contributes)
+    grammarWeights: grammars.map(()=>rr(0.1,1.0)),
+
+    // Dimensional projection
+    projDim: ri(4,12),
+    projRotSpeeds: Array.from({length:15},()=>rr(-0.003,0.003)),
+    projVectors: Array.from({length:4},()=>[rr(-1,1),rr(-1,1),rr(-1,1),rr(-1,1)]),
+
+    // Animation state
+    t: 0,
+    energy: 0.5,
+    colorPhase: rr(0,6.28),
+    morphPhase: rr(0,6.28),
+    perturbAcc: 0,
+    perturbSpeed: rr(0.0001,0.001),
+
+    // RD state (compact arrays)
+    rdW: 0, rdH: 0, rdA: null, rdB: null, rdA2: null, rdB2: null,
+
+    // Spring lattice
+    springW: 0, springH: 0,
+    springX: null, springY: null,
+    springVX: null, springVY: null,
+
+    // Vortex field
+    vortices: Array.from({length:ri(3,12)},()=>({
+      x: rr(-1,1), y: rr(-1,1),
+      strength: rr(-2,2), radius: rr(0.1,0.5),
+      vx: rr(-0.002,0.002), vy: rr(-0.002,0.002)
+    })),
+
+    // Linkage system
+    linkages: buildLinkages(),
+
+    // Gear cluster
+    gears: buildGears(),
+
+    // Oscillator bank
+    oscillators: buildOscillators(),
+
+    // Cellular automata (small grid for rule overlay)
+    caRule: ri(0,255),
+    caGrid: null, caGridW: 64, caGridH: 64,
+
+    fps: 60,
+    frameCount: 0,
+  };
+}
+
+function buildLinkages(){
+  const n = ri(3,8);
+  const links=[];
+  for(let i=0;i<n;i++){
+    links.push({
+      cx: rr(-0.5,0.5), cy: rr(-0.5,0.5),
+      arms: ri(2,6),
+      len: rr(0.05,0.3),
+      phase: rr(0,6.28),
+      speed: rr(-0.02,0.02),
+      wobble: rr(0,0.5)
+    });
+  }
+  return links;
+}
+
+function buildGears(){
+  const n=ri(3,7);
+  const g=[];
+  for(let i=0;i<n;i++){
+    g.push({
+      x: rr(-0.6,0.6), y: rr(-0.6,0.6),
+      r: rr(0.05,0.2), teeth: ri(6,24),
+      angle: rr(0,6.28), speed: rr(-0.03,0.03),
+      phase: rr(0,6.28)
+    });
+  }
+  return g;
+}
+
+function buildOscillators(){
+  const n=ri(4,10);
+  const o=[];
+  for(let i=0;i<n;i++){
+    o.push({
+      freq: rr(0.3,3.0), amp: rr(0.1,1.0),
+      phase: rr(0,6.28), decay: rr(0.98,1.0),
+      x: rr(-1,1), y: rr(-1,1)
+    });
+  }
+  return o;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// WEBGL SHADER SYSTEM
+// ═══════════════════════════════════════════════════════════════
+
+function compileShader(type, src){
+  const s=gl.createShader(type);
+  gl.shaderSource(s,src);
+  gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){
+    console.error(gl.getShaderInfoLog(s),src.slice(0,500));
+    return null;
+  }
+  return s;
+}
+
+function linkProgram(vs,fs){
+  const p=gl.createProgram();
+  gl.attachShader(p,vs); gl.attachShader(p,fs);
+  gl.linkProgram(p);
+  if(!gl.getProgramParameter(p,gl.LINK_STATUS)){ console.error(gl.getProgramInfoLog(p)); return null; }
+  return p;
+}
+
+// Full-screen quad
+const quadVS=`
+attribute vec2 aPos;
+varying vec2 vUV;
+void main(){
+  vUV=(aPos+1.0)*0.5;
+  gl_Position=vec4(aPos,0.0,1.0);
+}`;
+
+// ═══════════════════════════════════════════════════════════════
+// MAIN COSMOLOGY FRAGMENT SHADER
+// This is the heart — a massive procedural universe renderer
+// ═══════════════════════════════════════════════════════════════
+
+const cosmoFS=`
+#ifdef GL_ES
+precision highp float;
+#endif
+varying vec2 vUV;
+
+// Uniforms
+uniform float uTime;
+uniform vec2 uRes;
+uniform float uSymOrder;
+uniform float uTilingScale;
+uniform float uCurvature;
+uniform float uTilingAngle;
+uniform float uFieldStr;
+uniform float uTurbE;
+uniform float uMorphPhase;
+uniform float uColorPhase;
+uniform float uPaletteMix;
+uniform float uGrammar1; // 0..1 normalized grammar index
+uniform float uGrammar2;
+uniform float uGrammar3;
+uniform float uGrammarW1;
+uniform float uGrammarW2;
+uniform float uGrammarW3;
+uniform float uProjDim;
+uniform float uProjR[15];
+uniform float uRecursion;
+uniform float uGearRatio;
+uniform float uWaveSpeed;
+uniform float uReactRate;
+uniform float uFeedRate;
+uniform float uKillRate;
+uniform float uViscosity;
+uniform float uSpringK;
+uniform float uGyroPrec;
+
+// Palette
+uniform vec3 uPal0, uPal1, uPal2, uPal3, uPal4;
+uniform vec3 uPalB0, uPalB1, uPalB2, uPalB3, uPalB4;
+
+// Vortices (up to 12)
+uniform vec4 uVortex[12]; // xy=pos, z=strength, w=radius
+uniform int uVortexCount;
+
+// Linkages (up to 8)
+uniform vec4 uLink[8]; // xy=center, z=len, w=phase
+uniform int uLinkCount;
+
+// Gears (up to 7)
+uniform vec4 uGear[7]; // xy=center, z=radius, w=angle
+uniform int uGearCount;
+
+// ─── Math helpers ───────────────────────────────────────────────
+
+#define PI 3.14159265358979
+#define TAU 6.28318530717959
+#define PHI 1.61803398874989
+
+float hash(float n){ return fract(sin(n)*43758.5453123); }
+float hash2(vec2 p){ return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453); }
+float hash3(vec3 p){ return fract(sin(dot(p,vec3(127.1,311.7,74.7)))*43758.5453); }
+
+vec2 hash2v(vec2 p){
+  p=vec2(dot(p,vec2(127.1,311.7)),dot(p,vec2(269.5,183.3)));
+  return fract(sin(p)*43758.5453123);
+}
+
+float noise(vec2 p){
+  vec2 i=floor(p), f=fract(p);
+  vec2 u=f*f*(3.0-2.0*f);
+  float a=hash2(i), b=hash2(i+vec2(1,0));
+  float c=hash2(i+vec2(0,1)), d=hash2(i+vec2(1,1));
+  return mix(mix(a,b,u.x),mix(c,d,u.x),u.y);
+}
+
+float fbm(vec2 p, int oct){
+  float v=0.0,a=0.5,f=1.0;
+  for(int i=0;i<8;i++){
+    if(i>=oct) break;
+    v+=a*noise(p*f); a*=0.5; f*=2.0;
+  }
+  return v;
+}
+
+vec3 paletteLerp(float t, vec3 p0,vec3 p1,vec3 p2,vec3 p3,vec3 p4){
+  t=clamp(t,0.0,1.0)*4.0;
+  int i=int(t); float f=fract(t);
+  vec3 a,b;
+  if(i==0){a=p0;b=p1;}
+  else if(i==1){a=p1;b=p2;}
+  else if(i==2){a=p2;b=p3;}
+  else{a=p3;b=p4;}
+  return mix(a,b,smoothstep(0.0,1.0,f));
+}
+
+vec3 palette(float t){
+  vec3 a=paletteLerp(t,uPal0,uPal1,uPal2,uPal3,uPal4);
+  vec3 b=paletteLerp(t,uPalB0,uPalB1,uPalB2,uPalB3,uPalB4);
+  return mix(a,b,uPaletteMix);
+}
+
+// ─── Geometric transforms ─────────────────────────────────────
+
+vec2 rot2(vec2 p, float a){
+  float c=cos(a),s=sin(a);
+  return vec2(p.x*c-p.y*s, p.x*s+p.y*c);
+}
+
+vec2 toKaleidoscope(vec2 p, float n){
+  float a=atan(p.y,p.x);
+  float r=length(p);
+  a=mod(a,TAU/n);
+  if(a>PI/n) a=TAU/n-a;
+  return vec2(cos(a),sin(a))*r;
+}
+
+// Hyperbolic Poincaré disk map
+vec2 toHyperbolic(vec2 p){
+  float r2=dot(p,p);
+  if(r2>=0.99) return p;
+  float k=1.0/(1.0+sqrt(1.0-r2));
+  return p*k;
+}
+
+// Möbius transform
+vec2 mobius(vec2 p, vec2 a, vec2 b, vec2 c, vec2 d){
+  // (az+b)/(cz+d)
+  vec2 num=vec2(a.x*p.x-a.y*p.y+b.x, a.x*p.y+a.y*p.x+b.y);
+  vec2 den=vec2(c.x*p.x-c.y*p.y+d.x, c.x*p.y+c.y*p.x+d.y);
+  float dd=dot(den,den)+1e-6;
+  return vec2(dot(num,den),num.y*den.x-num.x*den.y)/dd;
+}
+
+// ─── Penrose P3 tiling ────────────────────────────────────────
+
+float penrose(vec2 p){
+  float scale=uTilingScale;
+  float v=0.0;
+  for(int k=0;k<5;k++){
+    float ang=float(k)*PI*0.4;
+    vec2 d=vec2(cos(ang),sin(ang));
+    v+=cos(dot(p*scale,d)*TAU);
+  }
+  return v*0.2+0.5;
+}
+
+// ─── Islamic star pattern ─────────────────────────────────────
+
+float islamicStar(vec2 p, float n){
+  float best=1e9;
+  float ang=TAU/n;
+  for(int i=0;i<12;i++){
+    if(float(i)>=n) break;
+    float a=float(i)*ang;
+    vec2 d=vec2(cos(a),sin(a));
+    float l=abs(dot(p,vec2(-d.y,d.x)));
+    float proj=dot(p,d);
+    float fromLine=l-0.15*uTilingScale;
+    best=min(best,abs(fromLine));
+  }
+  return smoothstep(0.02,0.0,best);
+}
+
+float islamicGrid(vec2 p){
+  float s=uTilingScale*2.0;
+  p*=s;
+  vec2 cell=floor(p);
+  vec2 fc=fract(p)-0.5;
+  float n=mod(uSymOrder,6.0)+6.0;
+  float v=islamicStar(fc,n);
+  // also add connecting corridors
+  float corridor=smoothstep(0.12,0.08,min(abs(fc.x),abs(fc.y)));
+  return max(v,corridor*0.7);
+}
+
+// ─── Voronoi / Delaunay ───────────────────────────────────────
+
+vec3 voronoi(vec2 p){
+  vec2 ip=floor(p), fp=fract(p);
+  float d1=8.0,d2=8.0;
+  vec2 bestCell=vec2(0);
+  for(int x=-2;x<=2;x++) for(int y=-2;y<=2;y++){
+    vec2 nb=vec2(float(x),float(y));
+    vec2 pt=hash2v(ip+nb)+nb;
+    float d=length(fp-pt);
+    if(d<d1){d2=d1;d1=d;bestCell=ip+nb;}
+    else if(d<d2) d2=d;
+  }
+  return vec3(d1,d2,d2-d1);
+}
+
+float voronoiPattern(vec2 p){
+  float s=uTilingScale*3.0;
+  vec3 v=voronoi(p*s);
+  return smoothstep(0.04,0.0,v.z)*0.8 + smoothstep(0.02,0.0,v.x)*0.5;
+}
+
+// ─── Apollonian circle packing ────────────────────────────────
+
+float apollonian(vec2 p){
+  float s=1.0;
+  float v=0.0;
+  for(int i=0;i<6;i++){
+    p=abs(p)/dot(p,p)-1.0;
+    s*=dot(p,p);
+    v+=exp(-length(p)*4.0);
+  }
+  return clamp(v*0.3,0.0,1.0);
+}
+
+// ─── Celtic knot / braid ──────────────────────────────────────
+
+float celticKnot(vec2 p){
+  float s=uTilingScale*4.0;
+  p*=s;
+  vec2 q=mod(p,2.0)-1.0;
+  float band=smoothstep(0.35,0.25,abs(abs(q.x)-abs(q.y)));
+  float cross=smoothstep(0.12,0.06,min(abs(q.x),abs(q.y)));
+  return max(band,cross);
+}
+
+// ─── Space-filling curve (Hilbert-like) ───────────────────────
+
+float hilbertCurve(vec2 p){
+  float s=uTilingScale*8.0;
+  p*=s;
+  float v=0.0;
+  vec2 q=p;
+  for(int i=0;i<5;i++){
+    q=fract(q*0.5)*2.0-1.0;
+    float t=float(i)*0.3;
+    vec2 r=rot2(q,t*PI*0.25);
+    v+=smoothstep(0.15,0.05,abs(r.x)*abs(r.y));
+  }
+  return clamp(v*0.5,0.0,1.0);
+}
+
+// ─── Labyrinth maze ───────────────────────────────────────────
+
+float labyrinth(vec2 p){
+  float s=uTilingScale*5.0;
+  p*=s;
+  float v=0.0;
+  for(int i=0;i<4;i++){
+    float fi=float(i);
+    vec2 q=rot2(p,fi*PI*0.25)*pow(2.0,fi);
+    vec2 cell=floor(q);
+    vec2 fc=fract(q);
+    float wall=smoothstep(0.1,0.0,min(min(fc.x,1.0-fc.x),min(fc.y,1.0-fc.y)));
+    float open=hash2(cell+fi*7.3);
+    v+=wall*(open>0.4?1.0:0.0);
+  }
+  return clamp(v,0.0,1.0);
+}
+
+// ─── Reaction-diffusion overlay ───────────────────────────────
+
+float rdPattern(vec2 p){
+  // Procedural RD using Turing patterns
+  float s=uTilingScale*6.0;
+  p*=s;
+  float freq1=1.0,freq2=PHI;
+  float a=fbm(p*freq1+vec2(uTime*0.1,0),4);
+  float b=fbm(p*freq2+vec2(0,uTime*0.07),4);
+  float c=fbm(p*freq1*2.0+vec2(uTime*0.05),3);
+  float rd=a-b*uFeedRate*15.0-c*uKillRate*10.0;
+  return smoothstep(-0.1,0.5,rd);
+}
+
+// ─── Gear field ───────────────────────────────────────────────
+
+vec4 getGear(int i){
+  if(i==1) return uGear[1]; if(i==2) return uGear[2];
+  if(i==3) return uGear[3]; if(i==4) return uGear[4];
+  if(i==5) return uGear[5]; if(i==6) return uGear[6];
+  return uGear[0];
+}
+float gearOne(vec2 p, vec4 g){
+  vec2 gp=p-g.xy; float r=g.z; float ang=g.w;
+  float dist=length(gp);
+  float teeth=float(int(r*60.0)+8);
+  float toothPhase=atan(gp.y,gp.x)/TAU*teeth+ang*uGearRatio;
+  float tooth=cos(toothPhase*TAU)*0.5+0.5;
+  float ring=smoothstep(r*1.15,r*0.95,dist)*smoothstep(r*0.7,r*0.85,dist);
+  float outerTooth=smoothstep(r*1.2,r*1.0,dist)*smoothstep(r*0.9,r*1.05,dist)*tooth;
+  return max(ring,outerTooth);
+}
+float gearField(vec2 p){
+  float v=0.0;
+  if(uGearCount>0) v+=gearOne(p,uGear[0]);
+  if(uGearCount>1) v+=gearOne(p,uGear[1]);
+  if(uGearCount>2) v+=gearOne(p,uGear[2]);
+  if(uGearCount>3) v+=gearOne(p,uGear[3]);
+  if(uGearCount>4) v+=gearOne(p,uGear[4]);
+  if(uGearCount>5) v+=gearOne(p,uGear[5]);
+  if(uGearCount>6) v+=gearOne(p,uGear[6]);
+  return clamp(v,0.0,1.0);
+}
+
+// ─── Vortex field warp ────────────────────────────────────────
+
+vec2 vortexOne(vec2 p, vec4 vx){
+  vec2 d=p-vx.xy; float r2=dot(d,d)+1e-4;
+  return vec2(-d.y,d.x)*vx.z*vx.w/r2*0.01*uFieldStr;
+}
+vec2 vortexWarp(vec2 p){
+  vec2 acc=vec2(0.0);
+  if(uVortexCount>0)  acc+=vortexOne(p,uVortex[0]);
+  if(uVortexCount>1)  acc+=vortexOne(p,uVortex[1]);
+  if(uVortexCount>2)  acc+=vortexOne(p,uVortex[2]);
+  if(uVortexCount>3)  acc+=vortexOne(p,uVortex[3]);
+  if(uVortexCount>4)  acc+=vortexOne(p,uVortex[4]);
+  if(uVortexCount>5)  acc+=vortexOne(p,uVortex[5]);
+  if(uVortexCount>6)  acc+=vortexOne(p,uVortex[6]);
+  if(uVortexCount>7)  acc+=vortexOne(p,uVortex[7]);
+  if(uVortexCount>8)  acc+=vortexOne(p,uVortex[8]);
+  if(uVortexCount>9)  acc+=vortexOne(p,uVortex[9]);
+  if(uVortexCount>10) acc+=vortexOne(p,uVortex[10]);
+  if(uVortexCount>11) acc+=vortexOne(p,uVortex[11]);
+  return acc;
+}
+
+// ─── Linkage displacement ─────────────────────────────────────
+
+float linkageOne(vec2 p, vec4 lk){
+  vec2 center=lk.xy; float len=lk.z; float phase=lk.w;
+  vec2 gp=p-center; float v=0.0;
+  for(int k=0;k<6;k++){
+    float a=float(k)*PI*0.333+phase;
+    vec2 arm=vec2(cos(a),sin(a))*len;
+    float d=length(gp-arm);
+    v+=smoothstep(0.03,0.0,d)*0.5;
+    vec2 along=normalize(arm+1e-6);
+    float pr=clamp(dot(gp,along),0.0,len);
+    float drod=length(gp-along*pr);
+    v+=smoothstep(0.015,0.0,drod)*0.4;
+  }
+  return v;
+}
+float linkageField(vec2 p){
+  float v=0.0;
+  if(uLinkCount>0) v+=linkageOne(p,uLink[0]);
+  if(uLinkCount>1) v+=linkageOne(p,uLink[1]);
+  if(uLinkCount>2) v+=linkageOne(p,uLink[2]);
+  if(uLinkCount>3) v+=linkageOne(p,uLink[3]);
+  if(uLinkCount>4) v+=linkageOne(p,uLink[4]);
+  if(uLinkCount>5) v+=linkageOne(p,uLink[5]);
+  if(uLinkCount>6) v+=linkageOne(p,uLink[6]);
+  if(uLinkCount>7) v+=linkageOne(p,uLink[7]);
+  return clamp(v,0.0,1.0);
+}
+
+// ─── Wave interference ────────────────────────────────────────
+
+float waveInterference(vec2 p){
+  float v=0.0;
+  float t=uTime*uWaveSpeed;
+  for(int i=0;i<6;i++){
+    float fi=float(i);
+    vec2 src=vec2(cos(fi*1.3+t*0.1)*0.6, sin(fi*0.9+t*0.08)*0.6);
+    float d=length(p-src);
+    v+=cos(d*TAU*uTilingScale*4.0-t*(1.0+fi*0.2));
+  }
+  return v/6.0*0.5+0.5;
+}
+
+// ─── Polytope projection (GLSL ES 1.00 safe, no bitwise ops) ─────
+// Encodes hypercube vertex coords via sin/step pattern avoiding bit shifts.
+// A vertex index vi in [0,63] maps each dimension d to coord = sign(sin(vi/2^d))
+// We approximate bit-extraction with fract-based decoding.
+
+float projR(int idx){
+  // Manual array access for GLSL ES 1.00 (no dynamic indexing)
+  if(idx==0) return uProjR[0];
+  if(idx==1) return uProjR[1];
+  if(idx==2) return uProjR[2];
+  if(idx==3) return uProjR[3];
+  if(idx==4) return uProjR[4];
+  if(idx==5) return uProjR[5];
+  if(idx==6) return uProjR[6];
+  if(idx==7) return uProjR[7];
+  if(idx==8) return uProjR[8];
+  if(idx==9) return uProjR[9];
+  if(idx==10) return uProjR[10];
+  if(idx==11) return uProjR[11];
+  if(idx==12) return uProjR[12];
+  if(idx==13) return uProjR[13];
+  return uProjR[14];
+}
+
+// Extract bit d from integer v using float arithmetic (no bitwise ops)
+float getBit(float v, int d){
+  // Divide by 2^d via repeated halving
+  float dv=v;
+  for(int i=0;i<6;i++){
+    if(i>=d) break;
+    dv=floor(dv*0.5);
+  }
+  return mod(dv,2.0);
+}
+
+vec2 hyperVertex(float vi, int dims){
+  vec2 proj=vec2(0.0);
+  for(int d=0;d<6;d++){
+    if(d>=dims) break;
+    float bit=getBit(vi,d);
+    float coord=bit*2.0-1.0; // 0->-1, 1->+1
+    float rs=projR(d*2);
+    float rs2=projR(d*2+1);
+    proj.x+=coord*cos(uTime*rs+float(d)*0.7)*0.5;
+    proj.y+=coord*sin(uTime*rs2+float(d)*0.5)*0.5;
+  }
+  return proj;
+}
+
+float polytopeProjection(vec2 p){
+  float v=0.0;
+  float s=uTilingScale*3.0;
+  int dims=int(clamp(uProjDim,4.0,6.0)); // cap at 6D = 64 vertices
+  float maxVerts=pow(2.0,float(dims));
+  float invN=1.0/float(dims);
+
+  for(int vi=0;vi<64;vi++){
+    if(float(vi)>=maxVerts) break;
+    vec2 proj=hyperVertex(float(vi),dims)*s*invN;
+    float d=length(p-proj);
+    v+=smoothstep(0.04,0.0,d);
+
+    // Draw edges: connect vi to vi with exactly one dimension flipped
+    for(int d2=0;d2<6;d2++){
+      if(d2>=dims) break;
+      // vj = vi with bit d2 toggled
+      float bit=getBit(float(vi),d2);
+      // toggled index: add or subtract 2^d2
+      float pow2=1.0; for(int kk=0;kk<6;kk++){ if(kk>=d2) break; pow2*=2.0; }
+      float vj=float(vi)+(bit<0.5?pow2:-pow2);
+      // Only draw edge once: vj > vi
+      if(vj>float(vi) && vj<maxVerts){
+        vec2 projJ=hyperVertex(vj,dims)*s*invN;
+        vec2 ab=projJ-proj;
+        float denom=dot(ab,ab)+1e-6;
+        float tproj=clamp(dot(p-proj,ab)/denom,0.0,1.0);
+        float dEdge=length(p-proj-ab*tproj);
+        v+=smoothstep(0.012,0.0,dEdge)*0.4;
+      }
+    }
+  }
+  return clamp(v,0.0,1.0);
+}
+
+// ─── Mughal rosette ───────────────────────────────────────────
+
+float mughalRosette(vec2 p){
+  float s=uTilingScale*3.0;
+  p*=s;
+  float n=uSymOrder;
+  vec2 kp=toKaleidoscope(p,n);
+  float r=length(kp);
+  float a=atan(kp.y,kp.x);
+  // Petal pattern
+  float petal=cos(a*n)*0.5+0.5;
+  float ring1=smoothstep(0.6,0.5,r)*smoothstep(0.2,0.35,r);
+  float ring2=smoothstep(1.1,1.0,r)*smoothstep(0.75,0.9,r);
+  float spoke=smoothstep(0.05,0.0,abs(sin(a*n)));
+  return clamp(petal*ring1+ring2*0.7+spoke*ring1*0.8,0.0,1.0);
+}
+
+// ─── Korean celadon lattice ───────────────────────────────────
+
+float celadonLattice(vec2 p){
+  float s=uTilingScale*4.0;
+  p*=s;
+  // Hexagonal lattice with floral motifs
+  vec2 q=vec2(p.x+p.y*0.5773, p.y*1.1547);
+  vec2 cell=floor(q);
+  vec2 fc=fract(q)-0.5;
+  // Hex cells
+  float hex=max(abs(fc.x),abs(fc.x*0.5+fc.y*0.866));
+  float ring=smoothstep(0.5,0.45,hex)*smoothstep(0.3,0.4,hex);
+  // Floral center
+  float r=length(fc);
+  float floral=cos(atan(fc.y,fc.x)*6.0)*0.5+0.5;
+  floral*=smoothstep(0.25,0.0,r);
+  return max(ring,floral);
+}
+
+// ─── Chinese window geometry ──────────────────────────────────
+
+float chineseWindow(vec2 p){
+  float s=uTilingScale*5.0;
+  p*=s;
+  float v=0.0;
+  // Recursive square subdivisions
+  for(int d=0;d<4;d++){
+    float fd=float(d);
+    vec2 q=mod(p*pow(2.0,fd),2.0)-1.0;
+    float frame=1.0-max(abs(q.x),abs(q.y));
+    v+=smoothstep(0.2,0.15,abs(frame-0.85))*0.5*pow(0.7,fd);
+    // Decorative crosses
+    float cross=smoothstep(0.08,0.02,min(abs(q.x),abs(q.y)));
+    v+=cross*0.3*pow(0.6,fd);
+  }
+  return clamp(v,0.0,1.0);
+}
+
+// ─── Germanic interlace ───────────────────────────────────────
+
+float germanicInterlace(vec2 p){
+  float s=uTilingScale*3.0;
+  p*=s;
+  float v=0.0;
+  // Interlaced ribbon bands
+  for(int i=0;i<4;i++){
+    float fi=float(i);
+    float a=fi*PI*0.25+uTime*0.01;
+    vec2 d=vec2(cos(a),sin(a));
+    float proj=dot(p,d);
+    float band=smoothstep(0.12,0.08,abs(fract(proj*0.5)*2.0-1.0));
+    // Over-under weave based on position
+    float perp=dot(p,vec2(-d.y,d.x));
+    float weave=step(0.5,fract(perp*0.5));
+    v+=band*(weave*0.8+0.2);
+  }
+  return clamp(v,0.0,1.0);
+}
+
+// ─── Spring lattice distortion ────────────────────────────────
+
+vec2 springWarp(vec2 p){
+  float kx=fbm(p*uSpringK*3.0+vec2(uTime*0.02,0),3);
+  float ky=fbm(p*uSpringK*3.0+vec2(0,uTime*0.025),3);
+  return p+vec2(kx-0.5,ky-0.5)*0.15*(1.0-uViscosity);
+}
+
+// ─── Gyroscope field ──────────────────────────────────────────
+
+float gyroField(vec2 p){
+  float v=0.0;
+  float t=uTime*uGyroPrec;
+  for(int i=0;i<5;i++){
+    float fi=float(i);
+    float angle=t*(1.0+fi*uGearRatio*0.3)+fi*PI*0.4;
+    vec2 center=vec2(cos(fi*1.9)*0.5,sin(fi*2.3)*0.5)*0.6;
+    vec2 gp=rot2(p-center,angle);
+    float ring=smoothstep(0.25+fi*0.04,0.2+fi*0.04,length(gp));
+    ring*=smoothstep(0.0,0.15+fi*0.04,length(gp));
+    float spoke=smoothstep(0.03,0.0,abs(gp.x)*abs(gp.y));
+    v+=ring*0.5+spoke*ring*0.8;
+  }
+  return clamp(v,0.0,1.0);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MAIN RENDER
+// ═══════════════════════════════════════════════════════════════
+
+void main(){
+  vec2 uv=vUV;
+  vec2 p=(uv-0.5)*vec2(uRes.x/uRes.y,1.0)*2.0;
+
+  // Apply vortex warp
+  p+=vortexWarp(p)*uTurbE;
+
+  // Apply spring warp
+  p=springWarp(p);
+
+  // Base angle and rotation
+  p=rot2(p,uTilingAngle);
+
+  float t=uTime;
+
+  // ─ Sample grammar layers ─────────────────────────────────────
+  int g1=int(uGrammar1*float(35));
+  int g2=int(uGrammar2*float(35));
+  int g3=int(uGrammar3*float(35));
+
+  float layer1=0.0, layer2=0.0, layer3=0.0;
+
+  // Grammar 1
+  if(g1==0||g1==1) layer1=penrose(p);
+  else if(g1==2) layer1=penrose(rot2(p,PI*0.2));
+  else if(g1==3) layer1=voronoiPattern(p);
+  else if(g1==4) layer1=voronoiPattern(p)*0.5+apollonian(p*uTilingScale)*0.5;
+  else if(g1==5) layer1=apollonian(p*uTilingScale*0.5);
+  else if(g1==6||g1==7||g1==8||g1==9) layer1=islamicGrid(p);
+  else if(g1==10) layer1=mughalRosette(p);
+  else if(g1==11) layer1=celadonLattice(p);
+  else if(g1==12) layer1=chineseWindow(p);
+  else if(g1==13) layer1=celticKnot(p);
+  else if(g1==14) layer1=germanicInterlace(p);
+  else if(g1==15) layer1=labyrinth(p);
+  else if(g1==16) layer1=hilbertCurve(p);
+  else if(g1==17) layer1=rdPattern(p);
+  else if(g1==18) layer1=waveInterference(p);
+  else if(g1==19) layer1=polytopeProjection(p);
+  else if(g1==20) layer1=gearField(p);
+  else if(g1==21) layer1=gyroField(p);
+  else if(g1==22) layer1=linkageField(p);
+  else if(g1==23){
+    // Hyperbolic tiling
+    vec2 hp=toHyperbolic(p*0.8);
+    float r=length(hp);
+    if(r<0.99){
+      hp=toKaleidoscope(hp,uSymOrder);
+      layer1=islamicGrid(hp*1.5);
+    }
+  }
+  else layer1=penrose(p)+voronoiPattern(p)*0.3;
+
+  // Grammar 2
+  if(g2==0||g2==1) layer2=voronoiPattern(p);
+  else if(g2==2||g2==3) layer2=islamicGrid(rot2(p,PI/float(int(uSymOrder))));
+  else if(g2==4) layer2=apollonian(p*uTilingScale*0.7+vec2(t*0.01));
+  else if(g2==5) layer2=mughalRosette(rot2(p,PI*0.1));
+  else if(g2==6) layer2=celticKnot(p);
+  else if(g2==7) layer2=labyrinth(p);
+  else if(g2==8) layer2=hilbertCurve(p+vec2(t*0.005));
+  else if(g2==9) layer2=rdPattern(p+vec2(0.5));
+  else if(g2==10) layer2=waveInterference(rot2(p,t*0.01));
+  else if(g2==11) layer2=polytopeProjection(rot2(p,t*0.005));
+  else if(g2==12) layer2=gearField(p);
+  else if(g2==13) layer2=gyroField(p);
+  else if(g2==14) layer2=linkageField(p);
+  else if(g2==15) layer2=celadonLattice(p);
+  else if(g2==16) layer2=chineseWindow(p);
+  else if(g2==17) layer2=germanicInterlace(p);
+  else if(g2==18){
+    vec2 hp=toHyperbolic(p*0.7);
+    if(length(hp)<0.99) layer2=mughalRosette(hp*2.0);
+  }
+  else layer2=waveInterference(p)*0.5+penrose(p*1.3)*0.5;
+
+  // Grammar 3 (often time-varying or physics-driven)
+  if(g3==0) layer3=rdPattern(p);
+  else if(g3==1) layer3=waveInterference(p);
+  else if(g3==2) layer3=polytopeProjection(p);
+  else if(g3==3) layer3=gearField(p)*0.7+gyroField(p)*0.3;
+  else if(g3==4) layer3=linkageField(p);
+  else if(g3==5) layer3=apollonian(p*uTilingScale*0.4+vec2(sin(t*0.02)*0.5,cos(t*0.017)*0.5));
+  else if(g3==6) layer3=fbm(p*uTilingScale+vec2(t*0.02),5);
+  else if(g3==7) layer3=hilbertCurve(p);
+  else if(g3==8) layer3=labyrinth(p)+celticKnot(p)*0.5;
+  else if(g3==9) layer3=voronoiPattern(p+vortexWarp(p)*0.5);
+  else layer3=penrose(p+vec2(t*0.005))*0.5+waveInterference(p)*0.5;
+
+  // Weighted blend of grammar layers
+  float totalW=uGrammarW1+uGrammarW2+uGrammarW3+1e-5;
+  float field=(layer1*uGrammarW1+layer2*uGrammarW2+layer3*uGrammarW3)/totalW;
+
+  // Morphing between patterns based on time
+  float morphT=sin(t*0.02+uMorphPhase)*0.5+0.5;
+  field=mix(field,1.0-field,morphT*0.3);
+
+  // Add linkage overlay
+  float lk=linkageField(p);
+  field=max(field,lk*0.6);
+
+  // Add gear overlay
+  float gf=gearField(p);
+  field=mix(field,1.0,gf*0.4);
+
+  // Pulsing energy
+  float energy=sin(t*0.1)*0.1+fbm(vec2(t*0.01),3)*0.2;
+  field+=energy*0.05;
+  field=clamp(field,0.0,1.0);
+
+  // ─ Color mapping ─────────────────────────────────────────────
+
+  // Shift based on field value + time + position
+  float colorT=mod(field+t*0.03+uColorPhase+length(p)*0.1,1.0);
+
+  // Add interference color bands
+  float bands=sin(field*TAU*uRecursion+t*0.5)*0.5+0.5;
+  colorT=mix(colorT,bands,0.3);
+
+  // Spatial color variation
+  float spatialShift=fbm(p*0.5+vec2(t*0.01),3)*0.3;
+  colorT=fract(colorT+spatialShift*0.2);
+
+  vec3 col=palette(colorT);
+
+  // Luminosity from field intensity
+  float lum=smoothstep(0.0,0.3,field)*1.2+smoothstep(0.7,1.0,field)*0.5;
+  col*=lum+0.15;
+
+  // Glowing edges: bright where gradient is steep
+  vec2 eps=vec2(2.0/uRes.x,0);
+  float gx=abs(field-voronoiPattern(p+eps.xy))+abs(field-voronoiPattern(p-eps.xy));
+  float gy=abs(field-voronoiPattern(p+eps.yx))+abs(field-voronoiPattern(p-eps.yx));
+  float edgeGlow=clamp((gx+gy)*15.0,0.0,1.0);
+  vec3 glowCol=palette(fract(colorT+0.5))*2.0;
+  col=mix(col,glowCol,edgeGlow*0.6);
+
+  // Vignette
+  float vig=1.0-dot(uv-0.5,uv-0.5)*1.5;
+  col*=max(vig,0.1);
+
+  // Hyperbolic disk edge fade
+  float diskR=length(p)/(2.0*sqrt(uRes.x/uRes.y));
+  col*=smoothstep(1.0,0.85,diskR);
+
+  // Subtle chromatic abberation
+  float ca=length(uv-0.5)*0.02;
+  col.r+=ca*sin(t*0.7)*0.3;
+  col.b+=ca*cos(t*0.5)*0.3;
+
+  col=clamp(col,0.0,2.0);
+
+  // Tone map (soft)
+  col=col/(1.0+col*0.4);
+  col=pow(col,vec3(0.85));
+
+  gl_FragColor=vec4(col,1.0);
+}
+`;
+
+// ═══════════════════════════════════════════════════════════════
+// COMPILE AND SETUP
+// ═══════════════════════════════════════════════════════════════
+
+let prog=null, quadBuf=null;
+let uniforms={};
+
+function setup(){
+  const vs=compileShader(gl.VERTEX_SHADER, quadVS);
+  const fs=compileShader(gl.FRAGMENT_SHADER, cosmoFS);
+  if(!vs||!fs) return false;
+  prog=linkProgram(vs,fs);
+  if(!prog) return false;
+
+  quadBuf=gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER,quadBuf);
+  gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+
+  gl.useProgram(prog);
+
+  // Cache uniform locations
+  const unames=['uTime','uRes','uSymOrder','uTilingScale','uCurvature','uTilingAngle',
+    'uFieldStr','uTurbE','uMorphPhase','uColorPhase','uPaletteMix','uRecursion',
+    'uGrammar1','uGrammar2','uGrammar3','uGrammarW1','uGrammarW2','uGrammarW3',
+    'uProjDim','uGearRatio','uWaveSpeed','uReactRate','uFeedRate','uKillRate',
+    'uViscosity','uSpringK','uGyroPrec',
+    'uPal0','uPal1','uPal2','uPal3','uPal4',
+    'uPalB0','uPalB1','uPalB2','uPalB3','uPalB4',
+    'uVortex','uVortexCount','uLink','uLinkCount','uGear','uGearCount',
+    'uProjR'
+  ];
+  unames.forEach(n=>{ uniforms[n]=gl.getUniformLocation(prog,n); });
+
+  return true;
+}
+
+function getGrammarIndex(name){
+  const i=GRAMMAR_NAMES.indexOf(name);
+  return i<0?0:i;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// RENDER FRAME
+// ═══════════════════════════════════════════════════════════════
+
+function render(u){
+  gl.viewport(0,0,W,H);
+  gl.useProgram(prog);
+
+  const loc=uniforms;
+  const t=u.t;
+
+  gl.uniform1f(loc.uTime, t);
+  gl.uniform2f(loc.uRes, W, H);
+  gl.uniform1f(loc.uSymOrder, u.symmetryOrder);
+  gl.uniform1f(loc.uTilingScale, u.tilingScale);
+  gl.uniform1f(loc.uCurvature, u.latticeCurvature);
+  gl.uniform1f(loc.uTilingAngle, u.tilingAngle + t*0.001);
+  gl.uniform1f(loc.uFieldStr, u.fieldStrength);
+  gl.uniform1f(loc.uTurbE, u.turbulenceEnergy);
+  gl.uniform1f(loc.uMorphPhase, u.morphPhase + t*0.007);
+  gl.uniform1f(loc.uColorPhase, u.colorPhase + t*0.015);
+  gl.uniform1f(loc.uPaletteMix, u.paletteMix);
+  gl.uniform1f(loc.uRecursion, u.recursionDepth);
+  gl.uniform1f(loc.uGearRatio, u.gearRatio);
+  gl.uniform1f(loc.uWaveSpeed, u.waveSpeed);
+  gl.uniform1f(loc.uReactRate, u.reactionRate);
+  gl.uniform1f(loc.uFeedRate, u.feedRate);
+  gl.uniform1f(loc.uKillRate, u.killRate);
+  gl.uniform1f(loc.uViscosity, u.viscosity);
+  gl.uniform1f(loc.uSpringK, u.springK);
+  gl.uniform1f(loc.uGyroPrec, u.gyroPrec);
+
+  // Grammars
+  const g1=getGrammarIndex(u.grammars[0]||'penrose_p3')/35.0;
+  const g2=getGrammarIndex(u.grammars[1]||'voronoi')/35.0;
+  const g3=getGrammarIndex(u.grammars[2]||'islamic_star_8')/35.0;
+  gl.uniform1f(loc.uGrammar1, g1);
+  gl.uniform1f(loc.uGrammar2, g2);
+  gl.uniform1f(loc.uGrammar3, g3);
+  gl.uniform1f(loc.uGrammarW1, u.grammarWeights[0]||1);
+  gl.uniform1f(loc.uGrammarW2, u.grammarWeights[1]||1);
+  gl.uniform1f(loc.uGrammarW3, u.grammarWeights[2]||1);
+
+  gl.uniform1f(loc.uProjDim, u.projDim);
+  gl.uniform1fv(loc.uProjR, new Float32Array(u.projRotSpeeds));
+
+  // Palettes
+  const p=u.palette, pb=u.paletteB;
+  gl.uniform3fv(loc.uPal0,p[0]); gl.uniform3fv(loc.uPal1,p[1]);
+  gl.uniform3fv(loc.uPal2,p[2]); gl.uniform3fv(loc.uPal3,p[3]);
+  gl.uniform3fv(loc.uPal4,p[4]);
+  gl.uniform3fv(loc.uPalB0,pb[0]); gl.uniform3fv(loc.uPalB1,pb[1]);
+  gl.uniform3fv(loc.uPalB2,pb[2]); gl.uniform3fv(loc.uPalB3,pb[3]);
+  gl.uniform3fv(loc.uPalB4,pb[4]);
+
+  // Vortices
+  const vc=u.vortices.length;
+  const vdata=new Float32Array(48); // 12*4
+  u.vortices.forEach((v,i)=>{
+    vdata[i*4]=v.x; vdata[i*4+1]=v.y; vdata[i*4+2]=v.strength; vdata[i*4+3]=v.radius;
+  });
+  gl.uniform4fv(loc.uVortex, vdata);
+  gl.uniform1i(loc.uVortexCount, vc);
+
+  // Linkages
+  const ldata=new Float32Array(32);
+  u.linkages.forEach((l,i)=>{
+    const phase=l.phase+t*l.speed;
+    ldata[i*4]=l.cx; ldata[i*4+1]=l.cy; ldata[i*4+2]=l.len; ldata[i*4+3]=phase;
+  });
+  gl.uniform4fv(loc.uLink, ldata);
+  gl.uniform1i(loc.uLinkCount, u.linkages.length);
+
+  // Gears
+  const gdata=new Float32Array(28);
+  u.gears.forEach((g,i)=>{
+    gdata[i*4]=g.x; gdata[i*4+1]=g.y; gdata[i*4+2]=g.r; gdata[i*4+3]=g.angle+t*g.speed;
+  });
+  gl.uniform4fv(loc.uGear, gdata);
+  gl.uniform1i(loc.uGearCount, u.gears.length);
+
+  // Draw quad
+  const pos=gl.getAttribLocation(prog,'aPos');
+  gl.bindBuffer(gl.ARRAY_BUFFER,quadBuf);
+  gl.enableVertexAttribArray(pos);
+  gl.vertexAttribPointer(pos,2,gl.FLOAT,false,0,0);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PHYSICS UPDATE (CPU-side: vortices, linkages, palette cycling)
+// ═══════════════════════════════════════════════════════════════
+
+function updatePhysics(u, dt){
+  u.t += dt * 0.001;
+
+  // Update vortex positions
+  u.vortices.forEach(v=>{
+    v.x+=v.vx; v.y+=v.vy;
+    if(Math.abs(v.x)>1.2){ v.vx*=-1; v.x=Math.sign(v.x)*1.2; }
+    if(Math.abs(v.y)>1.2){ v.vy*=-1; v.y=Math.sign(v.y)*1.2; }
+    // Vortex-vortex interaction
+    u.vortices.forEach(v2=>{
+      if(v===v2) return;
+      const dx=v.x-v2.x, dy=v.y-v2.y;
+      const r2=dx*dx+dy*dy+0.01;
+      const f=v2.strength*0.0001/r2;
+      v.vx+=dy*f; v.vy-=dx*f;
+    });
+    // Damping
+    v.vx*=0.999; v.vy*=0.999;
+    // Slow perturbation
+    v.vx+=rr(-0.0001,0.0001); v.vy+=rr(-0.0001,0.0001);
+  });
+
+  // Palette mixing
+  u.paletteMix=Math.sin(u.t*u.paletteMixSpeed*100)*0.5+0.5;
+
+  // Slow random parameter perturbation
+  u.perturbAcc+=dt;
+  if(u.perturbAcc>500){
+    u.perturbAcc=0;
+    u.turbulenceEnergy+=rr(-0.05,0.05);
+    u.turbulenceEnergy=Math.max(0.1,Math.min(3.0,u.turbulenceEnergy));
+    u.fieldStrength+=rr(-0.1,0.1);
+    u.fieldStrength=Math.max(0.2,Math.min(4.0,u.fieldStrength));
+    u.symmetryOrder=Math.max(3,Math.min(12,u.symmetryOrder+(Math.random()<0.05?(Math.random()<0.5?1:-1):0)));
+    // Occasionally flip a vortex
+    if(Math.random()<0.03){
+      const v=u.vortices[Math.floor(Math.random()*u.vortices.length)];
+      v.strength*=-0.8+rr(-0.3,0.3);
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// AUDIO ENGINE
+// ═══════════════════════════════════════════════════════════════
+
+function initAudio(){
+  if(audioCtx) return;
+  audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+  masterGain=audioCtx.createGain();
+  masterGain.gain.value=0;
+  masterGain.connect(audioCtx.destination);
+}
+
+function startSound(u){
+  initAudio();
+  if(audioCtx.state==='suspended') audioCtx.resume();
+  stopSound();
+
+  const t=audioCtx.currentTime;
+
+  // Drone layers based on grammar
+  const baseFreqs=[55,82.4,110,130.8,164.8];
+  baseFreqs.forEach((f,i)=>{
+    const osc=audioCtx.createOscillator();
+    const gain=audioCtx.createGain();
+    const filter=audioCtx.createBiquadFilter();
+
+    osc.type=rc(['sine','triangle','sawtooth']);
+    osc.frequency.value=f*(1+u.grammars.length*0.1);
+    osc.frequency.setValueAtTime(f,t);
+
+    filter.type='bandpass';
+    filter.frequency.value=f*2*(1+i*0.5);
+    filter.Q.value=3+i*2;
+
+    gain.gain.value=0.04/(i+1);
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(masterGain);
+    osc.start();
+    oscillators.push({osc,gain,filter,baseF:f});
+  });
+
+  // Rhythmic pulse tied to field energy
+  const lfoOsc=audioCtx.createOscillator();
+  const lfoGain=audioCtx.createGain();
+  lfoOsc.frequency.value=0.3+u.turbulenceEnergy*0.5;
+  lfoOsc.type='sine';
+  lfoGain.gain.value=0.02;
+  lfoOsc.connect(lfoGain);
+  lfoGain.connect(masterGain);
+  lfoOsc.start();
+  oscillators.push({osc:lfoOsc,gain:lfoGain,filter:null,baseF:0});
+
+  masterGain.gain.setTargetAtTime(soundOn?0.4:0, t, 0.5);
+}
+
+function stopSound(){
+  oscillators.forEach(o=>{
+    try{ o.osc.stop(); o.osc.disconnect(); }catch(e){}
+    try{ o.gain.disconnect(); }catch(e){}
+    if(o.filter) try{ o.filter.disconnect(); }catch(e){}
+  });
+  oscillators=[];
+}
+
+function updateSound(u){
+  if(!audioCtx||!soundOn) return;
+  const t=audioCtx.currentTime;
+  const energy=u.turbulenceEnergy;
+  oscillators.forEach((o,i)=>{
+    if(!o.baseF) return;
+    const drift=Math.sin(u.t*0.3+i)*0.02;
+    o.osc.frequency.setTargetAtTime(o.baseF*(1+energy*0.05+drift),t,0.5);
+    if(o.filter) o.filter.frequency.setTargetAtTime(o.baseF*(2+energy),t,0.3);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// HUD UPDATE
+// ═══════════════════════════════════════════════════════════════
+
+function updateHUD(u){
+  if(!hudVisible) return;
+  const el=document.getElementById('hud-info');
+  if(!el) return;
+  el.innerHTML=`
+    <b>Grammars:</b> ${u.grammars.slice(0,3).join(', ')}<br>
+    <b>Physics:</b> ${u.simTypes.slice(0,3).join(', ')}<br>
+    <b>Symmetry:</b> n=${u.symmetryOrder} &nbsp; dim=${u.projDim}D<br>
+    <b>Recursion:</b> ${u.recursionDepth} &nbsp; Scale: ${u.tilingScale.toFixed(2)}<br>
+    <b>Turbulence:</b> ${u.turbulenceEnergy.toFixed(2)} &nbsp; Field: ${u.fieldStrength.toFixed(2)}<br>
+    <b>Vortices:</b> ${u.vortices.length} &nbsp; Gears: ${u.gears.length}<br>
+    <b>Reaction:</b> f=${u.feedRate.toFixed(3)} k=${u.killRate.toFixed(3)}<br>
+    <b>FPS:</b> ${u.fps|0} &nbsp; t=${u.t.toFixed(1)}s<br>
+    <b>Sound:</b> ${soundOn?'ON':'OFF'}
+  `;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MAIN LOOP
+// ═══════════════════════════════════════════════════════════════
+
+let lastTime=0, fpsAcc=0, fpsCnt=0;
+
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt=Math.min(now-lastTime,50);
+  lastTime=now;
+  frame++;
+
+  fpsAcc+=dt; fpsCnt++;
+  if(fpsAcc>500){ if(universe) universe.fps=fpsCnt*2; fpsAcc=0; fpsCnt=0; }
+
+  if(!prog||!universe) return;
+
+  updatePhysics(universe, dt);
+  render(universe);
+
+  if(soundOn) updateSound(universe);
+  if(frame%30===0) updateHUD(universe);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// RESIZE
+// ═══════════════════════════════════════════════════════════════
+
+function resize(){
+  W=canvas.width=window.innerWidth;
+  H=canvas.height=window.innerHeight;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// REGENERATE
+// ═══════════════════════════════════════════════════════════════
+
+function regenerate(){
+  const now=Date.now();
+  if(now-lastRegen<500) return;
+  lastRegen=now;
+  universe=newUniverse();
+  if(soundOn) startSound(universe);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// INPUT
+// ═══════════════════════════════════════════════════════════════
+
+document.addEventListener('keydown',e=>{
+  if(e.key===' '||e.code==='Space'){
+    e.preventDefault(); regenerate();
+  } else if(e.key==='h'||e.key==='H'){
+    hudVisible=!hudVisible;
+    document.getElementById('hud').style.display=hudVisible?'block':'none';
+  } else if(e.key==='s'||e.key==='S'){
+    soundOn=!soundOn;
+    initAudio();
+    if(soundOn){ startSound(universe); masterGain.gain.setTargetAtTime(0.4,audioCtx.currentTime,0.3); }
+    else if(masterGain){ masterGain.gain.setTargetAtTime(0,audioCtx.currentTime,0.3); }
+  }
+});
+
+canvas.addEventListener('click', e=>{ e.preventDefault(); regenerate(); });
+canvas.addEventListener('touchend', e=>{ e.preventDefault(); regenerate(); }, {passive:false});
+
+window.addEventListener('resize', resize);
+
+// ═══════════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════════
+
+resize();
+if(!setup()){ document.body.innerHTML='<p style="color:white;padding:20px">Shader compilation failed. Check console.</p>'; return; }
+universe=newUniverse();
+startSound(universe); // init but muted
+requestAnimationFrame(t=>{ lastTime=t; loop(t); });
+
+})();
+</script>
+</body>
+</html>

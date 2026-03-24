@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Ornament Maze Engine — Generative Multibody Audiovisual Simulation</title>
+<meta name="description" content="A generative audiovisual engine rendering massive articulated multibody mechanical networks interacting with graph-theoretic maze structures, Archimedean tilings, and decorative ornamental traditions. Real-time physical modeling synthesis synchronized to visual motion.">
+<meta name="keywords" content="generative art, multibody simulation, mechanical linkage, maze, Voronoi, Celtic interlace, Rococo, Bauhaus, audiovisual, WebAudio, canvas animation">
+<meta property="og:title" content="Ornament Maze Engine">
+<meta property="og:description" content="Generative multibody mechanical networks with ornamental maze overlays and synchronized physical audio synthesis.">
+<meta name="theme-color" content="#000000">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Courier New',monospace}
+canvas{display:block;position:fixed;top:0;left:0;width:100%;height:100%}
+#hud{position:fixed;top:16px;left:16px;color:rgba(255,255,255,0.7);font-size:11px;line-height:1.8;pointer-events:none;display:none;letter-spacing:0.05em}
+#hud span{color:rgba(255,255,200,0.9);font-weight:bold}
+#hint{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,0.3);font-size:10px;letter-spacing:0.15em;pointer-events:none;transition:opacity 2s}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div>STYLE: <span id="hStyleName">—</span></div>
+  <div>TILING: <span id="hTiling">—</span></div>
+  <div>ORNAMENT: <span id="hOrnament">—</span></div>
+  <div>LINKAGES: <span id="hLinks">—</span></div>
+  <div>NODES: <span id="hNodes">—</span></div>
+  <div>FPS: <span id="hFps">—</span></div>
+  <div style="margin-top:6px;color:rgba(255,255,255,0.35)">[SPACE/TAP] regen · [H] hud · [S] sound</div>
+</div>
+<div id="hint">SPACE · TAP · CLICK &nbsp;|&nbsp; H &nbsp;|&nbsp; S</div>
+<script>
+(function(){
+"use strict";
+
+const canvas=document.getElementById('c');
+const ctx=canvas.getContext('2d',{alpha:false});
+let W,H,cx,cy,dpr;
+
+function resize(){
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth;H=window.innerHeight;
+  canvas.width=W*dpr;canvas.height=H*dpr;
+  canvas.style.width=W+'px';canvas.style.height=H+'px';
+  ctx.scale(dpr,dpr);
+  cx=W/2;cy=H/2;
+}
+resize();
+window.addEventListener('resize',()=>{resize();regen();});
+
+let hudVisible=false;
+let soundEnabled=false;
+let audioCtx=null;
+let masterGain=null;
+
+function initAudio(){
+  if(audioCtx) return;
+  audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+  masterGain=audioCtx.createGain();
+  masterGain.gain.value=0.12;
+  masterGain.connect(audioCtx.destination);
+}
+
+function playMechanicalTone(freq,vel,dur){
+  if(!soundEnabled||!audioCtx) return;
+  try{
+    const t=audioCtx.currentTime;
+    const osc=audioCtx.createOscillator();
+    const g=audioCtx.createGain();
+    const filt=audioCtx.createBiquadFilter();
+    filt.type='bandpass';
+    filt.frequency.value=freq*2;
+    filt.Q.value=3+Math.random()*8;
+    osc.type=['sawtooth','triangle','square'][Math.floor(Math.random()*3)];
+    osc.frequency.setValueAtTime(freq,t);
+    osc.frequency.exponentialRampToValueAtTime(freq*(0.95+Math.random()*0.1),t+dur);
+    const amp=Math.min(0.3,vel*0.02);
+    g.gain.setValueAtTime(amp,t);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    osc.connect(filt);filt.connect(g);g.connect(masterGain);
+    osc.start(t);osc.stop(t+dur);
+  }catch(e){}
+}
+
+function playGrain(freq,pos){
+  if(!soundEnabled||!audioCtx) return;
+  try{
+    const t=audioCtx.currentTime;
+    const buf=audioCtx.createBuffer(1,Math.floor(audioCtx.sampleRate*0.08),audioCtx.sampleRate);
+    const d=buf.getChannelData(0);
+    for(let i=0;i<d.length;i++){
+      const env=Math.sin(Math.PI*i/d.length);
+      d[i]=env*(Math.random()*2-1)*0.5+env*Math.sin(2*Math.PI*freq*i/audioCtx.sampleRate)*0.5;
+    }
+    const src=audioCtx.createBufferSource();
+    src.buffer=buf;
+    const g=audioCtx.createGain();
+    g.gain.setValueAtTime(0.08,t);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+0.1);
+    src.connect(g);g.connect(masterGain);
+    src.start(t);
+  }catch(e){}
+}
+
+const PALETTES=[
+  {name:'NEON HARMONIC',bg:'#000408',fn:(t,i,n)=>`hsl(${(i/n*360+t*60)%360},100%,${50+20*Math.sin(t+i)}%)`},
+  {name:'SPECTRAL CYCLE',bg:'#010005',fn:(t,i,n)=>`hsl(${(t*40+i*137.5)%360},80%,60%)`},
+  {name:'BANDED SHIMMMER',bg:'#00050a',fn:(t,i,n)=>{const h=(i/n*180+t*20)%360;return`hsl(${h},70%,${40+20*Math.sin(t*2+i*0.5)}%)`}},
+  {name:'GOLD & SHADOW',bg:'#080500',fn:(t,i,n)=>`hsl(${40+i/n*30},${60+30*Math.sin(t+i)}%,${35+25*Math.sin(t*1.3+i*0.3)}%)`},
+  {name:'VOID AURORA',bg:'#000208',fn:(t,i,n)=>`hsl(${160+i/n*120+Math.sin(t+i)*40},90%,${40+30*Math.cos(t*0.7+i)}%)`},
+  {name:'ROCOCO ROSE',bg:'#060002',fn:(t,i,n)=>`hsl(${300+i/n*80+t*15},${50+30*Math.sin(t+i)}%,${50+20*Math.sin(t*1.1+i*0.4)}%)`},
+  {name:'BAUHAUS PRIMARY',bg:'#040404',fn:(t,i,n)=>{const cs=[[0,90,55],[220,90,55],[60,90,55],[0,0,85]];const c=cs[i%cs.length];return`hsl(${c[0]},${c[1]}%,${c[2]}%)`}},
+  {name:'OTTOMAN JADE',bg:'#000604',fn:(t,i,n)=>`hsl(${140+i/n*60+Math.sin(t+i*0.5)*30},${60+20*Math.sin(t*0.8+i)}%,${35+20*Math.cos(t+i*0.3)}%)`},
+];
+
+const TILINGS=['HEXAGONAL','SQUARE','TRIANGULAR','OCTAGONAL','SNUB-SQUARE','TRIHEX'];
+const ORNAMENTS=['ROCOCO SCROLL','OTTOMAN ARABESQUE','CELTIC INTERLACE','KHMER TEMPLE','BAUHAUS GEO'];
+const LINKAGE_TYPES=['FOUR-BAR','STEPHENSON','SLIDER-CRANK','SCOTCH YOKE','PANTOGRAPH','UNIVERSAL JOINT'];
+
+let palette,tilingType,ornamentType,time=0,frame=0,lastFps=0,fpsTimer=0,fpsCount=0;
+let linkages=[],mazeNodes=[],mazeEdges=[],tiles=[],trails=[],voronoi=[];
+let resonanceField=[];
+let rfW,rfH,rfRes=32;
+let animId=null;
+let globalOmega=1,globalPhase=0;
+
+function rng(seed){
+  let s=seed|0;
+  return function(){s=(s^(s<<13))^(s>>7);s=(s^(s<<17))^(s>>5);return((s>>>0)/4294967296)};
+}
+
+let R=rng(Date.now());
+
+function rand(a,b){return a+(b-a)*R()}
+function rInt(a,b){return Math.floor(rand(a,b+1))}
+function pick(arr){return arr[rInt(0,arr.length-1)]}
+
+function regen(){
+  R=rng(Date.now());
+  time=0;frame=0;
+  palette=pick(PALETTES);
+  tilingType=pick(TILINGS);
+  ornamentType=pick(ORNAMENTS);
+  globalOmega=rand(0.3,1.2);
+  globalPhase=rand(0,Math.PI*2);
+  buildTiling();
+  buildVoronoi();
+  buildMaze();
+  buildLinkages();
+  buildResonanceField();
+  trails=[];
+  updateHUD();
+}
+
+function buildTiling(){
+  tiles=[];
+  const s=Math.min(W,H)/10;
+  switch(tilingType){
+    case'HEXAGONAL':buildHex(s);break;
+    case'SQUARE':buildSquare(s);break;
+    case'TRIANGULAR':buildTri(s);break;
+    case'OCTAGONAL':buildOct(s);break;
+    case'SNUB-SQUARE':buildSnub(s);break;
+    default:buildTriHex(s);
+  }
+}
+
+function buildHex(s){
+  const r=s*0.6,h=r*Math.sqrt(3);
+  for(let row=-2;row<H/h+2;row++){
+    for(let col=-2;col<W/(r*1.5)+2;col++){
+      const x=col*r*1.5;
+      const y=row*h+(col%2?h/2:0);
+      const pts=[];
+      for(let i=0;i<6;i++){
+        const a=Math.PI/6+i*Math.PI/3;
+        pts.push([x+r*Math.cos(a),y+r*Math.sin(a)]);
+      }
+      tiles.push({type:'hex',pts,cx:x,cy:y,phase:rand(0,Math.PI*2),freq:rand(0.5,2)});
+    }
+  }
+}
+
+function buildSquare(s){
+  const g=s*0.8;
+  for(let row=-1;row<H/g+2;row++){
+    for(let col=-1;col<W/g+2;col++){
+      const x=col*g,y=row*g;
+      tiles.push({type:'sq',pts:[[x,y],[x+g,y],[x+g,y+g],[x,y+g]],cx:x+g/2,cy:y+g/2,phase:rand(0,Math.PI*2),freq:rand(0.5,1.5)});
+    }
+  }
+}
+
+function buildTri(s){
+  const g=s*0.7,h=g*Math.sqrt(3)/2;
+  for(let row=-1;row<H/h+2;row++){
+    for(let col=-2;col<W/g+4;col++){
+      const x=col*g/2+(row%2?g/4:0),y=row*h;
+      if((col+row)%2===0)tiles.push({type:'tri',pts:[[x,y+h],[x+g/2,y],[x+g,y+h]],cx:x+g/2,cy:y+h*0.66,phase:rand(0,Math.PI*2),freq:rand(0.6,2)});
+      else tiles.push({type:'tri',pts:[[x,y],[x+g,y],[x+g/2,y+h]],cx:x+g/2,cy:y+h*0.33,phase:rand(0,Math.PI*2),freq:rand(0.6,2)});
+    }
+  }
+}
+
+function buildOct(s){
+  const g=s*0.5,d=g/(1+Math.SQRT2);
+  for(let row=-1;row<H/(g+d)+2;row++){
+    for(let col=-1;col<W/(g+d)+2;col++){
+      const x=col*(g+d),y=row*(g+d);
+      const pts=[];
+      const cx2=x+g/2+d/2,cy2=y+g/2+d/2;
+      for(let i=0;i<8;i++){const a=Math.PI/8+i*Math.PI/4;pts.push([cx2+(g/2+d/2)*Math.cos(a),cy2+(g/2+d/2)*Math.sin(a)]);}
+      tiles.push({type:'oct',pts,cx:cx2,cy:cy2,phase:rand(0,Math.PI*2),freq:rand(0.4,1.5)});
+    }
+  }
+}
+
+function buildSnub(s){buildSquare(s);}
+function buildTriHex(s){buildHex(s);}
+
+function buildVoronoi(){
+  voronoi=[];
+  const n=rInt(12,22);
+  for(let i=0;i<n;i++){
+    voronoi.push({x:rand(W*0.05,W*0.95),y:rand(H*0.05,H*0.95),vx:rand(-0.3,0.3),vy:rand(-0.3,0.3),r:rand(20,60)});
+  }
+}
+
+function buildMaze(){
+  mazeNodes=[];mazeEdges=[];
+  const n=rInt(18,30);
+  const gridW=Math.floor(Math.sqrt(n*W/H));
+  const gridH=Math.ceil(n/gridW);
+  const pw=W/gridW,ph=H/gridH;
+  for(let r=0;r<gridH;r++){
+    for(let c=0;c<gridW;c++){
+      mazeNodes.push({x:pw*(c+0.3+rand(0,0.4)),y:ph*(r+0.3+rand(0,0.4)),visited:false,puzz:Math.random()<0.2,phase:rand(0,Math.PI*2)});
+    }
+  }
+  const visited=new Set();
+  const stack=[0];
+  visited.add(0);
+  while(stack.length){
+    const cur=stack[stack.length-1];
+    const nx=mazeNodes[cur];
+    const neighbors=[];
+    for(let i=0;i<mazeNodes.length;i++){
+      if(visited.has(i))continue;
+      const mn=mazeNodes[i];
+      const d=Math.hypot(nx.x-mn.x,nx.y-mn.y);
+      if(d<pw*2.2)neighbors.push(i);
+    }
+    if(!neighbors.length){stack.pop();continue;}
+    const next=pick(neighbors);
+    mazeEdges.push({a:cur,b:next,phase:rand(0,Math.PI*2),freq:rand(0.3,1.5),active:true});
+    visited.add(next);
+    stack.push(next);
+  }
+  for(let i=0;i<Math.floor(mazeNodes.length*0.15);i++){
+    const a=rInt(0,mazeNodes.length-1),b=rInt(0,mazeNodes.length-1);
+    if(a!==b)mazeEdges.push({a,b,phase:rand(0,Math.PI*2),freq:rand(0.5,2),active:Math.random()<0.5});
+  }
+}
+
+function buildLinkages(){
+  linkages=[];
+  const count=rInt(4,9);
+  for(let i=0;i<count;i++){
+    const type=pick(LINKAGE_TYPES);
+    const lx=rand(W*0.1,W*0.9),ly=rand(H*0.1,H*0.9);
+    const len=rand(W*0.04,W*0.12);
+    const omega=rand(0.2,0.8)*globalOmega*(Math.random()<0.5?1:-1);
+    const phase=rand(0,Math.PI*2);
+    linkages.push({type,x:lx,y:ly,len,omega,phase,theta:0,joints:[],trail:[],trailColor:palette.fn(0,i,count),resonance:0,lastCollide:0,id:i});
+  }
+}
+
+function buildResonanceField(){
+  rfW=Math.ceil(W/rfRes)+1;rfH=Math.ceil(H/rfRes)+1;
+  resonanceField=new Float32Array(rfW*rfH);
+}
+
+function updateLinkages(dt){
+  const t=time;
+  linkages.forEach((lk,i)=>{
+    lk.theta+=lk.omega*dt;
+    const joints=[];
+    const {x,y,len,theta,type}=lk;
+    switch(type){
+      case'FOUR-BAR':{
+        const a=theta,b=theta*0.7+lk.phase;
+        const j0={x,y};
+        const j1={x:x+len*Math.cos(a),y:y+len*Math.sin(a)};
+        const j2={x:x+len*1.4*Math.cos(b)+len*0.6,y:y+len*1.4*Math.sin(b)};
+        const j3={x:x+len*0.6,y};
+        joints.push(j0,j1,j2,j3);
+        break;}
+      case'SLIDER-CRANK':{
+        const cr=len*0.5,rod=len*1.2;
+        const px=x+cr*Math.cos(theta);
+        const py=y+cr*Math.sin(theta);
+        const sl=Math.sqrt(Math.max(0,rod*rod-(py-y)*(py-y)));
+        joints.push({x,y},{x:px,y:py},{x:x+sl,y},{x:x+sl+20,y});
+        break;}
+      case'SCOTCH YOKE':{
+        const r=len*0.4;
+        const sx=x+r*Math.cos(theta);
+        const sy=y+r*Math.sin(theta);
+        joints.push({x,y},{x:sx,y:sy},{x:sx,y:y},{x:sx,y:y-len*0.6},{x:x,y:y+r*Math.sin(theta)});
+        break;}
+      case'PANTOGRAPH':{
+        const a1=theta,a2=theta*0.5+lk.phase;
+        joints.push({x,y},{x:x+len*Math.cos(a1),y:y+len*Math.sin(a1)},{x:x+len*1.8*Math.cos(a2),y:y+len*1.8*Math.sin(a2)},{x:x+len*2.2*Math.cos(a1+0.3),y:y+len*2.2*Math.sin(a1+0.3)});
+        break;}
+      case'UNIVERSAL JOINT':{
+        const a=theta,b=Math.asin(Math.sin(theta)*Math.sin(lk.phase+0.5));
+        for(let k=0;k<4;k++){
+          const ang=a+k*Math.PI*0.5+b;
+          joints.push({x:x+len*0.7*Math.cos(ang),y:y+len*0.7*Math.sin(ang)});
+        }
+        break;}
+      default:{
+        const a=theta;
+        const p1={x:x+len*Math.cos(a),y:y+len*Math.sin(a)};
+        const p2={x:x+len*0.6*Math.cos(a+lk.phase),y:y+len*0.6*Math.sin(a+lk.phase)};
+        const p3={x:x+len*1.1*Math.cos(a+lk.phase*0.5),y:y+len*1.1*Math.sin(a+lk.phase*0.5)};
+        joints.push({x,y},p1,p2,p3);
+      }
+    }
+    lk.joints=joints;
+    if(joints.length>0){
+      const tip=joints[joints.length-1];
+      lk.trail.push({x:tip.x,y:tip.y,t:time,c:palette.fn(t,i,linkages.length)});
+      if(lk.trail.length>120)lk.trail.shift();
+    }
+    const vel=Math.abs(lk.omega)*len;
+    lk.resonance=vel*0.01;
+    if(soundEnabled&&Math.random()<0.008){
+      const freq=80+Math.abs(lk.omega)*200+i*30;
+      playMechanicalTone(freq,vel,0.15+Math.random()*0.3);
+    }
+  });
+}
+
+function updateResonanceField(){
+  const decay=0.92;
+  for(let i=0;i<resonanceField.length;i++)resonanceField[i]*=decay;
+  linkages.forEach(lk=>{
+    lk.joints.forEach(j=>{
+      const gx=Math.floor(j.x/rfRes);
+      const gy=Math.floor(j.y/rfRes);
+      if(gx>=0&&gx<rfW&&gy>=0&&gy<rfH){
+        resonanceField[gy*rfW+gx]+=lk.resonance*0.5;
+      }
+    });
+  });
+  if(soundEnabled&&frame%30===0){
+    let maxR=0,maxI=0;
+    for(let i=0;i<resonanceField.length;i++)if(resonanceField[i]>maxR){maxR=resonanceField[i];maxI=i;}
+    if(maxR>0.3){
+      const gx=(maxI%rfW)*rfRes,gy=Math.floor(maxI/rfW)*rfRes;
+      playGrain(200+maxR*400,{x:gx,y:gy});
+    }
+  }
+}
+
+function drawBackground(){
+  ctx.fillStyle=palette.bg;
+  ctx.fillRect(0,0,W,H);
+}
+
+function drawTiles(){
+  const t=time;
+  tiles.forEach((tile,i)=>{
+    const phase=tile.phase+t*tile.freq*0.3;
+    const gx=Math.floor(tile.cx/rfRes);
+    const gy=Math.floor(tile.cy/rfRes);
+    let rfVal=0;
+    if(gx>=0&&gx<rfW&&gy>=0&&gy<rfH)rfVal=resonanceField[gy*rfW+gx];
+    const brightness=0.08+rfVal*0.4+0.06*Math.sin(phase);
+    const hue=(i*23+t*8)%360;
+    ctx.beginPath();
+    ctx.moveTo(tile.pts[0][0],tile.pts[0][1]);
+    for(let k=1;k<tile.pts.length;k++)ctx.lineTo(tile.pts[k][0],tile.pts[k][1]);
+    ctx.closePath();
+    ctx.strokeStyle=`hsla(${hue},60%,60%,${brightness})`;
+    ctx.lineWidth=0.5+rfVal*1.5;
+    ctx.stroke();
+    if(rfVal>0.2){
+      ctx.fillStyle=`hsla(${hue},80%,50%,${rfVal*0.12})`;
+      ctx.fill();
+    }
+  });
+}
+
+function drawOrnament(){
+  const t=time;
+  switch(ornamentType){
+    case'ROCOCO SCROLL':drawRococo(t);break;
+    case'OTTOMAN ARABESQUE':drawArabesque(t);break;
+    case'CELTIC INTERLACE':drawCeltic(t);break;
+    case'KHMER TEMPLE':drawKhmer(t);break;
+    case'BAUHAUS GEO':drawBauhaus(t);break;
+  }
+}
+
+function drawRococo(t){
+  const n=rInt(6,10);
+  ctx.save();
+  for(let i=0;i<n;i++){
+    const lk=linkages[i%linkages.length];
+    if(!lk)continue;
+    const {x,y}=lk;
+    const phase=t*0.2+i*1.1;
+    ctx.beginPath();
+    for(let k=0;k<80;k++){
+      const u=k/80;
+      const ang=u*Math.PI*4+phase;
+      const r1=30+20*Math.sin(u*Math.PI*3+t);
+      const r2=r1*1.4+15*Math.cos(u*Math.PI*5+t*0.7);
+      const sx=x+r1*Math.cos(ang)+r2*0.3*Math.cos(ang*2.3);
+      const sy=y+r1*Math.sin(ang)+r2*0.3*Math.sin(ang*2.3);
+      k===0?ctx.moveTo(sx,sy):ctx.lineTo(sx,sy);
+    }
+    const col=palette.fn(t,i,n);
+    ctx.strokeStyle=col.replace('hsl','hsla').replace(')',',0.3)').replace('hsla','hsla');
+    ctx.strokeStyle=col;
+    ctx.globalAlpha=0.18+0.1*Math.sin(t+i);
+    ctx.lineWidth=0.8;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawArabesque(t){
+  ctx.save();
+  const n=8;
+  for(let i=0;i<n;i++){
+    const lk=linkages[i%linkages.length];
+    if(!lk)continue;
+    const {x,y}=lk;
+    for(let k=0;k<6;k++){
+      const ang=k*Math.PI/3+t*0.15+i;
+      ctx.beginPath();
+      const r=40+20*Math.sin(t*0.5+i);
+      ctx.arc(x+r*Math.cos(ang),y+r*Math.sin(ang),r*0.6,0,Math.PI*2);
+      ctx.strokeStyle=palette.fn(t,i*6+k,n*6);
+      ctx.globalAlpha=0.12;
+      ctx.lineWidth=0.7;
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+function drawCeltic(t){
+  ctx.save();
+  linkages.forEach((lk,i)=>{
+    const {x,y,len,theta}=lk;
+    const steps=16;
+    ctx.beginPath();
+    for(let k=0;k<steps*4;k++){
+      const u=k/steps;
+      const a=u*Math.PI*2+theta+t*0.1;
+      const r=len*0.5*(1+0.3*Math.sin(u*Math.PI*4));
+      const braid=len*0.08*Math.sin(u*Math.PI*8+t*0.5);
+      const sx=x+r*Math.cos(a)+braid*Math.cos(a+Math.PI/2);
+      const sy=y+r*Math.sin(a)+braid*Math.sin(a+Math.PI/2);
+      k===0?ctx.moveTo(sx,sy):ctx.lineTo(sx,sy);
+    }
+    ctx.closePath();
+    ctx.strokeStyle=palette.fn(t,i,linkages.length);
+    ctx.globalAlpha=0.2;
+    ctx.lineWidth=1.5;
+    ctx.stroke();
+  });
+  ctx.restore();
+}
+
+function drawKhmer(t){
+  ctx.save();
+  const n=rInt(4,8);
+  for(let i=0;i<n;i++){
+    const lk=linkages[i%linkages.length];
+    if(!lk)continue;
+    const {x,y}=lk;
+    for(let tier=0;tier<3;tier++){
+      const r=(3-tier)*(30+20*Math.sin(t*0.3+i));
+      ctx.beginPath();
+      const pts=5+tier;
+      for(let k=0;k<=pts;k++){
+        const a=k/pts*Math.PI*2-Math.PI/2+t*0.1*(tier%2?1:-1);
+        const pr=r*(1+0.2*Math.sin(k*3+t));
+        k===0?ctx.moveTo(x+pr*Math.cos(a),y+pr*Math.sin(a)):ctx.lineTo(x+pr*Math.cos(a),y+pr*Math.sin(a));
+      }
+      ctx.closePath();
+      ctx.strokeStyle=palette.fn(t,i*3+tier,n*3);
+      ctx.globalAlpha=0.15-tier*0.03;
+      ctx.lineWidth=1;
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+function drawBauhaus(t){
+  ctx.save();
+  linkages.forEach((lk,i)=>{
+    const {x,y,len}=lk;
+    const shapes=['rect','circle','tri'];
+    const sh=shapes[i%3];
+    const sz=len*0.6;
+    const rot=t*lk.omega*0.3;
+    ctx.translate(x,y);ctx.rotate(rot);
+    ctx.strokeStyle=palette.fn(t,i,linkages.length);
+    ctx.globalAlpha=0.22;
+    ctx.lineWidth=1.5;
+    if(sh==='rect'){ctx.strokeRect(-sz/2,-sz/2,sz,sz);}
+    else if(sh==='circle'){ctx.beginPath();ctx.arc(0,0,sz/2,0,Math.PI*2);ctx.stroke();}
+    else{ctx.beginPath();ctx.moveTo(0,-sz/2);ctx.lineTo(sz/2,sz/2);ctx.lineTo(-sz/2,sz/2);ctx.closePath();ctx.stroke();}
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+  });
+  ctx.restore();
+}
+
+function drawMaze(){
+  const t=time;
+  ctx.save();
+  mazeEdges.forEach((e,i)=>{
+    const na=mazeNodes[e.a],nb=mazeNodes[e.b];
+    const pulse=0.3+0.3*Math.sin(t*e.freq+e.phase);
+    ctx.beginPath();
+    ctx.moveTo(na.x,na.y);
+    const mx=(na.x+nb.x)/2+20*Math.sin(t*0.5+i);
+    const my=(na.y+nb.y)/2+20*Math.cos(t*0.5+i);
+    ctx.quadraticCurveTo(mx,my,nb.x,nb.y);
+    const hue=(i*31+t*15)%360;
+    ctx.strokeStyle=`hsla(${hue},70%,65%,${pulse*0.6})`;
+    ctx.lineWidth=e.active?1.2:0.4;
+    ctx.stroke();
+  });
+  mazeNodes.forEach((n,i)=>{
+    const r=3+2*Math.sin(t*0.8+n.phase);
+    const hue=(i*41+t*20)%360;
+    ctx.beginPath();ctx.arc(n.x,n.y,r,0,Math.PI*2);
+    ctx.fillStyle=`hsla(${hue},90%,70%,0.8)`;
+    ctx.fill();
+    if(n.puzz){
+      ctx.beginPath();ctx.arc(n.x,n.y,r*2,0,Math.PI*2);
+      ctx.strokeStyle=`hsla(${hue},90%,80%,0.4)`;
+      ctx.lineWidth=0.8;ctx.stroke();
+    }
+  });
+  ctx.restore();
+}
+
+function drawVoronoi(){
+  const t=time;
+  ctx.save();
+  voronoi.forEach((v,i)=>{
+    const pulse=0.5+0.5*Math.sin(t*0.4+i*0.7);
+    ctx.beginPath();ctx.arc(v.x,v.y,v.r*pulse,0,Math.PI*2);
+    const hue=(i*53+t*5)%360;
+    ctx.strokeStyle=`hsla(${hue},60%,60%,0.1)`;
+    ctx.lineWidth=0.5;ctx.stroke();
+    for(let j=i+1;j<voronoi.length;j++){
+      const w=voronoi[j];
+      const d=Math.hypot(v.x-w.x,v.y-w.y);
+      if(d<(v.r+w.r)*2){
+        ctx.beginPath();ctx.moveTo(v.x,v.y);ctx.lineTo(w.x,w.y);
+        ctx.strokeStyle=`hsla(${hue},50%,60%,${0.08*(1-d/((v.r+w.r)*2))})`;
+        ctx.lineWidth=0.4;ctx.stroke();
+      }
+    }
+  });
+  ctx.restore();
+}
+
+function drawResonanceOverlay(){
+  const t=time;
+  ctx.save();
+  ctx.globalCompositeOperation='screen';
+  for(let gy=0;gy<rfH;gy++){
+    for(let gx=0;gx<rfW;gx++){
+      const v=resonanceField[gy*rfW+gx];
+      if(v<0.05)continue;
+      const px=gx*rfRes,py=gy*rfRes;
+      const hue=(gx*7+gy*11+t*20)%360;
+      ctx.fillStyle=`hsla(${hue},90%,60%,${Math.min(0.35,v*0.4)})`;
+      ctx.fillRect(px-rfRes/2,py-rfRes/2,rfRes,rfRes);
+    }
+  }
+  ctx.restore();
+}
+
+function drawLinkages(){
+  const t=time;
+  linkages.forEach((lk,i)=>{
+    if(!lk.joints.length)return;
+    const col=palette.fn(t,i,linkages.length);
+    const rfVal=lk.resonance;
+    ctx.save();
+    ctx.shadowColor=col;
+    ctx.shadowBlur=4+rfVal*20;
+    ctx.strokeStyle=col;
+    ctx.lineWidth=1.2+rfVal*2;
+    ctx.globalAlpha=0.85;
+    ctx.beginPath();
+    ctx.moveTo(lk.joints[0].x,lk.joints[0].y);
+    for(let k=1;k<lk.joints.length;k++)ctx.lineTo(lk.joints[k].x,lk.joints[k].y);
+    ctx.stroke();
+    lk.joints.forEach((j,k)=>{
+      ctx.beginPath();ctx.arc(j.x,j.y,2.5+rfVal*4,0,Math.PI*2);
+      ctx.fillStyle=col;ctx.globalAlpha=0.9;ctx.fill();
+    });
+    ctx.restore();
+  });
+}
+
+function drawTrails(){
+  const t=time;
+  linkages.forEach((lk,i)=>{
+    if(lk.trail.length<2)return;
+    ctx.save();
+    for(let k=1;k<lk.trail.length;k++){
+      const a=lk.trail[k-1],b=lk.trail[k];
+      const age=(t-b.t);
+      const alpha=Math.max(0,0.7-age*0.015);
+      if(alpha<0.01)continue;
+      ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);
+      ctx.strokeStyle=b.c||palette.fn(t,i,linkages.length);
+      ctx.globalAlpha=alpha*0.6;
+      ctx.lineWidth=0.8;
+      ctx.stroke();
+    }
+    ctx.restore();
+  });
+}
+
+function drawInterference(){
+  const t=time;
+  ctx.save();
+  ctx.globalCompositeOperation='screen';
+  ctx.globalAlpha=0.06;
+  for(let i=0;i<3;i++){
+    const lk=linkages[i%linkages.length];
+    if(!lk||!lk.joints.length)continue;
+    const j=lk.joints[lk.joints.length-1];
+    const r=80+40*Math.sin(t*lk.omega+i);
+    const grad=ctx.createRadialGradient(j.x,j.y,0,j.x,j.y,r);
+    const col=palette.fn(t,i,linkages.length);
+    grad.addColorStop(0,col);
+    grad.addColorStop(1,'transparent');
+    ctx.fillStyle=grad;
+    ctx.beginPath();ctx.arc(j.x,j.y,r,0,Math.PI*2);ctx.fill();
+  }
+  ctx.restore();
+}
+
+function updateVoronoi(dt){
+  voronoi.forEach(v=>{
+    v.x+=v.vx;v.y+=v.vy;
+    if(v.x<0||v.x>W)v.vx*=-1;
+    if(v.y<0||v.y>H)v.vy*=-1;
+  });
+}
+
+let lastTime=0;
+function loop(ts){
+  animId=requestAnimationFrame(loop);
+  const dt=Math.min((ts-lastTime)/1000,0.05);
+  lastTime=ts;
+  time+=dt;frame++;
+  fpsCount++;fpsTimer+=dt;
+  if(fpsTimer>=0.5){lastFps=Math.round(fpsCount/fpsTimer);fpsCount=0;fpsTimer=0;}
+  updateLinkages(dt);
+  updateResonanceField();
+  updateVoronoi(dt);
+  drawBackground();
+  ctx.globalCompositeOperation='source-over';
+  drawTiles();
+  drawVoronoi();
+  drawOrnament();
+  drawMaze();
+  drawTrails();
+  drawResonanceOverlay();
+  drawInterference();
+  drawLinkages();
+  if(hudVisible)updateHUDValues();
+}
+
+function updateHUD(){
+  document.getElementById('hStyleName').textContent=palette.name;
+  document.getElementById('hTiling').textContent=tilingType;
+  document.getElementById('hOrnament').textContent=ornamentType;
+  document.getElementById('hLinks').textContent=linkages.length;
+  document.getElementById('hNodes').textContent=mazeNodes.length;
+}
+
+function updateHUDValues(){
+  document.getElementById('hFps').textContent=lastFps;
+}
+
+document.addEventListener('keydown',e=>{
+  if(e.key===' '){e.preventDefault();regen();}
+  else if(e.key==='h'||e.key==='H'){
+    hudVisible=!hudVisible;
+    document.getElementById('hud').style.display=hudVisible?'block':'none';
+  }
+  else if(e.key==='s'||e.key==='S'){
+    soundEnabled=!soundEnabled;
+    if(soundEnabled){initAudio();if(audioCtx.state==='suspended')audioCtx.resume();}
+    const hint=document.getElementById('hint');
+    hint.textContent=soundEnabled?'SOUND ON':'SOUND OFF';
+    hint.style.opacity='1';
+    setTimeout(()=>{hint.style.opacity='0';},1500);
+  }
+});
+
+let tapTimer=null;
+function onTap(e){
+  if(e.target===canvas){
+    if(tapTimer){clearTimeout(tapTimer);tapTimer=null;return;}
+    tapTimer=setTimeout(()=>{tapTimer=null;regen();},200);
+  }
+}
+canvas.addEventListener('click',onTap);
+canvas.addEventListener('touchend',e=>{e.preventDefault();onTap(e);},{passive:false});
+
+const hint=document.getElementById('hint');
+setTimeout(()=>{hint.style.opacity='0';},4000);
+
+regen();
+requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

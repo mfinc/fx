@@ -1,0 +1,886 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Quantum Eigenphase Landscape — Abstract Mathematical Hallucination</title>
+<meta name="description" content="Full-screen quantum-inspired eigenphase landscape blending complex exponentials, Mandelbrot/Julia fractals, Lie group transformations, and generative audio into a continuously evolving audiovisual hallucination.">
+<meta name="keywords" content="quantum visualization, eigenphase, fractals, Mandelbrot, Julia set, Lie groups, generative art, WebGL, audio synthesis">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background: #000;
+    cursor: crosshair;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: manipulation;
+  }
+  canvas {
+    display: block;
+    width: 100vw; height: 100vh;
+    position: fixed; top: 0; left: 0;
+  }
+  #hud {
+    display: none;
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    font-family: 'Courier New', monospace;
+    font-size: clamp(9px, 1.1vw, 13px);
+    color: rgba(255,255,255,0.75);
+    text-shadow: 0 0 8px rgba(0,200,255,0.9);
+  }
+  #hud-panel {
+    position: absolute;
+    top: 18px; left: 18px;
+    background: rgba(0,0,0,0.55);
+    border: 1px solid rgba(0,200,255,0.3);
+    border-radius: 4px;
+    padding: 12px 16px;
+    min-width: 280px;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  #hud-panel h1 {
+    font-size: clamp(10px, 1.3vw, 14px);
+    letter-spacing: 0.18em;
+    color: rgba(0,230,255,1);
+    text-transform: uppercase;
+    margin-bottom: 8px;
+    border-bottom: 1px solid rgba(0,200,255,0.25);
+    padding-bottom: 6px;
+  }
+  .hud-row { display: flex; justify-content: space-between; gap: 12px; margin: 3px 0; }
+  .hud-label { color: rgba(150,220,255,0.7); }
+  .hud-val { color: rgba(255,255,255,0.95); font-weight: bold; }
+  #hud-keys {
+    position: absolute;
+    bottom: 18px; right: 18px;
+    background: rgba(0,0,0,0.55);
+    border: 1px solid rgba(0,200,255,0.3);
+    border-radius: 4px;
+    padding: 10px 14px;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    text-align: right;
+  }
+  .key-row { margin: 2px 0; }
+  .key { display: inline-block; background: rgba(0,200,255,0.15); border: 1px solid rgba(0,200,255,0.4); border-radius: 3px; padding: 1px 6px; margin-right: 6px; }
+  #flash {
+    position: fixed;
+    top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none;
+    background: white;
+    opacity: 0;
+    transition: opacity 0.05s;
+  }
+  #toast {
+    position: fixed;
+    bottom: 24px; left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.7);
+    color: rgba(0,230,255,0.9);
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    letter-spacing: 0.15em;
+    padding: 7px 18px;
+    border-radius: 20px;
+    border: 1px solid rgba(0,200,255,0.3);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.4s;
+    text-transform: uppercase;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="flash"></div>
+<div id="toast"></div>
+<div id="hud">
+  <div id="hud-panel">
+    <h1>⟨ Eigenphase Landscape ⟩</h1>
+    <div class="hud-row"><span class="hud-label">Symmetry order</span><span class="hud-val" id="h-sym">—</span></div>
+    <div class="hud-row"><span class="hud-label">Julia c</span><span class="hud-val" id="h-julia">—</span></div>
+    <div class="hud-row"><span class="hud-label">Fractal power</span><span class="hud-val" id="h-pow">—</span></div>
+    <div class="hud-row"><span class="hud-label">Feigenbaum r</span><span class="hud-val" id="h-feig">—</span></div>
+    <div class="hud-row"><span class="hud-label">Lie ω₁ / ω₂</span><span class="hud-val" id="h-lie">—</span></div>
+    <div class="hud-row"><span class="hud-label">Hilbert proj</span><span class="hud-val" id="h-hilb">—</span></div>
+    <div class="hud-row"><span class="hud-label">SVD mix</span><span class="hud-val" id="h-svd">—</span></div>
+    <div class="hud-row"><span class="hud-label">Tensor ⊗ mode</span><span class="hud-val" id="h-tensor">—</span></div>
+    <div class="hud-row"><span class="hud-label">Palette shift</span><span class="hud-val" id="h-pal">—</span></div>
+    <div class="hud-row"><span class="hud-label">Eigenphase λs</span><span class="hud-val" id="h-eig">—</span></div>
+    <div class="hud-row"><span class="hud-label">FPS</span><span class="hud-val" id="h-fps">—</span></div>
+  </div>
+  <div id="hud-keys">
+    <div class="key-row"><span class="key">SPACE</span><span>/ tap — Regenerate</span></div>
+    <div class="key-row"><span class="key">H</span><span>— Toggle HUD</span></div>
+    <div class="key-row"><span class="key">S</span><span>— Toggle Sound</span></div>
+  </div>
+</div>
+
+<script>
+(function() {
+'use strict';
+
+// ─── UTILITIES ───────────────────────────────────────────────────────────────
+const R = (a,b) => a + Math.random()*(b-a);
+const Ri = (a,b) => Math.floor(a + Math.random()*(b-a+1));
+const choose = arr => arr[Ri(0,arr.length-1)];
+const TWO_PI = Math.PI*2;
+
+// ─── STATE ───────────────────────────────────────────────────────────────────
+let P = {};          // current parameter set
+let audioCtx = null;
+let audioRunning = false;
+let audioNodes = {};
+let soundEnabled = false;
+let hudVisible = false;
+let lastTime = 0;
+let frameCount = 0;
+let fps = 60;
+let fpsTimer = 0;
+let startTime = performance.now();
+let running = true;
+
+// ─── CANVAS & WEBGL ──────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+let gl;
+
+function initGL() {
+  gl = canvas.getContext('webgl2', {
+    antialias: false, alpha: false,
+    powerPreference: 'high-performance',
+    preserveDrawingBuffer: false
+  }) || canvas.getContext('webgl', {
+    antialias: false, alpha: false,
+    powerPreference: 'high-performance'
+  });
+  if (!gl) { document.body.innerHTML='<div style="color:#0ff;font:20px monospace;padding:40px">WebGL not supported</div>'; return false; }
+  return true;
+}
+
+function resize() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width  = Math.floor(window.innerWidth * dpr);
+  canvas.height = Math.floor(window.innerHeight * dpr);
+  if (gl) gl.viewport(0, 0, canvas.width, canvas.height);
+}
+
+// ─── SHADERS ─────────────────────────────────────────────────────────────────
+const VS = `#version 300 es
+in vec2 a_pos;
+void main() { gl_Position = vec4(a_pos, 0.0, 1.0); }
+`;
+
+const FS = `#version 300 es
+precision highp float;
+out vec4 fragColor;
+
+uniform vec2  u_res;
+uniform float u_time;
+uniform vec2  u_julia_c;
+uniform float u_julia_power;
+uniform int   u_symmetry;
+uniform float u_zoom;
+uniform float u_feig_r;
+uniform float u_lie_w1;
+uniform float u_lie_w2;
+uniform float u_hilb_alpha;
+uniform float u_svd_mix;
+uniform float u_tensor_freq;
+uniform float u_mink_k;
+
+// 8 eigenmodes: (amplitude, frequency, kx, ky)
+uniform vec4  u_eigen[8];
+
+// Palette: cosine palette a,b,c,d (each vec3)
+uniform vec3  u_pa, u_pb, u_pc, u_pd;
+uniform vec3  u_pa2, u_pb2, u_pc2, u_pd2;
+uniform float u_pal_mix;
+uniform float u_pal_shift;
+
+uniform float u_layer_w[5];
+uniform float u_frac_mix;
+uniform float u_phase_offset;
+
+// ── Complex arithmetic ──────────────────────────────────────────────────────
+vec2 cmul(vec2 a, vec2 b) {
+  return vec2(a.x*b.x - a.y*b.y, a.x*b.y + a.y*b.x);
+}
+vec2 cdiv(vec2 a, vec2 b) {
+  float d = dot(b,b) + 1e-10;
+  return vec2(dot(a,b), a.y*b.x - a.x*b.y) / d;
+}
+vec2 cexp(vec2 z) {
+  // Euler: e^(x+iy) = e^x*(cos y + i sin y)
+  return exp(z.x) * vec2(cos(z.y), sin(z.y));
+}
+vec2 clog(vec2 z) {
+  return vec2(log(length(z)+1e-10), atan(z.y, z.x));
+}
+vec2 cpow_f(vec2 z, float n) {
+  // de Moivre: (r·e^{iθ})^n = r^n · e^{inθ}
+  float r = length(z);
+  float th = atan(z.y, z.x);
+  return pow(max(r,1e-9), n) * vec2(cos(n*th), sin(n*th));
+}
+vec2 cpow_c(vec2 z, vec2 w) {
+  // z^w = e^{w·log(z)}
+  return cexp(cmul(w, clog(z)));
+}
+vec2 csin(vec2 z) {
+  // sin(x+iy) = sin(x)cosh(y) + i·cos(x)sinh(y)
+  return vec2(sin(z.x)*cosh(z.y), cos(z.x)*sinh(z.y));
+}
+
+// ── Kaleidoscope / symmetry folding ────────────────────────────────────────
+vec2 kaleido(vec2 uv, float n) {
+  float angle = atan(uv.y, uv.x);
+  float r = length(uv);
+  float sector = 6.2831853 / n;
+  angle = mod(angle + 6.2831853, sector);
+  // Mirror within sector — Minkowski-inflected fold
+  angle = abs(angle - sector * 0.5);
+  return r * vec2(cos(angle), sin(angle));
+}
+
+// ── Mandelbrot/Julia escape time (smooth) ──────────────────────────────────
+float julia_escape(vec2 z0, vec2 c, float power, int maxI) {
+  vec2 z = z0;
+  float iter = 0.0;
+  float escape = 4.0;
+  for (int i = 0; i < 128; i++) {
+    if (i >= maxI) break;
+    z = cpow_f(z, power) + c;
+    float d2 = dot(z,z);
+    if (d2 > escape) {
+      // Smooth colouring: ν = i - log₂(log₂|z|)
+      iter = float(i) - log2(max(log2(sqrt(d2)+1e-10), 1e-10));
+      return iter / float(maxI);
+    }
+  }
+  return 1.0;
+}
+
+// ── Burning-ship variant ────────────────────────────────────────────────────
+float ship_escape(vec2 z0, vec2 c, int maxI) {
+  vec2 z = z0;
+  for (int i = 0; i < 96; i++) {
+    if (i >= maxI) break;
+    z = vec2(abs(z.x), abs(z.y));
+    z = cmul(z,z) + c;
+    if (dot(z,z) > 4.0)
+      return float(i) / float(maxI);
+  }
+  return 1.0;
+}
+
+// ── Eigenphase sum: ψ(x,y,t) = Σ aₖ·Re[e^{i(λₖt + kx·x + ky·y + φ₀)}] ──
+float eigenphase(vec2 uv, float t) {
+  float sum = 0.0;
+  float norm = 0.0;
+  for (int k = 0; k < 8; k++) {
+    vec4 e = u_eigen[k];
+    float amp = e.x;
+    float lam = e.y;
+    float kx  = e.z;
+    float ky  = e.w;
+    // e^{i(λt + kx·x + ky·y)} — Euler identity
+    float phase = lam * t + kx * uv.x + ky * uv.y;
+    sum  += amp * cos(phase);
+    norm += amp;
+  }
+  return (norm > 0.0) ? sum / norm : 0.0;
+}
+
+// ── Logistic / Feigenbaum bifurcation ──────────────────────────────────────
+float feigenbaum(float x0, float r, int iters) {
+  float x = clamp(x0, 0.001, 0.999);
+  for (int i = 0; i < 80; i++) {
+    if (i >= iters) break;
+    x = r * x * (1.0 - x);
+  }
+  return x;
+}
+
+// ── Lie SO(2)×SO(2) dual rotation ─────────────────────────────────────────
+vec2 lie_rotate(vec2 uv, float w1, float w2, float t) {
+  float a1 = w1 * t;
+  float a2 = w2 * t;
+  // First SO(2) rotation
+  vec2 v = vec2(cos(a1)*uv.x - sin(a1)*uv.y,
+                sin(a1)*uv.x + cos(a1)*uv.y);
+  // Second SO(2) in skewed frame (approximates SU(2) lifting)
+  float s = sin(a2), c2 = cos(a2);
+  vec2 w = vec2(c2*v.x + s*v.y, -s*v.x + c2*v.y);
+  return mix(v, w, 0.5);
+}
+
+// ── Tensor product interference ────────────────────────────────────────────
+float tensor_product(vec2 uv, float freq, float t) {
+  // φ₁(x)⊗φ₂(y) pattern
+  float fx = sin(freq * uv.x + t * 0.7) * cos(freq * 0.618 * uv.x - t * 0.4);
+  float fy = sin(freq * uv.y - t * 0.5) * cos(freq * 1.272 * uv.y + t * 0.6);
+  return fx * fy;  // tensor product (outer product trace)
+}
+
+// ── Hilbert space projection (cosine basis) ────────────────────────────────
+float hilbert_proj(vec2 uv, float alpha, float t) {
+  float sum = 0.0;
+  // Project onto first 6 Fourier eigenstates
+  for (int n = 1; n <= 6; n++) {
+    float fn = float(n);
+    // ψₙ(x,y) = sin(n·π·x)·sin(n·π·y) (particle-in-box eigenstates)
+    float phi = sin(fn * 3.14159 * uv.x + t * fn * 0.13)
+              * sin(fn * 3.14159 * uv.y - t * fn * 0.11);
+    // Eigenvalue decay: e^{-α·n²} (heat kernel / SVD truncation)
+    float wt = exp(-alpha * fn * fn);
+    sum += wt * phi;
+  }
+  return sum;
+}
+
+// ── SVD-inspired radial singular values ────────────────────────────────────
+float svd_layer(vec2 uv, float mix_v, float t) {
+  float r = length(uv);
+  float th = atan(uv.y, uv.x);
+  // Singular values: σₖ ~ 1/(k+1), angular modes
+  float sum = 0.0;
+  for (int k = 0; k < 5; k++) {
+    float fk = float(k);
+    float sigma = 1.0 / (fk + 1.0);  // singular value decay
+    float mode = sin((fk+1.0)*th + t*(fk*0.2+0.1)) * exp(-sigma * r);
+    sum += sigma * mode;
+  }
+  return sum;
+}
+
+// ── Minkowski-inflected metric ─────────────────────────────────────────────
+float minkowski_dist(vec2 uv, float k) {
+  // Lᵏ norm: (|x|^k + |y|^k)^{1/k}, generalized Minkowski
+  float ax = abs(uv.x), ay = abs(uv.y);
+  return pow(pow(ax, k) + pow(ay, k) + 1e-8, 1.0/k);
+}
+
+// ── Cosine palette ──────────────────────────────────────────────────────────
+vec3 cospal(float t, vec3 a, vec3 b, vec3 c, vec3 d) {
+  return clamp(a + b*cos(6.28318*(c*t+d)), 0.0, 1.0);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+void main() {
+  vec2 fc = gl_FragCoord.xy;
+  vec2 uv = (fc - 0.5*u_res) / min(u_res.x, u_res.y);
+  float t = u_time;
+
+  // ── Lie group dual rotation (SO(2) base frame)
+  uv = lie_rotate(uv, u_lie_w1, u_lie_w2, t);
+
+  // ── Zoom with breathing pulsation
+  float breath = 1.0 + 0.04*sin(t*0.7 + u_phase_offset);
+  uv *= u_zoom * breath;
+
+  // ── Minkowski-inflected radial distortion
+  float mink = minkowski_dist(uv, u_mink_k);
+  float r0 = length(uv);
+  uv = uv * (mink / (r0 + 1e-6)) * (0.85 + 0.15*sin(t*0.3));
+
+  // ── Kaleidoscope / symmetry folding
+  vec2 kuv = kaleido(uv, float(u_symmetry));
+
+  // ── Eigenphase landscape
+  float ep = eigenphase(kuv, t);
+
+  // ── Julia / Mandelbrot escape
+  float jv;
+  vec2 jz = kuv * 1.4 + vec2(sin(t*0.05)*0.15, cos(t*0.07)*0.1);
+  if (u_frac_mix < 0.5) {
+    jv = julia_escape(jz, u_julia_c, u_julia_power, 72);
+  } else {
+    // Blend with burning-ship for chaos
+    float j1 = julia_escape(jz, u_julia_c, u_julia_power, 60);
+    float j2 = ship_escape(jz, u_julia_c, 60);
+    jv = mix(j1, j2, u_frac_mix - 0.5);
+  }
+
+  // ── Hilbert projection
+  float hp = hilbert_proj(kuv * 0.8, u_hilb_alpha, t);
+
+  // ── SVD layer
+  float sv = svd_layer(kuv, u_svd_mix, t);
+
+  // ── Tensor product interference
+  float tp = tensor_product(kuv, u_tensor_freq, t);
+
+  // ── Feigenbaum / logistic map
+  float seed_x = fract(abs(kuv.x) * 0.4 + 0.5);
+  float fg = feigenbaum(seed_x, u_feig_r, 48);
+
+  // ── Weighted layer combination (matrix exponential sense: e^{H·t})
+  float w0 = u_layer_w[0], w1 = u_layer_w[1], w2 = u_layer_w[2],
+        w3 = u_layer_w[3], w4 = u_layer_w[4];
+  float wsum = w0+w1+w2+w3+w4 + 1e-8;
+  float val = (w0*jv + w1*(ep*0.5+0.5) + w2*(hp*0.5+0.5)
+             + w3*(sv*0.5+0.5) + w4*(tp*0.5+0.5)) / wsum;
+
+  // Feigenbaum modulates saturation / hue
+  float fg_mod = fg;
+
+  // ── Spectral time shift: different layers drift at different eigenfrequencies
+  float t_shift = t * 0.08 + u_pal_shift + fg_mod * 0.3;
+  float val2 = val + ep * 0.15 + sv * 0.08;
+
+  // ── Dual cosine palette blend
+  vec3 c1 = cospal(val2 + t_shift, u_pa, u_pb, u_pc, u_pd);
+  vec3 c2 = cospal(val2 - t_shift*0.7 + 0.4, u_pa2, u_pb2, u_pc2, u_pd2);
+  vec3 col = mix(c1, c2, u_pal_mix * (0.5 + 0.5*sin(t*0.23 + val*3.14)));
+
+  // ── Complex exponential colour warping (de Moivre harmonic iridescence)
+  float ang = atan(uv.y, uv.x);
+  float dm_r = length(kuv);
+  vec2 dm_exp = cexp(vec2(-dm_r*0.6, ang*float(u_symmetry)*0.5 + t*0.4));
+  col += 0.12 * vec3(dm_exp.x+0.5, abs(dm_exp.y), dm_exp.x*dm_exp.y+0.5);
+
+  // ── Edge glow via gradient magnitude proxy
+  float glow = 1.0 - smoothstep(0.0, 0.06, abs(jv - 0.5));
+  col += glow * 0.18 * vec3(0.2, 0.8, 1.0);
+
+  // ── Vignette
+  float vig = 1.0 - 0.45*smoothstep(0.5, 1.4, length((fc/u_res)-0.5)*2.0);
+  col *= vig;
+
+  // ── HDR tone map (Reinhard)
+  col = col / (col + vec3(0.85));
+  col = pow(clamp(col, 0.0, 1.0), vec3(0.88));
+
+  fragColor = vec4(col, 1.0);
+}
+`;
+
+// ─── WEBGL PROGRAM SETUP ─────────────────────────────────────────────────────
+let prog, ufm = {};
+
+function compileShader(src, type) {
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+    console.error(gl.getShaderInfoLog(s));
+    return null;
+  }
+  return s;
+}
+
+function buildProgram() {
+  // Try WebGL2 first, fall back to WebGL1 compatible version
+  let vs_src = VS, fs_src = FS;
+  const isWebGL2 = gl instanceof (window.WebGL2RenderingContext || Object);
+  if (!isWebGL2) {
+    vs_src = vs_src.replace('#version 300 es\n','').replace('in vec2','attribute vec2');
+    fs_src = fs_src.replace('#version 300 es\n','')
+                   .replace('out vec4 fragColor;','')
+                   .replace('fragColor','gl_FragColor')
+                   .replace(/\bfract\b/g,'fract');
+  }
+  const vs = compileShader(vs_src, gl.VERTEX_SHADER);
+  const fs = compileShader(fs_src, gl.FRAGMENT_SHADER);
+  if (!vs || !fs) return false;
+  prog = gl.createProgram();
+  gl.attachShader(prog, vs); gl.attachShader(prog, fs);
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+    console.error(gl.getProgramInfoLog(prog)); return false;
+  }
+  gl.useProgram(prog);
+
+  // Fullscreen quad
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  const loc = gl.getAttribLocation(prog, 'a_pos');
+  gl.enableVertexAttribArray(loc);
+  gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+
+  // Cache uniforms
+  const unames = ['u_res','u_time','u_julia_c','u_julia_power','u_symmetry','u_zoom',
+    'u_feig_r','u_lie_w1','u_lie_w2','u_hilb_alpha','u_svd_mix','u_tensor_freq',
+    'u_mink_k','u_pa','u_pb','u_pc','u_pd','u_pa2','u_pb2','u_pc2','u_pd2',
+    'u_pal_mix','u_pal_shift','u_frac_mix','u_phase_offset'];
+  unames.forEach(n => ufm[n] = gl.getUniformLocation(prog, n));
+  ufm.u_eigen = [];
+  for (let i=0; i<8; i++) ufm.u_eigen.push(gl.getUniformLocation(prog, `u_eigen[${i}]`));
+  ufm.u_layer_w = [];
+  for (let i=0; i<5; i++) ufm.u_layer_w.push(gl.getUniformLocation(prog, `u_layer_w[${i}]`));
+  return true;
+}
+
+// ─── PARAMETER GENERATION ────────────────────────────────────────────────────
+const PALETTE_PRESETS = [
+  // [a, b, c, d] cosine palette vectors
+  { a:[0.5,0.5,0.5], b:[0.5,0.5,0.5], c:[1.0,1.0,1.0], d:[0.00,0.33,0.67] },
+  { a:[0.5,0.5,0.5], b:[0.5,0.5,0.5], c:[1.0,1.0,1.0], d:[0.00,0.10,0.20] },
+  { a:[0.5,0.5,0.5], b:[0.5,0.5,0.5], c:[1.0,1.0,1.0], d:[0.30,0.20,0.20] },
+  { a:[0.5,0.5,0.5], b:[0.5,0.5,0.5], c:[1.0,1.0,0.5], d:[0.80,0.90,0.30] },
+  { a:[0.5,0.5,0.5], b:[0.5,0.5,0.5], c:[1.0,0.7,0.4], d:[0.00,0.15,0.20] },
+  { a:[0.5,0.5,0.5], b:[0.5,0.5,0.5], c:[2.0,1.0,0.0], d:[0.50,0.20,0.25] },
+  { a:[0.8,0.5,0.4], b:[0.2,0.4,0.2], c:[2.0,1.0,1.0], d:[0.00,0.25,0.25] },
+  { a:[0.1,0.3,0.6], b:[0.9,0.5,0.3], c:[0.8,1.2,0.5], d:[0.10,0.40,0.70] },
+  { a:[0.2,0.0,0.5], b:[0.8,0.6,0.4], c:[1.5,1.0,0.8], d:[0.00,0.20,0.50] },
+  { a:[0.6,0.2,0.1], b:[0.4,0.7,0.8], c:[0.5,1.0,1.5], d:[0.90,0.10,0.30] },
+];
+
+function randPalette() {
+  const p = choose(PALETTE_PRESETS);
+  // Add random perturbation
+  const perturb = v => v.map(x => Math.max(0, Math.min(1, x + R(-0.15,0.15))));
+  return { a: perturb(p.a), b: perturb(p.b), c: perturb(p.c), d: perturb(p.d) };
+}
+
+function generateParams() {
+  const sym = Ri(3, 13);
+  // Julia c on the boundary of parameter space for interesting sets
+  const julia_angle = R(0, TWO_PI);
+  const julia_r = R(0.6, 1.1);
+  const julia_c = [julia_r*Math.cos(julia_angle), julia_r*Math.sin(julia_angle)];
+
+  // Eigenphase: 8 modes, Σ |aₖ|² normalized
+  const eigen = [];
+  for (let k=0; k<8; k++) {
+    const amp = R(0.1, 1.0);
+    const freq = R(0.1, 2.5) * (Math.random()<0.5 ? 1 : -1);
+    const kx = R(-4, 4);
+    const ky = R(-4, 4);
+    eigen.push([amp, freq, kx, ky]);
+  }
+  // Normalize amplitudes
+  const asum = eigen.reduce((s,e)=>s+e[0], 0);
+  eigen.forEach(e => e[0] /= asum);
+
+  const pal1 = randPalette();
+  const pal2 = randPalette();
+
+  // Layer weights (Dirichlet-like sample)
+  const lw = Array.from({length:5}, ()=>Math.random()**1.5);
+  const lsum = lw.reduce((a,b)=>a+b,0);
+  const layer_w = lw.map(x=>x/lsum);
+
+  const p = {
+    julia_c,
+    julia_power:  R(1.8, 4.0),
+    symmetry:     sym,
+    zoom:         R(0.5, 2.2),
+    feig_r:       R(3.5, 3.99),   // chaotic regime
+    lie_w1:       R(0.05, 0.35),
+    lie_w2:       R(0.03, 0.28),
+    hilb_alpha:   R(0.05, 0.4),
+    svd_mix:      R(0.2, 1.0),
+    tensor_freq:  R(3.0, 12.0),
+    mink_k:       R(1.2, 4.0),
+    eigen,
+    pal1, pal2,
+    pal_mix:      R(0.2, 0.8),
+    pal_shift:    Math.random(),
+    frac_mix:     R(0.0, 0.9),
+    layer_w,
+    phase_offset: R(0, TWO_PI),
+    // Audio params derived from visual
+    audio_base_freq: R(40, 120),
+    audio_harmonics: Ri(4, 8),
+    audio_fm_depth:  R(0.3, 2.0),
+  };
+  return p;
+}
+
+// ─── AUDIO ENGINE ────────────────────────────────────────────────────────────
+function initAudio() {
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+}
+
+function buildAudioGraph() {
+  if (!audioCtx) return;
+  teardownAudio();
+
+  const ctx = audioCtx;
+  const master = ctx.createGain();
+  master.gain.setValueAtTime(0.0, ctx.currentTime);
+  master.gain.linearRampToValueAtTime(0.35, ctx.currentTime + 2.0);
+
+  // Feedback delay network (reverb-like)
+  const feedbackDelay1 = ctx.createDelay(2.0);
+  const feedbackDelay2 = ctx.createDelay(2.0);
+  const feedGain1 = ctx.createGain();
+  const feedGain2 = ctx.createGain();
+  feedbackDelay1.delayTime.value = 0.13 + (P.julia_c[0]+1)*0.07;
+  feedbackDelay2.delayTime.value = 0.17 + (P.julia_c[1]+1)*0.09;
+  feedGain1.gain.value = 0.55;
+  feedGain2.gain.value = 0.48;
+  feedbackDelay1.connect(feedGain1); feedGain1.connect(feedbackDelay1);
+  feedbackDelay2.connect(feedGain2); feedGain2.connect(feedbackDelay2);
+  feedGain1.connect(master); feedGain2.connect(master);
+
+  // Oscillator bank mapped to eigenvalues
+  const oscs = [];
+  const base = P.audio_base_freq;
+  const ratios = [1, P.julia_power/2, P.symmetry/4, 1.618, 2.718, 3.14159, P.mink_k, 1.732];
+
+  for (let k = 0; k < P.audio_harmonics; k++) {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const lfo = ctx.createOscillator();
+    const lfoGain = ctx.createGain();
+    const panner = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
+
+    const freq = base * ratios[k % ratios.length];
+    const amp = P.eigen[k % 8][0] * 0.25;
+    const types = ['sine','sine','triangle','sine','sawtooth','sine','triangle','sine'];
+    osc.type = types[k % types.length];
+    osc.frequency.value = freq;
+
+    // LFO for FM modulation (spectral decomposition → frequency)
+    lfo.type = 'sine';
+    lfo.frequency.value = P.eigen[k % 8][1] * 0.5 + 0.3;
+    lfoGain.gain.value = freq * P.audio_fm_depth * P.eigen[k%8][0];
+    lfo.connect(lfoGain);
+    lfoGain.connect(osc.frequency);
+
+    gain.gain.setValueAtTime(amp, ctx.currentTime);
+    // Slow amplitude modulation from tensor product frequency
+    const ampMod = ctx.createOscillator();
+    const ampModGain = ctx.createGain();
+    ampMod.frequency.value = P.tensor_freq * 0.05 + k * 0.03;
+    ampModGain.gain.value = amp * 0.4;
+    ampMod.connect(ampModGain);
+    ampModGain.connect(gain.gain);
+    ampMod.start();
+
+    osc.connect(gain);
+    if (panner) {
+      panner.pan.value = (k % 2 === 0 ? 1 : -1) * R(0.1, 0.7);
+      gain.connect(panner);
+      panner.connect(feedbackDelay1);
+      panner.connect(feedbackDelay2);
+      panner.connect(master);
+    } else {
+      gain.connect(feedbackDelay1);
+      gain.connect(feedbackDelay2);
+      gain.connect(master);
+    }
+    osc.start(); lfo.start();
+    oscs.push(osc, lfo, ampMod);
+  }
+
+  // Noise shaper: pink-ish noise through resonant filter
+  const bufSize = 4096;
+  const noiseNode = ctx.createScriptProcessor ?
+    ctx.createScriptProcessor(bufSize, 0, 1) : null;
+  if (noiseNode) {
+    let b0=0,b1=0,b2=0,b3=0,b4=0,b5=0;
+    noiseNode.onaudioprocess = function(e) {
+      const out = e.outputBuffer.getChannelData(0);
+      for (let i=0;i<bufSize;i++) {
+        const white = Math.random()*2-1;
+        b0=0.99886*b0+white*0.0555179; b1=0.99332*b1+white*0.0750759;
+        b2=0.96900*b2+white*0.1538520; b3=0.86650*b3+white*0.3104856;
+        b4=0.55000*b4+white*0.5329522; b5=-0.7616*b5-white*0.0168980;
+        out[i]=(b0+b1+b2+b3+b4+b5+white*0.5362)*0.11;
+      }
+    };
+    const bpf = ctx.createBiquadFilter();
+    bpf.type = 'bandpass';
+    bpf.frequency.value = base * P.feig_r * 0.3;
+    bpf.Q.value = 8 + P.symmetry;
+    const noiseGain = ctx.createGain();
+    noiseGain.gain.value = 0.04;
+    noiseNode.connect(bpf); bpf.connect(noiseGain); noiseGain.connect(master);
+    oscs.push(noiseNode);
+  }
+
+  master.connect(ctx.destination);
+  audioNodes = { master, oscs };
+}
+
+function teardownAudio() {
+  if (audioNodes.master) {
+    try {
+      audioNodes.master.gain.linearRampToValueAtTime(0, audioCtx.currentTime+0.5);
+      setTimeout(()=>{
+        if (audioNodes.oscs) audioNodes.oscs.forEach(n=>{ try{n.stop&&n.stop(); n.disconnect&&n.disconnect();}catch(e){} });
+        try{ audioNodes.master.disconnect(); }catch(e){}
+      }, 600);
+    } catch(e) {}
+  }
+  audioNodes = {};
+}
+
+function setAudioEnabled(on) {
+  soundEnabled = on;
+  if (on) {
+    initAudio();
+    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+    if (!audioRunning) { buildAudioGraph(); audioRunning = true; }
+  } else {
+    if (audioRunning) {
+      teardownAudio();
+      audioRunning = false;
+    }
+  }
+}
+
+// ─── UNIFORM UPLOAD ──────────────────────────────────────────────────────────
+function uploadUniforms(t) {
+  gl.uniform2f(ufm.u_res, canvas.width, canvas.height);
+  gl.uniform1f(ufm.u_time, t);
+  gl.uniform2f(ufm.u_julia_c, P.julia_c[0], P.julia_c[1]);
+  gl.uniform1f(ufm.u_julia_power, P.julia_power);
+  gl.uniform1i(ufm.u_symmetry, P.symmetry);
+  gl.uniform1f(ufm.u_zoom, P.zoom);
+  gl.uniform1f(ufm.u_feig_r, P.feig_r);
+  gl.uniform1f(ufm.u_lie_w1, P.lie_w1);
+  gl.uniform1f(ufm.u_lie_w2, P.lie_w2);
+  gl.uniform1f(ufm.u_hilb_alpha, P.hilb_alpha);
+  gl.uniform1f(ufm.u_svd_mix, P.svd_mix);
+  gl.uniform1f(ufm.u_tensor_freq, P.tensor_freq);
+  gl.uniform1f(ufm.u_mink_k, P.mink_k);
+  P.eigen.forEach((e,i) => gl.uniform4f(ufm.u_eigen[i], e[0],e[1],e[2],e[3]));
+  gl.uniform3f(ufm.u_pa,  P.pal1.a[0],P.pal1.a[1],P.pal1.a[2]);
+  gl.uniform3f(ufm.u_pb,  P.pal1.b[0],P.pal1.b[1],P.pal1.b[2]);
+  gl.uniform3f(ufm.u_pc,  P.pal1.c[0],P.pal1.c[1],P.pal1.c[2]);
+  gl.uniform3f(ufm.u_pd,  P.pal1.d[0],P.pal1.d[1],P.pal1.d[2]);
+  gl.uniform3f(ufm.u_pa2, P.pal2.a[0],P.pal2.a[1],P.pal2.a[2]);
+  gl.uniform3f(ufm.u_pb2, P.pal2.b[0],P.pal2.b[1],P.pal2.b[2]);
+  gl.uniform3f(ufm.u_pc2, P.pal2.c[0],P.pal2.c[1],P.pal2.c[2]);
+  gl.uniform3f(ufm.u_pd2, P.pal2.d[0],P.pal2.d[1],P.pal2.d[2]);
+  gl.uniform1f(ufm.u_pal_mix, P.pal_mix);
+  gl.uniform1f(ufm.u_pal_shift, P.pal_shift);
+  gl.uniform1f(ufm.u_frac_mix, P.frac_mix);
+  gl.uniform1f(ufm.u_phase_offset, P.phase_offset);
+  P.layer_w.forEach((w,i) => gl.uniform1f(ufm.u_layer_w[i], w));
+}
+
+// ─── HUD UPDATE ──────────────────────────────────────────────────────────────
+function updateHUD() {
+  if (!hudVisible) return;
+  const fmt1 = v => v.toFixed(3);
+  const fmt2 = v => v.toFixed(2);
+  document.getElementById('h-sym').textContent   = `n = ${P.symmetry}`;
+  document.getElementById('h-julia').textContent = `c = ${fmt2(P.julia_c[0])} + ${fmt2(P.julia_c[1])}i`;
+  document.getElementById('h-pow').textContent   = fmt2(P.julia_power);
+  document.getElementById('h-feig').textContent  = fmt2(P.feig_r);
+  document.getElementById('h-lie').textContent   = `${fmt2(P.lie_w1)} / ${fmt2(P.lie_w2)}`;
+  document.getElementById('h-hilb').textContent  = `α=${fmt2(P.hilb_alpha)}`;
+  document.getElementById('h-svd').textContent   = fmt2(P.svd_mix);
+  document.getElementById('h-tensor').textContent= `f=${fmt1(P.tensor_freq)}`;
+  document.getElementById('h-pal').textContent   = `mix=${fmt2(P.pal_mix)} s=${fmt2(P.pal_shift)}`;
+  const ls = P.eigen.slice(0,3).map(e=>fmt2(e[1])).join(', ');
+  document.getElementById('h-eig').textContent   = `λ=[${ls}…]`;
+  document.getElementById('h-fps').textContent   = `${fps|0}`;
+}
+
+// ─── FLASH & TOAST ───────────────────────────────────────────────────────────
+function flash() {
+  const el = document.getElementById('flash');
+  el.style.opacity = '0.15';
+  setTimeout(()=>{ el.style.opacity='0'; }, 60);
+}
+
+let toastTimer;
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.style.opacity = '1';
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>{ el.style.opacity='0'; }, 1800);
+}
+
+// ─── REGENERATE ──────────────────────────────────────────────────────────────
+function regenerate() {
+  P = generateParams();
+  startTime = performance.now();
+  flash();
+  if (soundEnabled && audioRunning) {
+    teardownAudio();
+    audioRunning = false;
+    buildAudioGraph();
+    audioRunning = true;
+  }
+  if (hudVisible) updateHUD();
+}
+
+// ─── RENDER LOOP ─────────────────────────────────────────────────────────────
+function render(now) {
+  if (!running) return;
+  requestAnimationFrame(render);
+
+  // FPS
+  frameCount++;
+  const dt = now - lastTime;
+  if (now - fpsTimer > 500) {
+    fps = frameCount / ((now - fpsTimer + 0.001) / 1000);
+    fpsTimer = now; frameCount = 0;
+    if (hudVisible) updateHUD();
+  }
+  lastTime = now;
+
+  const t = (now - startTime) * 0.001;
+  gl.useProgram(prog);
+  uploadUniforms(t);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+}
+
+// ─── KEYBOARD & TOUCH ────────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.shiftKey) return; // prohibit SHIFT
+  const k = e.code || e.key;
+  if (k === 'Space' || k === ' ') { e.preventDefault(); regenerate(); toast('New Eigenstate Generated'); }
+  else if (k === 'KeyH' || k === 'h') {
+    hudVisible = !hudVisible;
+    document.getElementById('hud').style.display = hudVisible ? 'block' : 'none';
+    toast(hudVisible ? 'HUD ON' : 'HUD OFF');
+    if (hudVisible) updateHUD();
+  }
+  else if (k === 'KeyS' || k === 's') {
+    setAudioEnabled(!soundEnabled);
+    toast(soundEnabled ? '♪ Sound ON' : '♪ Sound OFF');
+  }
+});
+
+let tapThrottle = false;
+function onTap(e) {
+  if (e.target.closest && e.target.closest('#hud')) return;
+  if (tapThrottle) return;
+  tapThrottle = true;
+  setTimeout(()=>{ tapThrottle=false; }, 300);
+  regenerate();
+  toast('New Eigenstate Generated');
+}
+canvas.addEventListener('click', onTap);
+canvas.addEventListener('touchend', e=>{ e.preventDefault(); onTap(e); }, {passive:false});
+
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', ()=>{ setTimeout(resize, 200); });
+
+// ─── BOOT ────────────────────────────────────────────────────────────────────
+function boot() {
+  if (!initGL()) return;
+  resize();
+  if (!buildProgram()) return;
+  P = generateParams();
+  startTime = performance.now();
+  lastTime = startTime;
+  fpsTimer = startTime;
+  requestAnimationFrame(render);
+  // Subtle intro toast
+  setTimeout(()=>{ toast('SPACE / Tap → Regenerate  |  H → HUD  |  S → Sound'); }, 800);
+}
+
+boot();
+
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,907 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Quantum Kaleidoscope Manifold Engine</title>
+<meta name="description" content="Real-time WebGL2 GPU fractal: recursive Coxeter dihedral kaleidoscope, ray-marched implicit surfaces deformed by Bessel radial harmonics and spherical harmonics, fBm/IFS/logistic-map texturing, quaternion 4D rotation, and Web Audio granular synthesis modulated by the Feigenbaum bifurcation parameter.">
+<meta name="keywords" content="WebGL2,fragment shader,ray marching,SDF,kaleidoscope,Coxeter group,dihedral symmetry,Bessel function,spherical harmonics,fractal Brownian motion,IFS,logistic map,Feigenbaum,granular synthesis,generative art,quaternion,4D projection,ambient occlusion">
+<meta name="author" content="Quantum Kaleidoscope Manifold Engine">
+<meta name="robots" content="index,follow">
+<meta name="theme-color" content="#000008">
+<meta name="rating" content="general">
+<link rel="canonical" href="https://example.com/quantum-kaleidoscope">
+
+<!-- Open Graph -->
+<meta property="og:type" content="website">
+<meta property="og:title" content="Quantum Kaleidoscope Manifold Engine">
+<meta property="og:description" content="Interactive GPU fractal engine: Coxeter dihedral kaleidoscope, ray-marched Bessel-harmonic implicit surfaces, fBm/IFS/logistic texturing, and crystalline Web Audio granular synthesis.">
+<meta property="og:image" content="https://example.com/og/quantum-kaleidoscope-1200x630.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Vivid recursive kaleidoscope fractal with spectral color cycling and ray-marched implicit surface">
+<meta property="og:url" content="https://example.com/quantum-kaleidoscope">
+<meta property="og:site_name" content="Quantum Kaleidoscope Manifold Engine">
+<meta property="og:locale" content="en_US">
+
+<!-- Twitter Card -->
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Quantum Kaleidoscope Manifold Engine">
+<meta name="twitter:description" content="Real-time GPU fractal with Coxeter kaleidoscope symmetry, ray-marched harmonics, and granular audio synthesis.">
+<meta name="twitter:image" content="https://example.com/og/quantum-kaleidoscope-1200x630.jpg">
+<meta name="twitter:image:alt" content="Recursive kaleidoscope fractal animation with spectral colors">
+
+<!-- JSON-LD Structured Data -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "Quantum Kaleidoscope Manifold Engine",
+  "alternateName": "QKME",
+  "description": "A real-time WebGL2 GPU-accelerated fractal animation engine featuring recursive kaleidoscopic reflections based on Coxeter group dihedral symmetry (orders 3,4,5,6,7,8,12,16), continuously morphing implicit surfaces defined by superpositions of Bessel function J_n(r) radial harmonics and spherical harmonic Y_l^m angular basis functions with Riemannian metric tensor distortions, ray-marched via signed distance functions with soft-shadow ambient occlusion, textured by fractal Brownian motion layered with logistic-map bifurcation cascade noise and IFS affine tile patterns, colored through HSL spectral gradients via complex exponential phase rotation e^(iθ), animated by quaternion slerp 4D projections, and sonified by Web Audio granular synthesis modulated by the Feigenbaum bifurcation parameter.",
+  "applicationCategory": "MultimediaApplication",
+  "applicationSubCategory": "GenerativeArt",
+  "operatingSystem": "Any",
+  "browserRequirements": "WebGL2, Web Audio API, modern browser",
+  "softwareVersion": "1.0.0",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "creator": { "@type": "Organization", "name": "Quantum Kaleidoscope Manifold Engine" },
+  "featureList": [
+    "WebGL2 GPU-accelerated real-time 60 fps rendering",
+    "Recursive kaleidoscopic reflections via Coxeter group dihedral symmetry D_n (n∈{3,4,5,6,7,8,12,16})",
+    "Ray-marched signed distance function (SDF) implicit surfaces",
+    "Soft-shadow ambient occlusion lighting",
+    "Bessel function J_n(r) radial harmonic surface deformations (J0, J1, J2)",
+    "Real spherical harmonic Y_l^m angular basis function deformations (l=0..4)",
+    "Riemannian metric tensor field distortions",
+    "Fractal Brownian motion (fBm) layered texture synthesis with gradient noise",
+    "Logistic-map bifurcation cascade noise texture",
+    "IFS affine tile pattern synthesis",
+    "HSL spectral gradient interpolation with complex exponential phase rotation e^(iθ)",
+    "Quaternion slerp 4D projection animation at varying angular velocities per axis",
+    "Web Audio crystalline granular synthesis with Gaussian-windowed sine bursts",
+    "Feigenbaum bifurcation parameter grain-rate modulation",
+    "Interactive parameter randomization (SPACE / click)",
+    "Full-spectrum parameter HUD (H key)",
+    "Audio toggle (S key)"
+  ],
+  "interactivityType": "active",
+  "accessibilityFeature": ["highContrast", "colorIndependent", "keyboardControl"],
+  "keywords": "fractal,kaleidoscope,WebGL2,generative art,ray marching,Bessel functions,spherical harmonics,quaternion,granular synthesis,Feigenbaum,Coxeter"
+}
+</script>
+
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;background:#000;overflow:hidden}
+body{font-family:'Courier New',Courier,monospace}
+
+#c{
+  position:fixed;
+  top:0;left:0;
+  width:100vw;height:100vh;
+  display:block;
+  cursor:crosshair;
+  image-rendering:auto;
+}
+
+/* ── HUD ── */
+#hud{
+  display:none;
+  position:fixed;top:18px;left:18px;
+  z-index:30;pointer-events:none;
+  color:rgba(180,230,255,.9);
+  font-size:11.5px;line-height:1.8;
+  background:linear-gradient(135deg,rgba(0,6,20,.78),rgba(0,10,30,.65));
+  border:1px solid rgba(60,160,255,.28);
+  border-radius:8px;
+  padding:16px 20px 14px;
+  backdrop-filter:blur(10px);
+  box-shadow:0 0 40px rgba(30,100,255,.12),0 0 0 1px rgba(255,255,255,.04) inset;
+  max-width:420px;
+}
+#hud h2{
+  font-size:12px;letter-spacing:3px;text-transform:uppercase;
+  color:rgba(100,210,255,1);
+  margin-bottom:12px;padding-bottom:8px;
+  border-bottom:1px solid rgba(60,160,255,.25);
+  text-shadow:0 0 16px rgba(100,200,255,.6);
+}
+#hud table{border-collapse:collapse;width:100%}
+#hud td{padding:1.5px 0;vertical-align:top}
+#hud td:first-child{
+  color:rgba(80,170,255,.65);
+  padding-right:14px;white-space:nowrap;
+  font-size:10.5px;letter-spacing:.5px;
+}
+#hud td:last-child{color:rgba(200,235,255,.88);}
+#hud .sep{
+  border:none;border-top:1px solid rgba(60,160,255,.2);
+  display:block;margin:8px 0;
+}
+#hud .keys{
+  color:rgba(80,150,255,.55);font-size:10px;
+  letter-spacing:.5px;margin-top:8px;
+}
+#hud .on{color:rgba(100,240,180,1);}
+#hud .off{color:rgba(120,130,150,.6);}
+
+/* ── Corner hint ── */
+#hint{
+  position:fixed;bottom:18px;right:18px;z-index:30;
+  color:rgba(255,255,255,.28);font-size:10.5px;
+  letter-spacing:.8px;pointer-events:none;
+  transition:opacity 4s ease;
+  text-shadow:0 0 8px rgba(100,160,255,.3);
+}
+
+/* ── WebGL error overlay ── */
+#err{
+  display:none;position:fixed;inset:0;
+  background:#000014;color:#f99;
+  font:16px/1.6 'Courier New',monospace;
+  align-items:center;justify-content:center;
+  text-align:center;padding:2em;z-index:999;
+}
+</style>
+</head>
+<body>
+
+<main>
+  <canvas id="c"
+    role="img"
+    aria-label="Quantum Kaleidoscope Manifold Engine — a real-time GPU fractal animation featuring recursive kaleidoscopic reflections with Coxeter dihedral symmetry, ray-marched implicit surfaces deformed by Bessel function harmonics and spherical harmonics, textured by fractal Brownian motion and IFS affine tile patterns, colored through spectral gradients. Press SPACE or click to randomize all parameters. Press H to toggle the parameter HUD, S to toggle audio.">
+  </canvas>
+
+  <aside id="hud" role="complementary" aria-label="Live rendering parameters">
+    <h2>⬡ Quantum Kaleidoscope Manifold</h2>
+    <div id="hud-inner"></div>
+  </aside>
+
+  <p id="hint" aria-hidden="true">SPACE / CLICK: Randomize &nbsp;·&nbsp; H: HUD &nbsp;·&nbsp; S: Sound</p>
+</main>
+
+<div id="err" role="alert" aria-live="assertive">
+  <div>
+    <strong>WebGL2 Required</strong><br><br>
+    This experience requires WebGL2 support.<br>
+    Please use Chrome 56+, Firefox 51+, or Edge 79+.
+  </div>
+</div>
+
+<script>
+/* ================================================================
+   QUANTUM KALEIDOSCOPE MANIFOLD ENGINE  ·  v1.0
+   ================================================================
+   · WebGL2 fragment shader, full-window 60fps animation
+   · Coxeter group dihedral symmetry kaleidoscope (D_n, n∈{3..16})
+   · Ray-marched SDF implicit surface with soft-shadow AO
+   · Bessel J0/J1/J2 radial harmonics + real Y_l^m spherical harmonics
+   · Riemannian metric tensor field distortions
+   · fBm gradient noise + logistic-map bifurcation + IFS affine tiles
+   · HSL spectral gradient via complex exponential e^(iθ) per pixel
+   · Quaternion slerp 4D projection at varying per-axis speeds
+   · Web Audio granular synthesis – Gaussian-windowed sine bursts
+   · Feigenbaum bifurcation param modulates grain rate in real time
+   · SPACE/Click: randomize · H: HUD · S: sound
+   ================================================================ */
+'use strict';
+
+// ── Constants ────────────────────────────────────────────────
+const TAU = Math.PI * 2;
+const SYM_ORDERS = [3,4,5,6,7,8,12,16];
+
+// ── Global state ─────────────────────────────────────────────
+let ST = {
+  sym: 6, l: 2, m: 1,
+  colorPhase: 0.4,
+  fbmOct: 5,
+  ifsA: [0.52, -0.08, 0.12, 0.47],
+  ifsB: [0.45, 0.32, 0.22, 0.18],
+  ifsT: [0.28, 0.19],
+  bifur: 3.74,
+  rspd: [0.11, -0.07, 0.05, -0.08],
+  hud: false,
+  snd: false,
+  t: 0,
+};
+
+const rnd = Math.random.bind(Math);
+const rr = (a,b) => a + rnd()*(b-a);
+const pick = a => a[0|(rnd()*a.length)];
+
+function randomize() {
+  ST.sym        = pick(SYM_ORDERS);
+  ST.l          = 0|(rnd()*5);
+  ST.m          = (0|(rnd()*(2*ST.l+1))) - ST.l;
+  ST.colorPhase = rnd()*TAU;
+  ST.fbmOct     = 2 + (0|(rnd()*7));
+  ST.ifsA       = [rr(.15,.72), rr(-.45,.45), rr(-.45,.45), rr(.15,.72)];
+  ST.ifsB       = [rr(.12,.55), rr(-.55,.55), rr(.05,.52), rr(.05,.52)];
+  ST.ifsT       = [rnd()*.55, rnd()*.55];
+  ST.bifur      = rr(3.501, 3.999);
+  ST.rspd       = Array.from({length:4}, () => rr(.018,.19)*(rnd()<.5?1:-1));
+  if (ST.snd) retrigger();
+  renderHUD();
+}
+
+// ── WebGL2 canvas ────────────────────────────────────────────
+const CV = document.getElementById('c');
+const gl = CV.getContext('webgl2', {
+  antialias: false,
+  powerPreference: 'high-performance',
+  preserveDrawingBuffer: false,
+  depth: false, stencil: false, alpha: false,
+});
+
+if (!gl) {
+  document.getElementById('err').style.display = 'flex';
+  CV.style.display = 'none';
+  throw 0;
+}
+
+// ── Vertex Shader ────────────────────────────────────────────
+const VS = `#version 300 es
+in vec2 aP;
+void main(){ gl_Position = vec4(aP, 0., 1.); }`;
+
+// ── Fragment Shader ──────────────────────────────────────────
+const FS = `#version 300 es
+precision highp float;
+
+uniform float uT;        // elapsed time (seconds)
+uniform vec2  uR;        // resolution (px)
+uniform float uSym;      // dihedral symmetry order n
+uniform float uL, uM;   // spherical harmonic l, m
+uniform float uPh;       // color phase offset (radians)
+uniform int   uOct;      // fBm octave count
+uniform mat3  uRot;      // rotation matrix (from quaternion)
+uniform vec4  uIA, uIB;  // IFS affine parameters
+uniform vec2  uIT;       // IFS translation
+uniform float uBif;      // logistic bifurcation param r
+
+out vec4 outC;
+
+const float PI  = 3.14159265359;
+const float TAU = 6.28318530718;
+const float HUGE = 1e9;
+
+/* ─── Hash functions ──────────────────────────────────────── */
+float H1f(float n){ return fract(sin(n)*43758.5453123); }
+float H1v(vec2 p){ return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453123); }
+vec3  H3v(vec3 p){
+  p = vec3(dot(p,vec3(127.1,311.7,74.7)),
+           dot(p,vec3(269.5,183.3,246.1)),
+           dot(p,vec3(113.5,271.9,124.6)));
+  return fract(sin(p)*43758.5453123);
+}
+
+/* ─── Gradient (Perlin-style) noise ──────────────────────── */
+float gnoise(vec3 p){
+  vec3 i = floor(p), f = fract(p);
+  f = f*f*f*(f*(f*6.0-15.0)+10.0); // quintic ease
+  vec3 g0=H3v(i            )*2.-1., g1=H3v(i+vec3(1,0,0))*2.-1.,
+       g2=H3v(i+vec3(0,1,0))*2.-1., g3=H3v(i+vec3(1,1,0))*2.-1.,
+       g4=H3v(i+vec3(0,0,1))*2.-1., g5=H3v(i+vec3(1,0,1))*2.-1.,
+       g6=H3v(i+vec3(0,1,1))*2.-1., g7=H3v(i+vec3(1,1,1))*2.-1.;
+  vec3 d = f;
+  return 0.5 + mix(
+    mix(mix(dot(g0,d),          dot(g1,d-vec3(1,0,0)), f.x),
+        mix(dot(g2,d-vec3(0,1,0)), dot(g3,d-vec3(1,1,0)), f.x), f.y),
+    mix(mix(dot(g4,d-vec3(0,0,1)), dot(g5,d-vec3(1,0,1)), f.x),
+        mix(dot(g6,d-vec3(0,1,1)), dot(g7,d-vec3(1,1,1)), f.x), f.y), f.z);
+}
+
+/* ─── Fractal Brownian Motion ─────────────────────────────── */
+float fbm(vec3 p, int n){
+  float v=0., a=.5, f=1.;
+  for(int i=0; i<9; i++){
+    if(i >= n) break;
+    v += a * gnoise(p*f);
+    a *= .5; f *= 2.031;
+  }
+  return v;
+}
+
+/* ─── Logistic-map bifurcation noise ──────────────────────── */
+// Iterates the logistic map to steady state; chaos → noise texture
+float logNoise(vec2 uv){
+  float x = fract(sin(dot(uv, vec2(12.9898,78.233)))*43758.5453);
+  float r = uBif;
+  for(int i=0; i<40; i++) x = r*x*(1.0-x);
+  return x;
+}
+
+/* ─── IFS affine tile pattern ─────────────────────────────── */
+// Two affine transforms applied iteratively; choice hashed from position+iter
+vec2 ifs(vec2 p){
+  for(int i=0; i<8; i++){
+    float s = H1v(floor(p*4.0) + float(i)*vec2(7.39,13.71));
+    if(s < 0.5){
+      // General affine  (uIA = [a,b,c,d], translate uIT)
+      p = vec2(uIA.x*p.x + uIA.y*p.y,
+               uIA.z*p.x + uIA.w*p.y) + uIT;
+    } else {
+      // Similarity  (uIB.xy = [cosθ·s, sinθ·s], uIB.zw = translation)
+      p = vec2(uIB.x*p.x - uIB.y*p.y,
+               uIB.y*p.x + uIB.x*p.y) + uIB.zw;
+    }
+    p = fract(p);
+  }
+  return p;
+}
+
+/* ─── Coxeter Dihedral Kaleidoscope fold ──────────────────── */
+// Folds 3-space under the dihedral group D_n via iterated mirror reflections
+vec3 kFold(vec3 p, float n){
+  float ang = PI / n;
+  for(int iter=0; iter<3; iter++){
+    // Fold in the XY plane by dihedral angle
+    float a = atan(p.y, p.x);
+    a = mod(a, 2.0*ang);
+    if(a > ang) a = 2.0*ang - a;
+    p.xy = length(p.xy) * vec2(cos(a), sin(a));
+
+    // Fold in the YZ plane (extend D_n to 3D)
+    a = atan(p.z, p.y);
+    a = mod(a, 2.0*ang);
+    if(a > ang) a = 2.0*ang - a;
+    p.yz = length(p.yz) * vec2(cos(a), sin(a));
+
+    // Coxeter sorting swaps (tetrahedral extension)
+    if(p.x < p.y){ float t=p.x; p.x=p.y; p.y=t; }
+    if(p.x < p.z){ float t=p.x; p.x=p.z; p.z=t; }
+  }
+  return p;
+}
+
+/* ─── Bessel functions (Taylor series + asymptotic) ──────── */
+// J0(x): zeroth-order Bessel function of the first kind
+float J0(float x){
+  float ax = abs(x);
+  // Taylor/Maclaurin series accurate for |x|<6
+  float t = ax*(1./8.);
+  float t2 = t*t;
+  float tay = 1.0 + t2*(-2.2499997
+            + t2*( 1.2656208
+            + t2*(-0.3163866
+            + t2*( 0.0444479
+            + t2*(-0.0039444
+            + t2*  0.00021)))));
+  // Asymptotic expansion accurate for |x|>5
+  float asy = sqrt(0.636619772/max(ax,0.001))*cos(ax - 0.785398164);
+  return mix(tay, asy, smoothstep(4.0, 8.0, ax));
+}
+
+// J1(x): first-order Bessel function of the first kind
+float J1(float x){
+  float ax = abs(x);
+  float sg = x < 0.0 ? -1.0 : 1.0;
+  float t = ax*(1./8.);
+  float t2 = t*t;
+  float tay = ax*(0.5 + t2*(-0.56249985
+            + t2*( 0.21093573
+            + t2*(-0.03954289
+            + t2*( 0.00443319
+            + t2*(-0.00031761
+            + t2*  0.00001109))))));
+  float asy = sg * sqrt(0.636619772/max(ax,0.001)) * cos(ax - 2.356194491);
+  return mix(sg*tay, sg*abs(tay)*(sg*2.-1.)*0.+asy, smoothstep(4.0,8.0,ax));
+  // simpler blend:
+}
+
+// J1 cleaner version
+float BJ1(float x){
+  float ax=abs(x); float sg=x<0.?-1.:1.;
+  if(ax<5.){
+    float u=ax*ax;
+    return sg*ax*(.5+u*(-.0625+u*(2.6042e-3+u*(-5.4253e-5+u*5.4253e-7))));
+  }
+  return sg*sqrt(0.636620/ax)*cos(ax-2.356194);
+}
+
+// J2 via recurrence: J2(x) = (2/x)*J1(x) - J0(x)
+float J2(float x){
+  if(abs(x) < 1e-5) return 0.0;
+  return (2.0/x)*BJ1(x) - J0(x);
+}
+
+/* ─── Real Spherical Harmonics Y_l^m ─────────────────────── */
+// Normalized real spherical harmonics, l=0..4
+float SH(float l, float m, vec3 d){
+  d = normalize(d);
+  float x=d.x, y=d.y, z=d.z;
+  int li=int(l), mi=int(m);
+
+  if(li==0) return 0.282095;
+
+  if(li==1){
+    if(mi==-1) return 0.488603*y;
+    if(mi== 0) return 0.488603*z;
+                return 0.488603*x;
+  }
+  if(li==2){
+    if(mi==-2) return 1.092548*x*y;
+    if(mi==-1) return 1.092548*y*z;
+    if(mi== 0) return 0.315392*(2.0*z*z - x*x - y*y);
+    if(mi== 1) return 1.092548*x*z;
+                return 0.546274*(x*x - y*y);
+  }
+  if(li==3){
+    if(mi==-3) return 0.590044*y*(3.0*x*x - y*y);
+    if(mi==-2) return 2.890611*x*y*z;
+    if(mi==-1) return 0.457046*y*(4.0*z*z - x*x - y*y);
+    if(mi== 0) return 0.373176*z*(2.0*z*z - 3.0*(x*x+y*y));
+    if(mi== 1) return 0.457046*x*(4.0*z*z - x*x - y*y);
+    if(mi== 2) return 1.445306*z*(x*x - y*y);
+                return 0.590044*x*(x*x - 3.0*y*y);
+  }
+  // l==4
+  if(mi==-4) return 2.503343*x*y*(x*x - y*y);
+  if(mi==-3) return 1.770131*y*z*(3.0*x*x - y*y);
+  if(mi==-2) return 0.946175*x*y*(7.0*z*z - 1.0);
+  if(mi==-1) return 0.669047*y*z*(7.0*z*z - 3.0);
+  if(mi== 0){ float r2=x*x+y*y+z*z; return 0.105786*(35.0*z*z*z*z - 30.0*z*z*r2 + 3.0*r2*r2); }
+  if(mi== 1) return 0.669047*x*z*(7.0*z*z - 3.0);
+  if(mi== 2) return 0.473087*(x*x - y*y)*(7.0*z*z - 1.0);
+  if(mi== 3) return 1.770131*x*z*(x*x - 3.0*y*y);
+              return 0.625836*(x*x*(x*x - 3.0*y*y) - y*y*(3.0*x*x - y*y));
+}
+
+/* ─── Signed Distance Function ────────────────────────────── */
+// Implicit surface: base sphere deformed by Bessel radial harmonics,
+// spherical harmonic angular basis functions, and Riemannian metric distortions
+float sdf(vec3 p){
+  float r = length(p);
+
+  // Bessel function J_n(r) radial harmonics
+  float bess = 0.22*J0( r*2.8 - uT*0.38)
+             + 0.14*BJ1(r*4.5 + uT*0.27)
+             + 0.09*J2( r*6.3 - uT*0.19);
+
+  // Spherical harmonic Y_l^m angular deformation
+  float sh = SH(uL, uM, p) * 0.38;
+
+  // Riemannian metric tensor field distortion (anisotropic, time-varying)
+  float met = 0.10 * sin(p.x*3.1 + uT*0.52)
+            * cos(p.y*2.7 - uT*0.31)
+            * sin(p.z*3.6 + uT*0.43);
+
+  // Additional harmonic overtone
+  float ot = 0.05 * cos(r*8.0 - uT*0.6) * sin(p.x*p.y*4.0 + uT);
+
+  return r - (1.55 + bess + sh + met + ot);
+}
+
+/* ─── SDF in kaleidoscoped space ─────────────────────────── */
+float sdfK(vec3 p){ return sdf(kFold(p, uSym)); }
+
+/* ─── Surface normal via central differences ─────────────── */
+vec3 normal(vec3 p){
+  const float e = 0.003;
+  return normalize(vec3(
+    sdfK(p+vec3(e,0,0)) - sdfK(p-vec3(e,0,0)),
+    sdfK(p+vec3(0,e,0)) - sdfK(p-vec3(0,e,0)),
+    sdfK(p+vec3(0,0,e)) - sdfK(p-vec3(0,0,e))));
+}
+
+/* ─── Ambient Occlusion ───────────────────────────────────── */
+float ao(vec3 p, vec3 n){
+  float occ=0., sc=1.;
+  for(int i=1; i<=5; i++){
+    float h = 0.008 + 0.14*float(i)/5.0;
+    occ += (h - sdfK(p + h*n)) * sc;
+    sc *= 0.80;
+    if(occ > 0.40) break;
+  }
+  return clamp(1.0 - 2.8*occ, 0.0, 1.0);
+}
+
+/* ─── Soft Shadow ─────────────────────────────────────────── */
+float shadow(vec3 ro, vec3 rd){
+  float res=1.0, t=0.02;
+  for(int i=0; i<12; i++){
+    float h = sdfK(ro + rd*t);
+    if(h < 0.001) return 0.0;
+    res = min(res, 9.0*h/t);
+    t += clamp(h, 0.025, 0.35);
+    if(t > 7.0) break;
+  }
+  return clamp(res, 0.0, 1.0);
+}
+
+/* ─── Color: HSL + complex exponential phase rotation ───── */
+// HSL → RGB
+vec3 hsl2rgb(float h, float s, float l){
+  vec3 r = clamp(abs(mod(h*6.0 + vec3(0,4,2), 6.0) - 3.0) - 1.0, 0.0, 1.0);
+  return l + s*(r - 0.5)*(1.0 - abs(2.0*l - 1.0));
+}
+
+// Spectral color via complex e^(iθ) phase rotation
+// θ = v·2π + phase; Re(e^iθ)=cos(θ), Im(e^iθ)=sin(θ) drive chroma+hue
+vec3 spectra(float v, float phase){
+  float theta = v*TAU + phase;
+  float h = fract(theta/TAU);
+  float s = 0.72 + 0.28*cos(theta*1.6180339);  // golden ratio modulation
+  float l = 0.40 + 0.13*sin(theta*2.7182818);  // e modulation
+  return hsl2rgb(h, s, l);
+}
+
+/* ─── Main ─────────────────────────────────────────────────── */
+void main(){
+  vec2 uv = (gl_FragCoord.xy - 0.5*uR) / uR.y;
+
+  // Build camera ray, apply quaternion-derived rotation matrix
+  vec3 ro = uRot * vec3(0.0, 0.0, 5.2);
+  vec3 rd = uRot * normalize(vec3(uv * 1.35, -2.0));
+
+  // ── Ray march through kaleidoscoped SDF ──
+  float t = 0.08;
+  float dMin = HUGE;
+  bool hit = false;
+
+  for(int i=0; i<82; i++){
+    vec3 p = ro + rd*t;
+    float d = sdfK(p);
+    dMin = min(dMin, d);
+    if(d < 0.0016*(1.0 + t*0.2)){
+      hit = true;
+      break;
+    }
+    if(t > 14.0) break;
+    t += d * 0.54; // conservative: kaleidoscope fold changes Lipschitz
+  }
+
+  vec3 col = vec3(0.0);
+
+  if(hit){
+    vec3 p  = ro + rd*t;
+    vec3 kp = kFold(p, uSym);   // folded hit point (fundamental domain)
+    vec3 n  = normal(kp);
+
+    // ── Lighting ──
+    vec3 L1 = normalize(vec3(1.5, 2.2, 2.4));
+    vec3 L2 = normalize(vec3(-1.6,-0.9, 0.8));
+    float d1 = max(dot(n, L1), 0.0);
+    float d2 = max(dot(n, L2), 0.0) * 0.28;
+    float oc = ao(kp, n);
+    float sh = shadow(kp + n*0.018, L1);
+
+    // ── Texture synthesis ──
+    // Spherical coordinates as UV
+    float phi = atan(kp.y, kp.x) / TAU + 0.5;
+    float tht = acos(clamp(kp.z/max(length(kp),0.001), -1.0, 1.0)) / PI;
+    vec2  sph = vec2(phi, tht);
+
+    // fBm layered gradient noise
+    float fv = fbm(kp*2.2 + vec3(0.0, uT*0.04, uT*0.03), uOct);
+
+    // Logistic-map bifurcation cascade noise
+    float lv = logNoise(sph + vec2(uT*0.012, -uT*0.009));
+
+    // IFS affine tile pattern → oscillating scalar
+    vec2 ip = ifs(sph*1.7 + vec2(uT*0.005, -uT*0.004));
+    float iv = (0.5+0.5*sin(ip.x*TAU*2.5)) * (0.5+0.5*cos(ip.y*TAU*2.5));
+
+    // Composite texture value [0,1]
+    float tv = fv*0.50 + lv*0.28 + iv*0.22;
+
+    // ── Spectral colors via e^(iθ) ──
+    vec3 surfCol = spectra(tv,          uPh + uT*0.13);
+    vec3 rimCol  = spectra(tv + 0.35,   uPh + 1.05);
+    vec3 specCol = spectra(1.0 - tv,    uPh - 0.6);
+
+    // ── Lighting assembly ──
+    float lit = (d1*sh*0.75 + d2)*oc + 0.18*oc;
+    col = surfCol * lit;
+
+    // Specular (Blinn-Phong)
+    vec3 hv  = normalize(L1 - rd);
+    float sp = pow(max(dot(n, hv), 0.0), 62.0);
+    col += sp * 0.55 * oc * mix(vec3(1.0), specCol, 0.55);
+
+    // Fresnel rim glow
+    float fr = pow(1.0 - abs(dot(-rd, n)), 3.2);
+    col += rimCol * fr * 0.50;
+
+    // Subsurface-style back scatter
+    float back = max(dot(n, -L1), 0.0);
+    col += surfCol * back * 0.06;
+
+  } else {
+    // ── Background: nebula fBm + near-miss glow + stars ──
+    float bv = fbm(rd*4.0 + vec3(uT*0.03, 0.0, uT*0.02), 4);
+    col  = spectra(bv, uPh + PI) * (0.025 + 0.22*bv*bv*bv);
+
+    // Halo glow from near-miss distance
+    float glow = exp(-dMin * 3.2) * 0.60;
+    col += spectra(0.5, uPh + 0.7) * glow;
+
+    // Procedural stars
+    vec2 sid  = floor(rd.xy * 190.0 + 25.0);
+    float st  = pow(max(0.0, H1v(sid) - 0.966) / 0.034, 2.0);
+    float stC = H1v(sid + vec2(73.1, 41.7));
+    col += spectra(stC, 0.0) * st * 0.42;
+  }
+
+  // ── Vignette ──
+  float vig = 1.0 - 0.55*dot(uv*1.3, uv*1.3);
+  col *= clamp(vig, 0.0, 1.0);
+
+  // ── Tone mapping (Reinhard) + gamma ──
+  col  = col / (col + vec3(0.80));
+  col  = pow(max(col, 0.0), vec3(1.0/2.2));
+
+  outC = vec4(col, 1.0);
+}`;
+
+// ── Compile & link shaders ───────────────────────────────────
+function mkShader(type, src) {
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+    const msg = gl.getShaderInfoLog(s);
+    console.error('Shader compile error:\n', msg);
+    src.split('\n').forEach((l,i) => console.log(`${(i+1+'').padStart(4)}: ${l}`));
+    throw new Error(msg);
+  }
+  return s;
+}
+
+const prog = gl.createProgram();
+gl.attachShader(prog, mkShader(gl.VERTEX_SHADER, VS));
+gl.attachShader(prog, mkShader(gl.FRAGMENT_SHADER, FS));
+gl.linkProgram(prog);
+if (!gl.getProgramParameter(prog, gl.LINK_STATUS))
+  throw new Error('Link error: ' + gl.getProgramInfoLog(prog));
+gl.useProgram(prog);
+
+// ── Full-screen quad ─────────────────────────────────────────
+const VAO = gl.createVertexArray();
+gl.bindVertexArray(VAO);
+const VBO = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, VBO);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+const aP = gl.getAttribLocation(prog, 'aP');
+gl.enableVertexAttribArray(aP);
+gl.vertexAttribPointer(aP, 2, gl.FLOAT, false, 0, 0);
+
+// ── Uniform locations ─────────────────────────────────────────
+const U = {
+  T:   gl.getUniformLocation(prog,'uT'),
+  R:   gl.getUniformLocation(prog,'uR'),
+  Sym: gl.getUniformLocation(prog,'uSym'),
+  L:   gl.getUniformLocation(prog,'uL'),
+  M:   gl.getUniformLocation(prog,'uM'),
+  Ph:  gl.getUniformLocation(prog,'uPh'),
+  Oct: gl.getUniformLocation(prog,'uOct'),
+  Rot: gl.getUniformLocation(prog,'uRot'),
+  IA:  gl.getUniformLocation(prog,'uIA'),
+  IB:  gl.getUniformLocation(prog,'uIB'),
+  IT:  gl.getUniformLocation(prog,'uIT'),
+  Bif: gl.getUniformLocation(prog,'uBif'),
+};
+
+// ── Quaternion math ──────────────────────────────────────────
+const qMul = ([w1,x1,y1,z1],[w2,x2,y2,z2]) => [
+  w1*w2-x1*x2-y1*y2-z1*z2,
+  w1*x2+x1*w2+y1*z2-z1*y2,
+  w1*y2-x1*z2+y1*w2+z1*x2,
+  w1*z2+x1*y2-y1*x2+z1*w2
+];
+const qNorm = q => { const l=Math.hypot(...q); return q.map(v=>v/l); };
+
+function axisAngle(ax,ay,az,a){
+  const s=Math.sin(a*.5), c=Math.cos(a*.5), n=Math.hypot(ax,ay,az)||1;
+  return [c, ax/n*s, ay/n*s, az/n*s];
+}
+
+// Quaternion slerp
+function qSlerp(a,b,t){
+  let d = a[0]*b[0]+a[1]*b[1]+a[2]*b[2]+a[3]*b[3];
+  if(d<0){ b=b.map(v=>-v); d=-d; }
+  if(d>.9995) return qNorm(a.map((v,i)=>v+(b[i]-v)*t));
+  const th=Math.acos(d), s=Math.sin(th);
+  return a.map((v,i)=>(v*Math.sin((1-t)*th)+b[i]*Math.sin(t*th))/s);
+}
+
+// Quaternion → column-major mat3 (for GLSL uniformMatrix3fv)
+function qToMat3([w,x,y,z]){
+  return new Float32Array([
+    1-2*(y*y+z*z),  2*(x*y+w*z),    2*(x*z-w*y),
+    2*(x*y-w*z),    1-2*(x*x+z*z),  2*(y*z+w*x),
+    2*(x*z+w*y),    2*(y*z-w*x),    1-2*(x*x+y*y),
+  ]);
+}
+
+// ── Resize handler ────────────────────────────────────────────
+let W=0, H=0;
+function resize(){
+  const dpr = Math.min(devicePixelRatio, 2); // cap at 2x for performance
+  W = Math.floor(window.innerWidth  * dpr);
+  H = Math.floor(window.innerHeight * dpr);
+  CV.width  = W;
+  CV.height = H;
+  gl.viewport(0, 0, W, H);
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ── Quaternion animation ──────────────────────────────────────
+let curQ = [1,0,0,0];
+
+function buildQ(t){
+  // Four independent axis-angle rotations slerped together
+  const [s0,s1,s2,s3] = ST.rspd;
+  let q = axisAngle(1,0,0, s0*t);
+  q = qMul(q, axisAngle(0,1,0, s1*t));
+  q = qMul(q, axisAngle(0,0,1, s2*t));
+  q = qMul(q, axisAngle(.5774,.5774,.5774, s3*t)); // body diagonal
+  return qNorm(q);
+}
+
+// ── Render loop ───────────────────────────────────────────────
+let lastTs = 0;
+
+function frame(ts){
+  const dt = Math.min((ts - lastTs)*0.001, 0.05);
+  lastTs = ts;
+  ST.t          += dt;
+  ST.colorPhase += dt * 0.22;
+
+  curQ = buildQ(ST.t);
+
+  gl.uniform1f(U.T,   ST.t);
+  gl.uniform2f(U.R,   W, H);
+  gl.uniform1f(U.Sym, ST.sym);
+  gl.uniform1f(U.L,   ST.l);
+  gl.uniform1f(U.M,   ST.m);
+  gl.uniform1f(U.Ph,  ST.colorPhase);
+  gl.uniform1i(U.Oct, ST.fbmOct);
+  gl.uniformMatrix3fv(U.Rot, false, qToMat3(curQ));
+  gl.uniform4fv(U.IA,  new Float32Array(ST.ifsA));
+  gl.uniform4fv(U.IB,  new Float32Array(ST.ifsB));
+  gl.uniform2fv(U.IT,  new Float32Array(ST.ifsT));
+  gl.uniform1f(U.Bif, ST.bifur);
+
+  gl.bindVertexArray(VAO);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+  if(ST.hud) renderHUD();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(ts => { lastTs=ts; requestAnimationFrame(frame); });
+
+// ── Web Audio granular synthesis ─────────────────────────────
+// Gaussian-windowed sine-burst grains whose rate is modulated by the
+// Feigenbaum bifurcation parameter via iterated logistic map
+let ACX = null, grainTimer = null;
+
+function ensureAudio(){
+  if(!ACX) ACX = new (window.AudioContext||window.webkitAudioContext)();
+  if(ACX.state==='suspended') ACX.resume();
+}
+
+function spawnGrain(){
+  if(!ACX || !ST.snd) return;
+  const now = ACX.currentTime;
+
+  // Iterate logistic map to approximate steady-state / attractor
+  let x = 0.5, r = ST.bifur;
+  for(let i=0; i<60; i++) x = r*x*(1-x);
+  // At r<3.449: fixed point; r<3.544: period-2; ...; r→4: chaos
+  const x2 = r*(r*x*(1-x))*(1-(r*x*(1-x))); // one more step for variety
+
+  // Grain parameters driven by bifurcation attractor value
+  const freqBase = 130 + x*820;           // 130–950 Hz
+  const freqEnd  = freqBase*(1+x2*.12);   // pitch glide
+  const dur      = 0.012 + x*0.088;       // 12–100 ms grain
+  const gainPk   = 0.055 * (0.25 + 0.75*x);
+
+  // Master envelope (Gaussian window approximated via piecewise linear)
+  const env = ACX.createGain();
+  env.gain.setValueAtTime(0, now);
+  env.gain.linearRampToValueAtTime(gainPk,   now + dur*0.12);
+  env.gain.setTargetAtTime(gainPk*0.6,       now + dur*0.12, dur*0.18);
+  env.gain.exponentialRampToValueAtTime(1e-5, now + dur);
+  env.connect(ACX.destination);
+
+  // Crystal partials: fundamental + harmonic series
+  const partials = [1, 2, 3.01, 5.0, 7.02];
+  const amps     = [1, 0.45, 0.22, 0.10, 0.05];
+  partials.forEach((mul, i) => {
+    const osc = ACX.createOscillator();
+    const og  = ACX.createGain();
+    osc.type = i===0 ? 'sine' : 'sine';
+    osc.frequency.setValueAtTime(freqBase*mul, now);
+    osc.frequency.exponentialRampToValueAtTime(Math.max(freqEnd*mul,20), now+dur);
+    og.gain.setValueAtTime(amps[i], now);
+    osc.connect(og); og.connect(env);
+    osc.start(now); osc.stop(now+dur+0.01);
+  });
+
+  // Light resonant delay for crystalline shimmer
+  const delay = ACX.createDelay(1.0);
+  delay.delayTime.setValueAtTime(0.08 + x2*0.25, now);
+  const dg = ACX.createGain();
+  dg.gain.setValueAtTime(0.18, now);
+  env.connect(delay); delay.connect(dg); dg.connect(ACX.destination);
+
+  // Schedule next grain
+  // Feigenbaum parameter maps: low r → sparse grains, high r → dense
+  const period = Math.max(5, (4.05-ST.bifur)*50 + 8)*1.0; // ms
+  grainTimer = setTimeout(spawnGrain, period);
+}
+
+function retrigger(){
+  clearTimeout(grainTimer);
+  if(ST.snd) spawnGrain();
+}
+
+function toggleSound(){
+  ST.snd = !ST.snd;
+  if(ST.snd){ ensureAudio(); spawnGrain(); }
+  else { clearTimeout(grainTimer); grainTimer=null; }
+  if(ST.hud) renderHUD();
+}
+
+// ── HUD ───────────────────────────────────────────────────────
+const hudEl   = document.getElementById('hud');
+const hudBody = document.getElementById('hud-inner');
+
+function fmt(v, d=3){ return typeof v==='number' ? v.toFixed(d) : v; }
+
+function renderHUD(){
+  const q = curQ;
+  const sOn  = `<span class="on">● ON</span>`;
+  const sOff = `<span class="off">○ OFF</span>`;
+  hudBody.innerHTML = `
+<table>
+<tr><td>Symmetry</td><td>D<sub>${ST.sym}</sub> — Coxeter dihedral order ${ST.sym}</td></tr>
+<tr><td>Spherical Harm</td><td>Y<sub>${ST.l}</sub><sup>${ST.m>=0?'+':''}${ST.m}</sup></td></tr>
+<tr><td>fBm Octaves</td><td>${ST.fbmOct}</td></tr>
+<tr><td>Bifurcation r</td><td>${fmt(ST.bifur,5)} (Feigenbaum)</td></tr>
+<tr><td>Color Phase θ</td><td>${fmt(ST.colorPhase%(Math.PI*2),4)} rad</td></tr>
+<tr><td>Rotation Speeds</td><td>[${ST.rspd.map(v=>fmt(v)).join(', ')}]</td></tr>
+<tr><td>Quaternion</td><td>[${q.map(v=>fmt(v)).join(', ')}]</td></tr>
+<tr><td>IFS-A</td><td>[${ST.ifsA.map(v=>fmt(v)).join(', ')}]</td></tr>
+<tr><td>IFS-B</td><td>[${ST.ifsB.map(v=>fmt(v)).join(', ')}]</td></tr>
+<tr><td>IFS-T</td><td>[${ST.ifsT.map(v=>fmt(v)).join(', ')}]</td></tr>
+<tr><td>Sound</td><td>${ST.snd?sOn:sOff}</td></tr>
+</table>
+<hr class="sep">
+<div class="keys">SPACE / CLICK: Randomize &nbsp;·&nbsp; H: HUD &nbsp;·&nbsp; S: Sound</div>`;
+}
+
+function toggleHUD(){
+  ST.hud = !ST.hud;
+  hudEl.style.display = ST.hud ? 'block' : 'none';
+  if(ST.hud) renderHUD();
+}
+
+// ── Input ─────────────────────────────────────────────────────
+window.addEventListener('keydown', e => {
+  if(e.code==='Space'){ e.preventDefault(); randomize(); }
+  else if(e.code==='KeyH') toggleHUD();
+  else if(e.code==='KeyS') toggleSound();
+});
+CV.addEventListener('click', randomize);
+CV.addEventListener('touchend', e => { e.preventDefault(); randomize(); }, {passive:false});
+
+// ── Fade hint after 6 seconds ─────────────────────────────────
+setTimeout(() => {
+  const h = document.getElementById('hint');
+  if(h) h.style.opacity = '0';
+}, 6000);
+
+// ── Request fullscreen on first interaction ───────────────────
+document.addEventListener('pointerdown', () => {
+  const el = document.documentElement;
+  if(el.requestFullscreen && !document.fullscreenElement)
+    el.requestFullscreen().catch(()=>{});
+}, {once:true});
+
+</script>
+</body>
+</html>

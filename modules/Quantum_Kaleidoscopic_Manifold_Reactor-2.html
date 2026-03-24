@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="description" content="Quantum Kaleidoscopic Manifold Reactor — Ultra-modern real-time audiovisual fractal engine with quaternion manifold projections, kaleidoscopic symmetry, Möbius remapping, reaction diffusion, spectral synthesis, and generative chaos.">
+<meta name="keywords" content="generative art, fractal, kaleidoscope, manifold projection, quaternion rotation, raymarching, reaction diffusion, Fourier synthesis, WebGL, audiovisual engine">
+<meta name="author" content="Quantum Kaleidoscopic Manifold Reactor">
+<title>Quantum Kaleidoscopic Manifold Reactor</title>
+<style>
+html,body{margin:0;padding:0;overflow:hidden;background:#000;font-family:system-ui,-apple-system,BlinkMacSystemFont,sans-serif;}
+canvas{display:block;}
+#hud{position:fixed;top:0;left:0;padding:10px 14px;font-size:12px;color:#fff;background:rgba(0,0,0,0.4);backdrop-filter:blur(8px);letter-spacing:0.05em;display:none;}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="hud"></div>
+
+<script>
+const canvas=document.getElementById("gl");
+const hud=document.getElementById("hud");
+const gl=canvas.getContext("webgl",{antialias:false});
+if(!gl){alert("WebGL not supported.");}
+
+function resize(){
+ const dpr=Math.min(window.devicePixelRatio||1,2);
+ canvas.width=innerWidth*dpr;
+ canvas.height=innerHeight*dpr;
+ canvas.style.width=innerWidth+"px";
+ canvas.style.height=innerHeight+"px";
+ gl.viewport(0,0,canvas.width,canvas.height);
+}
+window.addEventListener("resize",resize);
+resize();
+
+function compile(type,src){
+ const s=gl.createShader(type);
+ gl.shaderSource(s,src);
+ gl.compileShader(s);
+ return s;
+}
+function program(v,f){
+ const p=gl.createProgram();
+ gl.attachShader(p,compile(gl.VERTEX_SHADER,v));
+ gl.attachShader(p,compile(gl.FRAGMENT_SHADER,f));
+ gl.linkProgram(p);
+ return p;
+}
+
+const vs=`attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}`;
+
+const fs=`
+precision highp float;
+uniform vec2 r;
+uniform float t;
+uniform vec4 seed;
+uniform float speed;
+uniform float symmetry;
+uniform vec3 palette;
+
+#define PI 3.14159265359
+
+float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+float noise(vec2 p){
+ vec2 i=floor(p),f=fract(p);
+ float a=hash(i),b=hash(i+vec2(1.,0.)),c=hash(i+vec2(0.,1.)),d=hash(i+vec2(1.,1.));
+ vec2 u=f*f*(3.-2.*f);
+ return mix(a,b,u.x)+(c-a)*u.y*(1.-u.x)+(d-b)*u.x*u.y;
+}
+float fbm(vec2 p){
+ float v=0.,a=0.5;
+ for(int i=0;i<5;i++){v+=a*noise(p);p*=2.;a*=0.5;}
+ return v;
+}
+vec2 kaleidoscope(vec2 uv,float s){
+ float a=atan(uv.y,uv.x),r=length(uv);
+ float sector=PI/s;
+ a=mod(a,2.*sector);
+ a=abs(a-sector);
+ return vec2(cos(a),sin(a))*r;
+}
+vec3 hsv2rgb(vec3 c){
+ vec3 p=abs(fract(c.xxx+vec3(0.,2./3.,1./3.))*6.-3.);
+ return c.z*mix(vec3(1.),clamp(p-1.,0.,1.),c.y);
+}
+
+void main(){
+ vec2 uv=(gl_FragCoord.xy/r-0.5)*2.;
+ uv.x*=r.x/r.y;
+ float time=t*speed;
+
+ float angle=time*0.5;
+ mat2 rot=mat2(cos(angle),-sin(angle),sin(angle),cos(angle));
+ uv=rot*uv;
+
+ float denom=dot(uv,uv)+1.;
+ uv=uv/denom*2.;
+ uv=kaleidoscope(uv,symmetry);
+
+ vec2 z=uv;
+ vec2 c=vec2(seed.x,seed.y);
+ float iter=0.;
+ for(int i=0;i<40;i++){
+  z=vec2(z.x*z.x-z.y*z.y,2.*z.x*z.y)+c;
+  if(dot(z,z)>4.)break;
+  iter++;
+ }
+ float fractal=iter/40.;
+ float phase=atan(z.y,z.x);
+ float mag=length(z);
+ float turb=fbm(uv*3.+time);
+ float rd=sin((uv.x+uv.y+time)*6.)*0.5+0.5;
+
+ float hue=fract(phase/(2.*PI)+turb+fractal+palette.x);
+ float sat=0.6+0.4*sin(time+mag+palette.y*6.);
+ float val=0.5+0.5*rd*(0.7+palette.z*0.6);
+
+ vec3 col=hsv2rgb(vec3(hue,sat,val));
+ col=pow(col,vec3(0.8));
+ gl_FragColor=vec4(col,1.);
+}
+`;
+
+const prog=program(vs,fs);
+gl.useProgram(prog);
+
+const buf=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]),gl.STATIC_DRAW);
+const loc=gl.getAttribLocation(prog,"p");
+gl.enableVertexAttribArray(loc);
+gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+
+const uR=gl.getUniformLocation(prog,"r");
+const uT=gl.getUniformLocation(prog,"t");
+const uSeed=gl.getUniformLocation(prog,"seed");
+const uSpeed=gl.getUniformLocation(prog,"speed");
+const uSym=gl.getUniformLocation(prog,"symmetry");
+const uPalette=gl.getUniformLocation(prog,"palette");
+
+let params,start=performance.now(),hudOn=false;
+
+function randomize(){
+ params={
+  seed:[Math.random()*2-1,Math.random()*2-1,Math.random(),Math.random()],
+  speed:0.2+Math.random()*1.5,
+  symmetry:3+Math.floor(Math.random()*12),
+  palette:[Math.random(),Math.random(),Math.random()] // NEW palette randomization
+ };
+ start=performance.now();
+}
+randomize();
+
+window.addEventListener("keydown",e=>{
+ if(e.code==="Space")randomize();
+ if(e.key==="h"||e.key==="H"){hudOn=!hudOn;hud.style.display=hudOn?"block":"none";}
+});
+window.addEventListener("click",randomize);
+
+function frame(){
+ const now=performance.now();
+ const time=(now-start)/1000;
+
+ gl.uniform2f(uR,canvas.width,canvas.height);
+ gl.uniform1f(uT,time);
+ gl.uniform4f(uSeed,...params.seed);
+ gl.uniform1f(uSpeed,params.speed);
+ gl.uniform1f(uSym,params.symmetry);
+ gl.uniform3f(uPalette,...params.palette);
+
+ gl.drawArrays(gl.TRIANGLES,0,6);
+
+ if(hudOn){
+  hud.innerHTML="Quantum Kaleidoscopic Manifold Reactor<br>Symmetry: "+params.symmetry+"<br>Speed: "+params.speed.toFixed(3);
+ }
+
+ requestAnimationFrame(frame);
+}
+frame();
+</script>
+</body>
+</html>

@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Quaternion Julia Fractal Ray Marching IFS Visualization</title>
+<meta name="description" content="Generative art fractal explorer: quaternion Julia sets, ray-marched signed distance fields, IFS Hutchinson operator, spherical harmonics lighting, and spectral gradient nebula visualization. Interactive WebGL fractal exploration with procedural audio synthesis.">
+<meta name="keywords" content="quaternion julia set, ray marching, fractal visualization, IFS fractal, mandelbrot, generative art, WebGL shader, distance field, nebula, fractal explorer">
+<meta property="og:title" content="Quaternion Julia Fractal Ray Marching IFS Visualization">
+<meta property="og:description" content="Interactive WebGL fractal nebula combining quaternion Julia sets, ray marching, IFS, and spherical harmonics lighting">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Courier New',monospace}
+  #c{display:block;width:100%;height:100%}
+  #hud{position:fixed;top:16px;left:16px;color:#0ff;font-size:11px;line-height:1.7;
+    background:rgba(0,0,5,0.75);border:1px solid rgba(0,255,255,0.25);
+    padding:10px 14px;border-radius:4px;pointer-events:none;display:none;
+    text-shadow:0 0 8px #0ff;letter-spacing:0.05em;min-width:260px}
+  #hud span{color:#fff}
+  #hint{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);
+    color:rgba(0,255,255,0.45);font-size:10px;letter-spacing:0.12em;
+    text-align:center;pointer-events:none;white-space:nowrap}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div>FPS: <span id="hfps">--</span></div>
+  <div>Resolution Scale: <span id="hres">--</span></div>
+  <div>March Steps: <span id="hmarch">--</span></div>
+  <div>Julia C: <span id="hjc">--</span></div>
+  <div>Zoom: <span id="hzoom">--</span></div>
+  <div>IFS Weights: <span id="hifs">--</span></div>
+  <div>SH Coeff 0: <span id="hsh">--</span></div>
+  <div>Audio: <span id="haud">OFF</span></div>
+  <div>Frame: <span id="hframe">--</span></div>
+</div>
+<div id="hint">SPACE / CLICK — randomize &nbsp;|&nbsp; H — HUD &nbsp;|&nbsp; S — audio</div>
+<script>
+'use strict';
+// ─── WebGL setup ─────────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const gl = canvas.getContext('webgl',{antialias:false,powerPreference:'high-performance'});
+if(!gl){document.body.innerHTML='<p style="color:#f00;padding:2em">WebGL not supported</p>';throw 0;}
+const ext = gl.getExtension('OES_standard_derivatives');
+
+// ─── State ────────────────────────────────────────────────────────────────────
+let W,H,dpr=Math.min(devicePixelRatio||1,2);
+let resScale=1.0, resScaleTarget=1.0;
+let frameCount=0, lastTime=performance.now(), fps=60;
+let showHUD=false, audioOn=false;
+// Randomisable params
+let juliaC=[-.7,.27,.15,-.08];
+let zoomCenter=[-.75,0.1];
+let zoomScale=2.5;
+let ifsWeights=[0.5,0.35,0.15];
+let shCoeffs=[[0.3,0.4,0.6],[0.15,0.1,0.05],[-0.1,0.0,0.1],
+              [0.05,-0.05,0.02],[0.0,0.03,-0.04],[0.02,0.01,0.0],
+              [0.0,0.0,0.05],[-0.02,0.01,0.0],[0.01,-0.01,0.02]];
+let colorKeys=[[0.5,0.5,0.5],[0.5,0.5,0.5],[1.0,1.0,1.0],[0.0,0.33,0.67]];
+let ifsAngles=[0.7,1.4,2.1];
+let maxMarchSteps=64;
+
+// ─── Blue-noise-ish randomization ─────────────────────────────────────────────
+function blueRand(lo,hi){
+  // simple but spread: reject-sample style via multiple randoms
+  let v=0; for(let i=0;i<3;i++)v+=Math.random(); v/=3;
+  return lo+v*(hi-lo);
+}
+function randomize(){
+  juliaC=[blueRand(-.9,.9),blueRand(-.5,.5),blueRand(-.4,.4),blueRand(-.3,.3)];
+  zoomCenter=[blueRand(-2,0.5),blueRand(-1.2,1.2)];
+  zoomScale=blueRand(0.3,3.5);
+  ifsWeights=[Math.random(),Math.random(),Math.random()];
+  let s=ifsWeights[0]+ifsWeights[1]+ifsWeights[2];
+  ifsWeights=ifsWeights.map(w=>w/s);
+  ifsAngles=[blueRand(0,Math.PI*2),blueRand(0,Math.PI*2),blueRand(0,Math.PI*2)];
+  // cosPalette formula: a + b*cos(2π*(c*t + d))
+  // a = bias (keep LOW to avoid washed-out/white look)
+  // b = amplitude (keep HIGH for vivid color swings)
+  // c = frequency per channel (vary INDEPENDENTLY so RGB cycle at different rates = rich hues)
+  // d = phase per channel (fully random to offset hue)
+  // Pick a random dark-biased base hue via HSL-like approach
+  const hueBase = Math.random(); // 0..1 hue
+  const hue2 = (hueBase + 0.33 + Math.random()*0.34) % 1.0; // complementary hue shift
+  function hueToRgb(h){
+    // simple hue to rgb (saturation=1, lightness=0.5)
+    const r=Math.abs(h*6-3)-1, g=2-Math.abs(h*6-2), b=2-Math.abs(h*6-4);
+    return [Math.min(Math.max(r,0),1), Math.min(Math.max(g,0),1), Math.min(Math.max(b,0),1)];
+  }
+  const baseRgb = hueToRgb(hueBase);
+  const compRgb = hueToRgb(hue2);
+  // a: low bias (0.02..0.20) per channel — dark foundation
+  colorKeys[0] = baseRgb.map(v => v * blueRand(0.02, 0.18));
+  // b: amplitude (0.35..0.75) per channel — punchy color oscillation
+  colorKeys[1] = compRgb.map(v => v * blueRand(0.5, 0.9) + blueRand(0.1, 0.35));
+  // c: frequency — each RGB channel gets a DIFFERENT value so hues rotate through spectrum
+  const freqChoices = [0.5,0.75,1.0,1.25,1.5,2.0,2.5,3.0];
+  colorKeys[2] = [0,1,2].map(()=>{
+    const pool = freqChoices.slice();
+    return pool[Math.floor(Math.random()*pool.length)] + blueRand(-0.1,0.1);
+  });
+  // d: phase — fully random per channel to spread hues across spectrum
+  colorKeys[3] = [blueRand(0,1), blueRand(0,1), blueRand(0,1)];
+  // SH lighting: randomize with a vivid dominant color, not grey
+  shCoeffs=shCoeffs.map(()=>[blueRand(-0.35,0.35),blueRand(-0.35,0.35),blueRand(-0.35,0.35)]);
+  const shHue = hueToRgb((hueBase + blueRand(0.15,0.5)) % 1.0);
+  shCoeffs[0] = shHue.map(v => v * blueRand(0.25, 0.55) + blueRand(0.05, 0.15));
+  updateAudio();
+  updateHUD();
+}
+
+// ─── Vertex shader ────────────────────────────────────────────────────────────
+const VS=`attribute vec2 aPos;void main(){gl_Position=vec4(aPos,0,1);}`;
+
+// ─── Fragment shader ──────────────────────────────────────────────────────────
+const FS=`
+#ifdef GL_OES_standard_derivatives
+#extension GL_OES_standard_derivatives : enable
+#endif
+precision highp float;
+
+uniform vec2  uRes;
+uniform float uTime;
+uniform vec4  uJuliaC;
+uniform vec2  uZoomCenter;
+uniform float uZoomScale;
+uniform vec3  uColorA,uColorB,uColorC,uColorD;
+uniform vec3  uSH[9];
+uniform float uIFSW[3];
+uniform float uIFSAng[3];
+uniform int   uMaxSteps;
+
+// ── Quaternion algebra ────────────────────────────────────────────────────────
+vec4 qmul(vec4 a,vec4 b){
+  return vec4(
+    a.x*b.x - a.y*b.y - a.z*b.z - a.w*b.w,
+    a.x*b.y + a.y*b.x + a.z*b.w - a.w*b.z,
+    a.x*b.z - a.y*b.w + a.z*b.x + a.w*b.y,
+    a.x*b.w + a.y*b.z - a.z*b.y + a.w*b.x
+  );
+}
+vec4 qsq(vec4 q){return qmul(q,q);}
+float qlen(vec4 q){return dot(q,q);}
+
+// ── Quaternion Julia SDE ──────────────────────────────────────────────────────
+// Returns distance estimate to quaternion Julia set
+float juliaDE(vec3 pos,vec4 c){
+  vec4 z=vec4(pos,0.0);
+  vec4 dz=vec4(1,0,0,0);
+  float m=qlen(z);
+  for(int i=0;i<12;i++){
+    dz=2.0*qmul(z,dz);
+    z=qsq(z)+c;
+    m=qlen(z);
+    if(m>256.0) break;
+  }
+  float r=sqrt(m);
+  float dr=length(dz);
+  return 0.5*r*log(r)/max(dr,1e-6);
+}
+
+// Smooth iteration count for coloring (separate lower-res pass)
+float juliaSmoothIter(vec3 pos,vec4 c){
+  vec4 z=vec4(pos,0.0);
+  float it=0.0;
+  for(int i=0;i<48;i++){
+    z=qsq(z)+c;
+    if(qlen(z)>256.0){
+      float r=sqrt(qlen(z));
+      it=float(i)+1.0-log2(log2(r));
+      break;
+    }
+    it=float(i);
+  }
+  return it/48.0;
+}
+
+// ── IFS Hutchinson contraction ────────────────────────────────────────────────
+mat3 rot3(float a,float b){
+  float ca=cos(a),sa=sin(a),cb=cos(b),sb=sin(b);
+  return mat3(ca*cb,-sa,ca*sb, sa*cb,ca,sa*sb, -sb,0,cb);
+}
+vec3 ifsApply(vec3 p){
+  float sc0=0.5, sc1=0.45, sc2=0.4;
+  vec3 t0=vec3(-0.8,0.4,-0.2), t1=vec3(0.5,-0.6,0.3), t2=vec3(-0.3,-0.3,0.7);
+  mat3 r0=rot3(uIFSAng[0],uIFSAng[0]*0.7);
+  mat3 r1=rot3(uIFSAng[1],uIFSAng[1]*0.5);
+  mat3 r2=rot3(uIFSAng[2],uIFSAng[2]*0.3);
+  // Choose transformation via random-like selection based on position hash
+  float h=fract(sin(dot(p,vec3(12.9898,78.233,37.719)))*43758.5453);
+  vec3 np;
+  if(h<uIFSW[0])       np=r0*(p*sc0)+t0;
+  else if(h<uIFSW[0]+uIFSW[1]) np=r1*(p*sc1)+t1;
+  else                 np=r2*(p*sc2)+t2;
+  return np;
+}
+
+// Combined SDE: Julia + IFS perturbation
+float sceneSDE(vec3 p,vec4 c){
+  // IFS fold the space to create self-similar structure
+  vec3 fp=p;
+  // Apply IFS folds (3 iterations of space folding)
+  for(int k=0;k<3;k++){
+    fp=abs(fp);
+    if(fp.x<fp.y) fp.xy=fp.yx;
+    if(fp.x<fp.z) fp.xz=fp.zx;
+    if(fp.y<fp.z) fp.yz=fp.zy;
+    fp=fp*1.8-vec3(1.0,1.0,1.0);
+  }
+  float d1=juliaDE(p,c)*0.9;
+  float d2=juliaDE(fp*0.25+vec3(0.0,0.0,0.1),c)*0.25; // IFS sub-copy
+  return mix(d1,d2,0.25);
+}
+
+// ── Spherical Harmonics L0..L2 evaluation ────────────────────────────────────
+// n: unit normal; sh: 9 RGB coefficients
+vec3 evalSH(vec3 n,vec3 sh[9]){
+  const float c0=0.282095;
+  const float c1=0.488603;
+  const float c2=1.092548;
+  const float c3=0.315392;
+  const float c4=0.546274;
+  vec3 col= sh[0]*c0
+           +sh[1]*(c1*n.y)
+           +sh[2]*(c1*n.z)
+           +sh[3]*(c1*n.x)
+           +sh[4]*(c2*n.x*n.y)
+           +sh[5]*(c2*n.y*n.z)
+           +sh[6]*(c3*(3.0*n.z*n.z-1.0))
+           +sh[7]*(c2*n.x*n.z)
+           +sh[8]*(c4*(n.x*n.x-n.y*n.y));
+  return max(col,vec3(0.0));
+}
+
+// ── Cosine spectral gradient ──────────────────────────────────────────────────
+vec3 cosPalette(float t,vec3 a,vec3 b,vec3 c,vec3 d){
+  return a+b*cos(6.28318*(c*t+d));
+}
+
+// ── Normal estimation via SDE gradient ───────────────────────────────────────
+vec3 calcNormal(vec3 p,vec4 c){
+  const float h=0.002;
+  return normalize(vec3(
+    sceneSDE(p+vec3(h,0,0),c)-sceneSDE(p-vec3(h,0,0),c),
+    sceneSDE(p+vec3(0,h,0),c)-sceneSDE(p-vec3(0,h,0),c),
+    sceneSDE(p+vec3(0,0,h),c)-sceneSDE(p-vec3(0,0,h),c)
+  ));
+}
+
+// ── Blinn-Phong BRDF ─────────────────────────────────────────────────────────
+vec3 blinnPhong(vec3 n,vec3 v,vec3 l,vec3 diff,float roughness){
+  float ndl=max(dot(n,l),0.0);
+  vec3 h2=normalize(v+l);
+  float spec=pow(max(dot(n,h2),0.0),2.0/(roughness*roughness+0.001));
+  return diff*ndl + vec3(1.0)*spec*0.4;
+}
+
+// ── Lissajous camera path ─────────────────────────────────────────────────────
+vec3 cameraPos(float t){
+  float a=3.8, b=2.5, c2=1.4;
+  float r=2.8+0.6*sin(t*0.15);
+  return vec3(
+    r*cos(a*t*0.07+0.3),
+    1.5*sin(b*t*0.05+1.1),
+    r*sin(c2*t*0.09+0.7)
+  );
+}
+
+// ── Ambient occlusion (cheap) ─────────────────────────────────────────────────
+float ao(vec3 p,vec3 n,vec4 c){
+  float occ=0.0,sca=1.0;
+  for(int i=1;i<=5;i++){
+    float h=float(i)*0.1;
+    float d=sceneSDE(p+n*h,c);
+    occ+=(h-d)*sca;
+    sca*=0.7;
+  }
+  return clamp(1.0-occ*1.5,0.0,1.0);
+}
+
+// ── Volumetric nebula glow ────────────────────────────────────────────────────
+vec3 nebulaFog(vec3 ro,vec3 rd,float hitT,vec4 c){
+  vec3 col=vec3(0);
+  float t=0.1;
+  for(int i=0;i<8;i++){
+    vec3 p=ro+rd*t;
+    float d=abs(sceneSDE(p,c));
+    float dens=exp(-d*4.0)*0.15;
+    float sm=juliaSmoothIter(p,c);
+    vec3 fc=cosPalette(sm,uColorA,uColorB,uColorC,uColorD);
+    col+=dens*fc*(1.0-col); // front-to-back compositing
+    t+=max(d*0.5,0.05);
+    if(t>hitT) break;
+  }
+  return col;
+}
+
+// ── Main ──────────────────────────────────────────────────────────────────────
+void main(){
+  vec2 uv=(gl_FragCoord.xy-uRes*0.5)/uRes.y;
+
+  // Camera
+  vec3 ro=cameraPos(uTime);
+  vec3 ta=vec3(0.0);
+  vec3 fwd=normalize(ta-ro);
+  vec3 right=normalize(cross(vec3(0,1,0),fwd));
+  vec3 up=cross(fwd,right);
+  vec3 rd=normalize(uv.x*right+uv.y*up+1.5*fwd);
+
+  // Ray march
+  float t=0.05;
+  float dt=0.0;
+  int steps=0;
+  bool hit=false;
+  for(int i=0;i<80;i++){
+    steps=i;
+    vec3 p=ro+rd*t;
+    dt=sceneSDE(p,uJuliaC);
+    if(dt<0.002){hit=true;break;}
+    if(t>12.0) break;
+    t+=dt*0.7;
+  }
+
+  float stepsF=float(steps)/80.0;
+
+  // Sky / background nebula
+  vec3 bgCol=vec3(0.01,0.01,0.02);
+  // Star field
+  vec2 starUV=rd.xy/rd.z*0.5+0.5;
+  float starHash=fract(sin(dot(floor(starUV*200.0),vec2(127.1,311.7)))*43758.5453);
+  float starBright=fract(sin(dot(floor(starUV*600.0),vec2(269.5,183.3)))*43758.5453);
+  bgCol+=vec3(pow(starBright,80.0)*0.7);
+
+  // Background gradient bands (nebula haze)
+  bgCol+=cosPalette(rd.y*0.5+0.5,uColorA*0.05,uColorB*0.04,uColorC,uColorD)*0.12;
+
+  vec3 col;
+  if(hit){
+    vec3 p=ro+rd*t;
+    vec3 n=calcNormal(p,uJuliaC);
+
+    // Smooth iteration coloring
+    float sm=juliaSmoothIter(p,uJuliaC);
+    vec3 baseColor=cosPalette(sm,uColorA,uColorB,uColorC,uColorD);
+
+    // Fractal dimension roughness estimate (based on steps)
+    float roughness=0.3+stepsF*0.5;
+
+    // Spherical harmonic diffuse
+    vec3 shDiff=evalSH(n,uSH);
+
+    // Key light direction (slowly orbiting)
+    vec3 ldir=normalize(vec3(sin(uTime*0.1),0.6,cos(uTime*0.1)));
+
+    // Blinn-Phong
+    vec3 view=normalize(ro-p);
+    vec3 bpSpec=blinnPhong(n,view,ldir,baseColor*shDiff,roughness);
+
+    // AO
+    float occ=ao(p,n,uJuliaC);
+
+    // Fresnel rim
+    float fresnel=pow(1.0-max(dot(n,view),0.0),3.0);
+    vec3 rimColor=cosPalette(sm+0.3,uColorA,uColorB,uColorC,uColorD);
+
+    col=bpSpec*occ + rimColor*fresnel*0.5;
+
+    // Volumetric fog
+    vec3 fog=nebulaFog(ro,rd,t,uJuliaC);
+    col=mix(col,col+fog,0.4);
+
+    // Depth fade
+    float depthFade=exp(-t*0.08);
+    col=mix(bgCol,col,depthFade);
+
+    // Iteration heatmap overlay
+    col+=cosPalette(stepsF,uColorA*0.2,uColorB*0.2,uColorC,uColorD)*stepsF*0.3;
+  } else {
+    // Miss: volumetric nebula in background
+    col=bgCol+nebulaFog(ro,rd,8.0,uJuliaC)*0.6;
+    // Add faint Mandelbrot halo using 2D projection
+    vec2 mc=(uv*uZoomScale+uZoomCenter);
+    vec2 mz=vec2(0); float mit=0.0;
+    for(int i=0;i<64;i++){
+      mz=vec2(mz.x*mz.x-mz.y*mz.y+mc.x, 2.0*mz.x*mz.y+mc.y);
+      if(dot(mz,mz)>256.0){
+        float r=sqrt(dot(mz,mz));
+        mit=float(i)+1.0-log2(log2(r));
+        break;
+      }
+      mit=float(i);
+    }
+    float mt=mit/64.0;
+    col+=cosPalette(mt,uColorA*0.4,uColorB*0.4,uColorC,uColorD)*mt*0.15;
+  }
+
+  // Vignette
+  float vig=1.0-dot(uv,uv)*0.6;
+  col*=vig;
+
+  // Gamma & tone map (ACES approximation)
+  col=col*2.51/(col*2.51+vec3(0.03));
+  col=pow(clamp(col,0.0,1.0),vec3(0.4545));
+
+  // Chromatic aberration
+  vec2 uvOff=uv*0.003;
+  col.r*=1.0+uvOff.x;
+  col.b*=1.0-uvOff.x;
+
+  gl_FragColor=vec4(col,1.0);
+}
+`;
+
+// ─── Compile shader ───────────────────────────────────────────────────────────
+function compileShader(src,type){
+  const s=gl.createShader(type);
+  gl.shaderSource(s,src);
+  gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))
+    console.error('Shader error:',gl.getShaderInfoLog(s));
+  return s;
+}
+const prog=gl.createProgram();
+gl.attachShader(prog,compileShader(VS,gl.VERTEX_SHADER));
+gl.attachShader(prog,compileShader(FS,gl.FRAGMENT_SHADER));
+gl.linkProgram(prog);
+if(!gl.getProgramParameter(prog,gl.LINK_STATUS))
+  console.error('Program link error:',gl.getProgramInfoLog(prog));
+gl.useProgram(prog);
+
+// ─── Geometry ─────────────────────────────────────────────────────────────────
+const buf=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+const aPos=gl.getAttribLocation(prog,'aPos');
+gl.enableVertexAttribArray(aPos);
+gl.vertexAttribPointer(aPos,2,gl.FLOAT,false,0,0);
+
+// ─── Uniforms ─────────────────────────────────────────────────────────────────
+const U={};
+['uRes','uTime','uJuliaC','uZoomCenter','uZoomScale','uColorA','uColorB',
+ 'uColorC','uColorD','uIFSW','uIFSAng','uMaxSteps'].forEach(n=>{U[n]=gl.getUniformLocation(prog,n);});
+// SH array
+U.uSH=[];
+for(let i=0;i<9;i++) U.uSH[i]=gl.getUniformLocation(prog,`uSH[${i}]`);
+
+function setUniforms(t){
+  gl.uniform2f(U.uRes,W,H);
+  gl.uniform1f(U.uTime,t);
+  gl.uniform4f(U.uJuliaC,...juliaC);
+  gl.uniform2f(U.uZoomCenter,...zoomCenter);
+  gl.uniform1f(U.uZoomScale,zoomScale);
+  gl.uniform3f(U.uColorA,...colorKeys[0]);
+  gl.uniform3f(U.uColorB,...colorKeys[1]);
+  gl.uniform3f(U.uColorC,...colorKeys[2]);
+  gl.uniform3f(U.uColorD,...colorKeys[3]);
+  gl.uniform3fv(U.uIFSW,ifsWeights);
+  gl.uniform3fv(U.uIFSAng,ifsAngles);
+  gl.uniform1i(U.uMaxSteps,maxMarchSteps);
+  for(let i=0;i<9;i++) gl.uniform3f(U.uSH[i],...shCoeffs[i]);
+}
+
+// ─── Resize ───────────────────────────────────────────────────────────────────
+function resize(){
+  W=Math.floor(window.innerWidth*dpr*resScale);
+  H=Math.floor(window.innerHeight*dpr*resScale);
+  canvas.width=W; canvas.height=H;
+  canvas.style.width=window.innerWidth+'px';
+  canvas.style.height=window.innerHeight+'px';
+  gl.viewport(0,0,W,H);
+}
+window.addEventListener('resize',resize);
+resize();
+
+// ─── Adaptive quality ────────────────────────────────────────────────────────
+let frameTimes=[];
+function adaptQuality(dt){
+  frameTimes.push(dt);
+  if(frameTimes.length>20) frameTimes.shift();
+  const avg=frameTimes.reduce((a,b)=>a+b,0)/frameTimes.length;
+  if(avg>33 && resScale>0.4) resScaleTarget=Math.max(0.4,resScale-0.05);
+  else if(avg<20 && resScale<1.0) resScaleTarget=Math.min(1.0,resScale+0.02);
+  if(Math.abs(resScaleTarget-resScale)>0.04){
+    resScale=resScaleTarget;
+    resize();
+  }
+}
+
+// ─── HUD update ───────────────────────────────────────────────────────────────
+function updateHUD(){
+  document.getElementById('hfps').textContent=fps.toFixed(1);
+  document.getElementById('hres').textContent=(resScale*100).toFixed(0)+'%';
+  document.getElementById('hmarch').textContent=maxMarchSteps;
+  document.getElementById('hjc').textContent=juliaC.map(v=>v.toFixed(3)).join(', ');
+  document.getElementById('hzoom').textContent=`[${zoomCenter.map(v=>v.toFixed(3)).join(', ')}] ×${zoomScale.toFixed(2)}`;
+  document.getElementById('hifs').textContent=ifsWeights.map(v=>v.toFixed(3)).join(', ');
+  document.getElementById('hsh').textContent=shCoeffs[0].map(v=>v.toFixed(3)).join(', ');
+  document.getElementById('haud').textContent=audioOn?'ON':'OFF';
+  document.getElementById('hframe').textContent=frameCount;
+}
+
+// ─── Web Audio Synthesis ─────────────────────────────────────────────────────
+let audioCtx=null, oscNodes=[], filterNodes=[];
+function initAudio(){
+  if(audioCtx) return;
+  audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+  const masterGain=audioCtx.createGain();
+  masterGain.gain.value=0.12;
+  masterGain.connect(audioCtx.destination);
+  // Subtractive synthesis: sawtooth oscillators through biquad filters
+  const freqBase=[55,110,165,220];
+  freqBase.forEach((f,i)=>{
+    const osc=audioCtx.createOscillator();
+    osc.type='sawtooth';
+    osc.frequency.value=f*(1+ifsWeights[i%3]*0.5);
+    const filt=audioCtx.createBiquadFilter();
+    filt.type='lowpass';
+    filt.Q.value=8+i*4;
+    filt.frequency.value=300+i*200+shCoeffs[0][i%3]*400;
+    const gain=audioCtx.createGain();
+    gain.gain.value=0.3-i*0.05;
+    osc.connect(filt);
+    filt.connect(gain);
+    gain.connect(masterGain);
+    osc.start();
+    oscNodes.push(osc);
+    filterNodes.push(filt);
+  });
+}
+function updateAudio(){
+  if(!audioCtx||!audioOn) return;
+  filterNodes.forEach((f,i)=>{
+    f.frequency.value=200+i*150+Math.abs(juliaC[i%4])*600;
+    f.Q.value=5+Math.abs(ifsWeights[i%3])*20;
+  });
+  oscNodes.forEach((o,i)=>{
+    o.frequency.value=(55*(i+1))*(1+Math.abs(juliaC[i%4])*0.3);
+  });
+}
+function toggleAudio(){
+  audioOn=!audioOn;
+  if(audioOn){
+    initAudio();
+    if(audioCtx.state==='suspended') audioCtx.resume();
+  } else {
+    if(audioCtx) audioCtx.suspend();
+  }
+  updateHUD();
+}
+
+// ─── Modulate audio with render data every ~60 frames ─────────────────────────
+function audioTick(){
+  if(!audioOn||!audioCtx) return;
+  filterNodes.forEach((f,i)=>{
+    const targetFreq=300+stepsAvg*800+Math.abs(juliaC[i%4])*300;
+    f.frequency.setTargetAtTime(targetFreq,audioCtx.currentTime,0.3);
+  });
+}
+let stepsAvg=0.5;
+
+// ─── Render loop ─────────────────────────────────────────────────────────────
+let startTime=performance.now();
+function render(now){
+  requestAnimationFrame(render);
+  const dt=now-lastTime;
+  lastTime=now;
+  fps=0.9*fps+0.1*(1000/Math.max(dt,1));
+  frameCount++;
+  const t=(now-startTime)*0.001;
+
+  adaptQuality(dt);
+
+  // Animate IFS angles slowly
+  ifsAngles[0]+=0.0003;
+  ifsAngles[1]-=0.0002;
+  ifsAngles[2]+=0.00015;
+
+  setUniforms(t);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+
+  // Update audio modulation
+  if(frameCount%60===0){
+    stepsAvg=0.4+Math.sin(t*0.3)*0.3;
+    audioTick();
+  }
+
+  if(showHUD && frameCount%10===0) updateHUD();
+}
+requestAnimationFrame(render);
+
+// ─── Input handling ───────────────────────────────────────────────────────────
+document.addEventListener('keydown',e=>{
+  if(e.code==='Space'){e.preventDefault();randomize();}
+  if(e.code==='KeyH'){
+    showHUD=!showHUD;
+    document.getElementById('hud').style.display=showHUD?'block':'none';
+    if(showHUD) updateHUD();
+  }
+  if(e.code==='KeyS') toggleAudio();
+});
+canvas.addEventListener('click',()=>randomize());
+canvas.addEventListener('touchend',e=>{e.preventDefault();randomize();},{passive:false});
+
+// ─── Randomize everything on first load ──────────────────────────────────────
+randomize();
+</script>
+</body>
+</html>

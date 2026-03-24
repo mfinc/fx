@@ -1,0 +1,1314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="description" content="Generative Puzzle Civilization Simulator — An infinite animated world of Sudoku, Kakuro, polyomino tilings, Islamic geometry, and mechanical puzzle physics forming an evolving surreal civilization.">
+<meta name="keywords" content="generative art, puzzle, civilization, simulator, sudoku, polyomino, Islamic geometry, art deco, bauhaus, fractal, procedural">
+<meta name="theme-color" content="#0a0a0f">
+<title>Puzzle Civilization — Generative Art Engine</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#0a0a0f}
+canvas{display:block;touch-action:none}
+#hud{position:fixed;top:0;left:0;right:0;bottom:0;pointer-events:none;display:none;font-family:'Courier New',monospace;font-size:11px;color:rgba(255,255,255,0.7)}
+#hud.visible{display:block}
+#hud-top{position:absolute;top:12px;left:14px;line-height:1.7;text-shadow:0 0 8px currentColor}
+#hud-br{position:absolute;bottom:12px;right:14px;text-align:right;line-height:1.7;text-shadow:0 0 8px currentColor}
+#hud-bl{position:absolute;bottom:12px;left:14px;line-height:1.7;text-shadow:0 0 8px currentColor}
+#flash{position:fixed;top:0;left:0;width:100%;height:100%;background:white;opacity:0;pointer-events:none;transition:opacity 0.05s}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div id="hud-top">
+    <div id="h-fps">FPS: —</div>
+    <div id="h-pieces">PIECES: —</div>
+    <div id="h-palette">PALETTE: —</div>
+    <div id="h-mode">MODE: —</div>
+  </div>
+  <div id="hud-br">
+    <div>H = HUD &nbsp;|&nbsp; S = SOUND &nbsp;|&nbsp; SPACE/TAP = RESET</div>
+  </div>
+  <div id="hud-bl">
+    <div id="h-time">T: 0.0s</div>
+    <div id="h-gen">GEN: 1</div>
+  </div>
+</div>
+<div id="flash"></div>
+
+<script>
+(function(){
+'use strict';
+
+// ─── CONFIG ─────────────────────────────────────────────────────────────────
+const C = document.getElementById('c');
+const GL = C.getContext('2d', {alpha:false});
+let W, H, DPR;
+let RAF = 0, T0 = 0, DT = 0, NOW = 0, FRAMES = 0, FPS = 0, GENNUM = 1;
+let HUD_ON = false, SND_ON = false;
+let RESETTING = false;
+let AudioCtx = null, AudioNodes = [];
+
+// ─── PALETTES ────────────────────────────────────────────────────────────────
+const PALETTE_SETS = [
+  {name:'NEON CIRCUIT',   bg:'#03010a', cols:['#ff0066','#00ffcc','#7700ff','#ffee00','#ff6600','#00aaff']},
+  {name:'ISLAMIC GOLD',   bg:'#0d0800', cols:['#c9a84c','#e8d5a3','#8b5e1a','#f2e8c8','#4a3000','#d4a030']},
+  {name:'ART DECO JADE',  bg:'#001a12', cols:['#00ff99','#005533','#aaff66','#003322','#66ffcc','#002211']},
+  {name:'BAUHAUS PRIMARY',bg:'#111111', cols:['#e63311','#2255cc','#f5c518','#ffffff','#333333','#cc4400']},
+  {name:'SASHIKO INDIGO', bg:'#0a0e1f', cols:['#e8ecff','#4466dd','#aabbff','#2233aa','#6677cc','#ddeeff']},
+  {name:'VICTORIAN MOCHA',bg:'#100a05', cols:['#c8873c','#7a4f28','#e8c99a','#3d2010','#f0dfc0','#955f20']},
+  {name:'MOIRE SPECTRAL', bg:'#050508', cols:['#ff3388','#33ffcc','#8833ff','#ffcc33','#33aaff','#ff8833']},
+  {name:'MOSAIC TERRA',   bg:'#0e0b07', cols:['#d44c1a','#8bc34a','#2196f3','#ff9800','#9c27b0','#00bcd4']},
+  {name:'CYBER SAKURA',   bg:'#0f000a', cols:['#ff66cc','#cc00ff','#ff0099','#ffffff','#660044','#ff99cc']},
+  {name:'COPPER VERDIGRIS',bg:'#020b09',cols:['#3fcfa0','#1a6b54','#8fefd0','#c87941','#a35c28','#f0b87a']},
+];
+
+let PAL, PAL_IDX = 0;
+
+// ─── STATE ───────────────────────────────────────────────────────────────────
+let pieces = [];
+let particles = [];
+let bgLayers = [];
+let moirePhase = 0;
+let colorFlow = 0;
+let simTime = 0;
+let audioTick = 0;
+
+// ─── MATH HELPERS ────────────────────────────────────────────────────────────
+const PI = Math.PI, TAU = PI*2, rnd = Math.random;
+const rng = (a,b)=> a + rnd()*(b-a);
+const rni = (a,b)=> Math.floor(rng(a,b+1));
+const clamp = (v,a,b)=> v<a?a:v>b?b:v;
+const lerp = (a,b,t)=> a+(b-a)*t;
+const ease = t=> t<0.5? 2*t*t: -1+(4-2*t)*t;
+const hex2rgb = h=>{const r=parseInt(h.slice(1,3),16),g=parseInt(h.slice(3,5),16),b=parseInt(h.slice(5,7),16);return[r,g,b]};
+const rgb2hex=(r,g,b)=>'#'+[r,g,b].map(v=>clamp(Math.round(v),0,255).toString(16).padStart(2,'0')).join('');
+const col_alpha = (hex,a)=>{const[r,g,b]=hex2rgb(hex);return`rgba(${r},${g},${b},${a})`};
+const col_mix=(a,b,t)=>{const[ar,ag,ab]=hex2rgb(a),[br,bg,bb]=hex2rgb(b);return rgb2hex(lerp(ar,br,t),lerp(ag,bg,t),lerp(ab,bb,t))};
+
+function palCol(i){return PAL.cols[Math.abs(i)%PAL.cols.length]}
+function palColFlow(t){
+  const idx = (t * PAL.cols.length)%PAL.cols.length;
+  const i0=Math.floor(idx)%PAL.cols.length, i1=(i0+1)%PAL.cols.length;
+  return col_mix(PAL.cols[i0], PAL.cols[i1], idx-i0);
+}
+
+// ─── RESIZE ──────────────────────────────────────────────────────────────────
+function resize(){
+  DPR = Math.min(window.devicePixelRatio||1, 2);
+  W = window.innerWidth;
+  H = window.innerHeight;
+  C.width = W*DPR; C.height = H*DPR;
+  C.style.width = W+'px'; C.style.height = H+'px';
+  GL.setTransform(DPR,0,0,DPR,0,0);
+}
+
+// ─── BACKGROUND SYSTEM ───────────────────────────────────────────────────────
+function makeBgLayers(){
+  bgLayers = [];
+  // Islamic geometric base
+  bgLayers.push({type:'islamic', phase:rng(0,TAU), speed:0.0003+rnd()*0.0002});
+  // Moire interference
+  bgLayers.push({type:'moire', phase:rng(0,TAU), freq1:rng(0.02,0.06), freq2:rng(0.025,0.065), speed:0.0004});
+  // Sashiko grid
+  bgLayers.push({type:'sashiko', cellW:rng(22,40), phase:0, alpha:0.06+rnd()*0.04});
+}
+
+function drawBg(t){
+  GL.fillStyle = PAL.bg;
+  GL.fillRect(0,0,W,H);
+  for(const L of bgLayers){
+    if(L.type==='islamic') drawIslamicBg(L, t);
+    else if(L.type==='moire') drawMoireBg(L, t);
+    else if(L.type==='sashiko') drawSashikoBg(L, t);
+  }
+}
+
+function drawIslamicBg(L, t){
+  const phase = L.phase + t*L.speed;
+  const sz = 60, col = palCol(0);
+  GL.save();
+  GL.globalAlpha = 0.04;
+  GL.strokeStyle = col;
+  GL.lineWidth = 0.5;
+  const cols2 = Math.ceil(W/sz)+2, rows2 = Math.ceil(H/sz)+2;
+  const ox = (phase*20)%sz, oy = (phase*13)%sz;
+  for(let r=-1;r<rows2;r++){
+    for(let c=-1;c<cols2;c++){
+      const x = c*sz - ox, y = r*sz - oy;
+      drawIslamicCell(x, y, sz, phase+c*0.3+r*0.2);
+    }
+  }
+  GL.restore();
+}
+
+function drawIslamicCell(x,y,s,phase){
+  GL.beginPath();
+  const n=8, cx=x+s/2, cy=y+s/2, r=s*0.46;
+  for(let i=0;i<n;i++){
+    const a=TAU*i/n+phase*0.5, b=TAU*(i+0.5)/n+phase*0.5;
+    const r2=r*0.55;
+    if(i===0) GL.moveTo(cx+Math.cos(a)*r, cy+Math.sin(a)*r);
+    else GL.lineTo(cx+Math.cos(a)*r, cy+Math.sin(a)*r);
+    GL.lineTo(cx+Math.cos(b)*r2, cy+Math.sin(b)*r2);
+  }
+  GL.closePath();
+  GL.stroke();
+}
+
+function drawMoireBg(L, t){
+  const phase = L.phase + t*L.speed;
+  GL.save();
+  GL.globalAlpha = 0.035;
+  const idata = GL.createImageData(Math.ceil(W/4), Math.ceil(H/4));
+  const d = idata.data;
+  const [r,g,b] = hex2rgb(palCol(2));
+  for(let py=0;py<idata.height;py++){
+    for(let px=0;px<idata.width;px++){
+      const sx=px*4, sy=py*4;
+      const v1 = Math.sin(sx*L.freq1 + phase)*0.5+0.5;
+      const v2 = Math.sin(sy*L.freq2 + phase*1.3)*0.5+0.5;
+      const moire = Math.abs(v1-v2);
+      const idx = (py*idata.width+px)*4;
+      d[idx]=r; d[idx+1]=g; d[idx+2]=b;
+      d[idx+3] = moire*80;
+    }
+  }
+  // Draw scaled
+  const tmpC = document.createElement('canvas');
+  tmpC.width=idata.width; tmpC.height=idata.height;
+  tmpC.getContext('2d').putImageData(idata,0,0);
+  GL.drawImage(tmpC, 0, 0, W, H);
+  GL.restore();
+}
+
+function drawSashikoBg(L, t){
+  const cw = L.cellW;
+  GL.save();
+  GL.globalAlpha = L.alpha;
+  GL.strokeStyle = palCol(1);
+  GL.lineWidth = 0.6;
+  GL.setLineDash([2,cw*0.6]);
+  // Horizontal
+  for(let y=0;y<H;y+=cw){
+    GL.beginPath(); GL.moveTo(0,y); GL.lineTo(W,y); GL.stroke();
+  }
+  // Vertical
+  GL.setLineDash([2,cw*0.6]);
+  for(let x=0;x<W;x+=cw){
+    GL.beginPath(); GL.moveTo(x,0); GL.lineTo(x,H); GL.stroke();
+  }
+  // Diagonal sashiko motif
+  GL.setLineDash([1,cw*0.8]);
+  GL.lineWidth = 0.4;
+  for(let y=-cw;y<H+cw;y+=cw*2){
+    GL.beginPath(); GL.moveTo(0,y); GL.lineTo(W,y+W); GL.stroke();
+    GL.beginPath(); GL.moveTo(0,y); GL.lineTo(W,y-W); GL.stroke();
+  }
+  GL.setLineDash([]);
+  GL.restore();
+}
+
+// ─── PUZZLE PIECE TYPES ──────────────────────────────────────────────────────
+const PIECE_TYPES = ['sudoku','kakuro','polyomino','tangram','kenken','slitherlink','masyu','artdeco','fractal','soma','mechbox','islamic_tile'];
+
+function makePiece(){
+  const type = PIECE_TYPES[rni(0, PIECE_TYPES.length-1)];
+  const sz = rng(40, 140) * (W < 600 ? 0.65 : 1);
+  const x = rng(0, W), y = rng(0, H);
+  const vx = rng(-0.04,0.04), vy = rng(-0.04,0.04);
+  const vr = rng(-0.0004, 0.0004);
+  const rot = rng(0, TAU);
+  const ci = rni(0, PAL.cols.length-1);
+  const ci2 = (ci + rni(1,3))%PAL.cols.length;
+  const alpha = rng(0.55, 0.95);
+  const phase = rng(0, TAU);
+  const pulseMag = rng(0.01, 0.06);
+  const pulseSpd = rng(0.5, 2.5);
+  // Physics state
+  const mass = sz*sz*0.001;
+  const inertia = mass*sz*sz/6;
+  // Spring target
+  const tx = rng(0,W), ty = rng(0,H);
+  const springK = rng(0.000003, 0.000012);
+  const damping = rng(0.997, 0.9995);
+  // Internals (for complex pieces)
+  let data = {};
+  if(type==='sudoku') data = makeSudokuData(sz);
+  else if(type==='kakuro') data = makeKakuroData(sz);
+  else if(type==='polyomino') data = makePolyominoData(sz);
+  else if(type==='tangram') data = makeTangramData(sz);
+  else if(type==='kenken') data = makeKenkenData(sz);
+  else if(type==='slitherlink') data = makeSlitherlinkData(sz);
+  else if(type==='masyu') data = makeMasyuData(sz);
+  else if(type==='fractal') data = makeFractalData(sz);
+  else if(type==='mechbox') data = makeMechboxData(sz);
+  else if(type==='islamic_tile') data = makeIslamicTileData(sz);
+
+  return {type, x, y, vx, vy, rot, vr, sz, ci, ci2, alpha, phase, pulseMag, pulseSpd,
+          mass, inertia, tx, ty, springK, damping, data,
+          age:0, colliding:false, glowT:0, active:true,
+          artStyle: ['artdeco','bauhaus','victorian','sashiko'][rni(0,3)]};
+}
+
+// ─── SUDOKU DATA ─────────────────────────────────────────────────────────────
+function makeSudokuData(sz){
+  const n = rnd()<0.5 ? 4 : 6; // mini sudoku for performance
+  const grid = [];
+  for(let r=0;r<n;r++){const row=[];for(let c=0;c<n;c++) row.push(rni(0,n));grid.push(row);}
+  // Highlight some cells
+  const hilights = [];
+  for(let i=0;i<n;i++) hilights.push({r:rni(0,n-1),c:rni(0,n-1)});
+  return{n, grid, hilights};
+}
+
+// ─── KAKURO DATA ─────────────────────────────────────────────────────────────
+function makeKakuroData(sz){
+  const n = rni(4,6);
+  const clues = [];
+  for(let i=0;i<n;i++) clues.push({x:rng(0.1,0.8),y:rng(0.1,0.8),val:rni(3,45),dir:rnd()<0.5});
+  const cells = [];
+  for(let r=0;r<n;r++) for(let c=0;c<n;c++) if(rnd()<0.6) cells.push({r,c,v:rni(1,9)});
+  return{n, clues, cells};
+}
+
+// ─── POLYOMINO DATA ──────────────────────────────────────────────────────────
+function makePolyominoData(sz){
+  // Random polyomino tiling using flood-fill-like growth
+  const CELL_SIZE = Math.max(8, sz/9);
+  const cols2 = Math.floor(sz/CELL_SIZE), rows2 = Math.floor(sz/CELL_SIZE);
+  const grid = Array.from({length:rows2}, ()=>Array(cols2).fill(-1));
+  const pieces2 = [];
+  let pid = 0;
+  for(let r=0;r<rows2;r++){
+    for(let c=0;c<cols2;c++){
+      if(grid[r][c]===-1){
+        const size = rni(2,5);
+        const cells2 = growPoly(grid,r,c,rows2,cols2,size,pid);
+        pieces2.push({id:pid, cells:cells2, col: rni(0,5)});
+        pid++;
+      }
+    }
+  }
+  return{grid, rows:rows2, cols:cols2, cs:CELL_SIZE, pieces:pieces2};
+}
+function growPoly(grid,sr,sc,rows,cols,size,pid){
+  const cells=[{r:sr,c:sc}]; grid[sr][sc]=pid;
+  const frontier=[{r:sr,c:sc}];
+  while(cells.length<size && frontier.length){
+    const idx=rni(0,frontier.length-1), cur=frontier[idx];
+    const dirs=[[0,1],[1,0],[0,-1],[-1,0]].sort(()=>rnd()-0.5);
+    let grew=false;
+    for(const[dr,dc] of dirs){
+      const nr=cur.r+dr, nc=cur.c+dc;
+      if(nr>=0&&nr<rows&&nc>=0&&nc<cols&&grid[nr][nc]===-1){
+        grid[nr][nc]=pid; cells.push({r:nr,c:nc}); frontier.push({r:nr,c:nc}); grew=true; break;
+      }
+    }
+    if(!grew) frontier.splice(idx,1);
+  }
+  return cells;
+}
+
+// ─── TANGRAM DATA ────────────────────────────────────────────────────────────
+function makeTangramData(sz){
+  // 7 classic tangram pieces as normalized coords
+  const pieces2=[
+    [{x:0,y:0},{x:0.5,y:0},{x:0.25,y:0.25}],
+    [{x:0.5,y:0},{x:1,y:0},{x:0.75,y:0.25}],
+    [{x:0.25,y:0.25},{x:0.75,y:0.25},{x:0.75,y:0.75},{x:0.25,y:0.75}],
+    [{x:0.25,y:0.75},{x:0.5,y:0.5},{x:0.5,y:1}],
+    [{x:0.5,y:0.5},{x:0.75,y:0.75},{x:0.5,y:1}],
+    [{x:0,y:0.5},{x:0.25,y:0.25},{x:0.25,y:0.75}],
+    [{x:0.75,y:0.25},{x:1,y:0},{x:1,y:0.5},{x:0.75,y:0.75}],
+  ];
+  const offsets = pieces2.map(()=>({rot:rng(0,TAU)*0.3, tx:rng(-0.05,0.05), ty:rng(-0.05,0.05)}));
+  return{pieces:pieces2, offsets};
+}
+
+// ─── KENKEN DATA ─────────────────────────────────────────────────────────────
+function makeKenkenData(sz){
+  const n=rni(3,5);
+  const cages=[];
+  for(let i=0;i<n+1;i++){
+    const op=['+','-','×','÷'][rni(0,3)];
+    const val=rni(1,24);
+    const cells2=[];
+    const nc=rni(1,3);
+    for(let j=0;j<nc;j++) cells2.push({r:rni(0,n-1),c:rni(0,n-1)});
+    cages.push({op,val,cells:cells2});
+  }
+  return{n, cages};
+}
+
+// ─── SLITHERLINK DATA ────────────────────────────────────────────────────────
+function makeSlitherlinkData(sz){
+  const n=rni(4,7);
+  const clues=[];
+  for(let r=0;r<n;r++) for(let c=0;c<n;c++) if(rnd()<0.5) clues.push({r,c,v:rni(0,3)});
+  // Random loop path
+  const loop=[];
+  const steps=rni(8,20);
+  let lx=rni(1,n-2),ly=rni(1,n-2);
+  for(let i=0;i<steps;i++){
+    const d=[[0,1],[1,0],[0,-1],[-1,0]][rni(0,3)];
+    lx=clamp(lx+d[0],0,n); ly=clamp(ly+d[1],0,n);
+    loop.push({x:lx,y:ly});
+  }
+  return{n, clues, loop};
+}
+
+// ─── MASYU DATA ──────────────────────────────────────────────────────────────
+function makeMasyuData(sz){
+  const n=rni(5,8);
+  const dots=[];
+  for(let i=0;i<rni(3,7);i++) dots.push({r:rni(0,n-1),c:rni(0,n-1),black:rnd()<0.5});
+  // Random path
+  const path=[];
+  let pr=rni(0,n-1),pc=rni(0,n-1);
+  for(let i=0;i<rni(6,14);i++){
+    path.push({r:pr,c:pc});
+    const d=[[0,1],[1,0],[0,-1],[-1,0]][rni(0,3)];
+    pr=clamp(pr+d[0],0,n-1); pc=clamp(pc+d[1],0,n-1);
+  }
+  return{n, dots, path};
+}
+
+// ─── FRACTAL DATA ────────────────────────────────────────────────────────────
+function makeFractalData(sz){
+  const type=['lsystem','sierpinski','hilbert','dragon'][rni(0,3)];
+  const depth = sz<80?3:4;
+  let points=[];
+  if(type==='lsystem') points=genLSystem(depth,sz);
+  else if(type==='sierpinski') points=genSierpinski(depth,sz);
+  else if(type==='hilbert') points=genHilbert(depth,sz);
+  else points=genDragon(depth,sz);
+  return{type, points, depth};
+}
+function genLSystem(depth,sz){
+  // Koch-like
+  let pts=[{x:0,y:sz/2},{x:sz,y:sz/2}];
+  for(let d=0;d<depth;d++){
+    const np=[];
+    for(let i=0;i<pts.length-1;i++){
+      const a=pts[i],b=pts[i+1];
+      const mx=(a.x+b.x)/2, my=(a.y+b.y)/2;
+      const dx=b.x-a.x,dy=b.y-a.y;
+      const len=Math.sqrt(dx*dx+dy*dy);
+      const peak={x:mx-dy*0.3,y:my+dx*0.3};
+      np.push(a,{x:a.x+dx/3,y:a.y+dy/3},peak,{x:a.x+2*dx/3,y:a.y+2*dy/3});
+    }
+    np.push(pts[pts.length-1]); pts=np;
+    if(pts.length>400) break;
+  }
+  return pts;
+}
+function genSierpinski(depth,sz){
+  const pts=[];
+  function tri(ax,ay,bx,by,cx,cy,d){
+    if(d===0||pts.length>600){pts.push({x:ax,y:ay},{x:bx,y:by},{x:cx,y:cy},{x:ax,y:ay});return;}
+    const mx1=(ax+bx)/2,my1=(ay+by)/2;
+    const mx2=(bx+cx)/2,my2=(by+cy)/2;
+    const mx3=(ax+cx)/2,my3=(ay+cy)/2;
+    tri(ax,ay,mx1,my1,mx3,my3,d-1);
+    tri(mx1,my1,bx,by,mx2,my2,d-1);
+    tri(mx3,my3,mx2,my2,cx,cy,d-1);
+  }
+  tri(0,sz,sz/2,0,sz,sz,depth);
+  return pts;
+}
+function genHilbert(depth,sz){
+  // Simple hilbert-like space-filling curve
+  const pts=[],n=Math.pow(2,depth);
+  function d2xy(n,d){
+    let rx,ry,s,t=d;let x=0,y=0;
+    for(s=1;s<n;s*=2){rx=1&(t/2);ry=1&(t^rx);if(ry===0){if(rx===1){x=s-1-x;y=s-1-y}[x,y]=[y,x]}x+=s*rx;y+=s*ry;t=Math.floor(t/4);}
+    return{x,y};
+  }
+  const total=n*n;
+  for(let i=0;i<total;i+=Math.max(1,Math.floor(total/200))){
+    const{x,y}=d2xy(n,i);
+    pts.push({x:(x/n)*sz,y:(y/n)*sz});
+  }
+  return pts;
+}
+function genDragon(depth,sz){
+  let seq=[1];
+  for(let d=0;d<depth+2;d++){
+    const ns=[1];
+    for(let i=0;i<seq.length;i++){ns.push(seq[i]);ns.push(i<seq.length-1?0:1);}
+    seq=ns; if(seq.length>300) break;
+  }
+  let pts=[{x:sz/2,y:sz/2}];
+  let cx=sz/2,cy=sz/2,dir=0;
+  const step=sz/(seq.length*0.2+3);
+  for(const t of seq){
+    dir+=(t?PI/2:-PI/2);
+    cx+=Math.cos(dir)*step; cy+=Math.sin(dir)*step;
+    pts.push({x:cx,y:cy});
+    if(pts.length>300) break;
+  }
+  return pts;
+}
+
+// ─── MECHBOX DATA ────────────────────────────────────────────────────────────
+function makeMechboxData(sz){
+  const gears=[];
+  const n=rni(2,5);
+  for(let i=0;i<n;i++){
+    const r=rng(sz*0.08, sz*0.22);
+    const teeth=rni(6,16);
+    gears.push({x:rng(0.15,0.85)*sz,y:rng(0.15,0.85)*sz,r,teeth,phase:rng(0,TAU),speed:rng(0.003,0.015)*(rnd()<0.5?1:-1)});
+  }
+  const springs=[];
+  for(let i=0;i<rni(1,3);i++) springs.push({x1:rng(0.1,0.9)*sz,y1:rng(0.1,0.9)*sz,x2:rng(0.1,0.9)*sz,y2:rng(0.1,0.9)*sz,coils:rni(4,8)});
+  const hinges=[];
+  for(let i=0;i<rni(1,3);i++) hinges.push({x:rng(0.1,0.9)*sz,y:rng(0.1,0.9)*sz,ang:rng(0,TAU),armLen:rng(0.1,0.3)*sz,angVel:rng(0.002,0.008)*(rnd()<0.5?1:-1)});
+  return{gears,springs,hinges};
+}
+
+// ─── ISLAMIC TILE DATA ───────────────────────────────────────────────────────
+function makeIslamicTileData(sz){
+  const pattern=rni(0,3); // 0=hexagonal, 1=8-fold, 2=10-fold, 3=12-fold
+  const sym=[6,8,10,12][pattern];
+  const layers=rni(1,3);
+  return{sym,layers,phase:rng(0,TAU)};
+}
+
+// ─── PIECE PHYSICS ───────────────────────────────────────────────────────────
+function updatePiece(p, dt, allPieces){
+  p.age += dt;
+  // Spring toward target
+  const dx = p.tx - p.x, dy = p.ty - p.y;
+  p.vx += dx * p.springK * dt;
+  p.vy += dy * p.springK * dt;
+  // Damping
+  p.vx *= Math.pow(p.damping, dt/16);
+  p.vy *= Math.pow(p.damping, dt/16);
+  p.vr *= Math.pow(p.damping*0.999, dt/16);
+  // Integrate
+  p.x += p.vx * dt;
+  p.y += p.vy * dt;
+  p.rot += p.vr * dt;
+  // Wrap-around with gentle push
+  const margin = p.sz;
+  if(p.x < -margin) {p.x = W+margin; p.tx = rng(0.1,0.9)*W;}
+  if(p.x > W+margin) {p.x = -margin; p.tx = rng(0.1,0.9)*W;}
+  if(p.y < -margin) {p.y = H+margin; p.ty = rng(0.1,0.9)*H;}
+  if(p.y > H+margin) {p.y = -margin; p.ty = rng(0.1,0.9)*H;}
+  // Occasionally change target
+  if(p.age % rng(3000,7000) < dt*2){
+    p.tx = rng(0.05,0.95)*W;
+    p.ty = rng(0.05,0.95)*H;
+  }
+  // Glow decay
+  p.glowT = Math.max(0, p.glowT - dt*0.001);
+  // Update internal mechanics
+  if(p.type==='mechbox') updateMechbox(p.data, dt);
+  if(p.type==='slitherlink') p.data.loopPhase = (p.data.loopPhase||0)+dt*0.0008;
+  if(p.type==='fractal') p.data.fracPhase = (p.data.fracPhase||0)+dt*0.0005;
+}
+
+function updateMechbox(d, dt){
+  for(const g of d.gears) g.phase += g.speed * dt;
+  for(const h of d.hinges) h.ang += h.angVel * dt;
+}
+
+// ─── COLLISION DETECTION (lightweight) ──────────────────────────────────────
+function checkCollisions(pieces){
+  const n = pieces.length;
+  for(let i=0;i<n;i++){
+    const a = pieces[i];
+    for(let j=i+1;j<n;j++){
+      const b = pieces[j];
+      const dx=b.x-a.x, dy=b.y-a.y;
+      const dist=Math.sqrt(dx*dx+dy*dy);
+      const minDist=(a.sz+b.sz)*0.35;
+      if(dist<minDist && dist>0.1){
+        const nx=dx/dist, ny=dy/dist;
+        const overlap=minDist-dist;
+        // Impulse
+        const rvx=b.vx-a.vx, rvy=b.vy-a.vy;
+        const vRel=rvx*nx+rvy*ny;
+        if(vRel<0){
+          const j2 = -0.4*vRel/(1/a.mass+1/b.mass);
+          a.vx -= j2/a.mass*nx; a.vy -= j2/a.mass*ny;
+          b.vx += j2/b.mass*nx; b.vy += j2/b.mass*ny;
+          a.vr += j2/a.inertia*(rnd()-0.5)*0.02;
+          b.vr += j2/b.inertia*(rnd()-0.5)*0.02;
+        }
+        a.x -= nx*overlap*0.5; a.y -= ny*overlap*0.5;
+        b.x += nx*overlap*0.5; b.y += ny*overlap*0.5;
+        a.glowT = 1; b.glowT = 1;
+        a.colliding = true; b.colliding = true;
+        // Spawn particle
+        if(particles.length<120) spawnParticle((a.x+b.x)/2,(a.y+b.y)/2,a.ci);
+        soundCollide();
+      }
+    }
+  }
+}
+
+// ─── PARTICLES ───────────────────────────────────────────────────────────────
+function spawnParticle(x,y,ci){
+  for(let i=0;i<3;i++){
+    const ang=rng(0,TAU), spd=rng(0.5,2.5);
+    particles.push({x,y,vx:Math.cos(ang)*spd,vy:Math.sin(ang)*spd,life:1,maxLife:rng(40,80),ci,sz:rng(1.5,4),shape:rni(0,2)});
+  }
+}
+function updateParticles(dt){
+  for(let i=particles.length-1;i>=0;i--){
+    const p=particles[i];
+    p.x+=p.vx*dt*0.5; p.y+=p.vy*dt*0.5;
+    p.vy+=0.02*dt; p.vx*=0.97; p.vy*=0.97;
+    p.life-=dt/p.maxLife;
+    if(p.life<=0) particles.splice(i,1);
+  }
+}
+function drawParticles(){
+  for(const p of particles){
+    GL.save();
+    GL.globalAlpha = p.life*0.85;
+    GL.fillStyle = palColFlow(p.life+colorFlow*0.1);
+    GL.strokeStyle = palCol(p.ci);
+    GL.lineWidth = 0.5;
+    const s=p.sz*p.life;
+    GL.translate(p.x,p.y);
+    if(p.shape===0){GL.beginPath();GL.arc(0,0,s,0,TAU);GL.fill();}
+    else{GL.fillRect(-s/2,-s/2,s,s);}
+    GL.restore();
+  }
+}
+
+// ─── DRAW PIECES ─────────────────────────────────────────────────────────────
+function drawPiece(p, t){
+  const pulse = 1 + Math.sin(t*p.pulseSpd*0.001 + p.phase)*p.pulseMag;
+  GL.save();
+  GL.translate(p.x, p.y);
+  GL.rotate(p.rot);
+  GL.globalAlpha = p.alpha * clamp(p.age/500, 0, 1);
+
+  // Glow effect on collision
+  if(p.glowT > 0){
+    GL.save();
+    GL.globalAlpha = p.glowT*0.3;
+    GL.shadowColor = palCol(p.ci);
+    GL.shadowBlur = p.sz*0.4*p.glowT;
+    GL.strokeStyle = palCol(p.ci);
+    GL.lineWidth = p.sz*0.05;
+    GL.beginPath();
+    GL.arc(0,0,p.sz*0.5*pulse,0,TAU);
+    GL.stroke();
+    GL.restore();
+  }
+
+  const s = p.sz * pulse;
+  switch(p.type){
+    case 'sudoku': drawSudoku(p, s, t); break;
+    case 'kakuro': drawKakuro(p, s, t); break;
+    case 'polyomino': drawPolyomino(p, s, t); break;
+    case 'tangram': drawTangram(p, s, t); break;
+    case 'kenken': drawKenken(p, s, t); break;
+    case 'slitherlink': drawSlitherlink(p, s, t); break;
+    case 'masyu': drawMasyu(p, s, t); break;
+    case 'artdeco': drawArtDeco(p, s, t); break;
+    case 'fractal': drawFractal(p, s, t); break;
+    case 'soma': drawSomaProj(p, s, t); break;
+    case 'mechbox': drawMechbox(p, s, t); break;
+    case 'islamic_tile': drawIslamicTile(p, s, t); break;
+  }
+  GL.restore();
+}
+
+// ─── DRAW: SUDOKU ────────────────────────────────────────────────────────────
+function drawSudoku(p, s, t){
+  const d=p.data, n=d.n, cs=s/n;
+  const col1=palCol(p.ci), col2=palCol(p.ci2);
+  // Background
+  GL.fillStyle=col_alpha(PAL.bg, 0.7);
+  GL.fillRect(-s/2,-s/2,s,s);
+  // Art Deco border
+  GL.strokeStyle=col1; GL.lineWidth=1.5;
+  const artDecoFrame=0.04*s;
+  GL.strokeRect(-s/2+artDecoFrame,-s/2+artDecoFrame,s-2*artDecoFrame,s-2*artDecoFrame);
+  GL.lineWidth=0.5;
+  GL.strokeRect(-s/2,-s/2,s,s);
+  // Cells
+  for(let r=0;r<n;r++){
+    for(let c=0;c<n;c++){
+      const x=-s/2+c*cs, y=-s/2+r*cs;
+      const isHi=d.hilights.some(h=>h.r===r&&h.c===c);
+      if(isHi){GL.fillStyle=col_alpha(col2,0.35);GL.fillRect(x,y,cs,cs);}
+      // Number
+      GL.fillStyle=isHi?col1:col_alpha(col1,0.6);
+      GL.font=`${cs*0.5}px 'Courier New'`;
+      GL.textAlign='center'; GL.textBaseline='middle';
+      if(rnd()<0.6) GL.fillText(d.grid[r][c], x+cs/2, y+cs/2);
+    }
+  }
+  // Grid lines
+  GL.strokeStyle=col_alpha(col1,0.4); GL.lineWidth=0.5;
+  for(let i=0;i<=n;i++){
+    GL.beginPath(); GL.moveTo(-s/2+i*cs,-s/2); GL.lineTo(-s/2+i*cs,s/2); GL.stroke();
+    GL.beginPath(); GL.moveTo(-s/2,-s/2+i*cs); GL.lineTo(s/2,-s/2+i*cs); GL.stroke();
+  }
+  // Bold box borders (for 4=2x2, 6=2x3)
+  const box=n===4?2:n===6?2:3;
+  GL.strokeStyle=col1; GL.lineWidth=1.8;
+  for(let i=0;i<=n;i+=box){
+    GL.beginPath(); GL.moveTo(-s/2+i*cs,-s/2); GL.lineTo(-s/2+i*cs,s/2); GL.stroke();
+    GL.beginPath(); GL.moveTo(-s/2,-s/2+i*cs); GL.lineTo(s/2,-s/2+i*cs); GL.stroke();
+  }
+}
+
+// ─── DRAW: KAKURO ────────────────────────────────────────────────────────────
+function drawKakuro(p, s, t){
+  const d=p.data, col1=palCol(p.ci), col2=palCol(p.ci2);
+  const n=d.n, cs=s/n;
+  GL.fillStyle=col_alpha(PAL.bg,0.8); GL.fillRect(-s/2,-s/2,s,s);
+  GL.strokeStyle=col1; GL.lineWidth=1;
+  for(let r=0;r<n;r++) for(let c=0;c<n;c++){
+    const x=-s/2+c*cs, y=-s/2+r*cs;
+    const isBlack=rnd()<0.3;
+    if(isBlack){
+      GL.fillStyle=col_alpha(col1,0.4); GL.fillRect(x,y,cs,cs);
+      GL.strokeStyle=col_alpha(col2,0.6); GL.lineWidth=0.5;
+      GL.beginPath(); GL.moveTo(x,y+cs); GL.lineTo(x+cs,y); GL.stroke();
+    } else {
+      GL.strokeStyle=col_alpha(col1,0.3); GL.lineWidth=0.5;
+      GL.strokeRect(x,y,cs,cs);
+    }
+  }
+  for(const cl of d.clues){
+    GL.fillStyle=col2; GL.font=`bold ${cs*0.28}px monospace`; GL.textAlign='center'; GL.textBaseline='middle';
+    GL.fillText(cl.val, (-s/2+cl.x*s), (-s/2+cl.y*s));
+  }
+  GL.strokeStyle=col1; GL.lineWidth=1.5; GL.strokeRect(-s/2,-s/2,s,s);
+}
+
+// ─── DRAW: POLYOMINO ─────────────────────────────────────────────────────────
+function drawPolyomino(p, s, t){
+  const d=p.data;
+  const cs=d.cs*(s/p.sz);
+  GL.save();
+  GL.translate(-s/2,-s/2);
+  for(const piece of d.pieces){
+    const col=palCol((p.ci+piece.col)%PAL.cols.length);
+    for(const cell of piece.cells){
+      const x=cell.c*cs, y=cell.r*cs;
+      GL.fillStyle=col_alpha(col,0.55);
+      GL.strokeStyle=col;
+      GL.lineWidth=0.7;
+      GL.fillRect(x+0.5,y+0.5,cs-1,cs-1);
+      GL.strokeRect(x+0.5,y+0.5,cs-1,cs-1);
+      // Bauhaus-style corner accent
+      GL.fillStyle=col_alpha(palCol(p.ci2),0.8);
+      GL.fillRect(x+cs*0.8,y+0.5,cs*0.18,cs*0.18);
+    }
+  }
+  GL.restore();
+  GL.strokeStyle=palCol(p.ci); GL.lineWidth=1.5; GL.strokeRect(-s/2,-s/2,s,s);
+}
+
+// ─── DRAW: TANGRAM ───────────────────────────────────────────────────────────
+function drawTangram(p, s, t){
+  const d=p.data;
+  for(let i=0;i<d.pieces.length;i++){
+    const piece=d.pieces[i], off=d.offsets[i];
+    const col=palCol((p.ci+i)%PAL.cols.length);
+    GL.save();
+    GL.translate(-s/2,-s/2);
+    const ang=off.rot+Math.sin(t*0.0005+i)*0.08;
+    const cx=piece.reduce((a,v)=>a+v.x,0)/piece.length*s;
+    const cy=piece.reduce((a,v)=>a+v.y,0)/piece.length*s;
+    GL.translate(cx+off.tx*s,cy+off.ty*s);
+    GL.rotate(ang);
+    GL.translate(-cx,-cy);
+    GL.beginPath();
+    for(let j=0;j<piece.length;j++){
+      const v=piece[j];
+      if(j===0) GL.moveTo(v.x*s,v.y*s); else GL.lineTo(v.x*s,v.y*s);
+    }
+    GL.closePath();
+    GL.fillStyle=col_alpha(col,0.5);
+    GL.strokeStyle=col;
+    GL.lineWidth=1.2;
+    GL.fill(); GL.stroke();
+    GL.restore();
+  }
+}
+
+// ─── DRAW: KENKEN ────────────────────────────────────────────────────────────
+function drawKenken(p, s, t){
+  const d=p.data, n=d.n, cs=s/n;
+  const col1=palCol(p.ci), col2=palCol(p.ci2);
+  GL.fillStyle=col_alpha(PAL.bg,0.7); GL.fillRect(-s/2,-s/2,s,s);
+  // Cages
+  for(let i=0;i<d.cages.length;i++){
+    const cage=d.cages[i], col=palCol((p.ci+i)%PAL.cols.length);
+    GL.strokeStyle=col_alpha(col,0.7); GL.lineWidth=2;
+    for(const cell of cage.cells){
+      const x=-s/2+cell.c*cs, y=-s/2+cell.r*cs;
+      GL.fillStyle=col_alpha(col,0.15); GL.fillRect(x,y,cs,cs);
+      GL.strokeRect(x+1,y+1,cs-2,cs-2);
+    }
+    if(cage.cells.length>0){
+      const cell=cage.cells[0];
+      const x=-s/2+cell.c*cs+2, y=-s/2+cell.r*cs+cs*0.28;
+      GL.fillStyle=col; GL.font=`bold ${cs*0.3}px monospace`; GL.textAlign='left'; GL.textBaseline='middle';
+      GL.fillText(cage.val+cage.op, x, y);
+    }
+  }
+  GL.strokeStyle=col1; GL.lineWidth=0.5;
+  for(let i=0;i<=n;i++){
+    GL.beginPath(); GL.moveTo(-s/2+i*cs,-s/2); GL.lineTo(-s/2+i*cs,s/2); GL.stroke();
+    GL.beginPath(); GL.moveTo(-s/2,-s/2+i*cs); GL.lineTo(s/2,-s/2+i*cs); GL.stroke();
+  }
+  GL.strokeStyle=col1; GL.lineWidth=2; GL.strokeRect(-s/2,-s/2,s,s);
+}
+
+// ─── DRAW: SLITHERLINK ───────────────────────────────────────────────────────
+function drawSlitherlink(p, s, t){
+  const d=p.data, n=d.n, cs=s/n;
+  const col1=palCol(p.ci), col2=palCol(p.ci2);
+  GL.fillStyle=col_alpha(PAL.bg,0.6); GL.fillRect(-s/2,-s/2,s,s);
+  // Dots
+  GL.fillStyle=col_alpha(col1,0.5);
+  for(let r=0;r<=n;r++) for(let c=0;c<=n;c++){
+    GL.beginPath(); GL.arc(-s/2+c*cs,-s/2+r*cs,1.5,0,TAU); GL.fill();
+  }
+  // Clue numbers
+  for(const cl of d.clues){
+    GL.fillStyle=col2; GL.font=`${cs*0.45}px monospace`; GL.textAlign='center'; GL.textBaseline='middle';
+    GL.fillText(cl.v, -s/2+(cl.c+0.5)*cs, -s/2+(cl.r+0.5)*cs);
+  }
+  // Animated loop
+  const loopPhase = d.loopPhase||0;
+  if(d.loop.length>1){
+    GL.strokeStyle=col1; GL.lineWidth=2;
+    GL.setLineDash([4,3]); GL.lineDashOffset=-loopPhase*40;
+    GL.beginPath();
+    for(let i=0;i<d.loop.length;i++){
+      const pt=d.loop[i];
+      const x=-s/2+pt.x*cs, y=-s/2+pt.y*cs;
+      if(i===0) GL.moveTo(x,y); else GL.lineTo(x,y);
+    }
+    GL.stroke();
+    GL.setLineDash([]);
+  }
+  GL.strokeStyle=col1; GL.lineWidth=1.5; GL.strokeRect(-s/2,-s/2,s,s);
+}
+
+// ─── DRAW: MASYU ─────────────────────────────────────────────────────────────
+function drawMasyu(p, s, t){
+  const d=p.data, n=d.n, cs=s/n;
+  const col1=palCol(p.ci), col2=palCol(p.ci2);
+  GL.fillStyle=col_alpha(PAL.bg,0.65); GL.fillRect(-s/2,-s/2,s,s);
+  // Grid dots
+  GL.fillStyle=col_alpha(col1,0.2);
+  for(let r=0;r<n;r++) for(let c=0;c<n;c++){
+    GL.beginPath(); GL.arc(-s/2+(c+0.5)*cs,-s/2+(r+0.5)*cs,1,0,TAU); GL.fill();
+  }
+  // Path
+  if(d.path.length>1){
+    const prog = ((t*0.0003)%(d.path.length-1));
+    GL.strokeStyle=col2; GL.lineWidth=1.8;
+    GL.setLineDash([3,2]); GL.lineDashOffset=-prog*8;
+    GL.beginPath();
+    for(let i=0;i<d.path.length;i++){
+      const pt=d.path[i];
+      const x=-s/2+(pt.c+0.5)*cs, y=-s/2+(pt.r+0.5)*cs;
+      if(i===0) GL.moveTo(x,y); else GL.lineTo(x,y);
+    }
+    GL.stroke(); GL.setLineDash([]);
+  }
+  // Masyu dots
+  for(const dot of d.dots){
+    const x=-s/2+(dot.c+0.5)*cs, y=-s/2+(dot.r+0.5)*cs;
+    GL.beginPath(); GL.arc(x,y,cs*0.28,0,TAU);
+    if(dot.black){GL.fillStyle=col1; GL.fill();}
+    else{GL.strokeStyle=col1; GL.lineWidth=1.5; GL.stroke();}
+  }
+  GL.strokeStyle=col1; GL.lineWidth=1.5; GL.strokeRect(-s/2,-s/2,s,s);
+}
+
+// ─── DRAW: ART DECO ──────────────────────────────────────────────────────────
+function drawArtDeco(p, s, t){
+  const col1=palCol(p.ci), col2=palCol(p.ci2);
+  const ang=t*0.0003+p.phase;
+  GL.save();
+  // Radiating lines
+  const rays=rni(12,24);
+  for(let i=0;i<rays;i++){
+    const a=TAU*i/rays+ang;
+    const r1=s*0.15, r2=s*0.5;
+    GL.beginPath();
+    GL.moveTo(Math.cos(a)*r1,Math.sin(a)*r1);
+    GL.lineTo(Math.cos(a)*r2,Math.sin(a)*r2);
+    GL.strokeStyle=col_alpha(col1, 0.3+0.3*(i%2));
+    GL.lineWidth=i%3===0?1.5:0.5;
+    GL.stroke();
+  }
+  // Concentric polygons
+  for(let ring=1;ring<=4;ring++){
+    const sides=4+ring*2;
+    const r=s*0.1*ring;
+    GL.beginPath();
+    for(let i=0;i<=sides;i++){
+      const a=TAU*i/sides+ang*0.5;
+      if(i===0) GL.moveTo(Math.cos(a)*r,Math.sin(a)*r);
+      else GL.lineTo(Math.cos(a)*r,Math.sin(a)*r);
+    }
+    GL.strokeStyle=col_alpha(ring%2===0?col1:col2,0.5);
+    GL.lineWidth=ring===2||ring===4?1.5:0.7;
+    GL.stroke();
+  }
+  // Corner ornaments
+  const corners=[[-1,-1],[1,-1],[1,1],[-1,1]];
+  for(const[cx,cy] of corners){
+    const ox=cx*s*0.4, oy=cy*s*0.4;
+    GL.beginPath();
+    GL.arc(ox,oy,s*0.07,0,TAU);
+    GL.strokeStyle=col1; GL.lineWidth=1; GL.stroke();
+    for(let i=0;i<4;i++){
+      const a=TAU*i/4+PI/4;
+      GL.beginPath();
+      GL.moveTo(ox+Math.cos(a)*s*0.04,oy+Math.sin(a)*s*0.04);
+      GL.lineTo(ox+Math.cos(a)*s*0.12,oy+Math.sin(a)*s*0.12);
+      GL.stroke();
+    }
+  }
+  GL.restore();
+}
+
+// ─── DRAW: FRACTAL ───────────────────────────────────────────────────────────
+function drawFractal(p, s, t){
+  const d=p.data, col1=palCol(p.ci), col2=palCol(p.ci2);
+  if(!d.points || d.points.length<2) return;
+  const scale=s/p.sz;
+  const fp=d.fracPhase||0;
+  GL.save();
+  GL.translate(-s/2,-s/2);
+  const grad=GL.createLinearGradient(0,0,s,s);
+  grad.addColorStop(0,col1); grad.addColorStop(0.5,col2); grad.addColorStop(1,col1);
+  GL.strokeStyle=grad;
+  GL.lineWidth=1.2;
+  GL.setLineDash([4,2]); GL.lineDashOffset=-fp*30;
+  GL.beginPath();
+  for(let i=0;i<d.points.length;i++){
+    const pt=d.points[i];
+    const x=pt.x*scale, y=pt.y*scale;
+    if(i===0) GL.moveTo(x,y); else GL.lineTo(x,y);
+  }
+  GL.stroke();
+  GL.setLineDash([]);
+  GL.restore();
+}
+
+// ─── DRAW: SOMA CUBE PROJECTION ──────────────────────────────────────────────
+function drawSomaProj(p, s, t){
+  const col1=palCol(p.ci), col2=palCol(p.ci2);
+  const ang=t*0.0002+p.phase;
+  // Isometric projection of a 3x3x3 cube with colored pieces
+  const PIECES_3D = [
+    [[0,0,0],[1,0,0],[1,1,0]],// L
+    [[0,0,0],[1,0,0],[0,1,0],[0,0,1]],// T
+    [[0,0,0],[1,0,0],[2,0,0],[2,1,0]],// S
+    [[0,0,0],[0,1,0],[1,1,0],[1,2,0]],// Z
+  ];
+  const iso=(x3,y3,z3)=>{
+    const ix=(x3-z3)*Math.cos(ang)*s*0.18;
+    const iy=(x3+z3)*Math.sin(ang)*s*0.11 - y3*s*0.2;
+    return{x:ix,y:iy};
+  };
+  GL.save();
+  for(let pi=0;pi<PIECES_3D.length;pi++){
+    const piece=PIECES_3D[pi];
+    const col=palCol((p.ci+pi*2)%PAL.cols.length);
+    for(const[cx,cy,cz] of piece){
+      const faces=[
+        [[cx,cy,cz],[cx+1,cy,cz],[cx+1,cy+1,cz],[cx,cy+1,cz]],
+        [[cx,cy,cz],[cx+1,cy,cz],[cx+1,cy,cz+1],[cx,cy,cz+1]],
+        [[cx+1,cy,cz],[cx+1,cy+1,cz],[cx+1,cy+1,cz+1],[cx+1,cy,cz+1]],
+      ];
+      for(let fi=0;fi<faces.length;fi++){
+        GL.beginPath();
+        for(let vi=0;vi<faces[fi].length;vi++){
+          const[fx,fy,fz]=faces[fi][vi];
+          const{x,y}=iso(fx,fy,fz);
+          if(vi===0) GL.moveTo(x,y); else GL.lineTo(x,y);
+        }
+        GL.closePath();
+        GL.fillStyle=col_alpha(col,0.35+fi*0.12);
+        GL.strokeStyle=col; GL.lineWidth=0.8;
+        GL.fill(); GL.stroke();
+      }
+    }
+  }
+  GL.restore();
+}
+
+// ─── DRAW: MECHBOX ───────────────────────────────────────────────────────────
+function drawMechbox(p, s, t){
+  const d=p.data, col1=palCol(p.ci), col2=palCol(p.ci2);
+  GL.save();
+  GL.translate(-s/2,-s/2);
+  // Frame
+  GL.strokeStyle=col1; GL.lineWidth=2;
+  GL.strokeRect(2,2,s-4,s-4);
+  // Corner bolts
+  for(const[cx,cy] of [[6,6],[s-6,6],[s-6,s-6],[6,s-6]]){
+    GL.beginPath(); GL.arc(cx,cy,3,0,TAU); GL.strokeStyle=col2; GL.lineWidth=1; GL.stroke();
+    GL.beginPath(); GL.moveTo(cx-2,cy); GL.lineTo(cx+2,cy); GL.stroke();
+    GL.beginPath(); GL.moveTo(cx,cy-2); GL.lineTo(cx,cy+2); GL.stroke();
+  }
+  // Gears
+  for(const g of d.gears){
+    drawGear(g.x, g.y, g.r, g.teeth, g.phase, col1, col2);
+  }
+  // Springs
+  for(const sp of d.springs){
+    drawSpring(sp.x1,sp.y1,sp.x2,sp.y2,sp.coils,col2);
+  }
+  // Hinges/arms
+  for(const h of d.hinges){
+    GL.strokeStyle=col1; GL.lineWidth=2;
+    GL.beginPath(); GL.moveTo(h.x,h.y);
+    GL.lineTo(h.x+Math.cos(h.ang)*h.armLen, h.y+Math.sin(h.ang)*h.armLen);
+    GL.stroke();
+    GL.beginPath(); GL.arc(h.x,h.y,4,0,TAU); GL.fillStyle=col2; GL.fill();
+  }
+  GL.restore();
+}
+
+function drawGear(x,y,r,teeth,phase,col1,col2){
+  GL.save();
+  GL.translate(x,y);
+  GL.rotate(phase);
+  GL.beginPath();
+  for(let i=0;i<teeth*2;i++){
+    const a=PI*i/teeth;
+    const ri=i%2===0?r:r*0.75;
+    if(i===0) GL.moveTo(Math.cos(a)*ri,Math.sin(a)*ri);
+    else GL.lineTo(Math.cos(a)*ri,Math.sin(a)*ri);
+  }
+  GL.closePath();
+  GL.fillStyle=col_alpha(col1,0.25); GL.strokeStyle=col1; GL.lineWidth=1;
+  GL.fill(); GL.stroke();
+  GL.beginPath(); GL.arc(0,0,r*0.25,0,TAU);
+  GL.fillStyle=col2; GL.fill();
+  GL.restore();
+}
+
+function drawSpring(x1,y1,x2,y2,coils,col){
+  const dx=x2-x1, dy=y2-y1;
+  const len=Math.sqrt(dx*dx+dy*dy);
+  if(len<2) return;
+  const nx=dx/len, ny=dy/len;
+  const px=-ny, py=nx;
+  const amp=Math.min(8,len*0.15);
+  GL.beginPath();
+  GL.moveTo(x1,y1);
+  for(let i=0;i<=coils*2;i++){
+    const t2=i/(coils*2);
+    const sx=x1+dx*t2+(i%2===0?amp:-amp)*px;
+    const sy=y1+dy*t2+(i%2===0?amp:-amp)*py;
+    GL.lineTo(sx,sy);
+  }
+  GL.lineTo(x2,y2);
+  GL.strokeStyle=col; GL.lineWidth=1; GL.stroke();
+}
+
+// ─── DRAW: ISLAMIC TILE ──────────────────────────────────────────────────────
+function drawIslamicTile(p, s, t){
+  const d=p.data, col1=palCol(p.ci), col2=palCol(p.ci2);
+  const n=d.sym, phase=d.phase + t*0.0002;
+  GL.save();
+  // Background circle
+  GL.beginPath(); GL.arc(0,0,s*0.48,0,TAU);
+  GL.fillStyle=col_alpha(PAL.bg,0.6); GL.fill();
+  GL.strokeStyle=col1; GL.lineWidth=1.5; GL.stroke();
+  // Symmetry layers
+  for(let layer=0;layer<d.layers;layer++){
+    const r1=s*(0.15+layer*0.14), r2=s*(0.28+layer*0.14);
+    const col=layer%2===0?col1:col2;
+    for(let i=0;i<n;i++){
+      const a=TAU*i/n+phase*(layer%2===0?1:-1);
+      const a2=TAU*(i+0.5)/n+phase*(layer%2===0?1:-1);
+      GL.beginPath();
+      GL.moveTo(Math.cos(a)*r1,Math.sin(a)*r1);
+      GL.lineTo(Math.cos(a2)*r2,Math.sin(a2)*r2);
+      GL.lineTo(Math.cos(a+TAU/n)*r1,Math.sin(a+TAU/n)*r1);
+      GL.closePath();
+      GL.fillStyle=col_alpha(col,0.12+(i%2)*0.1);
+      GL.strokeStyle=col_alpha(col,0.7);
+      GL.lineWidth=0.8;
+      GL.fill(); GL.stroke();
+    }
+    // Interlaced lines
+    GL.beginPath();
+    for(let i=0;i<=n;i++){
+      const a=TAU*i/n+phase;
+      if(i===0) GL.moveTo(Math.cos(a)*r1,Math.sin(a)*r1);
+      else GL.lineTo(Math.cos(a)*r1,Math.sin(a)*r1);
+    }
+    GL.closePath();
+    GL.strokeStyle=col_alpha(col1,0.4); GL.lineWidth=1; GL.stroke();
+  }
+  // Center star
+  const nc=n, rInner=s*0.07, rOuter=s*0.15;
+  GL.beginPath();
+  for(let i=0;i<nc*2;i++){
+    const a=TAU*i/(nc*2)+phase;
+    const r=i%2===0?rOuter:rInner;
+    if(i===0) GL.moveTo(Math.cos(a)*r,Math.sin(a)*r);
+    else GL.lineTo(Math.cos(a)*r,Math.sin(a)*r);
+  }
+  GL.closePath();
+  GL.fillStyle=col_alpha(col2,0.6); GL.fill();
+  GL.strokeStyle=col1; GL.lineWidth=1; GL.stroke();
+  GL.restore();
+}
+
+// ─── MAZE OVERLAY ────────────────────────────────────────────────────────────
+let mazeData = null;
+let mazePath = [];
+let mazePathPos = 0;
+
+function generateMaze(){
+  const cw = W<600?30:40, ch=cw;
+  const cols2=Math.floor(W/cw), rows2=Math.floor(H/ch);
+  // DFS maze
+  const visited=Array.from({length:rows2},()=>Array(cols2).fill(false));
+  const walls={h:Array.from({length:rows2+1},()=>Array(cols2).fill(true)),
+                v:Array.from({length:rows2},()=>Array(cols2+1).fill(true))};
+  function dfs(r,c){
+    visited[r][c]=true;
+    const dirs=[[0,1,0,1],[1,0,1,0],[0,-1,0,-1],[-1,0,-1,0]].sort(()=>rnd()-0.5);
+    for(const[dr,dc,wr,wc] of dirs){
+      const nr=r+dr, nc=c+dc;
+      if(nr>=0&&nr<rows2&&nc>=0&&nc<cols2&&!visited[nr][nc]){
+        if(dr!==0) walls.h[Math.max(r,nr)+( dr<0?0:0)][c]=false;
+        else walls.v[r][Math.max(c,nc)]=false;
+        dfs(nr,nc);
+      }
+    }
+  }
+  dfs(0,0);
+  mazeData={walls,rows:rows2,cols:cols2,cw,ch};
+  // Generate solution path using A*-like BFS
+  const start={r:0,c:0}, end={r:rows2-1,c:cols2-1};
+  const queue=[start], prev={};
+  prev[`${start.r},${start.c}`]=null;
+  const key=(r,c)=>`${r},${c}`;
+  while(queue.length){
+    const cur=queue.shift();
+    if(cur.r===end.r&&cur.c===end.c) break;
+    for(const[dr,dc,wr,wc] of [[0,1,0,1],[1,0,1,0],[0,-1,0,-1],[-1,0,-1,0]]){
+      const nr=cur.r+dr, nc=cur.c+dc;
+      if(nr<0||nr>=rows2||nc<0||nc>=cols2) continue;
+      const hasWall=dr!==0?mazeData.walls.h[Math.max(cur.r,nr)][cur.c]:mazeData.walls.v[cur.r][Math.max(cur.c,nc)];
+      if(!hasWall&&!prev.hasOwnProperty(key(nr,nc))){
+        prev[key(nr,nc)]={r:cur.r,c:cur.c};
+        queue.push({r:nr,c:nc});
+      }
+    }
+  }
+  mazePath=[];
+  let cur=end;
+  while(cur){
+    mazePath.unshift({r:cur.r,c:cur.c});
+    cur=prev[key(cur.r,cur.c)];
+  }
+  mazePathPos=0;
+}
+
+function drawMaze(t){
+  if(!mazeData) return;
+  const{walls,rows,cols,cw,ch}=mazeData;
+  GL.save();
+  GL.globalAlpha=0.06;
+  GL.strokeStyle=palColFlow(colorFlow*0.05);
+  GL.lineWidth=0.5;
+  // Horizontal walls
+  for(let r=0;r<=rows;r++) for(let c=0;c<cols;c++){
+    if(walls.h[r]&&walls.h[r][c]){
+      GL.beginPath(); GL.moveTo(c*cw,r*ch); GL.lineTo((c+1)*cw,r*ch); GL.stroke();
+    }
+  }
+  // Vertical walls
+  for(let r=0;r<rows;r++) for(let c=0;c<=cols;c++){
+    if(walls.v[r]&&walls.v[r][c]){
+      GL.beginPath(); GL.moveTo(c*cw,r*ch); GL.lineTo(c*cw,(r+1)*ch); GL.stroke();
+    }
+  }
+  // Animated solution path
+  if(mazePath.length>1){
+    const prog = Math.min(mazePathPos / mazePath.length, 1);
+    const drawTo = Math.floor(prog*mazePath.length);
+    GL.globalAlpha=0.18;
+    GL.strokeStyle=palColFlow(colorFlow*0.2+0.3);
+    GL.lineWidth=1.5;
+    GL.setLineDash([3,3]); GL.lineDashOffset=-t*0.02;
+    GL.beginPath();
+    for(let i=0;i<=drawTo&&i<mazePath.length;i++){
+      const pt=mazePath[i];
+      const x=(pt.c+0.5)*cw, y=(pt.r+0.5)*ch;
+      if(i===0) GL.moveTo(x,y); else GL.lineTo(x,y);
+    }
+    GL.stroke();
+    GL.setLineDash([]);
+  }
+  GL.restore();
+  mazePathPos += 0.3;
+  if(mazePathPos >= mazePath.length+30) mazePathPos=0;
+}
+
+// ─── AUDIO ───────────────────────────────────────────────────────────────────
+let lastSoundT=0;
+function initAudio(){
+  if(!SND_ON) return;
+  try{
+    AudioCtx = new (window.AudioContext||window.webkitAudioContext)();
+  }catch(e){SND_ON=false;}
+}
+function soundCollide(){
+  if(!SND_ON||!AudioCtx) return;
+  const now2=AudioCtx.currentTime;
+  if(now2-lastSoundT<0.05) return;
+  lastSoundT=now2;
+  try{
+    const osc=AudioCtx.createOscillator();
+    const gain=AudioCtx.createGain();
+    osc.connect(gain); gain.connect(AudioCtx.destination);
+    osc.type=['sine','triangle','square'][rni(0,2)];
+    osc.frequency.value=200+rng(0,600);
+    gain.gain.setValueAtTime(0.04,now2);
+    gain.gain.exponentialRampToValueAtTime(0.001,now2+0.15);
+    osc.start(now2); osc.stop(now2+0.15);
+  }catch(e){}
+}
+function soundTick(t){
+  if(!SND_ON||!AudioCtx) return;
+  audioTick++;
+  if(audioTick%120!==0) return;
+  const now2=AudioCtx.currentTime;
+  try{
+    const freqs=[110,220,330,440,550,660,880];
+    const f=freqs[rni(0,freqs.length-1)];
+    const osc=AudioCtx.createOscillator();
+    const gain=AudioCtx.createGain();
+    osc.connect(gain); gain.connect(AudioCtx.destination);
+    osc.type='sine'; osc.frequency.value=f;
+    gain.gain.setValueAtTime(0.025,now2);
+    gain.gain.exponentialRampToValueAtTime(0.001,now2+0.3);
+    osc.start(now2); osc.stop(now2+0.3);
+  }catch(e){}
+}
+
+// ─── INITIALIZATION ──────────────────────────────────────────────────────────
+function init(flash=true){
+  PAL_IDX = (PAL_IDX+1)%PALETTE_SETS.length;
+  PAL = PALETTE_SETS[PAL_IDX];
+  pieces=[];
+  particles=[];
+  makeBgLayers();
+  generateMaze();
+  simTime=0;
+  colorFlow=0;
+  // Determine count based on screen size
+  const area = W*H;
+  const count = Math.min(Math.max(Math.floor(area/14000), 8), W<600?18:28);
+  for(let i=0;i<count;i++) pieces.push(makePiece());
+  GENNUM++;
+  if(flash){
+    const f=document.getElementById('flash');
+    f.style.opacity='0.6';
+    setTimeout(()=>{f.style.opacity='0';},80);
+  }
+}
+
+// ─── MAIN LOOP ───────────────────────────────────────────────────────────────
+let lastFPSTime=0, fpsCounter=0;
+
+function loop(ts){
+  RAF = requestAnimationFrame(loop);
+  if(!T0) T0=ts;
+  DT = Math.min(ts-NOW, 50);
+  NOW = ts;
+  simTime += DT;
+  colorFlow += DT*0.0001;
+  FRAMES++;
+  fpsCounter++;
+  if(ts-lastFPSTime>500){FPS=Math.round(fpsCounter*1000/(ts-lastFPSTime));fpsCounter=0;lastFPSTime=ts;}
+
+  // Draw background
+  drawBg(simTime);
+  drawMaze(simTime);
+
+  // Update & draw pieces
+  const maxCollision = pieces.length>20 ? 0 : 1;
+  for(const p of pieces) updatePiece(p, DT, pieces);
+  if(maxCollision) checkCollisions(pieces);
+  // Draw pieces (sorted by y for visual layering)
+  pieces.sort((a,b)=>a.y-b.y);
+  for(const p of pieces) drawPiece(p, simTime);
+
+  // Particles
+  updateParticles(DT);
+  drawParticles();
+
+  // Color flow overlay (subtle gradient wash)
+  const grad = GL.createLinearGradient(0,0,W,H);
+  grad.addColorStop(0, col_alpha(palColFlow(colorFlow),0.015));
+  grad.addColorStop(0.5, col_alpha(palColFlow(colorFlow+0.3),0.01));
+  grad.addColorStop(1, col_alpha(palColFlow(colorFlow+0.6),0.015));
+  GL.fillStyle=grad; GL.fillRect(0,0,W,H);
+
+  soundTick(simTime);
+
+  // HUD
+  if(HUD_ON){
+    document.getElementById('h-fps').textContent=`FPS: ${FPS}`;
+    document.getElementById('h-pieces').textContent=`PIECES: ${pieces.length} | PARTICLES: ${particles.length}`;
+    document.getElementById('h-palette').textContent=`PALETTE: ${PAL.name}`;
+    document.getElementById('h-mode').textContent=`MODE: PUZZLE CIVILIZATION`;
+    document.getElementById('h-time').textContent=`T: ${(simTime/1000).toFixed(1)}s`;
+    document.getElementById('h-gen').textContent=`GEN: ${GENNUM}`;
+  }
+}
+
+// ─── EVENTS ──────────────────────────────────────────────────────────────────
+window.addEventListener('resize',()=>{resize();init(false);});
+
+document.addEventListener('keydown',e=>{
+  if(e.code==='Space'||e.code==='Enter'){e.preventDefault();init(true);}
+  if(e.code==='KeyH'){
+    HUD_ON=!HUD_ON;
+    document.getElementById('hud').classList.toggle('visible',HUD_ON);
+  }
+  if(e.code==='KeyS'){
+    SND_ON=!SND_ON;
+    if(SND_ON&&!AudioCtx) initAudio();
+    if(AudioCtx&&AudioCtx.state==='suspended') AudioCtx.resume();
+  }
+});
+
+let tapStart=0;
+C.addEventListener('pointerdown',e=>{tapStart=Date.now();});
+C.addEventListener('pointerup',e=>{
+  if(Date.now()-tapStart<300) init(true);
+});
+
+// ─── BOOTSTRAP ───────────────────────────────────────────────────────────────
+resize();
+PAL_IDX = rni(0, PALETTE_SETS.length-1) - 1;
+init(false);
+loop(0);
+
+})();
+</script>
+</body>
+</html>

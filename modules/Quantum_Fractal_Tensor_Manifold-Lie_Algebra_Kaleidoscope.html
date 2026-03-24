@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Quantum Fractal Tensor Manifold - Lie Algebra Kaleidoscope</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
+
+<!-- SEO -->
+<meta name="description" content="Quantum Fractal Tensor Manifold – an ultra-high-performance WebGL/Canvas kaleidoscope visualizing Lie group symmetries, fractal manifolds, tensor fields, quantum probability clouds, spectral gradients, and procedural audio. Mathematical generative art inspired by differential geometry and quantum mechanics."/>
+<meta name="keywords" content="generative art, quantum visualization, Lie group symmetry, fractal manifold, WebGL kaleidoscope, procedural audio, tensor field visualization, spectral gradients, browser synthesizer, mathematical art, differential geometry, quantum graphics"/>
+<meta name="robots" content="index, follow"/>
+
+<!-- OpenGraph -->
+<meta property="og:title" content="Quantum Fractal Tensor Manifold - Lie Algebra Kaleidoscope"/>
+<meta property="og:description" content="A self-contained WebGL/Canvas generative artwork combining Lie algebra symmetries, fractal manifolds, tensor fields, and procedural quantum audio."/>
+<meta property="og:type" content="website"/>
+
+<!-- Twitter Card -->
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:title" content="Quantum Fractal Tensor Manifold"/>
+<meta name="twitter:description" content="Lie group kaleidoscopes, quantum probability clouds, tensor flows, spectral gradients, and procedural sound in your browser."/>
+
+<!-- JSON-LD -->
+<script type="application/ld+json">
+{
+  "@context":"https://schema.org",
+  "@type":"CreativeWork",
+  "name":"Quantum Fractal Tensor Manifold - Lie Algebra Kaleidoscope",
+  "description":"Interactive mathematical generative art visualizing quantum mechanics and differential geometry using Lie groups, fractals, tensor fields, and procedural audio.",
+  "keywords":[
+    "generative art","quantum visualization","Lie group symmetry",
+    "fractal manifold","procedural audio","tensor fields","spectral gradients"
+  ],
+  "creator":{"@type":"Person","name":"Browser Synth + Math Engine"},
+  "inLanguage":"en"
+}
+</script>
+
+<style>
+html,body{
+  margin:0; padding:0; width:100%; height:100%;
+  background:#000; color:#9ff;
+  overflow:hidden; font-family:system-ui, monospace;
+}
+canvas{
+  display:block;
+  width:100vw; height:100vh;
+}
+#hud{
+  position:fixed;
+  top:8px; left:8px;
+  background:rgba(0,0,0,0.55);
+  border:1px solid rgba(120,255,255,0.35);
+  padding:8px 10px;
+  font-size:12px;
+  line-height:1.4;
+  border-radius:6px;
+  display:none;
+}
+#hud b{color:#fff;}
+</style>
+</head>
+
+<body>
+<main role="main" aria-label="Quantum Fractal Tensor Manifold Visualization">
+<canvas id="c" aria-label="Quantum fractal kaleidoscope canvas"></canvas>
+<div id="hud" aria-live="polite"></div>
+</main>
+
+<script>
+(() => {
+"use strict";
+
+/* =======================
+   GLOBAL STATE & CONFIG
+======================= */
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d", { alpha:false });
+let W=0,H=0, DPR=window.devicePixelRatio||1;
+
+let seed = Math.random()*1e9|0;
+let symmetry = 12;
+let curvature = 0.5;
+let runningSound = false;
+let showHUD = false;
+
+let t0 = performance.now();
+let fps=0, frames=0, lastFPS=t0;
+
+/* =======================
+   RANDOM + MATH UTIL
+======================= */
+function rnd(){
+  seed = (seed*1664525 + 1013904223)>>>0;
+  return seed/4294967296;
+}
+const TAU = Math.PI*2;
+const PHI = (1+Math.sqrt(5))/2;
+
+/* Quaternion rotation (SO(3)/SU(2) inspired) */
+function quatRotate(x,y,z, a,b,c,d){
+  // normalized quaternion (a,b,c,d)
+  const ix =  a*x + b*z - c*y;
+  const iy =  a*y + c*x - d*z;
+  const iz =  a*z + d*y - b*x;
+  const iw = -b*x - c*y - d*z;
+  return [
+    ix*a + iw*(-b) + iy*(-c) - iz*(-d),
+    iy*a + iw*(-c) + iz*(-b) - ix*(-d),
+    iz*a + iw*(-d) + ix*(-c) - iy*(-b)
+  ];
+}
+
+/* HSLuv-like perceptual interpolation (approximation) */
+function hsluv(h,s,l){
+  h = (h%360+360)%360;
+  s/=100; l/=100;
+  const a = s*Math.min(l,1-l);
+  const f = n=>{
+    const k=(n+h/30)%12;
+    return l - a*Math.max(-1,Math.min(k-3,9-k,1));
+  };
+  return [
+    Math.floor(255*f(0)),
+    Math.floor(255*f(8)),
+    Math.floor(255*f(4))
+  ];
+}
+
+/* =======================
+   RESIZE
+======================= */
+function resize(){
+  W = canvas.width = innerWidth*DPR;
+  H = canvas.height = innerHeight*DPR;
+  canvas.style.width = innerWidth+"px";
+  canvas.style.height = innerHeight+"px";
+}
+addEventListener("resize", resize);
+resize();
+
+/* =======================
+   PROCEDURAL AUDIO
+======================= */
+let audioCtx, master, oscBank=[];
+function initAudio(){
+  audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+  master = audioCtx.createGain();
+  master.gain.value = 0.2;
+  master.connect(audioCtx.destination);
+}
+function startSound(){
+  if(runningSound) return;
+  if(!audioCtx) initAudio();
+  runningSound=true;
+  const base = 110*Math.pow(2,rnd()*3);
+  const ratios = [1,9/8,5/4,4/3,3/2,5/3,7/4];
+  for(let i=0;i<6;i++){
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.type="sine";
+    o.frequency.value = base*ratios[i%ratios.length];
+    g.gain.value = 0.15/(i+1);
+    o.connect(g).connect(master);
+    o.start();
+    oscBank.push({o,g});
+  }
+}
+function stopSound(){
+  runningSound=false;
+  oscBank.forEach(v=>{try{v.o.stop();}catch(e){}});
+  oscBank.length=0;
+}
+
+/* =======================
+   RANDOMIZE
+======================= */
+function randomize(){
+  seed = Math.random()*1e9|0;
+  symmetry = 8 + (rnd()*56|0);
+  curvature = rnd()*2-1;
+}
+
+/* =======================
+   INPUT
+======================= */
+addEventListener("keydown",e=>{
+  if(e.code==="Space"){ randomize(); }
+  if(e.key==="h"||e.key==="H"){
+    showHUD=!showHUD;
+    hud.style.display = showHUD?"block":"none";
+  }
+  if(e.key==="s"||e.key==="S"){
+    runningSound?stopSound():startSound();
+  }
+});
+addEventListener("mousedown", randomize);
+
+/* =======================
+   MAIN DRAW LOOP
+======================= */
+const field = new Float32Array(1024);
+function draw(now){
+  requestAnimationFrame(draw);
+  const t = (now-t0)*0.0001;
+
+  frames++;
+  if(now-lastFPS>1000){
+    fps = frames;
+    frames=0;
+    lastFPS=now;
+  }
+
+  ctx.fillStyle="rgba(0,0,0,0.25)";
+  ctx.fillRect(0,0,W,H);
+
+  const cx=W/2, cy=H/2;
+  const maxR = Math.min(cx,cy)*0.9;
+
+  // tensor / curvature field
+  for(let i=0;i<field.length;i++){
+    field[i] = Math.sin(i*0.1 + t*5)*curvature;
+  }
+
+  for(let k=0;k<symmetry;k++){
+    const ang = TAU*k/symmetry + t*0.5;
+    ctx.save();
+    ctx.translate(cx,cy);
+    ctx.rotate(ang);
+
+    for(let i=0;i<200;i++){
+      const r = maxR*(i/200);
+      const theta = i*0.3 + t;
+      const q = quatRotate(
+        Math.cos(theta),
+        Math.sin(theta),
+        Math.sin(theta*0.7),
+        Math.cos(t),Math.sin(t*0.7),Math.sin(t*0.3),Math.cos(t*0.2)
+      );
+      const dx = q[0]*r;
+      const dy = q[1]*r;
+      const hue = (360*(k/symmetry + i/200 + t/PHI))%360;
+      const col = hsluv(hue,80,50+30*Math.sin(r*0.01+t));
+      ctx.strokeStyle = `rgba(${col[0]},${col[1]},${col[2]},0.35)`;
+      ctx.beginPath();
+      ctx.moveTo(0,0);
+      ctx.lineTo(dx,dy);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  if(showHUD){
+    hud.innerHTML =
+      `<b>Symmetry:</b> ${symmetry}<br>`+
+      `<b>Curvature:</b> ${curvature.toFixed(3)}<br>`+
+      `<b>FPS:</b> ${fps}<br>`+
+      `<b>Sound:</b> ${runningSound?"ON":"OFF"}`;
+  }
+}
+requestAnimationFrame(draw);
+
+})();
+</script>
+</body>
+</html>

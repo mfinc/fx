@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>Navier-Stokes Lorenz Attractor Fluid Fractal Turbine</title>
+<meta name="description" content="Real-time fluid simulation fractal attractor visualization generative art: Navier-Stokes incompressible fluid dynamics coupled with Lorenz strange attractor, Gray-Scott reaction-diffusion, escape-time fractal domain coloring, IFS affine transformations, Morlet wavelet turbulence, and Karplus-Strong FM audio synthesis.">
+<meta name="keywords" content="fluid simulation, fractal attractor, visualization, generative art, Navier-Stokes, Lorenz attractor, Gray-Scott, reaction diffusion, domain coloring, IFS, Karplus-Strong, WebGL canvas">
+<meta name="author" content="Navier-Stokes Lorenz Attractor Fluid Fractal Turbine">
+<meta property="og:title" content="Navier-Stokes Lorenz Attractor Fluid Fractal Turbine">
+<meta property="og:description" content="fluid simulation fractal attractor visualization generative art">
+<meta property="og:type" content="website">
+<script type="application/ld+json">
+{
+  "@context":"https://schema.org",
+  "@type":"WebApplication",
+  "name":"Navier-Stokes Lorenz Attractor Fluid Fractal Turbine",
+  "description":"fluid simulation fractal attractor visualization generative art combining Navier-Stokes equations, Lorenz strange attractor, Gray-Scott reaction-diffusion, escape-time fractals with domain coloring, IFS affine transformations, Morlet wavelet turbulence, Karplus-Strong string synthesis, and FM modulation",
+  "applicationCategory":"MultimediaApplication",
+  "operatingSystem":"Any",
+  "browserRequirements":"HTML5 Canvas, Web Audio API",
+  "offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},
+  "keywords":"fluid simulation fractal attractor visualization generative art"
+}
+</script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#000;overflow:hidden;width:100vw;height:100vh;touch-action:none}
+canvas{position:fixed;top:0;left:0;display:block}
+#hud{
+  position:fixed;top:14px;left:14px;
+  color:#0ff;font:10px/1.8 'Courier New',monospace;
+  display:none;text-shadow:0 0 8px #0ff9;
+  pointer-events:none;max-width:340px;
+  background:rgba(0,5,15,0.6);
+  border:1px solid rgba(0,255,255,0.15);
+  padding:10px 14px;border-radius:2px;
+  backdrop-filter:blur(4px)
+}
+#hud .section{color:#08f;margin-top:4px;font-size:9px;letter-spacing:2px;text-transform:uppercase}
+#keys{
+  position:fixed;bottom:12px;width:100%;text-align:center;
+  color:#2a2a3a;font:9px/1 'Courier New',monospace;pointer-events:none;
+  letter-spacing:1.5px;text-transform:uppercase
+}
+#keys span{color:#1a1a2a}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<div id="keys">SPACE / CLICK — reseed &nbsp;<span>·</span>&nbsp; H — stats &nbsp;<span>·</span>&nbsp; S — audio</div>
+<script>
+'use strict';
+// ═══════════════════════════════════════════════════════
+//  NAVIER-STOKES LORENZ ATTRACTOR FLUID FRACTAL TURBINE
+//  Real-time generative art · fluid simulation · attractor
+// ═══════════════════════════════════════════════════════
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d', {alpha: false});
+const hud = document.getElementById('hud');
+
+let W = 0, H = 0;
+let frame = 0;
+let lastT = 0, fps = 60, fpsSmooth = 60;
+let showHUD = false;
+let audioEnabled = false;
+
+// ─── Cryptographic RNG ───────────────────────────────
+function cRand() {
+  const a = new Uint32Array(1);
+  crypto.getRandomValues(a);
+  return a[0] / 0xFFFFFFFF;
+}
+
+// Fast LCG for per-frame non-security calls
+let _seed = 0x12345678;
+function fRand() {
+  _seed = (Math.imul(_seed, 1664525) + 1013904223) | 0;
+  return (_seed >>> 0) / 0xFFFFFFFF;
+}
+
+// ─── Global Parameters ───────────────────────────────
+let P = {};
+
+function genParams() {
+  _seed = (Date.now() ^ (Math.random() * 0xFFFFFF | 0)) | 0;
+  P = {
+    // Lorenz
+    sigma: 8 + cRand() * 4,
+    rho:   24 + cRand() * 14,
+    beta:  2  + cRand() * 1.5,
+    // Gray-Scott
+    gsF:   0.022 + cRand() * 0.04,
+    gsK:   0.048 + cRand() * 0.025,
+    gsDu:  0.18 + cRand() * 0.12,
+    gsDv:  0.08 + cRand() * 0.06,
+    // Fluid
+    visc:  0.00005 + cRand() * 0.0003,
+    diff:  0.00002 + cRand() * 0.0001,
+    turbStr: 0.3 + cRand() * 0.7,
+    particleSpd: 8 + cRand() * 12,
+    // Fractal
+    cReal: (cRand()-0.5) * 1.6,
+    cImag: (cRand()-0.5) * 1.6,
+    fracScale: 2.5 + cRand() * 2,
+    // IFS
+    ifsN: 4 + Math.floor(cRand() * 3),
+    // Color
+    colorBase: cRand(),
+    colorCycleSpd: (cRand() - 0.5) * 0.0006,
+    colorContrast: 0.6 + cRand() * 0.4,
+    // Wavelet
+    waveletScales: 3,
+    waveletFreqs:  [1,2,4].map(f => f * (0.7 + cRand() * 0.6)),
+    waveletOmegas: [5,11,22].map(o => o * (0.5 + cRand() * 1.0)),
+    waveletPhases: Array.from({length:3}, () => cRand() * Math.PI * 2),
+    // Audio / Lyapunov approximation
+    lyapunov: 0.9,
+    audioFundamental: 55 + cRand() * 110,
+    // Rotation for Lorenz projection
+    lorenzRotSpeed: 0.001 + cRand() * 0.002,
+    lorenzScale: 0.008 + cRand() * 0.006,
+    // filament color
+    filamentHue: cRand(),
+    gsHue: cRand(),
+  };
+}
+
+// ─── Resize ──────────────────────────────────────────
+function resize() {
+  W = canvas.width  = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', () => { resize(); });
+resize();
+
+// ─── HSL → RGB ───────────────────────────────────────
+function hsl(h, s, l) {
+  h = ((h % 1) + 1) % 1;
+  const q = l < 0.5 ? l*(1+s) : l+s-l*s;
+  const p = 2*l-q;
+  function hue(t) {
+    t = ((t%1)+1)%1;
+    if (t < 1/6) return p+(q-p)*6*t;
+    if (t < 1/2) return q;
+    if (t < 2/3) return p+(q-p)*(2/3-t)*6;
+    return p;
+  }
+  return [hue(h+1/3)*255|0, hue(h)*255|0, hue(h-1/3)*255|0];
+}
+function hslStr(h, s, l, a=1) {
+  return `hsla(${(((h%1)+1)%1)*360|0},${s*100|0}%,${l*100|0}%,${a})`;
+}
+
+// ═══════════════════════════════════════════════════════
+//  FLUID SIMULATION — Navier-Stokes (Jos Stam simplified)
+// ═══════════════════════════════════════════════════════
+const FN = 64;
+const FS = (FN+2)*(FN+2);
+let vx,vy,vx0,vy0,dens,dens0,fp,fdiv;
+
+function fluidAlloc() {
+  vx=new Float32Array(FS); vy=new Float32Array(FS);
+  vx0=new Float32Array(FS); vy0=new Float32Array(FS);
+  dens=new Float32Array(FS); dens0=new Float32Array(FS);
+  fp=new Float32Array(FS); fdiv=new Float32Array(FS);
+}
+
+function IX(i,j){ return i+(FN+2)*j; }
+
+function setBnd(b, x) {
+  for(let i=1;i<=FN;i++){
+    x[IX(0,i)]    = b===1 ? -x[IX(1,i)]    : x[IX(1,i)];
+    x[IX(FN+1,i)] = b===1 ? -x[IX(FN,i)]   : x[IX(FN,i)];
+    x[IX(i,0)]    = b===2 ? -x[IX(i,1)]    : x[IX(i,1)];
+    x[IX(i,FN+1)] = b===2 ? -x[IX(i,FN)]   : x[IX(i,FN)];
+  }
+  x[IX(0,0)]       = .5*(x[IX(1,0)]+x[IX(0,1)]);
+  x[IX(0,FN+1)]    = .5*(x[IX(1,FN+1)]+x[IX(0,FN)]);
+  x[IX(FN+1,0)]    = .5*(x[IX(FN,0)]+x[IX(FN+1,1)]);
+  x[IX(FN+1,FN+1)] = .5*(x[IX(FN,FN+1)]+x[IX(FN+1,FN)]);
+}
+
+function diffuse(b, x, x0, diff, dt) {
+  const a = dt*diff*FN*FN;
+  const inv = 1/(1+4*a);
+  for(let k=0;k<6;k++){
+    for(let j=1;j<=FN;j++) for(let i=1;i<=FN;i++)
+      x[IX(i,j)] = (x0[IX(i,j)]+a*(x[IX(i-1,j)]+x[IX(i+1,j)]+x[IX(i,j-1)]+x[IX(i,j+1)]))*inv;
+    setBnd(b,x);
+  }
+}
+
+function advect(b, d, d0, u, v, dt) {
+  const dt0 = dt*FN;
+  for(let j=1;j<=FN;j++) for(let i=1;i<=FN;i++){
+    let x = i - dt0*u[IX(i,j)];
+    let y = j - dt0*v[IX(i,j)];
+    x = Math.max(.5, Math.min(FN+.5, x));
+    y = Math.max(.5, Math.min(FN+.5, y));
+    const i0=x|0, i1=i0+1, j0=y|0, j1=j0+1;
+    const s1=x-i0, s0=1-s1, t1=y-j0, t0=1-t1;
+    d[IX(i,j)] = s0*(t0*d0[IX(i0,j0)]+t1*d0[IX(i0,j1)])+s1*(t0*d0[IX(i1,j0)]+t1*d0[IX(i1,j1)]);
+  }
+  setBnd(b,d);
+}
+
+function project(u, v, p, div) {
+  const h = 1/FN;
+  for(let j=1;j<=FN;j++) for(let i=1;i<=FN;i++){
+    div[IX(i,j)] = -.5*h*(u[IX(i+1,j)]-u[IX(i-1,j)]+v[IX(i,j+1)]-v[IX(i,j-1)]);
+    p[IX(i,j)] = 0;
+  }
+  setBnd(0,div); setBnd(0,p);
+  for(let k=0;k<10;k++){
+    for(let j=1;j<=FN;j++) for(let i=1;i<=FN;i++)
+      p[IX(i,j)] = (div[IX(i,j)]+p[IX(i-1,j)]+p[IX(i+1,j)]+p[IX(i,j-1)]+p[IX(i,j+1)])/4;
+    setBnd(0,p);
+  }
+  for(let j=1;j<=FN;j++) for(let i=1;i<=FN;i++){
+    u[IX(i,j)] -= .5*(p[IX(i+1,j)]-p[IX(i-1,j)])/h;
+    v[IX(i,j)] -= .5*(p[IX(i,j+1)]-p[IX(i,j-1)])/h;
+  }
+  setBnd(1,u); setBnd(2,v);
+}
+
+// Morlet wavelet turbulence injection
+function morletInject() {
+  const t = frame * 0.008;
+  const step = 2; // sub-sample for performance
+  for(let j=1;j<=FN;j+=step) for(let i=1;i<=FN;i+=step){
+    const x = (i/FN-.5)*2, y = (j/FN-.5)*2;
+    let fx=0, fy=0;
+    for(let s=0;s<P.waveletScales;s++){
+      const sc = P.waveletFreqs[s];
+      const om = P.waveletOmegas[s];
+      const ph = P.waveletPhases[s];
+      const xi = x*sc, yi = y*sc;
+      const gauss = Math.exp(-(xi*xi+yi*yi)*.5);
+      fx += gauss*Math.cos(om*xi + t + ph);
+      fy += gauss*Math.sin(om*yi + t + ph*1.7);
+    }
+    const str = P.turbStr * 0.0008;
+    vx0[IX(i,j)] += fx*str; vy0[IX(i,j)] += fy*str;
+    if(step>1 && i+1<=FN){ vx0[IX(i+1,j)]+=fx*str; vy0[IX(i+1,j)]+=fy*str; }
+    if(step>1 && j+1<=FN){ vx0[IX(i,j+1)]+=fx*str; vy0[IX(i,j+1)]+=fy*str; }
+  }
+}
+
+// Vorticity computation (for audio)
+function computeVorticity() {
+  let total = 0;
+  for(let j=2;j<FN;j+=2) for(let i=2;i<FN;i+=2)
+    total += Math.abs(vy[IX(i+1,j)]-vy[IX(i-1,j)] - (vx[IX(i,j+1)]-vx[IX(i,j-1)]));
+  return total / ((FN/2)*(FN/2)) * FN * 0.5;
+}
+
+let vorticity = 0;
+
+function fluidStep() {
+  // Lorenz velocity injection
+  const lScr = lorenzScreenXY();
+  const li = Math.max(1, Math.min(FN, (lScr.x / W * FN) | 0));
+  const lj = Math.max(1, Math.min(FN, (lScr.y / H * FN) | 0));
+  const injStr = 0.5;
+  vx0[IX(li,lj)] += lorenzDX * P.lorenzScale * injStr * 2;
+  vy0[IX(li,lj)] += lorenzDY * P.lorenzScale * injStr * 2;
+
+  morletInject();
+
+  // Velocity step
+  diffuse(1,vx0,vx,P.visc,0.1); diffuse(2,vy0,vy,P.visc,0.1);
+  project(vx0,vy0,fp,fdiv);
+  advect(1,vx,vx0,vx0,vy0,0.1); advect(2,vy,vy0,vx0,vy0,0.1);
+  project(vx,vy,fp,fdiv);
+
+  // Density step
+  dens0.fill(0);
+  dens0[IX(li,lj)] += 0.3;
+  diffuse(0,dens0,dens,P.diff,0.1);
+  advect(0,dens,dens0,vx,vy,0.1);
+
+  // Decay
+  for(let i=0;i<FS;i++){ dens[i]*=.98; vx[i]*=.999; vy[i]*=.999; }
+
+  vorticity = computeVorticity();
+}
+
+// ═══════════════════════════════════════════════════════
+//  LORENZ STRANGE ATTRACTOR
+// ═══════════════════════════════════════════════════════
+let lx=.1, ly=0, lz=20;
+let lorenzDX=0, lorenzDY=0, lorenzDZ=0;
+let lorenzTrail = [];
+let lorenzAngle = 0;
+let lorenzAngle2 = 0;
+// Lyapunov: shadow trajectory
+let lx2=.101, ly2=0, lz2=20;
+let lyapunovSum = 0, lyapunovN = 0;
+
+function lorenzInit() {
+  lx = (cRand()-.5)*2; ly = (cRand()-.5)*2; lz = cRand()*30+10;
+  lx2=lx+0.001; ly2=ly; lz2=lz;
+  lorenzTrail = [];
+  lorenzAngle  = cRand()*Math.PI*2;
+  lorenzAngle2 = cRand()*Math.PI;
+  lyapunovSum=0; lyapunovN=0;
+}
+
+function lorenzStep() {
+  const dt=0.005, steps=4;
+  for(let s=0;s<steps;s++){
+    lorenzDX = P.sigma*(ly-lx);
+    lorenzDY = lx*(P.rho-lz)-ly;
+    lorenzDZ = lx*ly - P.beta*lz;
+    lx+=lorenzDX*dt; ly+=lorenzDY*dt; lz+=lorenzDZ*dt;
+
+    // Shadow for Lyapunov
+    const dx2=P.sigma*(ly2-lx2), dy2=lx2*(P.rho-lz2)-ly2, dz2=lx2*ly2-P.beta*lz2;
+    lx2+=dx2*dt; ly2+=dy2*dt; lz2+=dz2*dt;
+    const d = Math.sqrt((lx2-lx)**2+(ly2-ly)**2+(lz2-lz)**2);
+    if(d>0){ lyapunovSum+=Math.log(d/0.001); lyapunovN++; const r=0.001/d; lx2=lx+(lx2-lx)*r; ly2=ly+(ly2-ly)*r; lz2=lz+(lz2-lz)*r; }
+  }
+  lorenzAngle  += P.lorenzRotSpeed;
+  lorenzAngle2 += P.lorenzRotSpeed * 0.618;
+  lorenzTrail.push([lx, ly, lz]);
+  if(lorenzTrail.length>3500) lorenzTrail.shift();
+  P.lyapunov = lyapunovN > 100 ? lyapunovSum/lyapunovN : P.lyapunov;
+}
+
+function lorenzProject(x, y, z) {
+  // 3D rotation: Ry then Rx
+  const ca=Math.cos(lorenzAngle), sa=Math.sin(lorenzAngle);
+  const cb=Math.cos(lorenzAngle2), sb=Math.sin(lorenzAngle2);
+  const rx = ca*x - sa*z;
+  const ry = sb*(sa*x+ca*z) + cb*y;
+  const scale = P.lorenzScale * Math.min(W,H) * 0.5;
+  return { sx: W*.5 + rx*scale, sy: H*.5 + ry*scale };
+}
+
+function lorenzScreenXY() {
+  return lorenzProject(lx, ly, lz);
+}
+
+// ═══════════════════════════════════════════════════════
+//  GRAY-SCOTT REACTION-DIFFUSION
+// ═══════════════════════════════════════════════════════
+const GN = 96;
+let gsU, gsV, gsU2, gsV2;
+let gsCanvas, gsCtx, gsImg;
+
+function gsInit() {
+  gsU  = new Float32Array(GN*GN); gsV  = new Float32Array(GN*GN);
+  gsU2 = new Float32Array(GN*GN); gsV2 = new Float32Array(GN*GN);
+  gsU.fill(1);
+  for(let i=0;i<30;i++){
+    const cx=cRand()*GN|0, cy=cRand()*GN|0;
+    for(let dy=-4;dy<=4;dy++) for(let dx=-4;dx<=4;dx++){
+      const nx=((cx+dx)%GN+GN)%GN, ny=((cy+dy)%GN+GN)%GN;
+      gsU[ny*GN+nx]=.5; gsV[ny*GN+nx]=.25+cRand()*.05;
+    }
+  }
+  if(!gsCanvas){ gsCanvas=document.createElement('canvas'); gsCanvas.width=GN; gsCanvas.height=GN; gsCtx=gsCanvas.getContext('2d'); gsImg=gsCtx.createImageData(GN,GN); }
+}
+
+function gsStep() {
+  const Du=P.gsDu, Dv=P.gsDv, f=P.gsF, k=P.gsK;
+  for(let j=0;j<GN;j++) for(let i=0;i<GN;i++){
+    const idx=j*GN+i;
+    const ip=((i+1)%GN), im=((i-1+GN)%GN);
+    const jp=((j+1)%GN), jm=((j-1+GN)%GN);
+    const u=gsU[idx], v=gsV[idx];
+    const lu=gsU[j*GN+ip]+gsU[j*GN+im]+gsU[jp*GN+i]+gsU[jm*GN+i]-4*u;
+    const lv=gsV[j*GN+ip]+gsV[j*GN+im]+gsV[jp*GN+i]+gsV[jm*GN+i]-4*v;
+    const uvv=u*v*v;
+    gsU2[idx]=Math.max(0,Math.min(1, u+Du*lu-uvv+f*(1-u)));
+    gsV2[idx]=Math.max(0,Math.min(1, v+Dv*lv+uvv-(f+k)*v));
+  }
+  let t=gsU; gsU=gsU2; gsU2=t;
+  t=gsV; gsV=gsV2; gsV2=t;
+}
+
+// ═══════════════════════════════════════════════════════
+//  FRACTAL — Complex Exponential Domain Coloring
+//  z → exp(z) + c  (escape-time with spectral gradient)
+// ═══════════════════════════════════════════════════════
+const FRAC_SZ = 256;
+let fracCanvas, fracCtx, fracImg;
+let fracPhase = 0;
+
+function fracInit() {
+  if(!fracCanvas){ fracCanvas=document.createElement('canvas'); fracCanvas.width=FRAC_SZ; fracCanvas.height=FRAC_SZ; fracCtx=fracCanvas.getContext('2d'); fracImg=fracCtx.createImageData(FRAC_SZ,FRAC_SZ); }
+}
+
+function computeFractal() {
+  const d = fracImg.data;
+  const sc = P.fracScale;
+  const ox = Math.sin(fracPhase*0.37)*0.4;
+  const oy = Math.cos(fracPhase*0.29)*0.4;
+  const cr = P.cReal, ci_  = P.cImag;
+  const hueOff = P.colorBase + fracPhase*P.colorCycleSpd*30;
+  const MAX = 48;
+
+  for(let py=0;py<FRAC_SZ;py++){
+    for(let px=0;px<FRAC_SZ;px++){
+      let zr=(px/FRAC_SZ-.5)*sc+ox, zi=(py/FRAC_SZ-.5)*sc+oy;
+      let iter=0, escaped=false, smooth=0;
+      let finalR=zr, finalI=zi;
+      for(;iter<MAX;iter++){
+        const ea = Math.exp(Math.min(zr, 6));
+        const nr = ea*Math.cos(zi)+cr;
+        const ni = ea*Math.sin(zi)+ci_;
+        zr=nr; zi=ni;
+        const m2=zr*zr+zi*zi;
+        if(m2>100){ escaped=true; finalR=zr; finalI=zi; smooth=iter-Math.log2(Math.log(Math.sqrt(m2)+1)+1); break; }
+      }
+      const idx=(py*FRAC_SZ+px)*4;
+      if(!escaped){ d[idx]=0;d[idx+1]=0;d[idx+2]=2;d[idx+3]=255; }
+      else {
+        const t=smooth/MAX;
+        const angle=Math.atan2(finalI,finalR)/(2*Math.PI)+.5;
+        const hue=(angle*2+t*3+hueOff)%1;
+        const [r,g,b]=hsl(hue,.85,.25+t*.55);
+        d[idx]=r;d[idx+1]=g;d[idx+2]=b;d[idx+3]=(150+t*105)|0;
+      }
+    }
+  }
+  fracCtx.putImageData(fracImg,0,0);
+  fracPhase += 0.5;
+}
+
+// ═══════════════════════════════════════════════════════
+//  IFS — Iterated Function System (Affine Transforms)
+// ═══════════════════════════════════════════════════════
+let ifsTrans = [], ifsPoints = [];
+const IFS_PTS = 12000;
+
+function ifsInit() {
+  ifsTrans = [];
+  const n = P.ifsN;
+  for(let i=0;i<n;i++){
+    const sc = .35 + cRand()*.45;
+    const ang = cRand()*Math.PI*2;
+    const sh  = (cRand()-.5)*.4;
+    ifsTrans.push({
+      a: sc*Math.cos(ang),   b: sc*(-Math.sin(ang)+sh),
+      c: sc*Math.sin(ang),   d: sc*(Math.cos(ang)+sh),
+      e: (cRand()-.5)*.9,    f: (cRand()-.5)*.9,
+      p: cRand()+.05,
+      hue: cRand()
+    });
+  }
+  let tot=ifsTrans.reduce((s,t)=>s+t.p,0);
+  ifsTrans.forEach(t=>t.p/=tot);
+  let cum=0; ifsTrans.forEach(t=>t.p=cum+=t.p);
+
+  ifsPoints=[]; let px=0, py=0;
+  for(let i=0;i<IFS_PTS+100;i++){
+    const r=fRand(), tr=ifsTrans.find(t=>t.p>=r)||ifsTrans[n-1];
+    const nx=tr.a*px+tr.b*py+tr.e;
+    const ny=tr.c*px+tr.d*py+tr.f;
+    px=nx; py=ny;
+    if(i>100 && isFinite(px) && isFinite(py) && Math.abs(px)<5 && Math.abs(py)<5)
+      ifsPoints.push({x:px, y:py, h:tr.hue});
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  PARTICLES — Fluid-Advected
+// ═══════════════════════════════════════════════════════
+const NPART = 1800;
+let parts = [];
+
+function partsInit() {
+  parts = [];
+  for(let i=0;i<NPART;i++) parts.push({
+    x: fRand()*W, y: fRand()*H,
+    life: fRand(), maxLife: .4+fRand()*.6,
+    hue: P.colorBase + fRand()
+  });
+}
+
+function partsStep() {
+  const scX=W/FN, scY=H/FN;
+  const spd=P.particleSpd;
+  for(const p of parts){
+    const fi=Math.max(1,Math.min(FN,(p.x/scX)|0));
+    const fj=Math.max(1,Math.min(FN,(p.y/scY)|0));
+    p.x += vx[IX(fi,fj)] * spd;
+    p.y += vy[IX(fi,fj)] * spd;
+    p.life -= 0.004;
+    if(p.life<=0||p.x<0||p.x>W||p.y<0||p.y>H){
+      p.x=fRand()*W; p.y=fRand()*H;
+      p.life=p.maxLife; p.hue=P.colorBase+fRand();
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  AUDIO — Karplus-Strong + FM Synthesis
+// ═══════════════════════════════════════════════════════
+let audioCtx = null, masterGain = null;
+let ksNodes = [], fmNodes = [], droneNodes = [];
+
+function audioStart() {
+  if(audioCtx && audioCtx.state==='running') return;
+  if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+  else audioCtx.resume();
+
+  masterGain = audioCtx.createGain();
+  masterGain.gain.value = 0.18;
+  const comp = audioCtx.createDynamicsCompressor();
+  masterGain.connect(comp); comp.connect(audioCtx.destination);
+
+  const sr = audioCtx.sampleRate;
+  const fundamental = P.audioFundamental;
+
+  // ── Karplus-Strong physical string synthesis ──
+  const ksFreq = fundamental;
+  const ksLen = Math.floor(sr/ksFreq);
+  const ksTotal = sr * 4;
+  const ksBuf = audioCtx.createBuffer(1, ksTotal, sr);
+  const ksData = ksBuf.getChannelData(0);
+  const init = new Float32Array(ksLen);
+  for(let i=0;i<ksLen;i++) init[i] = Math.random()*2-1;
+  const ksArr = [...init];
+  for(let i=ksLen;i<ksTotal;i++) ksArr.push(0.998 * .5*(ksArr[i-ksLen]+ksArr[i-ksLen+1]));
+  for(let i=0;i<ksTotal;i++) ksData[i] = ksArr[i]||0;
+  const ksNode = audioCtx.createBufferSource();
+  ksNode.buffer = ksBuf; ksNode.loop = true;
+  const ksGain = audioCtx.createGain(); ksGain.gain.value = .4;
+  const ksFilter = audioCtx.createBiquadFilter();
+  ksFilter.type='bandpass'; ksFilter.frequency.value = fundamental*1.5; ksFilter.Q.value=2;
+  ksNode.connect(ksFilter); ksFilter.connect(ksGain); ksGain.connect(masterGain);
+  ksNode.start(); ksNodes=[ksNode,ksGain,ksFilter];
+
+  // ── FM drone: carrier + modulator ──
+  const carrier  = audioCtx.createOscillator();
+  const modulator= audioCtx.createOscillator();
+  const modGain  = audioCtx.createGain();
+  const fmGain   = audioCtx.createGain();
+  carrier.type='sine'; carrier.frequency.value = fundamental*0.5;
+  modulator.type='sine'; modulator.frequency.value = fundamental*0.501;
+  modGain.gain.value = fundamental * 1.5;
+  fmGain.gain.value = 0.12;
+  modulator.connect(modGain); modGain.connect(carrier.frequency);
+  carrier.connect(fmGain); fmGain.connect(masterGain);
+  carrier.start(); modulator.start();
+  fmNodes=[carrier,modulator,modGain,fmGain];
+
+  // ── Vorticity-mapped harmonic partials ──
+  const partials=[];
+  for(let h=1;h<=5;h++){
+    const osc=audioCtx.createOscillator();
+    const g=audioCtx.createGain();
+    osc.type='sine'; osc.frequency.value=fundamental*(h+.01*h*h);
+    g.gain.value = 0.03 / h;
+    osc.connect(g); g.connect(masterGain); osc.start();
+    partials.push(osc,g);
+  }
+  droneNodes=partials;
+}
+
+function audioStop() {
+  [...ksNodes,...fmNodes,...droneNodes].forEach(n=>{try{n.stop?n.stop():0}catch(e){}});
+  ksNodes=[]; fmNodes=[]; droneNodes=[];
+  if(audioCtx) audioCtx.suspend();
+}
+
+function audioUpdate() {
+  if(!audioEnabled||!audioCtx||audioCtx.state!=='running') return;
+  const now = audioCtx.currentTime;
+  const vNorm = Math.min(1, vorticity * 2);
+  const lNorm = Math.min(1, Math.max(0, P.lyapunov * 0.3));
+
+  if(masterGain) masterGain.gain.setTargetAtTime(.1 + vNorm*.18, now, .5);
+  if(fmNodes[0]) fmNodes[0].frequency.setTargetAtTime(P.audioFundamental*(.5+lNorm*.3), now, 1);
+  if(fmNodes[2]) fmNodes[2].gain.setTargetAtTime(P.audioFundamental*(1+vNorm*3), now, .3);
+
+  // Update harmonic partials
+  for(let h=0;h<5;h++){
+    const osc=droneNodes[h*2];
+    if(osc) osc.frequency.setTargetAtTime(P.audioFundamental*((h+1)+vNorm*.5+lNorm*.2), now, .4);
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  RENDERING
+// ═══════════════════════════════════════════════════════
+
+// Gray-Scott → canvas
+function renderGS() {
+  const d=gsImg.data, hOff=P.gsHue + frame*P.colorCycleSpd;
+  for(let i=0;i<GN*GN;i++){
+    const v=gsV[i], u=gsU[i];
+    const t=v*1.5;
+    const h=(hOff+t*.7)%1;
+    const [r,g,b]=hsl(h,.9,Math.min(1,t*.7));
+    d[i*4]=r;d[i*4+1]=g;d[i*4+2]=b;d[i*4+3]=(t*220)|0;
+  }
+  gsCtx.putImageData(gsImg,0,0);
+}
+
+function drawFrame() {
+  // ── Trail / fade ──
+  ctx.fillStyle='rgba(0,0,3,0.22)';
+  ctx.fillRect(0,0,W,H);
+
+  // ── Fractal background (update every 20 frames) ──
+  if(frame%20===0) computeFractal();
+  ctx.globalAlpha=.35;
+  ctx.globalCompositeOperation='screen';
+  ctx.drawImage(fracCanvas,0,0,W,H);
+
+  // ── Gray-Scott ──
+  renderGS();
+  ctx.globalAlpha=.55;
+  ctx.globalCompositeOperation='screen';
+  ctx.drawImage(gsCanvas,0,0,W,H);
+
+  ctx.globalCompositeOperation='source-over';
+
+  // ── IFS points — spectral filament cloud ──
+  const ifsScl = Math.min(W,H)*.38;
+  const ifsCX = W*.5, ifsCY = H*.5;
+  const rotA = frame * 0.0007, cosA=Math.cos(rotA), sinA=Math.sin(rotA);
+  ctx.globalCompositeOperation='screen';
+  ctx.globalAlpha=1;
+  // Batch IFS by hue clusters
+  const perBatch = 200;
+  for(let start=0;start<ifsPoints.length;start+=perBatch){
+    const first = ifsPoints[start];
+    if(!first) break;
+    ctx.fillStyle=hslStr(first.h+rotA*.1,0.9,.5,.3);
+    ctx.beginPath();
+    for(let k=start;k<Math.min(start+perBatch,ifsPoints.length);k++){
+      const p=ifsPoints[k];
+      const rx = cosA*p.x - sinA*p.y;
+      const ry = sinA*p.x + cosA*p.y;
+      const sx = ifsCX + rx*ifsScl, sy = ifsCY + ry*ifsScl;
+      ctx.rect(sx,sy,1.4,1.4);
+    }
+    ctx.fill();
+  }
+
+  // ── Lorenz filament bundles (spectral gradient) ──
+  const tlen = lorenzTrail.length;
+  if(tlen>2){
+    const gstep = 6;
+    for(let i=gstep;i<tlen;i+=gstep){
+      const a=lorenzTrail[i-gstep], b=lorenzTrail[i];
+      const pa=lorenzProject(a[0],a[1],a[2]);
+      const pb=lorenzProject(b[0],b[1],b[2]);
+      const t=i/tlen;
+      const speed=Math.sqrt((b[0]-a[0])**2+(b[1]-a[1])**2+(b[2]-a[2])**2);
+      const bright=Math.min(1,.2+speed*.08);
+      const hue=(P.filamentHue + t*.5 + frame*P.colorCycleSpd*2)%1;
+      ctx.strokeStyle=hslStr(hue,.95,bright,.6+t*.3);
+      ctx.lineWidth = .8+t*2.5;
+      ctx.beginPath(); ctx.moveTo(pa.sx,pa.sy); ctx.lineTo(pb.sx,pb.sy); ctx.stroke();
+    }
+    // Bright tip glow
+    const tip=lorenzProject(lx,ly,lz);
+    const grad=ctx.createRadialGradient(tip.sx,tip.sy,0,tip.sx,tip.sy,22);
+    grad.addColorStop(0,'rgba(255,255,255,.9)');
+    grad.addColorStop(.3,hslStr(P.filamentHue,.9,.7,.5));
+    grad.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle=grad; ctx.beginPath(); ctx.arc(tip.sx,tip.sy,22,0,Math.PI*2); ctx.fill();
+  }
+
+  // ── Fluid particles ──
+  for(const p of parts){
+    const a=p.life/p.maxLife;
+    if(a<0) continue;
+    const spd=Math.abs(vx[IX(Math.max(1,Math.min(FN,p.x/W*FN|0)),Math.max(1,Math.min(FN,p.y/H*FN|0)))])+
+              Math.abs(vy[IX(Math.max(1,Math.min(FN,p.x/W*FN|0)),Math.max(1,Math.min(FN,p.y/H*FN|0)))]);
+    const bright=.4+Math.min(.5,spd*20);
+    ctx.fillStyle=hslStr(p.hue+frame*P.colorCycleSpd,.9,bright,a*.7);
+    ctx.fillRect(p.x-.7,p.y-.7,1.5,1.5);
+  }
+
+  // ── Fluid velocity field lines (sparse) ──
+  ctx.globalCompositeOperation='screen';
+  const vstep=8, scX=W/FN, scY=H/FN;
+  for(let j=2;j<FN;j+=vstep) for(let i=2;i<FN;i+=vstep){
+    const u=vx[IX(i,j)], v=vy[IX(i,j)];
+    const mag=Math.sqrt(u*u+v*v);
+    if(mag<0.001) continue;
+    const px=i*scX, py=j*scY;
+    const len=Math.min(30, mag*200);
+    const h=(P.colorBase+mag*5)%1;
+    ctx.strokeStyle=hslStr(h,.8,.6,.5*Math.min(1,mag*50));
+    ctx.lineWidth=1.2;
+    ctx.beginPath();
+    ctx.moveTo(px,py);
+    ctx.lineTo(px+u/mag*len, py+v/mag*len);
+    ctx.stroke();
+  }
+
+  ctx.globalCompositeOperation='source-over';
+  ctx.globalAlpha=1;
+}
+
+// ─── HUD ─────────────────────────────────────────────
+function updateHUD() {
+  if(!showHUD){ hud.style.display='none'; return; }
+  hud.style.display='block';
+  const ly=P.lyapunov.toFixed(4);
+  const vc=vorticity.toFixed(4);
+  hud.innerHTML=`
+<div class="section">simulation constants</div>
+σ (sigma)&nbsp; = ${P.sigma.toFixed(4)}<br>
+ρ (rho)&nbsp;&nbsp;&nbsp; = ${P.rho.toFixed(4)}<br>
+β (beta)&nbsp;&nbsp; = ${P.beta.toFixed(4)}<br>
+Lyapunov&nbsp; ≈ ${ly}<br>
+<div class="section">reaction-diffusion</div>
+f (feed)&nbsp;&nbsp; = ${P.gsF.toFixed(5)}<br>
+k (kill)&nbsp;&nbsp; = ${P.gsK.toFixed(5)}<br>
+Du&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; = ${P.gsDu.toFixed(4)}<br>
+Dv&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; = ${P.gsDv.toFixed(4)}<br>
+<div class="section">fluid dynamics</div>
+viscosity = ${P.visc.toExponential(2)}<br>
+diffusion = ${P.diff.toExponential(2)}<br>
+vorticity = ${vc}<br>
+turb str&nbsp; = ${P.turbStr.toFixed(3)}<br>
+<div class="section">fractal / IFS</div>
+c = ${P.cReal.toFixed(4)} + ${P.cImag.toFixed(4)}i<br>
+IFS trans = ${P.ifsN}<br>
+IFS pts&nbsp;&nbsp; = ${ifsPoints.length}<br>
+<div class="section">performance</div>
+FPS &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; = ${fpsSmooth.toFixed(1)}<br>
+frame&nbsp;&nbsp;&nbsp;&nbsp; = ${frame}<br>
+audio&nbsp;&nbsp;&nbsp;&nbsp; = ${audioEnabled ? 'ON' : 'OFF'}<br>
+grid&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; = ${FN}×${FN} fluid / ${GN}×${GN} GS`;
+}
+
+// ═══════════════════════════════════════════════════════
+//  RESEED — full re-initialization
+// ═══════════════════════════════════════════════════════
+function reseed() {
+  genParams();
+  fluidAlloc();
+  lorenzInit();
+  gsInit();
+  fracInit();
+  ifsInit();
+  partsInit();
+  if(audioEnabled){ audioStop(); audioStart(); }
+}
+
+// ═══════════════════════════════════════════════════════
+//  MAIN LOOP
+// ═══════════════════════════════════════════════════════
+function loop(ts) {
+  requestAnimationFrame(loop);
+
+  const dt = Math.min(100, ts - lastT);
+  lastT = ts;
+  fps = 1000/Math.max(1,dt);
+  fpsSmooth += (fps-fpsSmooth)*.05;
+
+  // Adaptive GS step: skip when lagging
+  const doGS = fpsSmooth > 30 ? 2 : 1;
+  for(let s=0;s<doGS;s++) gsStep();
+
+  lorenzStep();
+  fluidStep();
+  partsStep();
+  if(audioEnabled) audioUpdate();
+
+  drawFrame();
+  updateHUD();
+  frame++;
+}
+
+// ═══════════════════════════════════════════════════════
+//  INPUT HANDLING
+// ═══════════════════════════════════════════════════════
+document.addEventListener('keydown', e=>{
+  const k=e.key.toUpperCase();
+  if(k===' '||k==='ENTER'){ e.preventDefault(); reseed(); }
+  else if(k==='H'){ showHUD=!showHUD; }
+  else if(k==='S'){
+    audioEnabled=!audioEnabled;
+    if(audioEnabled) audioStart();
+    else audioStop();
+  }
+});
+
+canvas.addEventListener('click', ()=>reseed());
+canvas.addEventListener('touchend', e=>{ e.preventDefault(); reseed(); }, {passive:false});
+
+// ═══════════════════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════════════════
+reseed();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

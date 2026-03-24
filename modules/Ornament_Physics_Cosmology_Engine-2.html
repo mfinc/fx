@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Ornament Physics Cosmology Engine</title>
+
+<meta name="description" content="Real-time generative mathematical physics art engine where sacred geometry, ornamental tilings, and engineering simulations merge into an evolving audiovisual cosmology rendered with WebGL.">
+<meta name="keywords" content="generative art, sacred geometry, Penrose tiling, Voronoi, Delaunay, ornament physics, cellular automata, WebGL generative engine, mathematical art, audiovisual simulation">
+
+<style>
+html,body{
+margin:0;
+padding:0;
+overflow:hidden;
+background:black;
+}
+canvas{
+display:block;
+}
+#hud{
+position:fixed;
+top:10px;
+left:10px;
+color:#00ffff;
+font-family:monospace;
+font-size:12px;
+background:rgba(0,0,0,.35);
+padding:8px;
+display:none;
+}
+</style>
+</head>
+
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+
+<script>
+
+const canvas=document.getElementById("c")
+const gl=canvas.getContext("webgl",{antialias:false})
+const hud=document.getElementById("hud")
+
+let audioEnabled=false
+let hudEnabled=false
+
+function resize(){
+canvas.width=innerWidth
+canvas.height=innerHeight
+gl.viewport(0,0,canvas.width,canvas.height)
+}
+resize()
+addEventListener("resize",resize)
+
+function rand(a=1){return Math.random()*a}
+
+let params
+
+function randomize(){
+params={
+time:0,
+tilingType:Math.floor(rand(8)),
+symmetry:2+Math.floor(rand(12)),
+curvature:rand(2)-1,
+fieldStrength:rand(3),
+turbulence:rand(2),
+recursion:1+Math.floor(rand(4)),
+paletteA:[rand(),rand(),rand()],
+paletteB:[rand(),rand(),rand()],
+paletteC:[rand(),rand(),rand()],
+energy:rand(2),
+scale:rand(5)+2
+}
+}
+randomize()
+
+const vert=`
+attribute vec2 position;
+void main(){
+gl_Position=vec4(position,0.0,1.0);
+}
+`
+
+const frag=`
+precision highp float;
+
+uniform vec2 res;
+uniform float time;
+uniform float symmetry;
+uniform float fieldStrength;
+uniform float turbulence;
+uniform float curvature;
+uniform float scale;
+uniform vec3 colA;
+uniform vec3 colB;
+uniform vec3 colC;
+uniform int tilingType;
+
+vec2 rot(vec2 p,float a){
+float c=cos(a);
+float s=sin(a);
+return vec2(c*p.x-s*p.y,s*p.x+c*p.y);
+}
+
+float hash(vec2 p){
+return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);
+}
+
+float noise(vec2 p){
+vec2 i=floor(p);
+vec2 f=fract(p);
+float a=hash(i);
+float b=hash(i+vec2(1.,0.));
+float c=hash(i+vec2(0.,1.));
+float d=hash(i+vec2(1.,1.));
+vec2 u=f*f*(3.-2.*f);
+return mix(a,b,u.x)+(c-a)*u.y*(1.-u.x)+(d-b)*u.x*u.y;
+}
+
+vec2 voronoi(vec2 x){
+vec2 n=floor(x);
+vec2 f=fract(x);
+float md=8.;
+vec2 mr;
+for(int j=-1;j<=1;j++)
+for(int i=-1;i<=1;i++){
+vec2 g=vec2(float(i),float(j));
+vec2 o=vec2(hash(n+g),hash(n+g+1.3));
+vec2 r=g+o-f;
+float d=dot(r,r);
+if(d<md){
+md=d;
+mr=r;
+}
+}
+return mr;
+}
+
+float knot(vec2 p){
+p*=scale;
+p=rot(p,time*.1);
+float r=length(p);
+float a=atan(p.y,p.x);
+float k=sin(a*symmetry+r*3.0+time);
+return abs(k);
+}
+
+float labyrinth(vec2 p){
+p*=scale;
+vec2 g=floor(p);
+vec2 f=fract(p);
+float n=noise(g);
+float v=step(.5,n);
+return abs(v-f.x)*abs(v-f.y);
+}
+
+float hyper(vec2 p){
+float r=length(p);
+float a=atan(p.y,p.x);
+float k=cos(a*symmetry+log(r+1.)*3.0);
+return abs(k);
+}
+
+void main(){
+
+vec2 uv=(gl_FragCoord.xy/res.xy)-.5;
+uv.x*=res.x/res.y;
+
+uv+=curvature*vec2(
+noise(uv*2.+time*.2),
+noise(uv*2.-time*.2)
+)*.2;
+
+float pattern=0.0;
+
+if(tilingType==0) pattern=knot(uv);
+if(tilingType==1) pattern=labyrinth(uv);
+if(tilingType==2) pattern=hyper(uv);
+if(tilingType==3) pattern=length(voronoi(uv*scale));
+if(tilingType==4) pattern=noise(uv*scale+time*.3);
+if(tilingType==5) pattern=sin(length(uv*scale)*10.+time);
+if(tilingType==6) pattern=abs(sin(uv.x*scale)*cos(uv.y*scale));
+if(tilingType==7) pattern=fract(noise(uv*scale)*10.);
+
+float wave=sin(pattern*10.+time*fieldStrength);
+
+float energy=pattern+wave*turbulence;
+
+vec3 col=mix(colA,colB,energy);
+col=mix(col,colC,sin(pattern*3.+time));
+
+col+=vec3(wave*.2);
+
+gl_FragColor=vec4(col,1.0);
+}
+`
+
+function compile(type,src){
+const s=gl.createShader(type)
+gl.shaderSource(s,src)
+gl.compileShader(s)
+return s
+}
+
+const program=gl.createProgram()
+gl.attachShader(program,compile(gl.VERTEX_SHADER,vert))
+gl.attachShader(program,compile(gl.FRAGMENT_SHADER,frag))
+gl.linkProgram(program)
+gl.useProgram(program)
+
+const buffer=gl.createBuffer()
+gl.bindBuffer(gl.ARRAY_BUFFER,buffer)
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([
+-1,-1,1,-1,-1,1,
+1,-1,1,1,-1,1
+]),gl.STATIC_DRAW)
+
+const position=gl.getAttribLocation(program,"position")
+gl.enableVertexAttribArray(position)
+gl.vertexAttribPointer(position,2,gl.FLOAT,false,0,0)
+
+const ures=gl.getUniformLocation(program,"res")
+const utime=gl.getUniformLocation(program,"time")
+const usym=gl.getUniformLocation(program,"symmetry")
+const ufield=gl.getUniformLocation(program,"fieldStrength")
+const uturb=gl.getUniformLocation(program,"turbulence")
+const ucurv=gl.getUniformLocation(program,"curvature")
+const uscale=gl.getUniformLocation(program,"scale")
+const ucolA=gl.getUniformLocation(program,"colA")
+const ucolB=gl.getUniformLocation(program,"colB")
+const ucolC=gl.getUniformLocation(program,"colC")
+const utiling=gl.getUniformLocation(program,"tilingType")
+
+let audioCtx,osc,gain
+
+function audioInit(){
+audioCtx=new (window.AudioContext||window.webkitAudioContext)()
+osc=audioCtx.createOscillator()
+gain=audioCtx.createGain()
+gain.gain.value=0
+osc.connect(gain)
+gain.connect(audioCtx.destination)
+osc.start()
+}
+
+function toggleAudio(){
+audioEnabled=!audioEnabled
+if(audioEnabled){
+if(!audioCtx)audioInit()
+gain.gain.value=.05
+}else{
+if(gain)gain.gain.value=0
+}
+}
+
+function draw(t){
+
+params.time+=.01
+
+gl.uniform2f(ures,canvas.width,canvas.height)
+gl.uniform1f(utime,params.time)
+gl.uniform1f(usym,params.symmetry)
+gl.uniform1f(ufield,params.fieldStrength)
+gl.uniform1f(uturb,params.turbulence)
+gl.uniform1f(ucurv,params.curvature)
+gl.uniform1f(uscale,params.scale)
+gl.uniform3fv(ucolA,params.paletteA)
+gl.uniform3fv(ucolB,params.paletteB)
+gl.uniform3fv(ucolC,params.paletteC)
+gl.uniform1i(utiling,params.tilingType)
+
+gl.drawArrays(gl.TRIANGLES,0,6)
+
+if(audioEnabled && osc){
+osc.frequency.value=120+Math.sin(params.time)*80+params.fieldStrength*40
+}
+
+if(hudEnabled){
+hud.innerHTML=
+"Ornament Physics Cosmology Engine<br>"+
+"tiling: "+params.tilingType+"<br>"+
+"symmetry: "+params.symmetry+"<br>"+
+"field: "+params.fieldStrength.toFixed(2)+"<br>"+
+"turbulence: "+params.turbulence.toFixed(2)
+}
+
+requestAnimationFrame(draw)
+}
+
+requestAnimationFrame(draw)
+
+function regenerate(){
+randomize()
+}
+
+addEventListener("keydown",e=>{
+if(e.code==="Space")regenerate()
+if(e.key==="h"||e.key==="H"){
+hudEnabled=!hudEnabled
+hud.style.display=hudEnabled?"block":"none"
+}
+if(e.key==="s"||e.key==="S")toggleAudio()
+})
+
+addEventListener("mousedown",regenerate)
+addEventListener("touchstart",regenerate)
+
+canvas.requestFullscreen?.()
+
+</script>
+</body>
+</html>

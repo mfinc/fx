@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Quasicrystal Puzzle–Dynamics Reactor</title>
+    <meta name="description" content="A transcendental generative reactor fusing Quasicrystal tilings, twisty puzzle logic, and Hamiltonian multibody dynamics into a synchronized audiovisual singularity.">
+    <meta name="keywords" content="Penrose Tiling, Hamiltonian Dynamics, Quasicrystal, Generative Art, Physics Engine, Modal Synthesis, Hat Monotile, Soma Cube">
+    <style>
+        :root { --neon: #0f0; }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; cursor: crosshair; touch-action: none; }
+        canvas { display: block; width: 100vw; height: 100vh; }
+        #hud {
+            position: absolute; top: 20px; left: 20px; pointer-events: none;
+            background: rgba(0, 5, 0, 0.9); border: 1px solid var(--neon); padding: 15px;
+            color: var(--neon); font-family: 'Courier New', monospace; font-size: 10px;
+            display: none; z-index: 100; text-transform: uppercase; line-height: 1.6;
+            box-shadow: 0 0 20px rgba(0, 255, 0, 0.2);
+        }
+        .ui {
+            position: absolute; bottom: 20px; width: 100%; text-align: center;
+            color: rgba(0, 255, 0, 0.4); font-family: monospace; font-size: 9px;
+            letter-spacing: 4px; pointer-events: none; text-transform: uppercase;
+        }
+    </style>
+</head>
+<body>
+    <div id="hud">
+        REACTOR_SEED: <span id="h-seed">0</span><br>
+        TILING_MODE: <span id="h-tile">PENROSE</span><br>
+        PHYSICS_SOLVER: GAUSS-SEIDEL / RK4<br>
+        HAMILTONIAN_H: <span id="h-flux">0</span><br>
+        AUDIO_SYNTH: <span id="h-audio">OFF</span>
+    </div>
+    <div class="ui">SPACE / TAP: RESET REACTOR | H: HUD | S: SOUND</div>
+    <canvas id="canvas"></canvas>
+
+<script>
+/**
+ * QUASICRYSTAL PUZZLE–DYNAMICS REACTOR
+ * A high-performance simulation merging Non-Periodic Tiling with Multibody Physics.
+ */
+
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d', { alpha: false });
+const hud = document.getElementById('hud');
+
+let w, h, dpr;
+let nodes = [], links = [], tiles = [];
+let audioCtx, masterGain, compressor;
+let audioEnabled = false, showHud = false;
+let palette = [], hueBase, reactorSeed;
+let frame = 0;
+
+const TILING_MODES = ["PENROSE_P3", "AMMANN_BEENKER", "HAT_MONOTILE", "SOMA_DECOMP"];
+
+class Particle {
+    constructor(x, y, id) {
+        this.x = x; this.y = y;
+        this.px = x; this.py = y;
+        this.vx = 0; this.vy = 0;
+        this.id = id;
+        this.color = palette[id % palette.length];
+        this.mass = 1.0;
+        this.isStatic = Math.random() > 0.94;
+    }
+    integrate() {
+        if (this.isStatic) return;
+        // Hamiltonian drift + gyroscopic torque approximation
+        const dx = w/2 - this.x;
+        const dy = h/2 - this.y;
+        const d = Math.sqrt(dx*dx + dy*dy) || 1;
+        this.vx += (dy / d) * 0.08; 
+        this.vy -= (dx / d) * 0.08;
+        this.vx += (dx / d) * 0.03;
+        this.vy += (dy / d) * 0.03;
+        
+        this.vx *= 0.99; this.vy *= 0.99;
+        this.x += this.vx; this.y += this.vy;
+    }
+}
+
+class Constraint {
+    constructor(p1, p2, len) {
+        this.p1 = p1; this.p2 = p2;
+        this.len = len;
+        this.stiffness = 0.2;
+    }
+    solve() {
+        const dx = this.p2.x - this.p1.x;
+        const dy = this.p2.y - this.p1.y;
+        const d = Math.sqrt(dx*dx + dy*dy) || 1;
+        const f = (this.len - d) / d * this.stiffness;
+        const ox = dx * f * 0.5;
+        const oy = dy * f * 0.5;
+        if (!this.p1.isStatic) { this.p1.x -= ox; this.p1.y -= oy; }
+        if (!this.p2.isStatic) { this.p2.x += ox; this.p2.y += oy; }
+    }
+}
+
+function init() {
+    w = canvas.width = window.innerWidth;
+    h = canvas.height = window.innerHeight;
+    reactorSeed = Math.floor(Math.random() * 1e7);
+    hueBase = Math.random() * 360;
+    palette = Array.from({length: 6}, (_, i) => `hsl(${(hueBase + i * 60) % 360}, 100%, 55%)`);
+    document.documentElement.style.setProperty('--neon', palette[0]);
+
+    nodes = []; links = []; tiles = [];
+    const mode = TILING_MODES[Math.floor(Math.random() * TILING_MODES.length)];
+    
+    // Build Mass-Spring Dynamic Labyrinth
+    for (let i = 0; i < 50; i++) {
+        nodes.push(new Particle(Math.random() * w, Math.random() * h, i));
+    }
+    for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+            const d = Math.hypot(nodes[i].x - nodes[j].x, nodes[i].y - nodes[j].y);
+            if (d < 150) links.push(new Constraint(nodes[i], nodes[j], d));
+        }
+    }
+
+    // Generate Quasicrystal / Ornamental Scaffolding
+    const grid = 10;
+    for (let x = 0; x <= grid; x++) {
+        for (let y = 0; y <= grid; y++) {
+            tiles.push({
+                x: (x / grid) * w, y: (y / grid) * h,
+                r: Math.random() * 60 + 20,
+                type: mode,
+                c: palette[Math.floor(Math.random() * palette.length)]
+            });
+        }
+    }
+
+    document.getElementById('h-seed').innerText = reactorSeed.toString(16).toUpperCase();
+    document.getElementById('h-tile').innerText = mode;
+}
+
+function initAudio() {
+    if (audioCtx) return;
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    masterGain = audioCtx.createGain();
+    compressor = audioCtx.createDynamicsCompressor();
+    masterGain.gain.value = 0.1;
+    masterGain.connect(compressor);
+    compressor.connect(audioCtx.destination);
+}
+
+function triggerAudio(y, freqMod) {
+    if (!audioEnabled || !audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const env = audioCtx.createGain();
+    const freq = 40 + (1 - y/h) * 800 + freqMod;
+    osc.type = Math.random() > 0.5 ? 'triangle' : 'sine';
+    osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    env.gain.setValueAtTime(0.1, audioCtx.currentTime);
+    env.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.4);
+    osc.connect(env);
+    env.connect(masterGain);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.4);
+}
+
+function draw() {
+    // Spectral Banding / Phosphor Decay
+    ctx.fillStyle = 'rgba(0, 8, 4, 0.15)';
+    ctx.fillRect(0, 0, w, h);
+
+    // 1. Render Quasicrystal / Ornamental Layer
+    ctx.lineWidth = 1;
+    tiles.forEach(t => {
+        ctx.strokeStyle = t.c;
+        ctx.globalAlpha = 0.1;
+        ctx.save();
+        ctx.translate(t.x, t.y);
+        ctx.rotate(frame * 0.01);
+        if (t.type === "PENROSE_P3") {
+            for(let i=0; i<5; i++) { ctx.rotate(Math.PI*2/5); ctx.strokeRect(-t.r/2, -t.r/2, t.r, t.r); }
+        } else {
+            ctx.beginPath();
+            ctx.arc(0, 0, t.r, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+        ctx.restore();
+    });
+    ctx.globalAlpha = 1.0;
+
+    // 2. Multibody Physics Solver
+    for (let s = 0; s < 4; s++) {
+        links.forEach(l => l.solve());
+    }
+    nodes.forEach(n => n.integrate());
+
+    // 3. Render Dynamic Mass-Spring Network
+    links.forEach((l, i) => {
+        ctx.strokeStyle = l.p1.color;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(l.p1.x, l.p1.y);
+        ctx.lineTo(l.p2.x, l.p2.y);
+        ctx.stroke();
+
+        // Puzzle interaction pulse
+        const t = (frame * 0.02 + i * 0.05) % 1;
+        const px = l.p1.x + (l.p2.x - l.p1.x) * t;
+        const py = l.p1.y + (l.p2.y - l.p1.y) * t;
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(px - 2, py - 2, 4, 4);
+
+        if (audioEnabled && t < 0.02 && Math.random() > 0.95) {
+            triggerAudio(py, i % 100);
+        }
+    });
+
+    nodes.forEach(n => {
+        ctx.fillStyle = n.isStatic ? '#fff' : n.color;
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, n.isStatic ? 4 : 2, 0, Math.PI * 2);
+        ctx.fill();
+    });
+
+    frame++;
+    if (showHud) document.getElementById('h-flux').innerText = (Math.abs(Math.sin(frame*0.01))*100).toFixed(4);
+    requestAnimationFrame(draw);
+}
+
+const reseed = () => { init(); if (audioEnabled) triggerAudio(h/2, 0); };
+
+window.addEventListener('keydown', e => {
+    if (e.code === 'Space') reseed();
+    if (e.key.toLowerCase() === 'h') {
+        showHud = !showHud;
+        hud.style.display = showHud ? 'block' : 'none';
+    }
+    if (e.key.toLowerCase() === 's') {
+        audioEnabled = !audioEnabled;
+        if (audioEnabled) initAudio();
+        document.getElementById('h-audio').innerText = audioEnabled ? 'ON' : 'OFF';
+    }
+});
+
+window.addEventListener('mousedown', reseed);
+window.addEventListener('touchstart', e => { e.preventDefault(); reseed(); }, { passive: false });
+window.addEventListener('resize', init);
+
+init();
+draw();
+</script>
+</body>
+</html>

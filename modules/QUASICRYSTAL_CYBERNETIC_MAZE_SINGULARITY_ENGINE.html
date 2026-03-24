@@ -1,0 +1,947 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>QUASICRYSTAL CYBERNETIC MAZE SINGULARITY ENGINE</title>
+<meta name="description" content="A real-time audiovisual engine fusing dodecagonal quasicrystal tilings, Penrose substitution systems, recursive backtracker maze graphs, Hamiltonian dynamics, and cybernetic transformation aesthetics.">
+<meta name="keywords" content="quasicrystal, penrose tiling, maze, cybernetic, generative art, audio synthesis, Tron, PCB, circuit, neon, dodecagonal">
+<meta property="og:title" content="QUASICRYSTAL CYBERNETIC MAZE SINGULARITY ENGINE">
+<meta property="og:description" content="Real-time audiovisual engine fusing quasicrystal tilings, Penrose systems, recursive maze graphs, and Hamiltonian dynamics with cybernetic aesthetics.">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#000011">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000011;font-family:'Courier New',monospace;}
+  canvas{display:block;position:fixed;top:0;left:0;}
+  #hud{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;display:none;z-index:10;}
+  #hud.visible{display:block;}
+  .hud-panel{position:absolute;padding:8px 12px;background:rgba(0,20,40,0.75);border:1px solid;font-size:10px;line-height:1.6;letter-spacing:0.08em;text-transform:uppercase;}
+  #hud-tl{top:12px;left:12px;border-color:rgba(0,255,200,0.4);color:#00ffc8;}
+  #hud-tr{top:12px;right:12px;border-color:rgba(255,80,200,0.4);color:#ff50c8;text-align:right;}
+  #hud-bl{bottom:12px;left:12px;border-color:rgba(80,160,255,0.4);color:#50a0ff;}
+  #hud-br{bottom:12px;right:12px;border-color:rgba(255,200,0,0.4);color:#ffc800;text-align:right;}
+  #controls-hint{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);font-size:9px;letter-spacing:0.15em;color:rgba(180,180,255,0.35);pointer-events:none;z-index:10;white-space:nowrap;}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div class="hud-panel" id="hud-tl">
+    <div id="h-mode">MODE: SINGULARITY</div>
+    <div id="h-phase">PHASE: 0.000</div>
+    <div id="h-energy">ENERGY: 0.000</div>
+    <div id="h-nodes">NODES: 0</div>
+  </div>
+  <div class="hud-panel" id="hud-tr">
+    <div id="h-fps">FPS: 0</div>
+    <div id="h-tiles">TILES: 0</div>
+    <div id="h-maze">MAZE: 0×0</div>
+    <div id="h-gen">GEN: 0</div>
+  </div>
+  <div class="hud-panel" id="hud-bl">
+    <div id="h-palette">PALETTE: SPECTRAL</div>
+    <div id="h-osc">OSC BANK: 0</div>
+    <div id="h-freq">BASE FREQ: 0Hz</div>
+    <div id="h-res">RESOLUTION: 0×0</div>
+  </div>
+  <div class="hud-panel" id="hud-br">
+    <div id="h-vortex">VORTICES: 0</div>
+    <div id="h-spring">SPRINGS: 0</div>
+    <div id="h-crispr">CRISPR: IDLE</div>
+    <div id="h-sound">SOUND: OFF</div>
+  </div>
+</div>
+<div id="controls-hint">SPACE / TAP · RANDOMIZE &nbsp;|&nbsp; H · HUD &nbsp;|&nbsp; S · SOUND</div>
+
+<script>
+(function(){
+'use strict';
+
+// ─── GLOBALS ───────────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H, DPR;
+let audioCtx = null, soundOn = false, hudOn = false;
+let gen = 0, globalT = 0, lastTime = 0, fps = 60, fpsSmooth = 60;
+let animId;
+
+// ─── RANDOM SEED STATE ─────────────────────────────────────────────────────
+let rngSeed = Math.random() * 0xFFFFFFFF | 0;
+function rng() {
+  rngSeed ^= rngSeed << 13; rngSeed ^= rngSeed >> 17; rngSeed ^= rngSeed << 5;
+  return (rngSeed >>> 0) / 0xFFFFFFFF;
+}
+function rr(a, b) { return a + rng() * (b - a); }
+function ri(a, b) { return Math.floor(rr(a, b + 1)); }
+function rc(arr) { return arr[ri(0, arr.length - 1)]; }
+
+// ─── PALETTE SYSTEM ────────────────────────────────────────────────────────
+let PAL = { name:'SPECTRAL', hueBase:0, hueRange:300, sat:1, brightness:1, cycle:0.3, interference:0.7 };
+const PAL_NAMES = ['SPECTRAL','TRON','PCB-GREEN','CRIMSON-NET','VOID-AMBER','AURORA','CRISPR-BLUE','PLASMA'];
+
+function initPalette() {
+  PAL.name = rc(PAL_NAMES);
+  PAL.hueBase = rr(0, 360);
+  PAL.hueRange = rr(60, 300);
+  PAL.sat = rr(0.7, 1.0);
+  PAL.brightness = rr(0.7, 1.0);
+  PAL.cycle = rr(0.05, 0.8);
+  PAL.interference = rr(0.3, 1.0);
+  switch(PAL.name) {
+    case 'TRON': PAL.hueBase=195; PAL.hueRange=40; PAL.sat=1; break;
+    case 'PCB-GREEN': PAL.hueBase=120; PAL.hueRange=60; PAL.sat=1; break;
+    case 'CRIMSON-NET': PAL.hueBase=0; PAL.hueRange=60; PAL.sat=1; break;
+    case 'VOID-AMBER': PAL.hueBase=35; PAL.hueRange=30; PAL.sat=1; break;
+    case 'AURORA': PAL.hueBase=160; PAL.hueRange=120; PAL.sat=0.9; break;
+    case 'CRISPR-BLUE': PAL.hueBase=220; PAL.hueRange=80; PAL.sat=1; break;
+    case 'PLASMA': PAL.hueBase=280; PAL.hueRange=180; PAL.sat=1; break;
+  }
+}
+
+function palColor(t, alpha=1, energy=1) {
+  const h = (PAL.hueBase + t * PAL.hueRange + globalT * PAL.cycle * 60) % 360;
+  const s = PAL.sat * 100;
+  const l = 30 + energy * PAL.brightness * 40 + Math.sin(t * Math.PI * 2 * PAL.interference + globalT) * 12;
+  return `hsla(${h},${s}%,${Math.max(10,Math.min(95,l))}%,${alpha})`;
+}
+function palGlow(t, alpha=0.5) {
+  const h = (PAL.hueBase + t * PAL.hueRange + globalT * PAL.cycle * 60) % 360;
+  return `hsla(${h},100%,80%,${alpha})`;
+}
+function palNeon(t) {
+  const h = (PAL.hueBase + t * PAL.hueRange * 0.5 + globalT * PAL.cycle * 30) % 360;
+  return `hsl(${h},100%,65%)`;
+}
+
+// ─── QUASICRYSTAL TILING ───────────────────────────────────────────────────
+// Dual method / de Bruijn for dodecagonal (12-fold) + Penrose-like
+let QC = { tiles:[], cx:0, cy:0, scale:60, order:12, depth:0, energy:0 };
+
+function buildQuasicrystal() {
+  QC.tiles = [];
+  QC.cx = W * 0.5; QC.cy = H * 0.5;
+  QC.scale = Math.min(W, H) / rr(10, 18);
+  QC.order = rc([6, 8, 10, 12]);
+
+  const N = QC.order;
+  const dirs = [];
+  for (let k = 0; k < N; k++) {
+    dirs.push([Math.cos(k * Math.PI / (N/2)), Math.sin(k * Math.PI / (N/2))]);
+  }
+  // Project grid dual method
+  const gridRange = ri(3, 6);
+  for (let i = 0; i < N/2; i++) {
+    for (let j = i+1; j < N/2; j++) {
+      const d0 = dirs[i], d1 = dirs[j];
+      const det = d0[0]*d1[1] - d0[1]*d1[0];
+      if (Math.abs(det) < 0.001) continue;
+      for (let a = -gridRange; a <= gridRange; a++) {
+        for (let b = -gridRange; b <= gridRange; b++) {
+          // Parallelogram vertices in dual space
+          const verts = [];
+          for (let da = 0; da <= 1; da++) {
+            for (let db = 0; db <= 1; db++) {
+              const ka = a + da, kb = b + db;
+              const x = (kb*d0[0] - ka*d1[0]) / det;
+              const y = (kb*d0[1] - ka*d1[1]) / det;
+              verts.push([QC.cx + x * QC.scale, QC.cy + y * QC.scale]);
+            }
+          }
+          // Reorder to convex hull order: 0,1,3,2
+          const poly = [verts[0], verts[1], verts[3], verts[2]];
+          const cx2 = poly.reduce((s,v)=>s+v[0],0)/4;
+          const cy2 = poly.reduce((s,v)=>s+v[1],0)/4;
+          const r = Math.hypot(cx2 - QC.cx, cy2 - QC.cy);
+          if (r < Math.min(W,H)*0.52) {
+            QC.tiles.push({
+              verts: poly, cx: cx2, cy: cy2,
+              phase: rng(), freq: rr(0.2,2.0),
+              ti: (i/(N/2)), tj: (j/(N/2)),
+              r, glitch: rng() < 0.08
+            });
+          }
+        }
+      }
+    }
+  }
+  QC.depth++;
+}
+
+function drawQuasicrystal(t) {
+  const scanOffset = Math.sin(t * 0.7) * 2;
+  for (const tile of QC.tiles) {
+    const pulse = 0.5 + 0.5 * Math.sin(t * tile.freq + tile.phase * Math.PI * 2);
+    const energy = 0.4 + 0.6 * pulse;
+    const palT = (tile.ti + tile.tj + tile.phase + t * 0.04) % 1;
+
+    // Scanline artifact
+    const scanY = ((tile.cy + scanOffset * 3) % H);
+    const scanAlpha = 0.06 * Math.abs(Math.sin(scanY * 0.1 + t * 2));
+
+    ctx.beginPath();
+    ctx.moveTo(tile.verts[0][0], tile.verts[0][1]);
+    for (let k = 1; k < tile.verts.length; k++) ctx.lineTo(tile.verts[k][0], tile.verts[k][1]);
+    ctx.closePath();
+
+    // Fill
+    const grad = ctx.createRadialGradient(tile.cx, tile.cy, 0, tile.cx, tile.cy, QC.scale * 0.9);
+    grad.addColorStop(0, palColor(palT, 0.18 + energy * 0.15, energy));
+    grad.addColorStop(1, palColor((palT + 0.5) % 1, 0.04, 0.3));
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    // Neon edge
+    ctx.strokeStyle = palColor(palT, 0.4 + pulse * 0.5, energy);
+    ctx.lineWidth = 0.5 + pulse * 1.2;
+    ctx.stroke();
+
+    // Glow pass
+    if (pulse > 0.7) {
+      ctx.strokeStyle = palGlow(palT, 0.15 * pulse);
+      ctx.lineWidth = 3 + pulse * 4;
+      ctx.stroke();
+    }
+
+    // Glitch artifact
+    if (tile.glitch && rng() < 0.003) {
+      ctx.strokeStyle = `rgba(255,255,255,0.6)`;
+      ctx.lineWidth = rr(0.5, 2);
+      ctx.stroke();
+    }
+  }
+}
+
+// ─── MAZE SYSTEM (Recursive Backtracker) ──────────────────────────────────
+let MAZE = { cells:[], w:0, h:0, walls:[], visited:[], path:[], animProgress:0, scale:0 };
+
+function buildMaze() {
+  // Pick cell size first, then derive grid dimensions to fill canvas
+  const cellSize = ri(28, 55);
+  const mw = Math.round(W / cellSize);
+  const mh = Math.round(H / cellSize);
+  const sx = W / mw;   // square-ish: both axes use same logical size
+  const sy = H / mh;   // each axis fills exactly — cells are as square as the aspect ratio allows
+  // Use the same cell size for both so cells are square, accept ~1px gap
+  const cs = Math.min(sx, sy);
+  MAZE.w = mw; MAZE.h = mh;
+  MAZE.sx = cs;
+  MAZE.sy = cs;
+  MAZE.scale = cs;
+  MAZE.cells = new Uint8Array(mw * mh);
+  MAZE.walls = [];
+  // walls: bit 0=right, bit 1=bottom
+  const walls = new Uint8Array(mw * mh);
+  const idx = (x,y) => y * mw + x;
+  const visited = new Uint8Array(mw * mh);
+  const stack = [];
+  let cx = ri(0, mw-1), cy = ri(0, mh-1);
+  visited[idx(cx,cy)] = 1;
+  stack.push([cx,cy]);
+  const dirs4 = [[1,0],[0,1],[-1,0],[0,-1]];
+  let tries = 0;
+  while (stack.length > 0 && tries++ < mw*mh*4) {
+    const [x,y] = stack[stack.length-1];
+    const neighbors = [];
+    for (const [dx,dy] of dirs4) {
+      const nx=x+dx, ny=y+dy;
+      if (nx>=0&&nx<mw&&ny>=0&&ny<mh&&!visited[idx(nx,ny)]) neighbors.push([nx,ny,dx,dy]);
+    }
+    if (neighbors.length===0) { stack.pop(); continue; }
+    const [nx,ny,dx,dy] = neighbors[ri(0,neighbors.length-1)];
+    visited[idx(nx,ny)] = 1;
+    // Remove wall between (x,y) and (nx,ny)
+    if (dx===1) walls[idx(x,y)] |= 1;
+    else if (dx===-1) walls[idx(nx,ny)] |= 1;
+    else if (dy===1) walls[idx(x,y)] |= 2;
+    else if (dy===-1) walls[idx(nx,ny)] |= 2;
+    stack.push([nx,ny]);
+  }
+  MAZE.walls = walls;
+  MAZE.visited = visited;
+  MAZE.path = generateMazePath(mw, mh, walls);
+  MAZE.animProgress = 0;
+  MAZE.ox = (W - mw * MAZE.sx) / 2;
+  MAZE.oy = (H - mh * MAZE.sy) / 2;
+  MAZE.basePhase = rng();
+}
+
+function generateMazePath(mw, mh, walls) {
+  const path = [];
+  let x = 0, y = 0;
+  for (let step = 0; step < mw + mh; step++) {
+    path.push([x, y]);
+    if (x < mw-1 && (walls[y*mw+x]&1)) x++;
+    else if (y < mh-1 && (walls[y*mw+x]&2)) y++;
+    else break;
+  }
+  return path;
+}
+
+function drawMaze(t) {
+  const { w, h, walls, ox, oy } = MAZE;
+  if (!walls || !walls.length) return;
+  const sx = MAZE.sx, sy = MAZE.sy;
+  const alpha = 0.55 + 0.2 * Math.sin(t * 0.4 + MAZE.basePhase);
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, 0, W, H);
+  ctx.clip();
+  ctx.translate(ox, oy);
+
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      const px = x * sx, py = y * sy;
+      const cellPhase = (x/w + y/h + MAZE.basePhase + t * 0.06) % 1;
+      const pulse = 0.5 + 0.5 * Math.sin(t * 1.2 + (x+y) * 0.4);
+
+      // Circuit trace background for cell
+      ctx.fillStyle = palColor(cellPhase, 0.06 + pulse * 0.06, 0.3);
+      ctx.fillRect(px, py, sx, sy);
+
+      ctx.strokeStyle = palColor(cellPhase, alpha * (0.5 + pulse * 0.5), 0.7 + pulse * 0.3);
+      ctx.lineWidth = 0.8 + pulse * 0.8;
+
+      // Right wall
+      if (!(walls[i] & 1)) {
+        ctx.beginPath(); ctx.moveTo(px+sx, py); ctx.lineTo(px+sx, py+sy); ctx.stroke();
+      }
+      // Bottom wall
+      if (!(walls[i] & 2)) {
+        ctx.beginPath(); ctx.moveTo(px, py+sy); ctx.lineTo(px+sx, py+sy); ctx.stroke();
+      }
+
+
+    }
+  }
+
+
+
+  // Animated path trace
+  const pathLen = MAZE.path.length;
+  if (pathLen > 1) {
+    const progress = (t * 0.2) % 1;
+    const maxIdx = Math.floor(progress * pathLen);
+    ctx.beginPath();
+    ctx.moveTo(MAZE.path[0][0]*sx + sx/2, MAZE.path[0][1]*sy + sy/2);
+    for (let k = 1; k <= maxIdx && k < pathLen; k++) {
+      ctx.lineTo(MAZE.path[k][0]*sx + sx/2, MAZE.path[k][1]*sy + sy/2);
+    }
+    ctx.strokeStyle = palGlow(0.8, 0.8);
+    ctx.lineWidth = 2.5;
+    ctx.shadowColor = palNeon(0.8);
+    ctx.shadowBlur = 12;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
+
+  ctx.restore();
+}
+
+// ─── SPRING–PENDULUM NETWORK (Hamiltonian / Verlet) ───────────────────────
+let SPRINGS = { nodes:[], edges:[], energy:0 };
+const MAX_NODES = 40, MAX_EDGES = 80;
+
+function buildSpringNet() {
+  SPRINGS.nodes = [];
+  SPRINGS.edges = [];
+  const n = ri(12, MAX_NODES);
+  for (let i = 0; i < n; i++) {
+    SPRINGS.nodes.push({
+      x: rr(W*0.1, W*0.9), y: rr(H*0.1, H*0.9),
+      vx: rr(-50,50), vy: rr(-50,50),
+      px: 0, py: 0,
+      mass: rr(0.5,2.5),
+      phase: rng(), freq: rr(0.3,2.0),
+      type: rc(['neuron','joint','relay','cpu']),
+      r: rr(3,10)
+    });
+  }
+  // Connect edges (Delaunay-like approximation via nearest)
+  for (let i = 0; i < n; i++) {
+    const dists = [];
+    for (let j = 0; j < n; j++) {
+      if (i===j) continue;
+      const dx = SPRINGS.nodes[i].x - SPRINGS.nodes[j].x;
+      const dy = SPRINGS.nodes[i].y - SPRINGS.nodes[j].y;
+      dists.push([Math.hypot(dx,dy), j]);
+    }
+    dists.sort((a,b)=>a[0]-b[0]);
+    const k = ri(1,3);
+    for (let c = 0; c < k && c < dists.length; c++) {
+      const j = dists[c][1];
+      if (!SPRINGS.edges.find(e=>(e.a===i&&e.b===j)||(e.a===j&&e.b===i))) {
+        SPRINGS.edges.push({
+          a: i, b: j,
+          rest: dists[c][0],
+          k: rr(50,400),
+          damping: rr(0.3,0.9),
+          phase: rng()
+        });
+      }
+    }
+  }
+  // Cap edges
+  while (SPRINGS.edges.length > MAX_EDGES) SPRINGS.edges.pop();
+  // Save previous positions
+  for (const n of SPRINGS.nodes) { n.px = n.x - n.vx * 0.016; n.py = n.y - n.vy * 0.016; }
+}
+
+function stepSprings(dt) {
+  const nodes = SPRINGS.nodes, edges = SPRINGS.edges;
+  // Gauss–Seidel spring forces + Verlet
+  const fx = new Float32Array(nodes.length);
+  const fy = new Float32Array(nodes.length);
+
+  // Spring forces
+  for (const e of edges) {
+    const a = nodes[e.a], b = nodes[e.b];
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const d = Math.hypot(dx,dy) || 0.001;
+    const force = e.k * (d - e.rest * (0.8 + 0.4 * Math.sin(globalT * 0.5 + e.phase)));
+    const nx = dx/d, ny = dy/d;
+    fx[e.a] += force * nx; fy[e.a] += force * ny;
+    fx[e.b] -= force * nx; fy[e.b] -= force * ny;
+  }
+
+  let totalE = 0;
+  for (let i = 0; i < nodes.length; i++) {
+    const n = nodes[i];
+    // Gravity pendulum
+    const gx = Math.sin(globalT * 0.3 + n.phase) * 60;
+    const gy = 120 + Math.cos(globalT * 0.2 + n.phase) * 40;
+    fx[i] += gx; fy[i] += gy;
+    // Vortex from vortices
+    for (const v of VORTEX.particles.slice(0,3)) {
+      const dvx = n.x - v.x, dvy = n.y - v.y;
+      const r2 = dvx*dvx + dvy*dvy + 1;
+      const str = v.str * 800 / r2;
+      fx[i] -= dvy * str; fy[i] += dvx * str;
+    }
+
+    // Verlet integration (semi-implicit)
+    const ax = fx[i] / n.mass, ay = fy[i] / n.mass;
+    const nvx = (n.x - n.px + ax * dt * dt) * 0.985;
+    const nvy = (n.y - n.py + ay * dt * dt) * 0.985;
+    n.px = n.x; n.py = n.y;
+    n.x += nvx; n.y += nvy;
+    // Bounce
+    if (n.x < n.r) { n.x = n.r; n.px = n.x + nvx*0.4; }
+    if (n.x > W-n.r) { n.x = W-n.r; n.px = n.x + nvx*0.4; }
+    if (n.y < n.r) { n.y = n.r; n.py = n.y + nvy*0.4; }
+    if (n.y > H-n.r) { n.y = H-n.r; n.py = n.y + nvy*0.4; }
+    totalE += 0.5 * n.mass * (nvx*nvx + nvy*nvy) / (dt*dt);
+  }
+  SPRINGS.energy = Math.min(1, totalE / (nodes.length * 5000));
+}
+
+function drawSprings(t) {
+  const nodes = SPRINGS.nodes, edges = SPRINGS.edges;
+  // Edges (circuit traces)
+  for (const e of edges) {
+    const a = nodes[e.a], b = nodes[e.b];
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const d = Math.hypot(dx,dy);
+    const pulse = 0.5 + 0.5 * Math.sin(t * 1.5 + e.phase * Math.PI*2);
+    const palT = (e.phase + t * 0.08) % 1;
+    // PCB right-angle trace style
+    const midX = a.x + dx * 0.5;
+    const midY = a.y + dy * 0.5;
+
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    if ((e.a + e.b) % 2 === 0) {
+      ctx.lineTo(midX, a.y);
+      ctx.lineTo(midX, b.y);
+    } else {
+      ctx.lineTo(a.x, midY);
+      ctx.lineTo(b.x, midY);
+    }
+    ctx.lineTo(b.x, b.y);
+
+    ctx.strokeStyle = palColor(palT, 0.35 + pulse * 0.45, 0.6 + pulse * 0.4);
+    ctx.lineWidth = 0.8 + pulse * 1.2;
+    ctx.stroke();
+
+    // Signal pulse animation
+    const sig = (t * 0.5 + e.phase) % 1;
+    const sx = a.x + (b.x - a.x) * sig;
+    const sy = a.y + (b.y - a.y) * sig;
+    ctx.fillStyle = palGlow(palT, 0.85);
+    ctx.beginPath(); ctx.arc(sx, sy, 2.5, 0, Math.PI*2); ctx.fill();
+  }
+
+  // Nodes (cybernetic modules)
+  for (const n of nodes) {
+    const pulse = 0.5 + 0.5 * Math.sin(t * n.freq + n.phase * Math.PI*2);
+    const palT = (n.phase + t * 0.05) % 1;
+
+    // Outer glow
+    const grd = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, n.r * 3.5);
+    grd.addColorStop(0, palGlow(palT, 0.4 * pulse));
+    grd.addColorStop(1, 'transparent');
+    ctx.fillStyle = grd;
+    ctx.beginPath(); ctx.arc(n.x, n.y, n.r * 3.5, 0, Math.PI*2); ctx.fill();
+
+    // Core
+    ctx.fillStyle = palColor(palT, 0.8 + pulse * 0.2, 1);
+    ctx.beginPath(); ctx.arc(n.x, n.y, n.r, 0, Math.PI*2); ctx.fill();
+
+    // Type indicator
+    ctx.strokeStyle = palGlow(palT, 0.9);
+    ctx.lineWidth = 1;
+    if (n.type === 'neuron') {
+      ctx.beginPath();
+      for (let k = 0; k < 6; k++) {
+        const a = k * Math.PI/3 + t * n.freq * 0.1;
+        ctx.moveTo(n.x, n.y);
+        ctx.lineTo(n.x + Math.cos(a)*n.r*2.2, n.y + Math.sin(a)*n.r*2.2);
+      }
+      ctx.stroke();
+    } else if (n.type === 'cpu') {
+      ctx.strokeRect(n.x-n.r*1.4, n.y-n.r*1.4, n.r*2.8, n.r*2.8);
+    } else if (n.type === 'relay') {
+      ctx.beginPath(); ctx.arc(n.x, n.y, n.r*1.8, 0, Math.PI*2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(n.x, n.y, n.r*2.5, t*0.5, t*0.5 + Math.PI*1.2); ctx.stroke();
+    }
+  }
+}
+
+// ─── VORTEX PARTICLE FIELD ─────────────────────────────────────────────────
+let VORTEX = { particles:[], count:0 };
+
+function buildVortex() {
+  VORTEX.particles = [];
+  const n = ri(150, 280);
+  VORTEX.count = n;
+  const vortexCenters = [];
+  const vc = ri(2, 5);
+  for (let i = 0; i < vc; i++) {
+    vortexCenters.push({ x: rr(W*0.2,W*0.8), y: rr(H*0.2,H*0.8), str: rr(-1,1) * rr(10000,40000) });
+  }
+  for (let i = 0; i < n; i++) {
+    VORTEX.particles.push({
+      x: rr(0,W), y: rr(0,H),
+      vx: rr(-30,30), vy: rr(-30,30),
+      life: rr(0.2,1), maxLife: rr(0.5,1),
+      phase: rng(), str: rr(0.5,2),
+      size: rr(1,3.5)
+    });
+    if (!vortexCenters[0]) continue;
+    VORTEX.particles[i].str = vortexCenters[0].str / 20000;
+  }
+  VORTEX.centers = vortexCenters;
+}
+
+function stepVortex(dt) {
+  const p = VORTEX.particles, centers = VORTEX.centers;
+  for (const v of p) {
+    // Vortex forces from each center
+    for (const c of centers) {
+      const dx = v.x - c.x, dy = v.y - c.y;
+      const r2 = dx*dx + dy*dy + 100;
+      const str = c.str / r2;
+      v.vx += -dy * str * dt;
+      v.vy += dx * str * dt;
+    }
+    // Noise drift
+    v.vx += Math.sin(v.y * 0.01 + globalT * 0.3) * 15 * dt;
+    v.vy += Math.cos(v.x * 0.01 + globalT * 0.25) * 15 * dt;
+    // Damping
+    v.vx *= 0.98; v.vy *= 0.98;
+    v.x += v.vx * dt; v.y += v.vy * dt;
+    // Wrap
+    if (v.x < 0) v.x += W; if (v.x > W) v.x -= W;
+    if (v.y < 0) v.y += H; if (v.y > H) v.y -= H;
+    // Life
+    v.life -= dt * 0.08;
+    if (v.life <= 0) {
+      v.life = rr(0.3,1);
+      v.x = rr(0,W); v.y = rr(0,H);
+      v.vx = rr(-20,20); v.vy = rr(-20,20);
+    }
+  }
+}
+
+function drawVortex(t) {
+  const p = VORTEX.particles;
+  ctx.save();
+  for (const v of p) {
+    const palT = (v.phase + t * 0.04) % 1;
+    const alpha = v.life * 0.6;
+    const speed = Math.hypot(v.vx, v.vy);
+    const stretch = Math.min(speed * 0.05, 8);
+    const angle = Math.atan2(v.vy, v.vx);
+
+    ctx.save();
+    ctx.translate(v.x, v.y);
+    ctx.rotate(angle);
+    ctx.fillStyle = palColor(palT, alpha, 0.7 + v.life * 0.3);
+    ctx.beginPath();
+    ctx.ellipse(0, 0, v.size + stretch, v.size * 0.6, 0, 0, Math.PI*2);
+    ctx.fill();
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+// ─── CRISPR GRAPH REWRITING (Cybernetic transformations) ──────────────────
+let CRISPR = { active:false, timer:0, interval:3.5, progress:0, state:'IDLE', glyph:0 };
+
+function triggerCRISPR() {
+  CRISPR.active = true;
+  CRISPR.progress = 0;
+  CRISPR.state = rc(['REWRITE','SPLICE','INJECT','MUTATE','COMPILE','ENCODE']);
+  CRISPR.glyph = ri(0,15);
+  // Mutate spring network (graph rewriting)
+  if (rng() < 0.4) {
+    const i = ri(0, SPRINGS.nodes.length-1);
+    SPRINGS.nodes[i].type = rc(['neuron','joint','relay','cpu']);
+    SPRINGS.nodes[i].r = rr(3,10);
+    SPRINGS.nodes[i].freq = rr(0.3,2.5);
+  }
+  if (rng() < 0.3 && SPRINGS.edges.length > 5) {
+    SPRINGS.edges.splice(ri(0, SPRINGS.edges.length-1), 1);
+  }
+  if (rng() < 0.3) {
+    const a = ri(0, SPRINGS.nodes.length-1);
+    const b = ri(0, SPRINGS.nodes.length-1);
+    if (a!==b) {
+      SPRINGS.edges.push({ a, b, rest: rr(50,250), k: rr(80,350), damping: rr(0.3,0.9), phase: rng() });
+    }
+  }
+}
+
+const CRISPR_GLYPHS = ['◈','⬡','⟁','⌬','⊕','⊗','⊞','⊟','⏣','⬢','◉','⊛','⌀','⌂','⟐','⟴'];
+
+function drawCRISPR(t) {
+  if (!CRISPR.active) return;
+  CRISPR.progress = Math.min(1, CRISPR.progress + 0.02);
+  if (CRISPR.progress >= 1) { CRISPR.active = false; CRISPR.state = 'IDLE'; return; }
+
+  const alpha = CRISPR.progress < 0.5 ? CRISPR.progress * 2 : (1 - CRISPR.progress) * 2;
+  const size = 80 + alpha * 40;
+  const x = W * 0.5, y = H * 0.5;
+
+  ctx.save();
+  ctx.globalAlpha = alpha * 0.7;
+  ctx.strokeStyle = palNeon(0.3);
+  ctx.fillStyle = palColor(0.3, 0.8, 1);
+  ctx.lineWidth = 2;
+  ctx.font = `bold ${size}px 'Courier New', monospace`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  // Glow
+  ctx.shadowColor = palNeon(0.3);
+  ctx.shadowBlur = 30;
+  ctx.fillText(CRISPR_GLYPHS[CRISPR.glyph], x, y);
+  ctx.shadowBlur = 0;
+
+  ctx.font = `${14}px 'Courier New', monospace`;
+  ctx.fillStyle = palGlow(0.6, alpha);
+  ctx.fillText(`◄ CRISPR::${CRISPR.state} ►`, x, y + size * 0.7);
+
+  ctx.restore();
+}
+
+// ─── SCANLINE & RASTER EFFECTS ────────────────────────────────────────────
+function drawScanlines(t) {
+  const spacing = 3 + ri(0,1);
+  ctx.save();
+  for (let y = 0; y < H; y += spacing) {
+    const alpha = 0.03 + 0.02 * Math.sin(y * 0.05 + t * 3);
+    ctx.fillStyle = `rgba(0,0,0,${alpha})`;
+    ctx.fillRect(0, y, W, 1);
+  }
+  // Horizontal raster glitch bands
+  if (rng() < 0.04) {
+    const gy = rr(0,H);
+    const gh = rr(2,15);
+    ctx.fillStyle = `rgba(${ri(0,255)},${ri(0,255)},${ri(0,255)},0.07)`;
+    ctx.fillRect(0, gy, W, gh);
+    ctx.drawImage(canvas, rr(-8,8), gy, W, gh, 0, gy, W, gh);
+  }
+  // Vignette
+  const vgrd = ctx.createRadialGradient(W/2,H/2,Math.min(W,H)*0.3, W/2,H/2,Math.min(W,H)*0.75);
+  vgrd.addColorStop(0,'rgba(0,0,0,0)');
+  vgrd.addColorStop(1,'rgba(0,0,5,0.45)');
+  ctx.fillStyle = vgrd;
+  ctx.fillRect(0,0,W,H);
+
+  ctx.restore();
+}
+
+// ─── INTERFERENCE / MOIRÉ BACKGROUND ─────────────────────────────────────
+let INTERFERENCE = { freq1:0, freq2:0, angle:0, speed:0 };
+
+function initInterference() {
+  INTERFERENCE.freq1 = rr(0.005,0.025);
+  INTERFERENCE.freq2 = rr(0.005,0.025);
+  INTERFERENCE.angle = rng() * Math.PI;
+  INTERFERENCE.speed = rr(0.3,1.2);
+}
+
+function drawInterference(t) {
+  const { freq1, freq2, angle, speed } = INTERFERENCE;
+  // Use imageData for performance (downsampled)
+  const stride = 4;
+  const sw = Math.ceil(W/stride), sh = Math.ceil(H/stride);
+  ctx.save();
+  for (let iy = 0; iy < sh; iy++) {
+    for (let ix = 0; ix < sw; ix++) {
+      const x = ix*stride, y = iy*stride;
+      const rx = x*Math.cos(angle) - y*Math.sin(angle);
+      const ry = x*Math.sin(angle) + y*Math.cos(angle);
+      const val = (Math.sin(rx*freq1 + t*speed) + Math.sin(ry*freq2 - t*speed*0.7)) * 0.5;
+      if (val > 0.6) {
+        const palT = (val + t*0.03) % 1;
+        ctx.fillStyle = palColor(palT, 0.04 + val * 0.04, val);
+        ctx.fillRect(x, y, stride, stride);
+      }
+    }
+  }
+  ctx.restore();
+}
+
+// ─── SPECTRAL GRADIENT BORDERS ────────────────────────────────────────────
+function drawSpectralBorder(t) {
+  const thick = 3;
+  // Top
+  const gr = ctx.createLinearGradient(0,0,W,0);
+  for (let i=0; i<=8; i++) gr.addColorStop(i/8, palNeon((i/8 + t*0.1)%1));
+  ctx.fillStyle = gr; ctx.fillRect(0,0,W,thick);
+  // Bottom
+  const gr2 = ctx.createLinearGradient(0,0,W,0);
+  for (let i=0; i<=8; i++) gr2.addColorStop(i/8, palNeon(((8-i)/8 + t*0.1)%1));
+  ctx.fillStyle = gr2; ctx.fillRect(0,H-thick,W,thick);
+  // Left
+  const gr3 = ctx.createLinearGradient(0,0,0,H);
+  for (let i=0; i<=8; i++) gr3.addColorStop(i/8, palNeon((i/8 + t*0.08 + 0.33)%1));
+  ctx.fillStyle = gr3; ctx.fillRect(0,0,thick,H);
+  // Right
+  const gr4 = ctx.createLinearGradient(0,0,0,H);
+  for (let i=0; i<=8; i++) gr4.addColorStop(i/8, palNeon(((8-i)/8 + t*0.08 + 0.66)%1));
+  ctx.fillStyle = gr4; ctx.fillRect(W-thick,0,thick,H);
+}
+
+// ─── AUDIO ENGINE ─────────────────────────────────────────────────────────
+let audioNodes = { oscs:[], gains:[], master:null, analyser:null, reverb:null };
+const OSC_COUNT = 6;
+
+function initAudio() {
+  if (audioCtx) return;
+  try {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    audioNodes.master = audioCtx.createGain();
+    audioNodes.master.gain.value = 0.12;
+
+    // Reverb (convolver)
+    const revLen = audioCtx.sampleRate * 1.5;
+    const revBuf = audioCtx.createBuffer(2, revLen, audioCtx.sampleRate);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = revBuf.getChannelData(ch);
+      for (let i = 0; i < revLen; i++) d[i] = (Math.random()*2-1)*Math.pow(1-i/revLen,2.5);
+    }
+    audioNodes.reverb = audioCtx.createConvolver();
+    audioNodes.reverb.buffer = revBuf;
+    audioNodes.reverb.connect(audioNodes.master);
+
+    audioNodes.analyser = audioCtx.createAnalyser();
+    audioNodes.analyser.fftSize = 256;
+    audioNodes.master.connect(audioNodes.analyser);
+    audioNodes.analyser.connect(audioCtx.destination);
+
+    // Coupled oscillator bank
+    const baseFreqs = [55, 82.4, 110, 146.8, 196, 261.6];
+    audioNodes.oscs = [];
+    audioNodes.gains = [];
+    for (let i = 0; i < OSC_COUNT; i++) {
+      const osc = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      const g2 = audioCtx.createGain();
+      osc.type = rc(['sine','triangle','sawtooth']);
+      osc.frequency.value = baseFreqs[i] * (1 + rng() * 0.05);
+      g.gain.value = 0.0;
+      g2.gain.value = 0.08;
+      osc.connect(g); g.connect(g2);
+      g2.connect(audioNodes.master);
+      g2.connect(audioNodes.reverb);
+      osc.start();
+      audioNodes.oscs.push(osc);
+      audioNodes.gains.push({ dry: g, wet: g2 });
+    }
+  } catch(e) { console.warn('Audio init failed:', e); audioCtx = null; }
+}
+
+function updateAudio(t, energy) {
+  if (!audioCtx || !soundOn) return;
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+
+  const baseFreq = 55 * (1 + PAL.hueBase/360);
+  for (let i = 0; i < audioNodes.oscs.length; i++) {
+    const osc = audioNodes.oscs[i];
+    const g = audioNodes.gains[i].dry;
+    // Coupled oscillator: each modulates next
+    const freqMod = 1 + 0.12 * Math.sin(t * 0.7 + i * 1.3 + energy * 3);
+    const harm = [1, 1.5, 2, 2.5, 3, 4][i];
+    osc.frequency.setTargetAtTime(baseFreq * harm * freqMod, audioCtx.currentTime, 0.1);
+    // Energy-driven amplitude
+    const amp = Math.max(0, (energy - 0.15) * 0.4 * (0.5 + 0.5 * Math.sin(t * 0.4 + i * 0.8)));
+    g.gain.setTargetAtTime(amp, audioCtx.currentTime, 0.08);
+  }
+  // Granular texture: random micro-bursts
+  if (rng() < 0.015 && energy > 0.3) {
+    const g2 = audioNodes.gains[ri(0,OSC_COUNT-1)].dry;
+    g2.gain.setTargetAtTime(energy * 0.6, audioCtx.currentTime, 0.005);
+    g2.gain.setTargetAtTime(0, audioCtx.currentTime + 0.08, 0.02);
+  }
+}
+
+function stopAudio() {
+  if (!audioCtx) return;
+  for (const g of audioNodes.gains) { g.dry.gain.setTargetAtTime(0, audioCtx.currentTime, 0.1); }
+}
+
+// ─── HUD UPDATE ────────────────────────────────────────────────────────────
+function updateHUD(t) {
+  if (!hudOn) return;
+  document.getElementById('h-mode').textContent = `MODE: ${PAL.name}`;
+  document.getElementById('h-phase').textContent = `PHASE: ${(t % 100).toFixed(3)}`;
+  document.getElementById('h-energy').textContent = `ENERGY: ${SPRINGS.energy.toFixed(3)}`;
+  document.getElementById('h-nodes').textContent = `NODES: ${SPRINGS.nodes.length}`;
+  document.getElementById('h-fps').textContent = `FPS: ${fpsSmooth.toFixed(0)}`;
+  document.getElementById('h-tiles').textContent = `TILES: ${QC.tiles.length}`;
+  document.getElementById('h-maze').textContent = `MAZE: ${MAZE.w}×${MAZE.h}`;
+  document.getElementById('h-gen').textContent = `GEN: ${gen}`;
+  document.getElementById('h-palette').textContent = `PALETTE: ${PAL.name}`;
+  document.getElementById('h-osc').textContent = `OSC BANK: ${OSC_COUNT}`;
+  document.getElementById('h-freq').textContent = `BASE FREQ: ${(55*(1+PAL.hueBase/360)).toFixed(1)}Hz`;
+  document.getElementById('h-res').textContent = `RESOLUTION: ${W}×${H}`;
+  document.getElementById('h-vortex').textContent = `VORTICES: ${VORTEX.centers ? VORTEX.centers.length : 0}`;
+  document.getElementById('h-spring').textContent = `SPRINGS: ${SPRINGS.edges.length}`;
+  document.getElementById('h-crispr').textContent = `CRISPR: ${CRISPR.state}`;
+  document.getElementById('h-sound').textContent = `SOUND: ${soundOn ? 'ON' : 'OFF'}`;
+}
+
+// ─── MAIN LOOP ─────────────────────────────────────────────────────────────
+function frame(ts) {
+  animId = requestAnimationFrame(frame);
+  const dt = Math.min((ts - lastTime) / 1000, 0.033);
+  lastTime = ts;
+  globalT += dt;
+  fpsSmooth += (1/dt - fpsSmooth) * 0.1;
+  fps = fpsSmooth;
+
+  // CRISPR timer
+  CRISPR.timer += dt;
+  if (CRISPR.timer > CRISPR.interval) { CRISPR.timer = 0; CRISPR.interval = rr(2,6); triggerCRISPR(); }
+
+  // Step physics
+  stepVortex(dt);
+  stepSprings(dt);
+  updateAudio(globalT, SPRINGS.energy);
+
+  // ── RENDER ──
+  // Clear with trail/smear
+  ctx.fillStyle = `rgba(0,1,8,0.13)`;
+  ctx.fillRect(0,0,W,H);
+
+  // Interference moiré BG
+  drawInterference(globalT);
+
+  // Quasicrystal tiling (bottom layer)
+  drawQuasicrystal(globalT);
+
+  // Maze overlay
+  drawMaze(globalT);
+
+  // Vortex particles
+  drawVortex(globalT);
+
+  // Spring network (top layer)
+  drawSprings(globalT);
+
+  // CRISPR overlay
+  drawCRISPR(globalT);
+
+  // Atari scanlines + glitch
+  drawScanlines(globalT);
+
+
+
+  // HUD
+  updateHUD(globalT);
+}
+
+// ─── RESIZE ────────────────────────────────────────────────────────────────
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width = W * DPR;
+  canvas.height = H * DPR;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+
+// ─── FULL RANDOMIZE ────────────────────────────────────────────────────────
+function randomize() {
+  rngSeed = Math.random() * 0xFFFFFFFF | 0;
+  gen++;
+  initPalette();
+  initInterference();
+  buildQuasicrystal();
+  buildMaze();
+  buildVortex();
+  buildSpringNet();
+  CRISPR.interval = rr(2,6);
+  // Flash effect
+  ctx.fillStyle = palGlow(rng(), 0.7);
+  ctx.fillRect(0,0,W,H);
+}
+
+// ─── INPUT ─────────────────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space' || e.key === ' ') { e.preventDefault(); randomize(); }
+  if (e.key === 'h' || e.key === 'H') {
+    hudOn = !hudOn;
+    document.getElementById('hud').classList.toggle('visible', hudOn);
+  }
+  if (e.key === 's' || e.key === 'S') {
+    soundOn = !soundOn;
+    if (soundOn) { initAudio(); }
+    else { stopAudio(); }
+  }
+});
+
+let tapStart = 0;
+document.addEventListener('pointerdown', e => { tapStart = globalT; });
+document.addEventListener('pointerup', e => {
+  if (globalT - tapStart < 0.35) randomize();
+});
+
+// ─── INIT ──────────────────────────────────────────────────────────────────
+resize();
+window.addEventListener('resize', () => {
+  resize();
+  buildMaze();
+  buildQuasicrystal();
+});
+initPalette();
+initInterference();
+buildQuasicrystal();
+buildMaze();
+buildVortex();
+buildSpringNet();
+lastTime = performance.now();
+requestAnimationFrame(frame);
+
+})();
+</script>
+</body>
+</html>

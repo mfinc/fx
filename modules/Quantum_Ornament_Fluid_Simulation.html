@@ -1,0 +1,970 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Quantum Ornament Fluid Simulation</title>
+<meta name="description" content="An immersive generative audiovisual experience fusing Persian arabesques, Mughal mandalas, Byzantine mosaics, Celtic knotworks, and Aztec glyphs with real-time fluid dynamics, Navier-Stokes flows, reaction-diffusion systems, and particle hydrodynamics driven by procedural waveguide audio synthesis.">
+<meta name="keywords" content="generative art, fluid simulation, Navier-Stokes, ornamental patterns, Persian arabesque, Celtic knotwork, Byzantine mosaic, Mughal mandala, reaction-diffusion, lattice-Boltzmann, particle simulation, procedural audio, waveguide synthesis, creative coding, WebGL canvas, interactive art">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000}
+canvas{display:block;position:fixed;top:0;left:0;width:100%;height:100%}
+#hud{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;display:none;font-family:'Courier New',monospace;font-size:11px;color:rgba(255,255,255,0.7)}
+#hud.visible{display:block}
+#hud-tl{position:absolute;top:16px;left:16px;line-height:1.7}
+#hud-tr{position:absolute;top:16px;right:16px;text-align:right;line-height:1.7}
+#hud-bl{position:absolute;bottom:16px;left:16px;line-height:1.7;opacity:0.5}
+#hud-br{position:absolute;bottom:16px;right:16px;text-align:right;line-height:1.7;opacity:0.5}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div id="hud-tl"></div>
+  <div id="hud-tr"></div>
+  <div id="hud-bl"></div>
+  <div id="hud-br">H: HUD &nbsp; S: SOUND &nbsp; SPACE/CLICK: RESTART</div>
+</div>
+<script>
+(function(){
+'use strict';
+
+// ─── GLOBALS ───────────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const hud = document.getElementById('hud');
+const hudTL = document.getElementById('hud-tl');
+const hudTR = document.getElementById('hud-tr');
+const hudBL = document.getElementById('hud-bl');
+
+let W, H, cx, cy;
+let frame = 0, t = 0, startTime = Date.now();
+let hudVisible = false, soundEnabled = false;
+let audioCtx = null, masterGain = null;
+let animId = null;
+let state = {};
+
+// ─── MATH HELPERS ──────────────────────────────────────────────────────────
+const rnd = (a=1,b=0) => Math.random()*(a-b)+b;
+const rndInt = (a,b=0) => Math.floor(rnd(a,b));
+const clamp = (v,a,b) => Math.max(a,Math.min(b,v));
+const lerp = (a,b,t) => a+(b-a)*t;
+const smoothstep = (e0,e1,x) => { let t=clamp((x-e0)/(e1-e0),0,1); return t*t*(3-2*t); };
+const fract = x => x - Math.floor(x);
+const TAU = Math.PI*2;
+
+// ─── PALETTE SYSTEM ────────────────────────────────────────────────────────
+const PALETTES = [
+  // Gemstone
+  {name:'Gemstone',stops:[[0.05,0.02,0.25],[0.4,0.0,0.8],[0.0,0.6,1.0],[0.2,1.0,0.7],[1.0,0.8,0.0],[1.0,0.2,0.5]]},
+  // Oil-slick iridescent
+  {name:'Oil Slick',stops:[[0.0,0.0,0.1],[0.6,0.0,0.4],[0.0,0.5,0.8],[0.8,0.9,0.0],[0.0,0.8,0.6],[0.4,0.0,0.7]]},
+  // Porcelain blues & golds
+  {name:'Porcelain',stops:[[0.02,0.05,0.2],[0.1,0.3,0.7],[0.7,0.85,1.0],[1.0,0.85,0.3],[0.9,0.6,0.1],[0.05,0.1,0.4]]},
+  // Harmonic rainbow
+  {name:'Harmonic',stops:[[1,0,0],[1,0.5,0],[1,1,0],[0,1,0],[0,0.5,1],[0.5,0,1],[1,0,0.5]]},
+  // Volcanic ash
+  {name:'Volcanic',stops:[[0.05,0.02,0.02],[0.3,0.05,0.0],[0.8,0.2,0.0],[1.0,0.6,0.0],[1.0,0.9,0.4],[0.9,0.9,0.9]]},
+  // Deep ocean
+  {name:'Abyss',stops:[[0.0,0.0,0.05],[0.0,0.05,0.2],[0.0,0.3,0.5],[0.0,0.7,0.6],[0.2,1.0,0.8],[0.8,1.0,1.0]]},
+  // Byzantine gold mosaic
+  {name:'Byzantine',stops:[[0.1,0.05,0.0],[0.5,0.2,0.0],[0.9,0.7,0.0],[1.0,0.95,0.5],[0.6,0.3,0.0],[0.2,0.0,0.1]]},
+  // Aztec jade & obsidian
+  {name:'Aztec',stops:[[0.0,0.05,0.02],[0.0,0.4,0.1],[0.1,0.8,0.2],[0.9,0.9,0.0],[0.6,0.0,0.0],[0.05,0.0,0.05]]},
+];
+
+function paletteSample(pal, t) {
+  const s = pal.stops;
+  const n = s.length;
+  const ft = fract(t) * (n-1);
+  const i = Math.floor(ft);
+  const f = ft - i;
+  const a = s[i % n], b = s[(i+1) % n];
+  return [lerp(a[0],b[0],f), lerp(a[1],b[1],f), lerp(a[2],b[2],f)];
+}
+
+function rgbStr(r,g,b,a=1) {
+  return `rgba(${(r*255)|0},${(g*255)|0},${(b*255)|0},${a})`;
+}
+
+// ─── ORNAMENT PRIMITIVES ───────────────────────────────────────────────────
+function arabesque(ctx2, x, y, r, t, col) {
+  ctx2.save();
+  ctx2.translate(x,y);
+  const n = 8;
+  for(let i=0;i<n;i++){
+    const a = (i/n)*TAU + t*0.3;
+    ctx2.save();
+    ctx2.rotate(a);
+    ctx2.beginPath();
+    for(let j=0;j<60;j++){
+      const s = j/59;
+      const pr = r * (0.2 + 0.8*Math.sin(s*Math.PI));
+      const pa = s*Math.PI*4 + Math.sin(s*TAU*3)*0.5;
+      ctx2.lineTo(Math.cos(pa)*pr, Math.sin(pa)*pr*0.4);
+    }
+    ctx2.strokeStyle = col;
+    ctx2.lineWidth = 0.8;
+    ctx2.stroke();
+    ctx2.restore();
+  }
+  ctx2.restore();
+}
+
+function mandalaTile(ctx2, x, y, r, t, col1, col2) {
+  ctx2.save();
+  ctx2.translate(x,y);
+  const rings = 5;
+  for(let ring=1;ring<=rings;ring++){
+    const pts = ring*6;
+    const rr = (ring/rings)*r;
+    ctx2.beginPath();
+    for(let i=0;i<=pts;i++){
+      const a = (i/pts)*TAU + t*0.1*(ring%2?1:-1);
+      const wave = 1 + 0.15*Math.sin(i*3+t*2);
+      ctx2.lineTo(Math.cos(a)*rr*wave, Math.sin(a)*rr*wave);
+    }
+    ctx2.closePath();
+    ctx2.strokeStyle = ring%2===0?col1:col2;
+    ctx2.lineWidth = 0.7;
+    ctx2.stroke();
+  }
+  // Inner petals
+  for(let i=0;i<12;i++){
+    const a = (i/12)*TAU + t*0.2;
+    ctx2.beginPath();
+    ctx2.ellipse(Math.cos(a)*r*0.35, Math.sin(a)*r*0.35, r*0.15, r*0.06, a, 0, TAU);
+    ctx2.strokeStyle = col1;
+    ctx2.lineWidth = 0.5;
+    ctx2.stroke();
+  }
+  ctx2.restore();
+}
+
+function celticKnot(ctx2, x, y, r, t, col) {
+  ctx2.save();
+  ctx2.translate(x,y);
+  const strands = 3;
+  for(let s=0;s<strands;s++){
+    ctx2.beginPath();
+    const offset = (s/strands)*TAU;
+    for(let i=0;i<=120;i++){
+      const u = i/120;
+      const a = u*TAU*2 + offset + t*0.15;
+      const b = u*TAU*3 + offset*1.5 + t*0.1;
+      const rx = r*(0.5*Math.cos(a) + 0.3*Math.cos(b));
+      const ry = r*(0.5*Math.sin(a) - 0.3*Math.sin(b));
+      i===0?ctx2.moveTo(rx,ry):ctx2.lineTo(rx,ry);
+    }
+    ctx2.strokeStyle = col;
+    ctx2.lineWidth = 1.2;
+    ctx2.stroke();
+  }
+  ctx2.restore();
+}
+
+function byzantineMosaic(ctx2, x, y, size, t, pal, palT) {
+  ctx2.save();
+  ctx2.translate(x,y);
+  const tiles = 6;
+  for(let ix=-tiles;ix<=tiles;ix++){
+    for(let iy=-tiles;iy<=tiles;iy++){
+      const dist = Math.sqrt(ix*ix+iy*iy)/tiles;
+      if(dist>1) continue;
+      const px = ix*(size/tiles), py = iy*(size/tiles);
+      const ts = size/tiles*0.85;
+      const wave = Math.sin(ix*0.8+t)*Math.cos(iy*0.7+t*1.1);
+      const c = paletteSample(pal, palT + dist*0.3 + wave*0.1);
+      ctx2.fillStyle = rgbStr(c[0],c[1],c[2],0.7);
+      ctx2.fillRect(px-ts/2, py-ts/2, ts, ts);
+      ctx2.strokeStyle = rgbStr(c[0]*0.3,c[1]*0.3,c[2]*0.3,0.5);
+      ctx2.lineWidth = 0.5;
+      ctx2.strokeRect(px-ts/2, py-ts/2, ts, ts);
+    }
+  }
+  ctx2.restore();
+}
+
+function aztecGlyph(ctx2, x, y, r, t, col) {
+  ctx2.save();
+  ctx2.translate(x,y);
+  ctx2.rotate(t*0.1);
+  const steps = 5;
+  for(let s=0;s<steps;s++){
+    const rr = r*(1-s/steps);
+    ctx2.beginPath();
+    for(let i=0;i<4;i++){
+      const a = (i/4)*TAU + (s%2)*Math.PI/4;
+      ctx2.lineTo(Math.cos(a)*rr, Math.sin(a)*rr);
+    }
+    ctx2.closePath();
+    ctx2.strokeStyle = col;
+    ctx2.lineWidth = 0.8;
+    ctx2.stroke();
+  }
+  for(let i=0;i<8;i++){
+    const a = (i/8)*TAU + t*0.05;
+    ctx2.beginPath();
+    ctx2.moveTo(0,0);
+    ctx2.lineTo(Math.cos(a)*r, Math.sin(a)*r);
+    ctx2.strokeStyle = col;
+    ctx2.lineWidth = 0.4;
+    ctx2.stroke();
+  }
+  ctx2.restore();
+}
+
+function maoriCarving(ctx2, x, y, r, t, col) {
+  ctx2.save();
+  ctx2.translate(x,y);
+  for(let i=0;i<3;i++){
+    const phase = i/3*TAU;
+    ctx2.beginPath();
+    for(let j=0;j<=80;j++){
+      const s = j/80;
+      const a = s*TAU*2 + phase + t*0.12;
+      const rad = r*(0.3+0.7*s)*( 1+0.3*Math.sin(s*TAU*5+t));
+      ctx2.lineTo(Math.cos(a)*rad, Math.sin(a)*rad);
+    }
+    ctx2.strokeStyle = col;
+    ctx2.lineWidth = 1.0;
+    ctx2.stroke();
+  }
+  ctx2.restore();
+}
+
+function artNouveauFiligree(ctx2, x, y, r, t, col) {
+  ctx2.save();
+  ctx2.translate(x,y);
+  for(let branch=0;branch<6;branch++){
+    const baseA = (branch/6)*TAU + t*0.08;
+    ctx2.beginPath();
+    ctx2.moveTo(0,0);
+    for(let i=1;i<=50;i++){
+      const s = i/50;
+      const curl = Math.sin(s*Math.PI*3)*0.8 + Math.sin(s*TAU*2+t)*0.3;
+      const a = baseA + curl*s;
+      const rad = s*r;
+      ctx2.lineTo(Math.cos(a)*rad, Math.sin(a)*rad);
+    }
+    ctx2.strokeStyle = col;
+    ctx2.lineWidth = 0.7;
+    ctx2.stroke();
+  }
+  ctx2.restore();
+}
+
+// ─── FLUID SIMULATION (simplified Navier-Stokes / lattice approach) ─────────
+class FluidGrid {
+  constructor(w, h, scale) {
+    this.scale = scale;
+    this.cols = Math.ceil(w/scale);
+    this.rows = Math.ceil(h/scale);
+    const N = this.cols * this.rows;
+    this.ux  = new Float32Array(N); // velocity x
+    this.uy  = new Float32Array(N); // velocity y
+    this.ux2 = new Float32Array(N);
+    this.uy2 = new Float32Array(N);
+    this.den = new Float32Array(N); // density
+    this.den2= new Float32Array(N);
+    this.vor = new Float32Array(N); // vorticity
+    this.visc = 0.0008 + rnd(0.002);
+    this.diff = 0.00005 + rnd(0.0002);
+    this.dt   = 0.016;
+  }
+  idx(x,y){ return clamp(Math.round(x),0,this.cols-1) + clamp(Math.round(y),0,this.rows-1)*this.cols; }
+  addVel(x,y,vx,vy,r=2){
+    const ci=Math.round(x/this.scale), ri=Math.round(y/this.scale);
+    for(let dx=-r;dx<=r;dx++) for(let dy=-r;dy<=r;dy++){
+      const w=Math.exp(-(dx*dx+dy*dy)/(r*r));
+      const i=this.idx(ci+dx,ri+dy);
+      this.ux[i]+=vx*w; this.uy[i]+=vy*w;
+    }
+  }
+  addDen(x,y,v,r=3){
+    const ci=Math.round(x/this.scale), ri=Math.round(y/this.scale);
+    for(let dx=-r;dx<=r;dx++) for(let dy=-r;dy<=r;dy++){
+      const w=Math.exp(-(dx*dx+dy*dy)/(r*r));
+      this.den[this.idx(ci+dx,ri+dy)]+=v*w;
+    }
+  }
+  diffuse(x,x0,diff,dt){
+    const a=dt*diff*this.cols*this.rows;
+    for(let k=0;k<4;k++){
+      for(let j=1;j<this.rows-1;j++){
+        for(let i=1;i<this.cols-1;i++){
+          const id=i+j*this.cols;
+          x[id]=(x0[id]+a*(x[id-1]+x[id+1]+x[id-this.cols]+x[id+this.cols]))/(1+4*a);
+        }
+      }
+    }
+  }
+  advect(d,d0,ux,uy,dt){
+    const dtc=dt*Math.max(this.cols,this.rows)*0.5;
+    for(let j=1;j<this.rows-1;j++){
+      for(let i=1;i<this.cols-1;i++){
+        const id=i+j*this.cols;
+        let x=i-dtc*ux[id], y=j-dtc*uy[id];
+        x=clamp(x,0.5,this.cols-1.5); y=clamp(y,0.5,this.rows-1.5);
+        const i0=Math.floor(x),i1=i0+1,j0=Math.floor(y),j1=j0+1;
+        const sx=x-i0,sy=y-j0;
+        d[id]=(1-sx)*((1-sy)*d0[i0+j0*this.cols]+sy*d0[i0+j1*this.cols])
+             +sx*((1-sy)*d0[i1+j0*this.cols]+sy*d0[i1+j1*this.cols]);
+      }
+    }
+  }
+  project(ux,uy,p,div){
+    const h=1/Math.max(this.cols,this.rows);
+    for(let j=1;j<this.rows-1;j++){
+      for(let i=1;i<this.cols-1;i++){
+        const id=i+j*this.cols;
+        div[id]=-0.5*h*(ux[id+1]-ux[id-1]+uy[id+this.cols]-uy[id-this.cols]);
+        p[id]=0;
+      }
+    }
+    for(let k=0;k<4;k++){
+      for(let j=1;j<this.rows-1;j++){
+        for(let i=1;i<this.cols-1;i++){
+          const id=i+j*this.cols;
+          p[id]=(div[id]+p[id-1]+p[id+1]+p[id-this.cols]+p[id+this.cols])/4;
+        }
+      }
+    }
+    for(let j=1;j<this.rows-1;j++){
+      for(let i=1;i<this.cols-1;i++){
+        const id=i+j*this.cols;
+        ux[id]-=0.5*(p[id+1]-p[id-1])/h;
+        uy[id]-=0.5*(p[id+this.cols]-p[id-this.cols])/h;
+      }
+    }
+  }
+  step(){
+    const tmp = new Float32Array(this.cols*this.rows);
+    this.diffuse(this.ux2,this.ux,this.visc,this.dt);
+    this.diffuse(this.uy2,this.uy,this.visc,this.dt);
+    this.project(this.ux2,this.uy2,this.ux,this.uy);
+    this.advect(this.ux,this.ux2,this.ux2,this.uy2,this.dt);
+    this.advect(this.uy,this.uy2,this.ux2,this.uy2,this.dt);
+    this.project(this.ux,this.uy,this.ux2,this.uy2);
+    this.diffuse(this.den2,this.den,this.diff,this.dt);
+    this.advect(this.den,this.den2,this.ux,this.uy,this.dt);
+    // Vorticity & decay
+    for(let j=1;j<this.rows-1;j++){
+      for(let i=1;i<this.cols-1;i++){
+        const id=i+j*this.cols;
+        this.vor[id]=0.5*(this.uy[id+1]-this.uy[id-1]-this.ux[id+this.cols]+this.ux[id-this.cols]);
+        this.den[id]*=0.997;
+        this.ux[id]*=0.999;
+        this.uy[id]*=0.999;
+      }
+    }
+  }
+}
+
+// ─── REACTION-DIFFUSION ────────────────────────────────────────────────────
+class ReactionDiffusion {
+  constructor(w, h, scale) {
+    this.scale = scale;
+    this.cols = Math.ceil(w/scale);
+    this.rows = Math.ceil(h/scale);
+    const N = this.cols * this.rows;
+    this.A = new Float32Array(N).fill(1);
+    this.B = new Float32Array(N);
+    this.A2= new Float32Array(N);
+    this.B2= new Float32Array(N);
+    this.dA = 0.8 + rnd(0.4);
+    this.dB = 0.2 + rnd(0.2);
+    this.f  = 0.03 + rnd(0.02);
+    this.k  = 0.06 + rnd(0.015);
+    // Seed
+    for(let i=0;i<80;i++){
+      const cx=rndInt(this.cols), cy=rndInt(this.rows);
+      for(let dx=-3;dx<=3;dx++) for(let dy=-3;dy<=3;dy++){
+        const id=(cx+dx+this.cols)%this.cols + ((cy+dy+this.rows)%this.rows)*this.cols;
+        this.B[id]=1; this.A[id]=0;
+      }
+    }
+  }
+  step(){
+    const C=this.cols, R=this.rows;
+    for(let j=0;j<R;j++){
+      for(let i=0;i<C;i++){
+        const id=i+j*C;
+        const l=((i-1+C)%C)+j*C, r=((i+1)%C)+j*C;
+        const u=i+((j-1+R)%R)*C, d=i+((j+1)%R)*C;
+        const a=this.A[id], b=this.B[id];
+        const lapA=this.A[l]+this.A[r]+this.A[u]+this.A[d]-4*a;
+        const lapB=this.B[l]+this.B[r]+this.B[u]+this.B[d]-4*b;
+        const react=a*b*b;
+        this.A2[id]=clamp(a+this.dA*lapA-react+this.f*(1-a),0,1);
+        this.B2[id]=clamp(b+this.dB*lapB+react-(this.k+this.f)*b,0,1);
+      }
+    }
+    [this.A,this.A2]=[this.A2,this.A];
+    [this.B,this.B2]=[this.B2,this.B];
+  }
+}
+
+// ─── PARTICLES ────────────────────────────────────────────────────────────
+class ParticleSystem {
+  constructor(count) {
+    this.count = count;
+    this.x  = new Float32Array(count);
+    this.y  = new Float32Array(count);
+    this.vx = new Float32Array(count);
+    this.vy = new Float32Array(count);
+    this.life= new Float32Array(count);
+    this.maxLife= new Float32Array(count);
+    this.hue = new Float32Array(count);
+    for(let i=0;i<count;i++) this.reset(i, true);
+  }
+  reset(i, rand=false){
+    this.x[i]  = rand ? rnd(W) : cx + (Math.random()-0.5)*W*0.3;
+    this.y[i]  = rand ? rnd(H) : cy + (Math.random()-0.5)*H*0.3;
+    this.vx[i] = (Math.random()-0.5)*2;
+    this.vy[i] = (Math.random()-0.5)*2;
+    this.maxLife[i] = rnd(200,60);
+    this.life[i] = rand ? rnd(this.maxLife[i]) : 0;
+    this.hue[i] = Math.random();
+  }
+  step(fluid, t){
+    for(let i=0;i<this.count;i++){
+      this.life[i]++;
+      if(this.life[i]>this.maxLife[i]) this.reset(i);
+      // Sample fluid velocity
+      const fi = fluid.idx(this.x[i]/fluid.scale, this.y[i]/fluid.scale);
+      const fvx = fluid.ux[fi], fvy = fluid.uy[fi];
+      this.vx[i] = lerp(this.vx[i], fvx*60+Math.sin(t*0.5+this.y[i]*0.01)*0.5, 0.1);
+      this.vy[i] = lerp(this.vy[i], fvy*60+Math.cos(t*0.4+this.x[i]*0.01)*0.5, 0.1);
+      this.x[i] += this.vx[i];
+      this.y[i] += this.vy[i];
+      if(this.x[i]<0||this.x[i]>W||this.y[i]<0||this.y[i]>H) this.reset(i);
+    }
+  }
+}
+
+// ─── MECHANICAL SUBSYSTEMS ─────────────────────────────────────────────────
+function drawGearTrain(ctx2, x, y, t, col1, col2) {
+  const gears=[
+    {r:40, teeth:16, cx:0,   cy:0,   dir:1},
+    {r:25, teeth:10, cx:68,  cy:0,   dir:-1},
+    {r:15, teeth:6,  cx:68,  cy:42,  dir:1},
+    {r:35, teeth:14, cx:10,  cy:80,  dir:-1},
+  ];
+  ctx2.save();
+  ctx2.translate(x,y);
+  gears.forEach((g,gi)=>{
+    const ang = t*g.dir*(gi%2?1.3:1)*0.8;
+    ctx2.save();
+    ctx2.translate(g.cx,g.cy);
+    ctx2.rotate(ang);
+    ctx2.beginPath();
+    for(let i=0;i<g.teeth*2;i++){
+      const a=(i/g.teeth/2)*TAU;
+      const r2=i%2===0?g.r:g.r*0.8;
+      ctx2.lineTo(Math.cos(a)*r2,Math.sin(a)*r2);
+    }
+    ctx2.closePath();
+    ctx2.strokeStyle = col1;
+    ctx2.lineWidth=1;
+    ctx2.stroke();
+    ctx2.beginPath();
+    ctx2.arc(0,0,g.r*0.3,0,TAU);
+    ctx2.fillStyle=col2;
+    ctx2.fill();
+    ctx2.restore();
+  });
+  ctx2.restore();
+}
+
+function drawEscapement(ctx2, x, y, t, col) {
+  ctx2.save();
+  ctx2.translate(x,y);
+  // Escape wheel
+  const nt=12, wr=35;
+  const phase=Math.floor(t*2)*Math.PI/nt;
+  ctx2.save();
+  ctx2.rotate(phase);
+  ctx2.beginPath();
+  for(let i=0;i<nt;i++){
+    const a=(i/nt)*TAU, b=((i+0.5)/nt)*TAU;
+    ctx2.moveTo(Math.cos(a)*wr,Math.sin(a)*wr);
+    ctx2.lineTo(Math.cos(b)*wr*1.2,Math.sin(b)*wr*1.2);
+    ctx2.lineTo(Math.cos(b+(0.2/nt)*TAU)*wr*1.0,Math.sin(b+(0.2/nt)*TAU)*wr*1.0);
+  }
+  ctx2.strokeStyle=col;
+  ctx2.lineWidth=1;
+  ctx2.stroke();
+  ctx2.restore();
+  // Pendulum
+  const pang=Math.sin(t*3)*0.4;
+  ctx2.save();
+  ctx2.rotate(pang);
+  ctx2.beginPath();
+  ctx2.moveTo(0,0);
+  ctx2.lineTo(0,70);
+  ctx2.strokeStyle=col;
+  ctx2.lineWidth=1.5;
+  ctx2.stroke();
+  ctx2.beginPath();
+  ctx2.arc(0,70,10,0,TAU);
+  ctx2.fillStyle=col;
+  ctx2.fill();
+  ctx2.restore();
+  ctx2.restore();
+}
+
+function drawRoboticLinkage(ctx2, x, y, t, col) {
+  ctx2.save();
+  ctx2.translate(x,y);
+  const a1=Math.sin(t*0.9)*0.8;
+  const a2=Math.sin(t*1.3+1)*0.6;
+  const a3=Math.sin(t*0.7+2)*1.0;
+  const l1=50,l2=40,l3=30;
+  const x1=Math.cos(a1)*l1, y1=Math.sin(a1)*l1;
+  const x2=x1+Math.cos(a1+a2)*l2, y2=y1+Math.sin(a1+a2)*l2;
+  const x3=x2+Math.cos(a1+a2+a3)*l3, y3=y2+Math.sin(a1+a2+a3)*l3;
+  ctx2.beginPath();
+  ctx2.moveTo(0,0); ctx2.lineTo(x1,y1);
+  ctx2.lineTo(x2,y2); ctx2.lineTo(x3,y3);
+  ctx2.strokeStyle=col; ctx2.lineWidth=2; ctx2.stroke();
+  [[0,0],[x1,y1],[x2,y2],[x3,y3]].forEach(([px,py])=>{
+    ctx2.beginPath(); ctx2.arc(px,py,5,0,TAU);
+    ctx2.fillStyle=col; ctx2.fill();
+  });
+  ctx2.restore();
+}
+
+// ─── AUDIO ENGINE ─────────────────────────────────────────────────────────
+function initAudio(){
+  if(audioCtx) return;
+  audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+  masterGain = audioCtx.createGain();
+  masterGain.gain.value = soundEnabled ? 0.12 : 0;
+  masterGain.connect(audioCtx.destination);
+
+  // Modal resonator bank
+  const freqs=[65,130,196,261,327,392,523,659,784,1046];
+  freqs.forEach(freq=>{
+    const osc=audioCtx.createOscillator();
+    const gn=audioCtx.createGain();
+    const filt=audioCtx.createBiquadFilter();
+    osc.type=['sine','triangle','sawtooth'][rndInt(3)];
+    osc.frequency.value=freq*(0.98+rnd(0.04));
+    filt.type='bandpass';
+    filt.frequency.value=freq;
+    filt.Q.value=8+rnd(20);
+    gn.gain.value=0.015+rnd(0.02);
+    osc.connect(filt);
+    filt.connect(gn);
+    gn.connect(masterGain);
+    osc.start();
+    state.oscillators = state.oscillators||[];
+    state.oscillators.push({osc,gain:gn,baseFreq:freq});
+  });
+
+  // Waveguide drone
+  const buf=audioCtx.createBuffer(1,audioCtx.sampleRate*2,audioCtx.sampleRate);
+  const d=buf.getChannelData(0);
+  for(let i=0;i<d.length;i++) d[i]=(Math.random()-0.5)*0.3;
+  const src=audioCtx.createBufferSource();
+  const rvb=audioCtx.createConvolver();
+  const rvbBuf=audioCtx.createBuffer(2,audioCtx.sampleRate*3,audioCtx.sampleRate);
+  for(let c=0;c<2;c++){const cd=rvbBuf.getChannelData(c);for(let i=0;i<cd.length;i++)cd[i]=(Math.random()*2-1)*Math.pow(1-i/cd.length,2);}
+  rvb.buffer=rvbBuf;
+  src.buffer=buf; src.loop=true;
+  const drvGain=audioCtx.createGain();
+  drvGain.gain.value=0.03;
+  src.connect(drvGain);
+  drvGain.connect(rvb);
+  rvb.connect(masterGain);
+  src.start();
+}
+
+function updateAudio(fluid, t){
+  if(!audioCtx||!soundEnabled||!state.oscillators) return;
+  const sumVor = state.oscillators.map((_,i)=>{
+    const gx=((i/state.oscillators.length)*fluid.cols)|0;
+    const gy=(fluid.rows/2)|0;
+    return fluid.vor[gx+gy*fluid.cols];
+  });
+  state.oscillators.forEach((o,i)=>{
+    const v=clamp(Math.abs(sumVor[i])*40,0,1);
+    o.gain.gain.setTargetAtTime(v*0.025+0.003,audioCtx.currentTime,0.2);
+    o.osc.frequency.setTargetAtTime(o.baseFreq*(1+v*0.1+Math.sin(t*0.3+i)*0.02),audioCtx.currentTime,0.3);
+  });
+}
+
+// ─── MAIN STATE MACHINE ────────────────────────────────────────────────────
+function chooseAlgorithm() {
+  const algos=['arabesque_fluid','mandala_rd','celtic_vortex','byzantine_particles',
+               'aztec_mechanical','maori_wave','artnouveau_hybrid','chaos_all'];
+  return algos[rndInt(algos.length)];
+}
+
+function initState(){
+  W=canvas.width=window.innerWidth;
+  H=canvas.height=window.innerHeight;
+  cx=W/2; cy=H/2;
+  frame=0; t=0; startTime=Date.now();
+
+  const pal = PALETTES[rndInt(PALETTES.length)];
+  const algo = chooseAlgorithm();
+  const fluidScale = W>1200?12:(W>800?10:8);
+  const rdScale    = W>1200?4:(W>800?3:3);
+
+  const fluid = new FluidGrid(W,H,fluidScale);
+  const rd    = new ReactionDiffusion(W,H,rdScale);
+  const particles = new ParticleSystem(W>800?300:150);
+
+  // Mechanical elements
+  const mechs=[];
+  const mechCount=3+rndInt(4);
+  for(let i=0;i<mechCount;i++){
+    mechs.push({
+      type:['gear','escapement','linkage'][rndInt(3)],
+      x:rnd(W), y:rnd(H),
+      scale:0.5+rnd(1.5),
+      phase:rnd(TAU),
+    });
+  }
+
+  // Ornament nodes
+  const ornCount = 5+rndInt(8);
+  const orns=[];
+  const ornTypes=['arabesque','mandala','celtic','byzantine','aztec','maori','artnouveau'];
+  for(let i=0;i<ornCount;i++){
+    orns.push({
+      type:ornTypes[rndInt(ornTypes.length)],
+      x:rnd(W), y:rnd(H),
+      r:40+rnd(120),
+      phase:rnd(TAU),
+      speed:0.3+rnd(1.2),
+      drift:{vx:(rnd()-0.5)*0.3, vy:(rnd()-0.5)*0.3},
+    });
+  }
+
+  // Color scheme
+  const palT0 = Math.random();
+  const palSpeed = 0.02+rnd(0.05);
+
+  // ImageData for fluid rendering
+  const fluidImg = ctx.createImageData(W,H);
+
+  state = {pal,algo,fluid,rd,particles,mechs,orns,palT0,palSpeed,fluidImg,
+           fluidScale,rdScale,oscillators:state.oscillators||null};
+}
+
+// ─── FLUID VISUALIZATION ───────────────────────────────────────────────────
+function renderFluidBackground(){
+  const {fluid,rd,pal,palT0,palSpeed,fluidImg} = state;
+  const img = fluidImg;
+  const fs = fluid.scale, rs = rd.scale;
+
+  for(let py=0;py<H;py++){
+    for(let px=0;px<W;px++){
+      const fi = fluid.idx(px/fs, py/fs);
+      const ri = rd.cols * clamp((py/rs)|0,0,rd.rows-1) + clamp((px/rs)|0,0,rd.cols-1);
+
+      const den = clamp(fluid.den[fi]*3,0,1);
+      const vor = clamp(Math.abs(fluid.vor[fi])*15,0,1);
+      const rdB = rd.B[ri];
+
+      const tval = palT0+t*palSpeed + den*0.5 + vor*0.3 + rdB*0.2;
+      const c = paletteSample(pal, tval);
+
+      const bright = 0.04 + den*0.7 + vor*0.5 + rdB*0.4;
+      const idx = (py*W+px)*4;
+      img.data[idx+0] = clamp(c[0]*bright*255,0,255);
+      img.data[idx+1] = clamp(c[1]*bright*255,0,255);
+      img.data[idx+2] = clamp(c[2]*bright*255,0,255);
+      img.data[idx+3] = 255;
+    }
+  }
+  ctx.putImageData(img,0,0);
+}
+
+// ─── PARTICLE VISUALIZATION ────────────────────────────────────────────────
+function renderParticles(){
+  const {particles,pal,palT0,palSpeed} = state;
+  for(let i=0;i<particles.count;i++){
+    const lf = particles.life[i]/particles.maxLife[i];
+    const alpha = smoothstep(0,0.1,lf)*smoothstep(1,0.7,lf)*0.7;
+    if(alpha<0.01) continue;
+    const c=paletteSample(pal, palT0 + particles.hue[i] + t*palSpeed*0.3);
+    const spd=Math.sqrt(particles.vx[i]**2+particles.vy[i]**2);
+    ctx.beginPath();
+    ctx.arc(particles.x[i],particles.y[i],clamp(spd*0.5+0.5,0.5,4),0,TAU);
+    ctx.fillStyle=rgbStr(c[0],c[1],c[2],alpha);
+    ctx.fill();
+  }
+}
+
+// ─── ORNAMENT RENDERING ────────────────────────────────────────────────────
+function renderOrnaments(){
+  const {orns,pal,palT0,palSpeed,fluid} = state;
+  orns.forEach(o=>{
+    // Drift with fluid
+    const fi=fluid.idx(o.x/fluid.scale,o.y/fluid.scale);
+    o.x += o.drift.vx + fluid.ux[fi]*15;
+    o.y += o.drift.vy + fluid.uy[fi]*15;
+    o.x = ((o.x%W)+W)%W;
+    o.y = ((o.y%H)+H)%H;
+
+    const ot = t*o.speed + o.phase;
+    const pt = palT0 + o.phase + t*palSpeed*0.5;
+    const c1 = paletteSample(pal, pt);
+    const c2 = paletteSample(pal, pt+0.3);
+    const col1 = rgbStr(c1[0],c1[1],c1[2],0.65);
+    const col2 = rgbStr(c2[0],c2[1],c2[2],0.45);
+
+    switch(o.type){
+      case 'arabesque':  arabesque(ctx,o.x,o.y,o.r,ot,col1); break;
+      case 'mandala':    mandalaTile(ctx,o.x,o.y,o.r,ot,col1,col2); break;
+      case 'celtic':     celticKnot(ctx,o.x,o.y,o.r,ot,col1); break;
+      case 'byzantine':  byzantineMosaic(ctx,o.x,o.y,o.r,ot,pal,pt); break;
+      case 'aztec':      aztecGlyph(ctx,o.x,o.y,o.r,ot,col1); break;
+      case 'maori':      maoriCarving(ctx,o.x,o.y,o.r,ot,col1); break;
+      case 'artnouveau': artNouveauFiligree(ctx,o.x,o.y,o.r,ot,col1); break;
+    }
+  });
+}
+
+// ─── MECHANICAL RENDERING ─────────────────────────────────────────────────
+function renderMechanicals(){
+  const {mechs,pal,palT0,palSpeed} = state;
+  mechs.forEach(m=>{
+    const pt=palT0+m.phase+t*palSpeed*0.3;
+    const c1=paletteSample(pal,pt), c2=paletteSample(pal,pt+0.4);
+    const col1=rgbStr(c1[0],c1[1],c1[2],0.6);
+    const col2=rgbStr(c2[0],c2[1],c2[2],0.4);
+    ctx.save();
+    ctx.scale(m.scale,m.scale);
+    const sx=m.x/m.scale, sy=m.y/m.scale;
+    switch(m.type){
+      case 'gear':       drawGearTrain(ctx,sx,sy,t+m.phase,col1,col2); break;
+      case 'escapement': drawEscapement(ctx,sx,sy,t+m.phase,col1); break;
+      case 'linkage':    drawRoboticLinkage(ctx,sx,sy,t+m.phase,col1); break;
+    }
+    ctx.restore();
+  });
+}
+
+// ─── VORTEX FILAMENTS ─────────────────────────────────────────────────────
+function renderVortexFilaments(){
+  const {fluid,pal,palT0,palSpeed} = state;
+  const numLines=30;
+  for(let v=0;v<numLines;v++){
+    const startX = rnd(W), startY = rnd(H);
+    ctx.beginPath();
+    let px=startX, py=startY;
+    ctx.moveTo(px,py);
+    let valid=true;
+    for(let step=0;step<80;step++){
+      const fi=fluid.idx(px/fluid.scale,py/fluid.scale);
+      const vx=fluid.ux[fi], vy=fluid.uy[fi];
+      const spd=Math.sqrt(vx*vx+vy*vy);
+      if(spd<0.0001){valid=false;break;}
+      px+=vx*8; py+=vy*8;
+      if(px<0||px>W||py<0||py>H){valid=false;break;}
+      ctx.lineTo(px,py);
+    }
+    if(valid){
+      const c=paletteSample(pal,palT0+v/numLines+t*palSpeed*0.2);
+      ctx.strokeStyle=rgbStr(c[0],c[1],c[2],0.25);
+      ctx.lineWidth=0.6;
+      ctx.stroke();
+    }
+  }
+}
+
+// ─── SOAP FILM MINIMAL SURFACE ────────────────────────────────────────────
+function renderSoapFilm(){
+  const {fluid,pal,palT0,palSpeed} = state;
+  const rows=15, cols=20;
+  const cw=W/cols, ch=H/rows;
+  ctx.save();
+  for(let r=0;r<rows;r++){
+    for(let c=0;c<cols;c++){
+      const px=c*cw, py=r*ch;
+      const fi=fluid.idx(px/fluid.scale,py/fluid.scale);
+      const den=clamp(fluid.den[fi]*2,0,1);
+      if(den<0.05) continue;
+      const pt=palT0+(r+c*0.7)/30+t*palSpeed*0.4;
+      const col=paletteSample(pal,pt);
+      ctx.fillStyle=rgbStr(col[0],col[1],col[2],den*0.15);
+      ctx.fillRect(px,py,cw,ch);
+    }
+  }
+  ctx.restore();
+}
+
+// ─── CRYSTALLOGRAPHIC LATTICE ─────────────────────────────────────────────
+function renderLattice(){
+  const {fluid,pal,palT0,palSpeed} = state;
+  const spacing=rnd(60,30);
+  ctx.save();
+  for(let x=0;x<W;x+=spacing){
+    for(let y=0;y<H;y+=spacing){
+      const fi=fluid.idx(x/fluid.scale,y/fluid.scale);
+      const vor=Math.abs(fluid.vor[fi]);
+      if(vor<0.001) continue;
+      const disp=clamp(vor*80,0,15);
+      const a=Math.atan2(fluid.uy[fi],fluid.ux[fi]+0.0001);
+      const c=paletteSample(pal,palT0+x/W*0.3+y/H*0.3+t*palSpeed*0.2);
+      ctx.save();
+      ctx.translate(x+Math.cos(a)*disp, y+Math.sin(a)*disp);
+      ctx.rotate(a+t*0.05);
+      ctx.strokeStyle=rgbStr(c[0],c[1],c[2],clamp(vor*10,0,0.5));
+      ctx.lineWidth=0.5;
+      ctx.beginPath();
+      const s=spacing*0.4;
+      ctx.rect(-s/2,-s/2,s,s);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+  ctx.restore();
+}
+
+// ─── FLUID INJECTION ──────────────────────────────────────────────────────
+function injectFluidForces(){
+  const {fluid} = state;
+  // Continuous swirling vortex sources
+  const srcCount=3+rndInt(3);
+  if(!state.fluidSources){
+    state.fluidSources=[];
+    for(let i=0;i<srcCount;i++){
+      state.fluidSources.push({
+        x:rnd(W*0.8,W*0.1), y:rnd(H*0.8,H*0.1),
+        r:rnd(100,30), phase:rnd(TAU), freq:0.3+rnd(0.7)
+      });
+    }
+  }
+  state.fluidSources.forEach(src=>{
+    const a=t*src.freq+src.phase;
+    const ix=src.x+Math.cos(a)*src.r*0.5;
+    const iy=src.y+Math.sin(a)*src.r*0.5;
+    fluid.addVel(ix,iy, Math.cos(a+Math.PI/2)*2, Math.sin(a+Math.PI/2)*2);
+    fluid.addDen(ix,iy, 0.3, 2);
+    // Wander
+    src.x+=Math.cos(src.phase+t*0.1)*0.5;
+    src.y+=Math.sin(src.phase+t*0.13)*0.5;
+    src.x=((src.x%W)+W)%W;
+    src.y=((src.y%H)+H)%H;
+  });
+}
+
+// ─── HUD UPDATE ───────────────────────────────────────────────────────────
+function updateHUD(){
+  if(!hudVisible) return;
+  const elapsed=((Date.now()-startTime)/1000).toFixed(1);
+  const fps=(frame/(elapsed||1)).toFixed(1);
+  const {fluid,pal,algo} = state;
+  // Average vorticity
+  let sumV=0; for(let i=0;i<fluid.vor.length;i++) sumV+=Math.abs(fluid.vor[i]);
+  const avgV=(sumV/fluid.vor.length*1000).toFixed(2);
+  hudTL.innerHTML=`ALGORITHM: ${algo.toUpperCase()}<br>PALETTE: ${pal.name.toUpperCase()}<br>FRAME: ${frame}<br>FPS: ${fps}`;
+  hudTR.innerHTML=`FLUID: ${fluid.cols}×${fluid.rows}<br>VISC: ${fluid.visc.toFixed(4)}<br>VORT: ${avgV}<br>SOUND: ${soundEnabled?'ON':'OFF'}`;
+  hudBL.innerHTML=`ORNAMENTS: ${state.orns.length} &nbsp; PARTICLES: ${state.particles.count}<br>MECHS: ${state.mechs.length} &nbsp; ELAPSED: ${elapsed}s`;
+}
+
+// ─── MAIN LOOP ─────────────────────────────────────────────────────────────
+let lastTime=0;
+function loop(now){
+  animId=requestAnimationFrame(loop);
+  const dt=Math.min((now-lastTime)/1000,0.05);
+  lastTime=now;
+  t+=dt;
+  frame++;
+
+  // Simulation steps
+  injectFluidForces();
+  state.fluid.step();
+  if(frame%2===0) state.rd.step();
+  state.particles.step(state.fluid, t);
+
+  // Render
+  renderFluidBackground();
+  ctx.save();
+  renderSoapFilm();
+  renderLattice();
+  renderVortexFilaments();
+  renderOrnaments();
+  renderMechanicals();
+  ctx.restore();
+  renderParticles();
+
+  // Additive glow pass
+  ctx.save();
+  ctx.globalCompositeOperation='screen';
+  renderVortexFilaments();
+  ctx.restore();
+
+  if(soundEnabled) updateAudio(state.fluid, t);
+  updateHUD();
+}
+
+// ─── RESTART ──────────────────────────────────────────────────────────────
+function restart(){
+  if(animId) cancelAnimationFrame(animId);
+  // Clean up oscillators
+  if(state.oscillators){
+    state.oscillators.forEach(o=>{try{o.osc.stop();}catch(e){}});
+    state.oscillators=null;
+  }
+  if(audioCtx){try{audioCtx.close();}catch(e){} audioCtx=null; masterGain=null;}
+  initState();
+  if(soundEnabled) initAudio();
+  lastTime=performance.now();
+  animId=requestAnimationFrame(loop);
+}
+
+// ─── EVENT HANDLERS ────────────────────────────────────────────────────────
+window.addEventListener('resize',()=>{
+  if(animId) cancelAnimationFrame(animId);
+  initState();
+  if(soundEnabled) initAudio();
+  lastTime=performance.now();
+  animId=requestAnimationFrame(loop);
+});
+
+window.addEventListener('keydown',e=>{
+  if(e.key===' '){ e.preventDefault(); restart(); }
+  else if(e.key==='h'||e.key==='H'){
+    hudVisible=!hudVisible;
+    hud.className=hudVisible?'visible':'';
+  }
+  else if(e.key==='s'||e.key==='S'){
+    soundEnabled=!soundEnabled;
+    if(soundEnabled){
+      initAudio();
+      if(masterGain) masterGain.gain.setTargetAtTime(0.12,audioCtx.currentTime,0.3);
+    } else {
+      if(masterGain) masterGain.gain.setTargetAtTime(0,audioCtx.currentTime,0.3);
+    }
+  }
+});
+
+canvas.addEventListener('click',()=>restart());
+canvas.addEventListener('touchstart',e=>{ e.preventDefault(); restart(); },{passive:false});
+
+// Mouse interaction with fluid
+let lastMX=0, lastMY=0;
+canvas.addEventListener('mousemove',e=>{
+  const dx=e.clientX-lastMX, dy=e.clientY-lastMY;
+  if(state.fluid) state.fluid.addVel(e.clientX,e.clientY,dx*0.5,dy*0.5,3);
+  if(state.fluid) state.fluid.addDen(e.clientX,e.clientY,0.5,3);
+  lastMX=e.clientX; lastMY=e.clientY;
+});
+
+// ─── BOOT ──────────────────────────────────────────────────────────────────
+initState();
+lastTime=performance.now();
+animId=requestAnimationFrame(loop);
+
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Perceptual Illusion Color Laboratory Matrix</title>
+<meta name="description" content="An interactive perceptual color illusion laboratory featuring afterimage effects, simultaneous contrast, chromatic adaptation, evolving swatch grids, rotating color wheels, spectral cycling, and adaptive color mapping — all rendered in real-time on canvas with audio feedback tied to illusion intensity.">
+<meta name="keywords" content="perceptual illusion, color illusion, afterimage, simultaneous contrast, chromatic adaptation, color wheel, spectral cycling, visual perception, optical illusion, canvas animation, color science, interactive art, generative art, color psychology">
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Courier New',monospace}
+  canvas{display:block;position:fixed;top:0;left:0;width:100%;height:100%;cursor:crosshair}
+  #hud{
+    position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;
+    display:none;z-index:10;
+  }
+  #hud.visible{display:block}
+  #hud-panel{
+    position:absolute;top:16px;left:16px;
+    background:rgba(0,0,0,0.72);
+    border:1px solid rgba(255,255,255,0.15);
+    padding:14px 18px;color:#e0e0e0;font-size:11px;line-height:1.8;
+    letter-spacing:0.05em;min-width:230px;
+    backdrop-filter:blur(8px);
+  }
+  #hud-panel .hud-title{font-size:9px;letter-spacing:0.25em;color:#888;text-transform:uppercase;margin-bottom:6px}
+  #hud-panel .val{color:#7fffcf;font-weight:bold}
+  #hud-bottom{
+    position:absolute;bottom:16px;left:50%;transform:translateX(-50%);
+    color:rgba(255,255,255,0.35);font-size:10px;letter-spacing:0.2em;
+    text-align:center;text-transform:uppercase;
+  }
+  #hint{
+    position:fixed;bottom:18px;left:50%;transform:translateX(-50%);
+    color:rgba(255,255,255,0.22);font-size:10px;letter-spacing:0.18em;
+    pointer-events:none;z-index:5;text-align:center;
+    text-transform:uppercase;white-space:nowrap;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div id="hud-panel">
+    <div class="hud-title">Perceptual Lab · Matrix</div>
+    <div>Mode: <span class="val" id="h-mode">—</span></div>
+    <div>Phase: <span class="val" id="h-phase">—</span></div>
+    <div>Contrast Index: <span class="val" id="h-contrast">—</span></div>
+    <div>Afterimage Decay: <span class="val" id="h-decay">—</span></div>
+    <div>Chromatic Drift: <span class="val" id="h-drift">—</span></div>
+    <div>Illusion Intensity: <span class="val" id="h-intensity">—</span></div>
+    <div>Spectral Pos: <span class="val" id="h-spectral">—</span></div>
+    <div>Grid Cells: <span class="val" id="h-cells">—</span></div>
+    <div>Wheel Sectors: <span class="val" id="h-sectors">—</span></div>
+    <div>Audio: <span class="val" id="h-audio">OFF</span></div>
+  </div>
+  <div id="hud-bottom">PERCEPTUAL ILLUSION COLOR LABORATORY MATRIX</div>
+</div>
+<div id="hint">SPACE / TAP · randomize &nbsp;|&nbsp; H · hud &nbsp;|&nbsp; S · audio</div>
+
+<script>
+(function(){
+"use strict";
+
+// ── Canvas setup ──────────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H;
+
+function resize(){
+  W = canvas.width  = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let t = 0;          // frame counter
+let hudVisible = false;
+let audioOn = false;
+let audioCtx = null;
+let masterGain = null;
+let oscPool = [];
+
+// Randomisable parameters
+let P = {};
+
+function randomize(){
+  P = {
+    // Afterimage
+    afterHue:      Math.random()*360,
+    afterSat:      0.6 + Math.random()*0.4,
+    afterDecay:    0.004 + Math.random()*0.012,
+    afterRadius:   0.08 + Math.random()*0.18,
+
+    // Simultaneous contrast
+    bgHue:         Math.random()*360,
+    fgHueOffset:   30 + Math.random()*150,
+    contrastDepth: 0.4 + Math.random()*0.6,
+
+    // Chromatic adaptation
+    adaptSpeed:    0.0008 + Math.random()*0.002,
+    adaptRange:    60 + Math.random()*180,
+
+    // Swatch grid
+    gridCols:      4 + Math.floor(Math.random()*7),
+    gridRows:      3 + Math.floor(Math.random()*5),
+    swatchHueBase: Math.random()*360,
+    swatchHueStep: 15 + Math.random()*45,
+    swatchSatBase: 0.45 + Math.random()*0.5,
+    swatchPulse:   0.003 + Math.random()*0.012,
+
+    // Color wheel
+    wheelCount:    1 + Math.floor(Math.random()*3),
+    wheelSectors:  6 + Math.floor(Math.random()*14),
+    wheelSpeed:    0.002 + Math.random()*0.008,
+    wheelAlpha:    0.3 + Math.random()*0.45,
+    wheelRInner:   0.06 + Math.random()*0.08,
+    wheelROuter:   0.16 + Math.random()*0.14,
+
+    // Gradient blending
+    gradAngle:     Math.random()*Math.PI*2,
+    gradSpeed:     0.001 + Math.random()*0.004,
+    gradHue1:      Math.random()*360,
+    gradHue2:      Math.random()*360,
+
+    // Spectral cycling
+    spectralPos:   Math.random(),
+    spectralSpeed: 0.0005 + Math.random()*0.002,
+
+    // Layout: which illusions are active
+    showGrid:      Math.random()>0.15,
+    showWheels:    Math.random()>0.15,
+    showAfter:     Math.random()>0.2,
+    showGrad:      Math.random()>0.1,
+    showContrast:  Math.random()>0.2,
+
+    // Illusion intensity (used for audio)
+    intensity:     0.3 + Math.random()*0.7,
+
+    // Mode label
+    modeIndex:     Math.floor(Math.random()*5),
+  };
+  t = 0; // reset phase for clean transition
+}
+
+randomize();
+
+const MODES = ['AFTERIMAGE','SIMULTANEOUS CONTRAST','CHROMATIC ADAPT','SPECTRAL CYCLE','COMPOSITE'];
+
+// ── Audio ─────────────────────────────────────────────────────────────────────
+function initAudio(){
+  if(audioCtx) return;
+  audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+  masterGain = audioCtx.createGain();
+  masterGain.gain.value = 0.07;
+  masterGain.connect(audioCtx.destination);
+}
+
+function buildOsc(freq, type='sine'){
+  const osc = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  osc.type = type;
+  osc.frequency.value = freq;
+  g.gain.value = 0;
+  osc.connect(g);
+  g.connect(masterGain);
+  osc.start();
+  return {osc, gain:g};
+}
+
+function startAudio(){
+  initAudio();
+  // Build a small drone: root + fifth + octave
+  oscPool = [
+    buildOsc(55,   'sine'),
+    buildOsc(82.5, 'sine'),
+    buildOsc(110,  'triangle'),
+    buildOsc(165,  'sine'),
+    buildOsc(220,  'sine'),
+  ];
+}
+
+function stopAudio(){
+  oscPool.forEach(({osc,gain})=>{
+    gain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.05);
+    setTimeout(()=>{ try{osc.stop()}catch(e){} }, 200);
+  });
+  oscPool = [];
+}
+
+function updateAudio(intensity, contrastVal, spectral){
+  if(!audioOn || !audioCtx || oscPool.length===0) return;
+  const now = audioCtx.currentTime;
+  // Map illusion intensity → subtle drone volume / pitch modulation
+  const baseGain = 0.012 + intensity * 0.05;
+  const freqs = [55, 82.5 + contrastVal*40, 110 + spectral*30, 165, 220 + intensity*15];
+  oscPool.forEach(({osc, gain}, i)=>{
+    gain.gain.setTargetAtTime(baseGain * (0.5 + 0.5*Math.sin(i+now*0.3)), now, 0.4);
+    osc.frequency.setTargetAtTime(freqs[i], now, 1.2);
+  });
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function hsl(h,s,l,a=1){
+  return `hsla(${h%360},${(s*100).toFixed(1)}%,${(l*100).toFixed(1)}%,${a})`;
+}
+
+function lerp(a,b,x){ return a+(b-a)*x; }
+function clamp(x,a,b){ return Math.max(a,Math.min(b,x)); }
+
+// Complementary hue
+function complement(h){ return (h+180)%360; }
+
+// Convert hsl floats → rgb 0-255 (for afterimage inverse)
+function hslToRgb(h,s,l){
+  h = ((h%360)+360)%360; h/=360;
+  const q = l<0.5 ? l*(1+s) : l+s-l*s;
+  const p = 2*l-q;
+  const hue2rgb = (p,q,t)=>{
+    if(t<0)t+=1; if(t>1)t-=1;
+    if(t<1/6)return p+(q-p)*6*t;
+    if(t<1/2)return q;
+    if(t<2/3)return p+(q-p)*(2/3-t)*6;
+    return p;
+  };
+  return [hue2rgb(p,q,h+1/3), hue2rgb(p,q,h), hue2rgb(p,q,h-1/3)].map(v=>Math.round(v*255));
+}
+
+// ── Per-frame derived values ──────────────────────────────────────────────────
+function derived(){
+  const sec = t * 0.016; // approximate seconds at 60fps
+  const sp = (P.spectralPos + sec * P.spectralSpeed) % 1;
+  const spectralHue = sp * 360;
+  const adaptHue = P.swatchHueBase + Math.sin(sec * P.adaptSpeed * 6.28) * P.adaptRange;
+  const contrast = 0.5 + 0.5 * Math.sin(sec * 0.7 + P.contrastDepth * 3.14);
+  const intensity = P.intensity * (0.7 + 0.3 * Math.sin(sec * 1.3));
+  const phase = (sec * P.gradSpeed) % 1;
+  return { sp, spectralHue, adaptHue, contrast, intensity, phase, sec };
+}
+
+// ── Drawing modules ───────────────────────────────────────────────────────────
+
+// 1. Full-canvas gradient background (spectral cycling)
+function drawGradientBG(d){
+  if(!P.showGrad) return;
+  const angle = P.gradAngle + d.phase * Math.PI * 2;
+  const cx = W/2, cy = H/2;
+  const len = Math.sqrt(W*W+H*H);
+  const x1 = cx - Math.cos(angle)*len/2, y1 = cy - Math.sin(angle)*len/2;
+  const x2 = cx + Math.cos(angle)*len/2, y2 = cy + Math.sin(angle)*len/2;
+  const g = ctx.createLinearGradient(x1,y1,x2,y2);
+  const h1 = (P.gradHue1 + d.spectralHue * 0.5) % 360;
+  const h2 = (P.gradHue2 + d.spectralHue * 0.3 + 60) % 360;
+  const h3 = (h1 + 120) % 360;
+  g.addColorStop(0,   hsl(h1, 0.8, 0.08, 1));
+  g.addColorStop(0.35,hsl(h2, 0.7, 0.06, 1));
+  g.addColorStop(0.65,hsl(h3, 0.75,0.07, 1));
+  g.addColorStop(1,   hsl(h1, 0.8, 0.09, 1));
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+}
+
+// 2. Simultaneous contrast background panels
+function drawContrastPanels(d){
+  if(!P.showContrast) return;
+  const cols = 2, rows = 2;
+  const pw = W/cols, ph = H/rows;
+  for(let r=0; r<rows; r++){
+    for(let c=0; c<cols; c++){
+      const hue = (P.bgHue + (r*cols+c) * 90 + d.sec * 6) % 360;
+      const sat = 0.5 + d.contrast * 0.45;
+      const lig = 0.08 + (r+c) % 2 * 0.06;
+      ctx.fillStyle = hsl(hue, sat, lig, 0.55);
+      ctx.fillRect(c*pw, r*ph, pw, ph);
+      // Inset "test" swatch that appears different due to context
+      const tw = pw * 0.18, th = ph * 0.18;
+      const tx = c*pw + pw/2 - tw/2, ty = r*ph + ph/2 - th/2;
+      const testHue = (hue + P.fgHueOffset) % 360;
+      ctx.fillStyle = hsl(testHue, 0.65, 0.45, 0.9);
+      ctx.fillRect(tx, ty, tw, th);
+    }
+  }
+}
+
+// 3. Evolving swatch grid
+function drawSwatchGrid(d){
+  if(!P.showGrid) return;
+  const cols = P.gridCols, rows = P.gridRows;
+  const margin = 0.04;
+  const gw = W * (1 - margin*2), gh = H * (1 - margin*2);
+  const sw = gw/cols, sh = gh/rows;
+  const ox = W * margin, oy = H * margin;
+  for(let r=0; r<rows; r++){
+    for(let c=0; c<cols; c++){
+      const idx = r*cols+c;
+      const phase = d.sec * P.swatchPulse * 60 + idx * 0.4;
+      const hue = (P.swatchHueBase + idx * P.swatchHueStep + d.adaptHue * 0.3 + phase * 8) % 360;
+      const sat = P.swatchSatBase + 0.15 * Math.sin(phase + idx);
+      const lig = 0.28 + 0.18 * Math.cos(phase * 0.7 + c * 0.5);
+      const alpha = 0.55 + 0.3 * Math.abs(Math.sin(phase * 0.5));
+      const x = ox + c*sw, y = oy + r*sh;
+      const pad = Math.max(2, sw * 0.06);
+      ctx.fillStyle = hsl(hue, sat, lig, alpha);
+      ctx.fillRect(x+pad, y+pad, sw-pad*2, sh-pad*2);
+
+      // Context border — perturbs perceived interior color
+      const borderHue = (hue + d.contrast * 120 + 60) % 360;
+      ctx.strokeStyle = hsl(borderHue, 0.9, 0.55, 0.35);
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(x+pad, y+pad, sw-pad*2, sh-pad*2);
+
+      // Inner contrast swatch (simultaneous contrast illusion)
+      const iw = (sw-pad*2)*0.38, ih = (sh-pad*2)*0.38;
+      const ix = x+pad+(sw-pad*2)/2-iw/2, iy = y+pad+(sh-pad*2)/2-ih/2;
+      const innerHue = (hue + 180 + d.contrast * 60) % 360;
+      ctx.fillStyle = hsl(innerHue, sat*0.9, lig+0.12, 0.75);
+      ctx.fillRect(ix, iy, iw, ih);
+    }
+  }
+}
+
+// 4. Rotating color wheels
+function drawColorWheels(d){
+  if(!P.showWheels) return;
+  const positions = [
+    [W*0.5, H*0.5],
+    [W*0.22, H*0.28],
+    [W*0.78, H*0.72],
+  ].slice(0, P.wheelCount);
+
+  positions.forEach(([cx,cy], wi)=>{
+    const maxR = Math.min(W,H) * (P.wheelROuter + wi * 0.03);
+    const minR = Math.min(W,H) * (P.wheelRInner);
+    const sectors = P.wheelSectors;
+    const angleStep = (Math.PI*2) / sectors;
+    const rot = d.sec * P.wheelSpeed * 6.28 + wi * 1.1;
+
+    for(let s=0; s<sectors; s++){
+      const a0 = rot + s * angleStep;
+      const a1 = a0 + angleStep;
+      const hue = (P.swatchHueBase + s / sectors * 360 + d.spectralHue * 0.4 + wi * 40) % 360;
+      const sat = 0.7 + 0.25 * Math.sin(d.sec*0.8 + s*0.3);
+      const lig = 0.35 + 0.2  * Math.cos(d.sec*0.6 + s*0.5);
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(a0)*minR, cy + Math.sin(a0)*minR);
+      ctx.arc(cx, cy, maxR, a0, a1);
+      ctx.arc(cx, cy, minR, a1, a0, true);
+      ctx.closePath();
+      ctx.fillStyle = hsl(hue, sat, lig, P.wheelAlpha);
+      ctx.fill();
+
+      // Spectral gradient overlay on each sector
+      const gx1 = cx + Math.cos((a0+a1)/2)*minR;
+      const gy1 = cy + Math.sin((a0+a1)/2)*minR;
+      const gx2 = cx + Math.cos((a0+a1)/2)*maxR;
+      const gy2 = cy + Math.sin((a0+a1)/2)*maxR;
+      const radG = ctx.createLinearGradient(gx1,gy1,gx2,gy2);
+      radG.addColorStop(0, hsl((hue+60)%360, 1, 0.6, 0.0));
+      radG.addColorStop(1, hsl((hue+120)%360, 1, 0.7, 0.18));
+      ctx.fillStyle = radG;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(a0)*minR, cy + Math.sin(a0)*minR);
+      ctx.arc(cx, cy, maxR, a0, a1);
+      ctx.arc(cx, cy, minR, a1, a0, true);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // Center chromatic adaptation pulse
+    const pulseR = minR * (0.5 + 0.4*Math.sin(d.sec*2.1 + wi));
+    const cg = ctx.createRadialGradient(cx,cy,0, cx,cy,pulseR);
+    const ch = (d.adaptHue + wi*60) % 360;
+    cg.addColorStop(0, hsl(ch, 0.9, 0.85, 0.7));
+    cg.addColorStop(1, hsl(ch, 0.6, 0.4, 0));
+    ctx.fillStyle = cg;
+    ctx.beginPath();
+    ctx.arc(cx, cy, pulseR, 0, Math.PI*2);
+    ctx.fill();
+  });
+}
+
+// 5. Afterimage simulation
+// Stare at the saturated patch → look away → faint complement persists
+let afterPatches = [];
+let afterTimer = 0;
+
+function spawnAfterPatch(){
+  afterPatches.push({
+    x: Math.random() * W,
+    y: Math.random() * H,
+    r: Math.min(W,H) * (P.afterRadius * (0.5 + Math.random())),
+    hue: P.afterHue,
+    life: 1.0,
+    phase: 'flash', // flash → decay → afterimage → fade
+    flashDur: 60 + Math.random()*60,
+    flashAge: 0,
+  });
+}
+
+function drawAfterPatches(d){
+  if(!P.showAfter) return;
+  afterTimer++;
+  if(afterTimer > 90 + Math.random()*120){
+    afterTimer = 0;
+    if(afterPatches.length < 6) spawnAfterPatch();
+  }
+
+  afterPatches = afterPatches.filter(p => p.life > 0.01);
+
+  afterPatches.forEach(p => {
+    if(p.phase === 'flash'){
+      p.flashAge++;
+      // Bright saturated stimulus
+      const fg = ctx.createRadialGradient(p.x,p.y,0, p.x,p.y,p.r);
+      fg.addColorStop(0, hsl(p.hue, P.afterSat, 0.72, p.life * 0.92));
+      fg.addColorStop(0.6, hsl(p.hue, P.afterSat, 0.55, p.life * 0.6));
+      fg.addColorStop(1,   hsl(p.hue, P.afterSat, 0.3,  0));
+      ctx.fillStyle = fg;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI*2);
+      ctx.fill();
+      if(p.flashAge >= p.flashDur) p.phase = 'afterimage';
+    } else {
+      // Afterimage: complementary hue, desaturated
+      p.life -= P.afterDecay;
+      const compHue = complement(p.hue);
+      const ag = ctx.createRadialGradient(p.x,p.y,0, p.x,p.y,p.r*1.2);
+      ag.addColorStop(0, hsl(compHue, 0.55, 0.55, p.life * 0.45));
+      ag.addColorStop(0.5, hsl(compHue, 0.35, 0.45, p.life * 0.25));
+      ag.addColorStop(1,   hsl(compHue, 0.2,  0.35, 0));
+      ctx.fillStyle = ag;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r * 1.2, 0, Math.PI*2);
+      ctx.fill();
+    }
+  });
+}
+
+// 6. Chromatic adaptation drift overlay
+function drawChromaticAdaptation(d){
+  // Full-canvas very low alpha tint that slowly shifts
+  const h = d.adaptHue % 360;
+  const tint = ctx.createRadialGradient(W/2,H/2,0, W/2,H/2,Math.max(W,H)*0.7);
+  tint.addColorStop(0, hsl(h, 0.4, 0.15, 0.06));
+  tint.addColorStop(1, hsl((h+120)%360, 0.5, 0.08, 0.03));
+  ctx.fillStyle = tint;
+  ctx.fillRect(0, 0, W, H);
+}
+
+// 7. Spectral sweep lines
+function drawSpectralSweep(d){
+  const n = 5;
+  for(let i=0; i<n; i++){
+    const xBase = ((d.sp + i/n) % 1) * W;
+    const hue = (d.spectralHue + i/n * 360) % 360;
+    const lw = 1.5 + 3 * d.intensity;
+    ctx.strokeStyle = hsl(hue, 1, 0.6, 0.18 + 0.12*d.intensity);
+    ctx.lineWidth = lw;
+    ctx.beginPath();
+    ctx.moveTo(xBase, 0);
+    ctx.lineTo(xBase + Math.sin(d.sec + i) * W * 0.08, H);
+    ctx.stroke();
+  }
+}
+
+// ── Main render loop ──────────────────────────────────────────────────────────
+function frame(){
+  t++;
+  const d = derived();
+
+  // Clear
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#040408';
+  ctx.fillRect(0, 0, W, H);
+
+  // Draw layers
+  drawGradientBG(d);
+  drawContrastPanels(d);
+  drawSwatchGrid(d);
+  drawColorWheels(d);
+  drawAfterPatches(d);
+  drawChromaticAdaptation(d);
+//  drawSpectralSweep(d);
+
+  // Audio update (zero computation when disabled)
+  if(audioOn) updateAudio(d.intensity, d.contrast, d.sp);
+
+  // HUD update
+  if(hudVisible) updateHUD(d);
+
+  requestAnimationFrame(frame);
+}
+
+function updateHUD(d){
+  document.getElementById('h-mode').textContent      = MODES[P.modeIndex % MODES.length];
+  document.getElementById('h-phase').textContent     = (d.phase*100).toFixed(1)+'%';
+  document.getElementById('h-contrast').textContent  = d.contrast.toFixed(3);
+  document.getElementById('h-decay').textContent     = P.afterDecay.toFixed(4);
+  document.getElementById('h-drift').textContent     = ((d.adaptHue)%360).toFixed(1)+'°';
+  document.getElementById('h-intensity').textContent = d.intensity.toFixed(3);
+  document.getElementById('h-spectral').textContent  = (d.sp*100).toFixed(1)+'%';
+  document.getElementById('h-cells').textContent     = (P.gridCols*P.gridRows).toString();
+  document.getElementById('h-sectors').textContent   = P.wheelSectors.toString();
+  document.getElementById('h-audio').textContent     = audioOn ? 'ON' : 'OFF';
+}
+
+// ── Input ─────────────────────────────────────────────────────────────────────
+function handleRandomize(e){
+  // Don't re-randomize if clicking/tapping a key combo
+  randomize();
+}
+
+window.addEventListener('keydown', e=>{
+  switch(e.code){
+    case 'Space':
+      e.preventDefault();
+      handleRandomize();
+      break;
+    case 'KeyH':
+      hudVisible = !hudVisible;
+      document.getElementById('hud').classList.toggle('visible', hudVisible);
+      break;
+    case 'KeyS':
+      audioOn = !audioOn;
+      if(audioOn){ startAudio(); }
+      else if(oscPool.length){ stopAudio(); }
+      break;
+  }
+});
+
+canvas.addEventListener('click', ()=>{ handleRandomize(); });
+canvas.addEventListener('touchend', e=>{ e.preventDefault(); handleRandomize(); }, {passive:false});
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+frame();
+
+})();
+</script>
+</body>
+</html>
