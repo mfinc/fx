@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+
+<meta charset="UTF-8">
+
+<title>Truchet Tile Gear Cosmos – Generative Mechanical Gear Universe</title>
+
+<meta name="description" content="Truchet Tile Gear Cosmos is a rapidly evolving generative audiovisual universe where Truchet tilings form interconnected mechanical gear machines transmitting torque waves and resonance across glowing kinetic networks. Universes continuously regenerate with smooth transitions and synchronized generative sound.">
+
+<meta name="keywords" content="Truchet tiles generative art, gear simulation animation, procedural gear machine, generative audiovisual art, kinetic mechanical art, HTML5 canvas generative animation, algorithmic tiling art, generative sound synthesis">
+
+<style>
+html,body{
+margin:0;
+background:black;
+overflow:hidden;
+font-family:monospace;
+}
+canvas{display:block}
+#hud{
+position:fixed;
+top:10px;
+left:10px;
+color:#0ff;
+font-size:12px;
+display:none;
+}
+</style>
+
+</head>
+<body>
+
+<canvas id="c"></canvas>
+<div id="hud"></div>
+
+<script>
+
+const canvas=document.getElementById("c")
+const ctx=canvas.getContext("2d")
+const hud=document.getElementById("hud")
+
+let W,H
+function resize(){
+W=canvas.width=innerWidth
+H=canvas.height=innerHeight
+}
+window.addEventListener("resize",resize)
+resize()
+
+function rand(a,b){return a+Math.random()*(b-a)}
+
+let audioCtx=null
+let master=null
+let oscillators=[]
+let sound=false
+
+function initAudio(){
+if(audioCtx)return
+audioCtx=new (window.AudioContext||window.webkitAudioContext)()
+master=audioCtx.createGain()
+master.gain.value=.25
+master.connect(audioCtx.destination)
+}
+
+class Gear{
+
+constructor(x,y,r){
+
+this.x=x
+this.y=y
+this.r=r
+this.angle=rand(0,Math.PI*2)
+this.vel=rand(-.04,.04)
+this.ratio=rand(.4,3)
+
+}
+
+update(damping){
+this.vel*=damping
+this.angle+=this.vel
+}
+
+draw(alpha,palette,toothDensity,toothSize){
+
+ctx.globalAlpha=alpha
+
+ctx.save()
+ctx.translate(this.x,this.y)
+ctx.rotate(this.angle)
+
+ctx.strokeStyle=palette[0]
+ctx.lineWidth=2
+
+ctx.beginPath()
+ctx.arc(0,0,this.r,0,Math.PI*2)
+ctx.stroke()
+
+let teeth=Math.floor(this.r*toothDensity)
+
+for(let i=0;i<teeth;i++){
+
+let a=i*Math.PI*2/teeth
+
+ctx.beginPath()
+ctx.moveTo(Math.cos(a)*this.r,Math.sin(a)*this.r)
+ctx.lineTo(Math.cos(a)*(this.r+toothSize),Math.sin(a)*(this.r+toothSize))
+ctx.stroke()
+
+}
+
+ctx.restore()
+
+ctx.globalAlpha=1
+
+}
+
+}
+
+class Universe{
+
+constructor(){
+
+this.params={
+
+grid:rand(60,130),
+gearScale:rand(.2,.45),
+damping:rand(.985,.998),
+torque:rand(.01,.07),
+toothDensity:rand(.4,1),
+toothSize:rand(3,9),
+connectionDist:rand(70,160)
+
+}
+
+this.palette=this.palette()
+
+this.gears=[]
+this.connections=[]
+
+this.build()
+
+}
+
+palette(){
+
+let base=Math.random()*360
+let p=[]
+
+for(let i=0;i<6;i++)
+p.push(`hsl(${(base+rand(-140,140))%360},${rand(70,100)}%,${rand(45,70)}%)`)
+
+return p
+
+}
+
+build(){
+
+let cols=Math.ceil(W/this.params.grid)+1
+let rows=Math.ceil(H/this.params.grid)+1
+
+for(let y=0;y<rows;y++){
+for(let x=0;x<cols;x++){
+
+let gx=x*this.params.grid+this.params.grid/2
+let gy=y*this.params.grid+this.params.grid/2
+
+let r=this.params.grid*this.params.gearScale*rand(.6,1.4)
+
+this.gears.push(new Gear(gx,gy,r))
+
+}
+}
+
+this.connect()
+
+}
+
+connect(){
+
+for(let i=0;i<this.gears.length;i++){
+
+for(let j=i+1;j<this.gears.length;j++){
+
+let g1=this.gears[i]
+let g2=this.gears[j]
+
+let dx=g1.x-g2.x
+let dy=g1.y-g2.y
+
+let d=Math.sqrt(dx*dx+dy*dy)
+
+if(d<this.params.connectionDist)
+this.connections.push([i,j])
+
+}
+
+}
+
+}
+
+step(){
+
+this.connections.forEach(c=>{
+
+let g1=this.gears[c[0]]
+let g2=this.gears[c[1]]
+
+let diff=g1.vel-g2.vel
+let force=diff*this.params.torque
+
+g1.vel-=force*g2.ratio
+g2.vel+=force*g1.ratio
+
+})
+
+this.gears.forEach(g=>g.update(this.params.damping))
+
+}
+
+draw(alpha){
+
+ctx.strokeStyle=this.palette[2]
+
+this.connections.forEach(c=>{
+
+let g1=this.gears[c[0]]
+let g2=this.gears[c[1]]
+
+ctx.globalAlpha=alpha*.5
+
+ctx.beginPath()
+ctx.moveTo(g1.x,g1.y)
+ctx.lineTo(g2.x,g2.y)
+ctx.stroke()
+
+})
+
+this.gears.forEach(g=>{
+
+g.draw(
+alpha,
+this.palette,
+this.params.toothDensity,
+this.params.toothSize
+)
+
+})
+
+}
+
+}
+
+let current=new Universe()
+let next=null
+
+let transition=0
+let transitioning=false
+
+let nextTime=rand(2000,6000)
+let lastSwitch=performance.now()
+
+function regenerate(){
+
+next=new Universe()
+transition=0
+transitioning=true
+
+}
+
+function updateAudio(){
+
+if(!sound||!audioCtx)return
+
+let gears=current.gears
+
+while(oscillators.length<gears.length){
+
+let osc=audioCtx.createOscillator()
+let gain=audioCtx.createGain()
+
+osc.type="sawtooth"
+
+gain.gain.value=0
+
+osc.connect(gain)
+gain.connect(master)
+
+osc.start()
+
+oscillators.push({osc,gain})
+
+}
+
+gears.forEach((g,i)=>{
+
+let o=oscillators[i]
+
+let freq=70+Math.abs(g.vel)*2000
+
+o.osc.frequency.setTargetAtTime(freq,audioCtx.currentTime,.05)
+
+o.gain.gain.setTargetAtTime(
+Math.min(.03,Math.abs(g.vel)*.2),
+audioCtx.currentTime,.05)
+
+})
+
+}
+
+function frame(t){
+
+ctx.fillStyle="rgba(0,0,0,.28)"
+ctx.fillRect(0,0,W,H)
+
+current.step()
+
+if(transitioning)
+next.step()
+
+current.draw(1-transition)
+
+if(transitioning){
+
+next.draw(transition)
+
+transition+=.04   // FAST TRANSITION
+
+if(transition>=1){
+
+current=next
+next=null
+transitioning=false
+
+lastSwitch=performance.now()
+nextTime=rand(2000,6000)
+
+}
+
+}
+
+updateAudio()
+
+if(!transitioning && t-lastSwitch>nextTime)
+regenerate()
+
+requestAnimationFrame(frame)
+
+}
+
+frame()
+
+window.addEventListener("keydown",e=>{
+
+if(e.code==="Space")regenerate()
+
+if(e.key==="h"||e.key==="H")
+hud.style.display=hud.style.display==="none"?"block":"none"
+
+if(e.key==="s"||e.key==="S"){
+sound=!sound
+if(sound)initAudio()
+}
+
+})
+
+window.addEventListener("click",regenerate)
+window.addEventListener("touchstart",regenerate)
+
+</script>
+</body>
+</html>

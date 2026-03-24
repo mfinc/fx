@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+
+<meta charset="UTF-8">
+
+<title>Truchet Tile Gear Cosmos – Generative Mechanical Universe</title>
+
+<meta name="description" content="Truchet Tile Gear Cosmos is a procedurally generated audiovisual kinetic universe where Truchet tile patterns transform into vast interconnected gear machines transmitting torque waves, rotational resonance and chaotic mechanical interactions visualized as glowing gear constellations, neon mechanical filaments and spectral energy pulses.">
+
+<meta name="keywords" content="Truchet tiles generative art, gear simulation, mechanical generative art, kinetic procedural animation, HTML5 canvas generative art, gear machine visualization, audiovisual generative systems, algorithmic mechanical art, generative audiovisual synthesis, procedural tiling simulation">
+
+<style>
+
+html,body{
+margin:0;
+background:#000;
+overflow:hidden;
+font-family:monospace;
+}
+
+canvas{
+display:block;
+}
+
+#hud{
+position:fixed;
+left:15px;
+top:15px;
+color:#00ffff;
+font-size:12px;
+pointer-events:none;
+display:none;
+}
+
+</style>
+</head>
+
+<body>
+
+<canvas id="c"></canvas>
+
+<div id="hud"></div>
+
+<script>
+
+const canvas=document.getElementById("c");
+const ctx=canvas.getContext("2d");
+const hud=document.getElementById("hud");
+
+let W,H;
+
+function resize(){
+W=canvas.width=window.innerWidth;
+H=canvas.height=window.innerHeight;
+}
+
+window.addEventListener("resize",resize);
+resize();
+
+let params={};
+let gears=[];
+let connections=[];
+let particles=[];
+let palette=[];
+
+let audioCtx=null;
+let master;
+let oscillators=[];
+let soundEnabled=false;
+
+function initAudio(){
+
+if(audioCtx) return;
+
+audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+
+master=audioCtx.createGain();
+master.gain.value=.25;
+master.connect(audioCtx.destination);
+
+}
+
+function rand(a,b){return a+Math.random()*(b-a)}
+
+function randomPalette(){
+
+let base=Math.random()*360;
+
+palette=[];
+
+for(let i=0;i<6;i++){
+
+palette.push(
+`hsl(${(base+rand(-120,120))%360},${rand(70,100)}%,${rand(45,70)}%)`
+)
+
+}
+
+}
+
+class Gear{
+
+constructor(x,y,r){
+
+this.x=x;
+this.y=y;
+this.r=r;
+
+this.ratio=rand(.4,3);
+this.angle=rand(0,Math.PI*2);
+
+this.vel=rand(-.04,.04);
+this.energy=0;
+
+}
+
+update(){
+
+this.energy=Math.abs(this.vel);
+
+this.vel*=params.damping;
+
+this.angle+=this.vel;
+
+}
+
+draw(){
+
+ctx.save();
+
+ctx.translate(this.x,this.y);
+ctx.rotate(this.angle);
+
+let teeth=Math.floor(this.r*params.toothDensity);
+
+ctx.strokeStyle=palette[0];
+ctx.lineWidth=2;
+
+ctx.beginPath();
+ctx.arc(0,0,this.r,0,Math.PI*2);
+ctx.stroke();
+
+for(let i=0;i<teeth;i++){
+
+let a=i*Math.PI*2/teeth;
+
+ctx.beginPath();
+ctx.moveTo(Math.cos(a)*this.r,Math.sin(a)*this.r);
+ctx.lineTo(Math.cos(a)*(this.r+params.toothSize),Math.sin(a)*(this.r+params.toothSize));
+ctx.stroke();
+
+}
+
+ctx.restore();
+
+}
+
+}
+
+function connectGears(){
+
+connections=[];
+
+for(let i=0;i<gears.length;i++){
+
+for(let j=i+1;j<gears.length;j++){
+
+let g1=gears[i];
+let g2=gears[j];
+
+let dx=g1.x-g2.x;
+let dy=g1.y-g2.y;
+
+let d=Math.sqrt(dx*dx+dy*dy);
+
+if(d<params.connectionDist){
+
+connections.push([i,j]);
+
+}
+
+}
+
+}
+
+}
+
+function torquePropagation(){
+
+connections.forEach(c=>{
+
+let g1=gears[c[0]];
+let g2=gears[c[1]];
+
+let diff=g1.vel-g2.vel;
+
+let force=diff*params.torqueStrength;
+
+g1.vel-=force*g2.ratio;
+g2.vel+=force*g1.ratio;
+
+})
+
+}
+
+function spawnParticles(g){
+
+if(Math.random()<params.sparkRate){
+
+particles.push({
+
+x:g.x,
+y:g.y,
+vx:rand(-1,1)*g.energy*40,
+vy:rand(-1,1)*g.energy*40,
+life:rand(30,90)
+
+})
+
+}
+
+}
+
+function updateParticles(){
+
+for(let i=particles.length-1;i>=0;i--){
+
+let p=particles[i];
+
+p.x+=p.vx;
+p.y+=p.vy;
+
+p.vx*=.96;
+p.vy*=.96;
+
+p.life--;
+
+ctx.fillStyle=palette[3];
+
+ctx.fillRect(p.x,p.y,2,2);
+
+if(p.life<=0)particles.splice(i,1);
+
+}
+
+}
+
+function generate(){
+
+params={
+
+grid:Math.floor(rand(60,120)),
+gearScale:rand(.2,.4),
+damping:rand(.985,.998),
+torqueStrength:rand(.01,.06),
+connectionDist:rand(90,160),
+toothDensity:rand(.4,.9),
+toothSize:rand(3,7),
+sparkRate:rand(.05,.2)
+
+}
+
+randomPalette();
+
+gears=[];
+particles=[];
+oscillators=[];
+
+let cols=Math.ceil(W/params.grid)+2;
+let rows=Math.ceil(H/params.grid)+2;
+
+for(let y=0;y<rows;y++){
+
+for(let x=0;x<cols;x++){
+
+let gx=x*params.grid+params.grid/2;
+let gy=y*params.grid+params.grid/2;
+
+let r=params.grid*params.gearScale*rand(.6,1.4);
+
+gears.push(new Gear(gx,gy,r));
+
+}
+
+}
+
+connectGears();
+
+hud.innerHTML=
+"TRUCHET TILE GEAR COSMOS<br>"+
+"gears:"+gears.length+"<br>"+
+"connections:"+connections.length+"<br>"+
+"SPACE / CLICK / TAP → regenerate<br>"+
+"H → toggle HUD<br>"+
+"S → toggle sound";
+
+}
+
+generate();
+
+function gradientBackground(){
+
+let g=ctx.createLinearGradient(0,0,W,H);
+
+g.addColorStop(0,palette[4]);
+g.addColorStop(1,palette[5]);
+
+ctx.fillStyle=g;
+ctx.fillRect(0,0,W,H);
+
+}
+
+function drawConnections(){
+
+ctx.strokeStyle=palette[2];
+ctx.lineWidth=1;
+
+connections.forEach(c=>{
+
+let g1=gears[c[0]];
+let g2=gears[c[1]];
+
+ctx.beginPath();
+ctx.moveTo(g1.x,g1.y);
+ctx.lineTo(g2.x,g2.y);
+ctx.stroke();
+
+})
+
+}
+
+function updateAudio(){
+
+if(!soundEnabled||!audioCtx)return;
+
+while(oscillators.length<gears.length){
+
+let osc=audioCtx.createOscillator();
+let gain=audioCtx.createGain();
+
+osc.type="sawtooth";
+
+gain.gain.value=0;
+
+osc.connect(gain);
+gain.connect(master);
+
+osc.start();
+
+oscillators.push({osc,gain});
+
+}
+
+for(let i=0;i<gears.length;i++){
+
+let g=gears[i];
+let o=oscillators[i];
+
+let freq=60+Math.abs(g.vel)*2000;
+
+o.osc.frequency.value=freq;
+
+o.gain.gain.value=Math.min(.03,g.energy*.2);
+
+}
+
+}
+
+function frame(){
+
+ctx.globalAlpha=.15;
+gradientBackground();
+
+ctx.globalAlpha=1;
+
+torquePropagation();
+
+drawConnections();
+
+gears.forEach(g=>{
+
+g.update();
+g.draw();
+spawnParticles(g);
+
+})
+
+updateParticles();
+
+updateAudio();
+
+requestAnimationFrame(frame);
+
+}
+
+frame();
+
+window.addEventListener("keydown",e=>{
+
+if(e.code==="Space")generate();
+
+if(e.key==="h"||e.key==="H"){
+
+hud.style.display=
+hud.style.display==="none"?"block":"none";
+
+}
+
+if(e.key==="s"||e.key==="S"){
+
+soundEnabled=!soundEnabled;
+
+if(soundEnabled)initAudio();
+
+}
+
+});
+
+window.addEventListener("click",generate);
+window.addEventListener("touchstart",generate);
+
+</script>
+
+</body>
+</html>

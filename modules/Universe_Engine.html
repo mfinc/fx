@@ -1,0 +1,1372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="description" content="Generative Physics Universe Engine — an infinite algorithmic cosmos where Penrose tilings, quasicrystals, Islamic geometry, Celtic knots, hyperbolic tessellations, and higher-dimensional polytope projections evolve through Hamiltonian mechanics, reaction-diffusion chemistry, lattice Boltzmann flows, and chaotic attractors into a continuously morphing ornamental machine.">
+<meta name="keywords" content="generative art, physics engine, Penrose tiling, quasicrystal, Islamic geometry, Celtic knot, hyperbolic tiling, Voronoi, Delaunay, Apollonian packing, cellular automata, fractal, reaction diffusion, lattice Boltzmann, Hamiltonian mechanics, chaotic attractor, 4D polytope, space filling curve, ornamental symmetry, procedural animation, WebGL, canvas, algorithmic art">
+<title>Universe Engine — Generative Physics Cosmos</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Courier New',monospace}
+  canvas{display:block;width:100vw;height:100vh;position:fixed;top:0;left:0}
+  #hud{position:fixed;top:16px;left:16px;color:rgba(255,255,255,0.75);font-size:11px;line-height:1.7;pointer-events:none;display:none;z-index:10;text-shadow:0 0 8px currentColor;letter-spacing:0.05em}
+  #hud.visible{display:block}
+  #hint{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,0.3);font-size:10px;letter-spacing:0.15em;pointer-events:none;z-index:10;transition:opacity 2s}
+  #hint.fade{opacity:0}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<div id="hint">SPACE / TAP — REGENERATE &nbsp;|&nbsp; H — HUD &nbsp;|&nbsp; S — SOUND</div>
+<script>
+// ============================================================
+// UNIVERSE ENGINE — Generative Physics Cosmos
+// Single-file, zero dependencies, full-canvas
+// ============================================================
+(function(){
+'use strict';
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const hud = document.getElementById('hud');
+const hint = document.getElementById('hint');
+
+let W, H, CX, CY;
+let t = 0;
+let frame = 0;
+let hudVisible = false;
+let soundEnabled = false;
+let audioCtx = null;
+let universe = null;
+let animId = null;
+let lastTime = 0;
+let fps = 60;
+
+// ─── Audio ───────────────────────────────────────────────────
+function initAudio(){
+  if(audioCtx) return;
+  audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+}
+function stopAudio(){
+  if(audioCtx){audioCtx.close();audioCtx=null;}
+}
+
+class SoundEngine {
+  constructor(ac){
+    this.ac=ac; this.nodes=[];
+    this.master=ac.createGain(); this.master.gain.value=0.08;
+    this.master.connect(ac.destination);
+    this.drones=[]; this.buildDrones();
+  }
+  buildDrones(){
+    const freqs=[55,110,165,220,330,440];
+    freqs.forEach(f=>{
+      const o=this.ac.createOscillator();
+      const g=this.ac.createGain();
+      const filt=this.ac.createBiquadFilter();
+      filt.type='bandpass'; filt.frequency.value=f*2; filt.Q.value=8;
+      o.type=['sine','triangle','sawtooth'][Math.floor(Math.random()*3)];
+      o.frequency.value=f;
+      g.gain.value=0.02+Math.random()*0.04;
+      o.connect(filt); filt.connect(g); g.connect(this.master);
+      o.start();
+      this.drones.push({o,g,filt,baseF:f});
+    });
+  }
+  update(energy,hue){
+    if(!this.ac) return;
+    const now=this.ac.currentTime;
+    this.drones.forEach((d,i)=>{
+      const mod=1+energy*0.3*Math.sin(now*(0.1+i*0.07));
+      d.o.frequency.setTargetAtTime(d.baseF*mod,now,0.3);
+      d.g.gain.setTargetAtTime(0.01+energy*0.05,now,0.5);
+      d.filt.frequency.setTargetAtTime(d.baseF*(2+energy*4),now,0.2);
+    });
+  }
+  dispose(){this.drones.forEach(d=>{try{d.o.stop();}catch(e){}});}
+}
+let soundEngine = null;
+
+// ─── Math Utils ──────────────────────────────────────────────
+const TAU = Math.PI*2;
+const rand = (a,b)=>a+Math.random()*(b-a);
+const randi = (a,b)=>Math.floor(rand(a,b));  // returns a .. b-1 inclusive
+const pick = arr=>arr[Math.floor(Math.random()*arr.length)];
+const lerp = (a,b,t)=>a+(b-a)*t;
+const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
+const mod = (v,m)=>((v%m)+m)%m;
+const smoothstep = t=>t*t*(3-2*t);
+const fract = v=>v-Math.floor(v);
+
+function hslToRgb(h,s,l){
+  h=mod(h,360)/360; s/=100; l/=100;
+  const q=l<0.5?l*(1+s):l+s-l*s, p=2*l-q;
+  const c=v=>{v=mod(v,1);if(v<1/6)return p+(q-p)*6*v;if(v<1/2)return q;if(v<2/3)return p+(q-p)*(2/3-v)*6;return p;};
+  return[Math.round(c(h+1/3)*255),Math.round(c(h)*255),Math.round(c(h-1/3)*255)];
+}
+function rgbStr(r,g,b,a=1){return `rgba(${r|0},${g|0},${b|0},${a})`;}
+
+// ─── Palette System ──────────────────────────────────────────
+class Palette {
+  constructor(){this.generate();}
+  generate(){
+    this.base=rand(0,360);
+    this.spread=rand(30,180);
+    this.saturation=rand(60,100);
+    this.schemes=[
+      ()=>this.base,
+      ()=>mod(this.base+this.spread,360),
+      ()=>mod(this.base+180,360),
+      ()=>mod(this.base-this.spread,360),
+      ()=>mod(this.base+90,360),
+    ];
+    this.dark=rand(5,20);
+    this.bright=rand(70,95);
+    this.mode=randi(0,5);
+  }
+  color(idx,alpha=1,shift=0,lightness=-1){
+    const fn=this.schemes[idx%this.schemes.length];
+    const h=mod(fn()+shift,360);
+    const s=this.saturation;
+    const l=lightness>=0?lightness:lerp(this.dark,this.bright,0.3+0.7*(idx/5));
+    const [r,g,b]=hslToRgb(h,s,l);
+    return rgbStr(r,g,b,alpha);
+  }
+  gradient(ctx,x1,y1,x2,y2,energy=0){
+    const g=ctx.createLinearGradient(x1,y1,x2,y2);
+    g.addColorStop(0,this.color(0,1,energy*30));
+    g.addColorStop(0.5,this.color(2,1,energy*15));
+    g.addColorStop(1,this.color(1,1,-energy*20));
+    return g;
+  }
+  evolve(dt){
+    this.base=mod(this.base+dt*2,360);
+  }
+}
+
+// ─── Geometry Primitives ─────────────────────────────────────
+function rotPt(x,y,a){const c=Math.cos(a),s=Math.sin(a);return[x*c-y*s,x*s+y*c];}
+function scalePt(x,y,sx,sy=sx){return[x*sx,y*sy];}
+function transPt(x,y,tx,ty){return[x+tx,y+ty];}
+
+function polygon(n,r,cx=0,cy=0,rot=0){
+  const pts=[];
+  for(let i=0;i<n;i++){const a=TAU*i/n+rot;pts.push([cx+Math.cos(a)*r,cy+Math.sin(a)*r]);}
+  return pts;
+}
+
+function drawPoly(ctx,pts,close=true){
+  if(!pts.length) return;
+  ctx.beginPath();ctx.moveTo(pts[0][0],pts[0][1]);
+  for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i][0],pts[i][1]);
+  if(close) ctx.closePath();
+}
+
+// ─── Tiling Frameworks ───────────────────────────────────────
+// Each returns array of {verts, type, meta}
+
+// 1. Penrose P3 (rhombus) — substitution
+function penroseTiles(cx,cy,scale,depth=4){
+  const tiles=[];
+  const phi=(1+Math.sqrt(5))/2;
+  function subdivide(ax,ay,bx,by,cx2,cy2,type,d){
+    if(d===0){tiles.push({verts:[[ax,ay],[bx,by],[cx2,cy2]],type});return;}
+    if(type===0){ // thin
+      const qx=ax+(bx-ax)/phi, qy=ay+(by-ay)/phi;
+      subdivide(cx2,cy2,qx,qy,bx,by,0,d-1);
+      subdivide(qx,qy,ax,ay,cx2,cy2,1,d-1);
+    } else { // thick
+      const px=bx+(ax-bx)/phi, py=by+(ay-by)/phi;
+      const qx=bx+(cx2-bx)/phi, qy=by+(cy2-by)/phi;
+      subdivide(px,py,qx,qy,ax,ay,1,d-1);
+      subdivide(qx,qy,px,py,bx,by,0,d-1);
+      subdivide(ax,ay,px,py,cx2,cy2,1,d-1);
+    }
+  }
+  const r=scale;
+  for(let i=0;i<5;i++){
+    const a1=TAU*i/5-Math.PI/2, a2=TAU*(i+1)/5-Math.PI/2;
+    subdivide(cx,cy,cx+Math.cos(a1)*r,cy+Math.sin(a1)*r,cx+Math.cos(a2)*r,cy+Math.sin(a2)*r,0,depth);
+  }
+  return tiles;
+}
+
+// 2. Ammann-Beenker (octagonal)
+function ammannBeenker(cx,cy,scale,depth=3){
+  const tiles=[];
+  const S=Math.SQRT2;
+  function sq(ax,ay,bx,by,cx2,cy2,dx,dy,d){
+    if(d===0){tiles.push({verts:[[ax,ay],[bx,by],[cx2,cy2],[dx,dy]],type:1});return;}
+    const mx=(ax+cx2)/2,my=(ay+cy2)/2;
+    const sx=(bx-ax)/S,sy=(by-ay)/S;
+    sq(ax,ay,ax+sx,ay+sy,mx,my,ax+(dx-ax)/2,ay+(dy-ay)/2,d-1);
+    sq(mx,my,mx+(cx2-mx)/S,my+(cy2-my)/S,cx2,cy2,bx,by,d-1);
+  }
+  function tri(ax,ay,bx,by,cx2,cy2,d){
+    if(d===0){tiles.push({verts:[[ax,ay],[bx,by],[cx2,cy2]],type:2});return;}
+    const px=(ax+bx)/2,py=(ay+by)/2;
+    tri(bx,by,cx2,cy2,px,py,d-1);
+    tri(px,py,cx2,cy2,ax,ay,d-1);
+  }
+  const r=scale;
+  for(let i=0;i<8;i++){
+    const a1=TAU*i/8,a2=TAU*(i+1)/8,am=TAU*(i+0.5)/8;
+    tri(cx,cy,cx+Math.cos(a1)*r,cy+Math.sin(a1)*r,cx+Math.cos(am)*r*S,cy+Math.sin(am)*r*S,depth);
+  }
+  return tiles;
+}
+
+// 3. Regular hexagonal tiling
+function hexTiles(cx,cy,scale,rows=8){
+  const tiles=[];
+  const R=scale,H=R*Math.sqrt(3)/2;
+  for(let row=-rows;row<=rows;row++){
+    for(let col=-rows;col<=rows;col++){
+      const ox=col*R*1.5 + cx;
+      const oy=row*H*2+(col%2)*H + cy;
+      if(Math.abs(ox-cx)>W*0.8||Math.abs(oy-cy)>H*1.2) continue;
+      const verts=[];
+      for(let i=0;i<6;i++){const a=TAU*i/6+Math.PI/6;verts.push([ox+Math.cos(a)*R,oy+Math.sin(a)*R]);}
+      tiles.push({verts,type:0,meta:{row,col}});
+    }
+  }
+  return tiles;
+}
+
+// 4. Triangular tiling
+function triangleTiles(cx,cy,scale,rows=10){
+  const tiles=[];
+  const R=scale,H=R*Math.sqrt(3)/2;
+  for(let row=-rows;row<=rows;row++){
+    for(let col=-rows;col<=rows;col++){
+      const ox=col*R+cx+(row%2)*R/2;
+      const oy=row*H+cy;
+      if(Math.abs(ox-cx)>W*0.8||Math.abs(oy-cy)>H*1.2) continue;
+      tiles.push({verts:[[ox,oy],[ox+R,oy],[ox+R/2,oy+H]],type:3});
+      tiles.push({verts:[[ox+R,oy],[ox+R/2,oy+H],[ox+R*1.5,oy+H]],type:4});
+    }
+  }
+  return tiles;
+}
+
+// 5. Square tiling
+function squareTiles(cx,cy,scale,rows=10){
+  const tiles=[];
+  const R=scale;
+  for(let row=-rows;row<=rows;row++){
+    for(let col=-rows;col<=rows;col++){
+      const ox=col*R+cx,oy=row*R+cy;
+      if(Math.abs(ox-cx)>W*0.8||Math.abs(oy-cy)>H*1.2) continue;
+      tiles.push({verts:[[ox,oy],[ox+R,oy],[ox+R,oy+R],[ox,oy+R]],type:5});
+    }
+  }
+  return tiles;
+}
+
+// 6. Voronoi cellular
+function voronoiTiles(cx,cy,scale,n=60){
+  const pts=[];
+  for(let i=0;i<n;i++) pts.push([cx+rand(-W*0.5,W*0.5),cy+rand(-H*0.5,H*0.5)]);
+  // Simple Voronoi approximation via Fortune's algorithm simplified
+  const tiles=[];
+  const grid=40;
+  const cells=new Map();
+  for(let gx=0;gx<grid;gx++){
+    for(let gy=0;gy<grid;gy++){
+      const wx=cx-W*0.5+W*gx/grid, wy=cy-H*0.5+H*gy/grid;
+      let best=0,bd=1e18;
+      pts.forEach((p,i)=>{const d=(p[0]-wx)**2+(p[1]-wy)**2;if(d<bd){bd=d;best=i;}});
+      if(!cells.has(best)) cells.set(best,[]);
+      cells.get(best).push([wx,wy]);
+    }
+  }
+  cells.forEach((pts2,idx)=>{
+    if(pts2.length<3) return;
+    const cx2=pts2.reduce((s,p)=>s+p[0],0)/pts2.length;
+    const cy2=pts2.reduce((s,p)=>s+p[1],0)/pts2.length;
+    pts2.sort((a,b)=>Math.atan2(a[1]-cy2,a[0]-cx2)-Math.atan2(b[1]-cy2,b[0]-cx2));
+    tiles.push({verts:pts2,type:6,meta:{seed:idx}});
+  });
+  return tiles;
+}
+
+// 7. Islamic star pattern (8-fold)
+function islamicStars(cx,cy,scale,rows=5){
+  const tiles=[];
+  const R=scale;
+  function star8(ox,oy,r){
+    const pts=[];
+    for(let i=0;i<8;i++){
+      const a1=TAU*i/8,a2=TAU*(i+0.5)/8;
+      pts.push([ox+Math.cos(a1)*r,oy+Math.sin(a1)*r]);
+      pts.push([ox+Math.cos(a2)*r*0.414,oy+Math.sin(a2)*r*0.414]);
+    }
+    return pts;
+  }
+  for(let row=-rows;row<=rows;row++){
+    for(let col=-rows;col<=rows;col++){
+      const ox=col*R*2+cx+(row%2)*R, oy=row*R*2+cy;
+      if(Math.abs(ox-cx)>W*0.8||Math.abs(oy-cy)>H*1.2) continue;
+      tiles.push({verts:star8(ox,oy,R*0.9),type:7});
+      // Connecting squares
+      tiles.push({verts:[[ox+R,oy-R],[ox+R*2,oy-R],[ox+R*2,oy+R],[ox+R,oy+R]],type:8});
+    }
+  }
+  return tiles;
+}
+
+// 8. Apollonian circles (approximate as polygons)
+function apollonianCircles(cx,cy,scale,depth=4){
+  const tiles=[];
+  function circToVerts(x,y,r,n=16){
+    const v=[];for(let i=0;i<n;i++){const a=TAU*i/n;v.push([x+Math.cos(a)*r,y+Math.sin(a)*r]);}
+    return v;
+  }
+  function apollon(x,y,r,d){
+    if(d===0||r<3) return;
+    tiles.push({verts:circToVerts(x,y,r),type:9,meta:{depth:d}});
+    const r2=r/3;
+    const dirs=[[1,0],[-1,0],[0,1],[0,-1],[0.7,0.7],[-0.7,0.7],[0.7,-0.7],[-0.7,-0.7]];
+    dirs.slice(0,3+d).forEach(([dx,dy])=>{
+      apollon(x+dx*(r-r2),y+dy*(r-r2),r2,d-1);
+    });
+  }
+  apollon(cx,cy,scale,depth);
+  return tiles;
+}
+
+// 9. Hyperbolic tiling (Poincaré disk approximation)
+function hyperbolicTiles(cx,cy,scale,depth=4){
+  const tiles=[];
+  const R=scale*0.45;
+  function mobius(x,y,ax,ay){
+    const dx=x-ax,dy=y-ay;
+    const d2=1-ax*ax-ay*ay;
+    const nrm=(1+2*(ax*dx+ay*dy)+(dx*dx+dy*dy));
+    return[((1-ax*ax+ay*ay)*dx+(ay*ay-ax*ax+2*ay*ay)*0+2*ax*ay*dy)/nrm,
+           ((1-ay*ay+ax*ax)*dy+2*ax*ay*dx)/nrm];
+  }
+  function subdivide(pts,d){
+    if(d===0||pts.length<3){tiles.push({verts:pts.map(([x,y])=>[cx+x*R,cy+y*R]),type:10});return;}
+    const cx2=pts.reduce((s,p)=>s+p[0],0)/pts.length;
+    const cy2=pts.reduce((s,p)=>s+p[1],0)/pts.length;
+    if(Math.abs(cx2)>0.95||Math.abs(cy2)>0.95) return;
+    for(let i=0;i<pts.length;i++){
+      subdivide([pts[i],pts[(i+1)%pts.length],[cx2,cy2]],d-1);
+    }
+  }
+  const n=5;
+  const initPts=[];
+  for(let i=0;i<n;i++){const a=TAU*i/n;initPts.push([Math.cos(a)*0.4,Math.sin(a)*0.4]);}
+  subdivide(initPts,depth);
+  return tiles;
+}
+
+// 10. Celtic knot grid (simplified)
+function celticKnot(cx,cy,scale,rows=6){
+  const tiles=[];
+  const R=scale;
+  for(let row=-rows;row<=rows;row++){
+    for(let col=-rows;col<=rows;col++){
+      const ox=col*R+cx,oy=row*R+cy;
+      if(Math.abs(ox-cx)>W*0.6||Math.abs(oy-cy)>H*0.7) continue;
+      // Interlace crossing square
+      const verts=[];
+      const n=8,r2=R*0.45;
+      for(let i=0;i<n;i++){const a=TAU*i/n+Math.PI/n;verts.push([ox+Math.cos(a)*r2,oy+Math.sin(a)*r2]);}
+      tiles.push({verts,type:11,meta:{row,col}});
+    }
+  }
+  return tiles;
+}
+
+// 11. Hilbert curve (as polygon path)
+function hilbertCurve(cx,cy,scale,order=5){
+  function xy2d(n,x,y){
+    let rx,ry,d=0;
+    for(let s=n/2;s>0;s=s>>1){
+      rx=(x&s)>0?1:0; ry=(y&s)>0?1:0;
+      d+=s*s*((3*rx)^ry);
+      if(ry===0){if(rx===1){x=s-1-x;y=s-1-y;}let t=x;x=y;y=t;}
+    }
+    return d;
+  }
+  function d2xy(n,d){
+    let rx,ry,t=d,x=0,y=0;
+    for(let s=1;s<n;s*=2){
+      rx=(1&(t/2))|0; ry=(1&(t^rx));
+      if(ry===0){if(rx===1){x=s-1-x;y=s-1-y;}let tmp=x;x=y;y=tmp;}
+      x+=s*rx; y+=s*ry; t=t>>2;
+    }
+    return[x,y];
+  }
+  const n=Math.pow(2,order);
+  const pts=[];
+  for(let d=0;d<n*n;d++){
+    const[x,y]=d2xy(n,d);
+    pts.push([cx+(x/n-0.5)*scale*2,cy+(y/n-0.5)*scale*2]);
+  }
+  // Return as a single path-tile
+  return [{verts:pts,type:12,isPath:true}];
+}
+
+// 12. Rotating 4D hypercube projection
+function hypercubeTiles(cx,cy,scale,angle=0){
+  // 4D vertices of tesseract
+  const verts4=[
+    [-1,-1,-1,-1],[1,-1,-1,-1],[-1,1,-1,-1],[1,1,-1,-1],
+    [-1,-1,1,-1],[1,-1,1,-1],[-1,1,1,-1],[1,1,1,-1],
+    [-1,-1,-1,1],[1,-1,-1,1],[-1,1,-1,1],[1,1,-1,1],
+    [-1,-1,1,1],[1,-1,1,1],[-1,1,1,1],[1,1,1,1]
+  ];
+  const edges4=[];
+  for(let i=0;i<16;i++) for(let j=i+1;j<16;j++){
+    let diff=0;
+    for(let k=0;k<4;k++) if(verts4[i][k]!==verts4[j][k]) diff++;
+    if(diff===1) edges4.push([i,j]);
+  }
+  // 4D rotation
+  function rot4(v,a,b,c,d){
+    const ca=Math.cos(a),sa=Math.sin(a);
+    const cb=Math.cos(b),sb=Math.sin(b);
+    const cc=Math.cos(c),sc=Math.sin(c);
+    let [x,y,z,w]=v;
+    [x,y]=[x*ca-y*sa,x*sa+y*ca];
+    [z,w]=[z*cb-w*sb,z*sb+w*cb];
+    [x,z]=[x*cc-z*sc,x*sc+z*cc];
+    return[x,y,z,w];
+  }
+  // Project to 2D
+  function proj(v){
+    const [x,y,z,w]=v;
+    const d=2/(3-w), d2=2/(3-z);
+    return[cx+x*d*d2*scale,cy+y*d*d2*scale];
+  }
+  const rotated=verts4.map(v=>rot4(v,angle*0.7,angle*0.5,angle*0.3,angle*0.2));
+  const tiles=edges4.map(([a,b])=>({
+    verts:[proj(rotated[a]),proj(rotated[b])],
+    type:13,isLine:true
+  }));
+  return tiles;
+}
+
+// 13. Mandala / Mughal rosette
+function mandalaTiles(cx,cy,scale,petals=12,layers=4){
+  const tiles=[];
+  for(let l=1;l<=layers;l++){
+    const r1=(scale*l/layers)*0.8, r2=scale*l/layers;
+    for(let p=0;p<petals;p++){
+      const a1=TAU*p/petals, a2=TAU*(p+1)/petals, am=(a1+a2)/2;
+      const verts=[
+        [cx+Math.cos(a1)*r1,cy+Math.sin(a1)*r1],
+        [cx+Math.cos(am)*r2*1.1,cy+Math.sin(am)*r2*1.1],
+        [cx+Math.cos(a2)*r1,cy+Math.sin(a2)*r1],
+        [cx+Math.cos(am)*r1*0.6,cy+Math.sin(am)*r1*0.6],
+      ];
+      tiles.push({verts,type:14,meta:{layer:l,petal:p}});
+    }
+  }
+  return tiles;
+}
+
+// 14. Space-filling recursive labyrinth
+function labyrinthTiles(cx,cy,scale,depth=5){
+  const tiles=[];
+  function recurse(x,y,w,h,dir,d){
+    if(d===0||w<4||h<4){
+      tiles.push({verts:[[x,y],[x+w,y],[x+w,y+h],[x,y+h]],type:15});
+      return;
+    }
+    if(dir===0){
+      const mid=w/2+rand(-w*0.2,w*0.2);
+      const gap=rand(h*0.1,h*0.4);
+      const gy=rand(y,y+h-gap);
+      // Wall with gap
+      tiles.push({verts:[[x+mid,y],[x+mid+2,y],[x+mid+2,gy],[x+mid,gy]],type:16});
+      tiles.push({verts:[[x+mid,gy+gap],[x+mid+2,gy+gap],[x+mid+2,y+h],[x+mid,y+h]],type:16});
+      recurse(x,y,mid,h,1,d-1);
+      recurse(x+mid,y,w-mid,h,1,d-1);
+    } else {
+      const mid=h/2+rand(-h*0.2,h*0.2);
+      const gap=rand(w*0.1,w*0.4);
+      const gx=rand(x,x+w-gap);
+      tiles.push({verts:[[x,y+mid],[x,y+mid+2],[gx,y+mid+2],[gx,y+mid]],type:16});
+      tiles.push({verts:[[gx+gap,y+mid],[gx+gap,y+mid+2],[x+w,y+mid+2],[x+w,y+mid]],type:16});
+      recurse(x,y,w,mid,0,d-1);
+      recurse(x,y+mid,w,h-mid,0,d-1);
+    }
+  }
+  recurse(cx-scale,cy-scale*H/W*0.8,scale*2,scale*1.6*H/W,0,depth);
+  return tiles;
+}
+
+// 15. Spring-mass particle system
+class ParticleSystem {
+  constructor(n,cx,cy,scale){
+    this.n=n; this.scale=scale;
+    this.pos=[]; this.vel=[]; this.acc=[];
+    this.springs=[];
+    for(let i=0;i<n;i++){
+      const a=TAU*i/n+rand(0,0.5), r=rand(scale*0.1,scale*0.9);
+      this.pos.push([cx+Math.cos(a)*r,cy+Math.sin(a)*r]);
+      this.vel.push([rand(-1,1)*0.5,rand(-1,1)*0.5]);
+      this.acc.push([0,0]);
+    }
+    // Connect nearby particles
+    for(let i=0;i<n;i++) for(let j=i+1;j<n;j++){
+      const dx=this.pos[i][0]-this.pos[j][0], dy=this.pos[i][1]-this.pos[j][1];
+      const d=Math.sqrt(dx*dx+dy*dy);
+      if(d<scale*0.4) this.springs.push({i,j,rest:d,k:0.02+rand(0,0.03)});
+    }
+  }
+  update(dt,cx,cy,attractor){
+    const n=this.n;
+    for(let i=0;i<n;i++) this.acc[i]=[0,0];
+    // Springs
+    this.springs.forEach(({i,j,rest,k})=>{
+      const dx=this.pos[j][0]-this.pos[i][0], dy=this.pos[j][1]-this.pos[i][1];
+      const d=Math.sqrt(dx*dx+dy*dy)+1e-6;
+      const f=k*(d-rest)/d;
+      this.acc[i][0]+=f*dx; this.acc[i][1]+=f*dy;
+      this.acc[j][0]-=f*dx; this.acc[j][1]-=f*dy;
+    });
+    // Attractor / repulsor
+    for(let i=0;i<n;i++){
+      const dx=attractor[0]-this.pos[i][0], dy=attractor[1]-this.pos[i][1];
+      const d2=dx*dx+dy*dy+1;
+      this.acc[i][0]+=dx/d2*200;
+      this.acc[i][1]+=dy/d2*200;
+    }
+    // Integrate
+    for(let i=0;i<n;i++){
+      this.vel[i][0]=(this.vel[i][0]+this.acc[i][0]*dt)*0.98;
+      this.vel[i][1]=(this.vel[i][1]+this.acc[i][1]*dt)*0.98;
+      this.pos[i][0]+=this.vel[i][0];
+      this.pos[i][1]+=this.vel[i][1];
+    }
+  }
+}
+
+// 16. Reaction-diffusion (Gray-Scott)
+class ReactionDiffusion {
+  constructor(w,h){
+    this.gw=Math.floor(w/4);
+    this.gh=Math.floor(h/4);
+    const n=this.gw*this.gh;
+    this.A=new Float32Array(n).fill(1);
+    this.B=new Float32Array(n).fill(0);
+    this.nA=new Float32Array(n);
+    this.nB=new Float32Array(n);
+    // Seed
+    const cx=this.gw>>1, cy=this.gh>>1;
+    for(let dy=-5;dy<=5;dy++) for(let dx=-5;dx<=5;dx++){
+      const idx=(cy+dy)*this.gw+(cx+dx);
+      if(idx>=0&&idx<n){this.A[idx]=0.5;this.B[idx]=0.25+rand(0,0.1);}
+    }
+    this.f=0.035+rand(-0.01,0.01);
+    this.k=0.065+rand(-0.01,0.01);
+    this.Da=0.21; this.Db=0.105;
+    this.offscreen=document.createElement('canvas');
+    this.offscreen.width=this.gw; this.offscreen.height=this.gh;
+    this.offCtx=this.offscreen.getContext('2d');
+    this.imgData=this.offCtx.createImageData(this.gw,this.gh);
+  }
+  step(n=3){
+    const W=this.gw,H=this.gh,A=this.A,B=this.B,nA=this.nA,nB=this.nB;
+    const f=this.f,k=this.k,Da=this.Da,Db=this.Db;
+    for(let iter=0;iter<n;iter++){
+      for(let y=1;y<H-1;y++){
+        for(let x=1;x<W-1;x++){
+          const i=y*W+x;
+          const lapA=A[i-W]+A[i+W]+A[i-1]+A[i+1]-4*A[i];
+          const lapB=B[i-W]+B[i+W]+B[i-1]+B[i+1]-4*B[i];
+          const a=A[i],b=B[i];
+          const abb=a*b*b;
+          nA[i]=clamp(a+Da*lapA-abb+f*(1-a),0,1);
+          nB[i]=clamp(b+Db*lapB+abb-(k+f)*b,0,1);
+        }
+      }
+      A.set(nA); B.set(nB);
+    }
+  }
+  render(palette,t){
+    const d=this.imgData.data;
+    const n=this.gw*this.gh;
+    for(let i=0;i<n;i++){
+      const b=this.B[i];
+      const h=mod(palette.base+b*200+t*20,360);
+      const [r,g,bl]=hslToRgb(h,palette.saturation,20+b*70);
+      d[i*4]=r; d[i*4+1]=g; d[i*4+2]=bl; d[i*4+3]=255;
+    }
+    this.offCtx.putImageData(this.imgData,0,0);
+    return this.offscreen;
+  }
+}
+
+// 17. Lattice Boltzmann (simplified 2D)
+class LatticeBoltzmann {
+  constructor(w,h){
+    this.gw=Math.floor(w/8);
+    this.gh=Math.floor(h/8);
+    const n=this.gw*this.gh;
+    // D2Q9
+    this.ex=[0,1,-1,0,0,1,-1,-1,1];
+    this.ey=[0,0,0,1,-1,1,1,-1,-1];
+    this.w9=[4/9,1/9,1/9,1/9,1/9,1/36,1/36,1/36,1/36];
+    this.f=new Float32Array(n*9);
+    this.nf=new Float32Array(n*9);
+    this.rho=new Float32Array(n).fill(1);
+    this.ux=new Float32Array(n);
+    this.uy=new Float32Array(n);
+    this.obstacle=new Uint8Array(n);
+    const tau=0.6;
+    this.omega=1/tau;
+    // Init equilibrium
+    for(let i=0;i<n;i++) for(let q=0;q<9;q++) this.f[i*9+q]=this.w9[q];
+    // Circular obstacle
+    const cx=this.gw/3|0, cy=this.gh/2|0, r=this.gh/6|0;
+    for(let y=0;y<this.gh;y++) for(let x=0;x<this.gw;x++){
+      if((x-cx)**2+(y-cy)**2<r*r) this.obstacle[y*this.gw+x]=1;
+    }
+    this.offscreen=document.createElement('canvas');
+    this.offscreen.width=this.gw; this.offscreen.height=this.gh;
+    this.offCtx=this.offscreen.getContext('2d');
+    this.imgData=this.offCtx.createImageData(this.gw,this.gh);
+  }
+  step(){
+    const W=this.gw,H=this.gh,f=this.f,nf=this.nf,om=this.omega;
+    const ex=this.ex,ey=this.ey,w9=this.w9;
+    // Stream
+    for(let y=0;y<H;y++) for(let x=0;x<W;x++){
+      const i=y*W+x;
+      if(this.obstacle[i]){
+        for(let q=0;q<9;q++) nf[i*9+q]=f[i*9+(q===0?0:q<=4?q+4-(q-1)*2:q>4?(q<=6?q+2:q-2):q)];
+        continue;
+      }
+      for(let q=0;q<9;q++){
+        let nx=x-ex[q], ny=y-ey[q];
+        nx=mod(nx,W); ny=mod(ny,H);
+        nf[i*9+q]=f[(ny*W+nx)*9+q];
+      }
+    }
+    f.set(nf);
+    // Collide + inlet
+    for(let y=0;y<H;y++) for(let x=0;x<W;x++){
+      const i=y*W+x;
+      if(this.obstacle[i]) continue;
+      let rho=0,ux=0,uy=0;
+      for(let q=0;q<9;q++){rho+=f[i*9+q];ux+=ex[q]*f[i*9+q];uy+=ey[q]*f[i*9+q];}
+      ux/=rho; uy/=rho;
+      if(x===0){ux=0.1;uy=0;}
+      this.rho[i]=rho; this.ux[i]=ux; this.uy[i]=uy;
+      const u2=ux*ux+uy*uy;
+      for(let q=0;q<9;q++){
+        const eu=ex[q]*ux+ey[q]*uy;
+        const feq=w9[q]*rho*(1+3*eu+4.5*eu*eu-1.5*u2);
+        f[i*9+q]+= om*(feq-f[i*9+q]);
+      }
+    }
+  }
+  render(palette,t){
+    const d=this.imgData.data;
+    let maxU=0;
+    for(let i=0;i<this.gw*this.gh;i++){
+      const u=Math.sqrt(this.ux[i]**2+this.uy[i]**2);
+      if(u>maxU) maxU=u;
+    }
+    for(let i=0;i<this.gw*this.gh;i++){
+      if(this.obstacle[i]){d[i*4]=50;d[i*4+1]=50;d[i*4+2]=60;d[i*4+3]=200;continue;}
+      const u=Math.sqrt(this.ux[i]**2+this.uy[i]**2)/(maxU+1e-6);
+      const h=mod(palette.base+180+u*120+t*10,360);
+      const [r,g,b]=hslToRgb(h,palette.saturation,15+u*65);
+      d[i*4]=r;d[i*4+1]=g;d[i*4+2]=b;d[i*4+3]=220;
+    }
+    this.offCtx.putImageData(this.imgData,0,0);
+    return this.offscreen;
+  }
+}
+
+// 18. Lorenz / strange attractor
+class StrangeAttractor {
+  constructor(cx,cy,scale){
+    this.cx=cx; this.cy=cy; this.scale=scale;
+    this.x=0.1; this.y=0; this.z=0;
+    this.sigma=10+rand(-2,2);
+    this.rho=28+rand(-5,5);
+    this.beta=8/3+rand(-0.3,0.3);
+    this.trail=[];
+    this.maxTrail=300;
+    this.proj=randi(0,3); // which plane to project
+  }
+  step(dt){
+    const n=5;
+    const dt2=dt/n;
+    for(let i=0;i<n;i++){
+      const dx=this.sigma*(this.y-this.x);
+      const dy=this.x*(this.rho-this.z)-this.y;
+      const dz=this.x*this.y-this.beta*this.z;
+      this.x+=dx*dt2; this.y+=dy*dt2; this.z+=dz*dt2;
+    }
+    let sx,sy;
+    if(this.proj===0){sx=this.x;sy=this.z-25;}
+    else if(this.proj===1){sx=this.y;sy=this.z-25;}
+    else{sx=this.x;sy=this.y;}
+    this.trail.push([this.cx+sx*this.scale/25,this.cy+sy*this.scale/25]);
+    if(this.trail.length>this.maxTrail) this.trail.shift();
+  }
+  draw(ctx,palette,t){
+    if(this.trail.length<2) return;
+    for(let i=1;i<this.trail.length;i++){
+      const alpha=i/this.trail.length;
+      const h=mod(palette.base+i*0.5+t*20,360);
+      const [r,g,b]=hslToRgb(h,palette.saturation,40+alpha*40);
+      ctx.strokeStyle=rgbStr(r,g,b,alpha*0.8);
+      ctx.lineWidth=0.5+alpha*1.5;
+      ctx.beginPath();
+      ctx.moveTo(this.trail[i-1][0],this.trail[i-1][1]);
+      ctx.lineTo(this.trail[i][0],this.trail[i][1]);
+      ctx.stroke();
+    }
+  }
+}
+
+// 19. Planetary gear linkage
+class PlanetaryGear {
+  constructor(cx,cy,R){
+    this.cx=cx; this.cy=cy; this.R=R;
+    this.n=randi(3,8); // planets
+    this.sunR=R*0.3; this.planetR=R*0.2;
+    this.angle=0; this.speed=rand(0.3,1.2);
+  }
+  update(dt){ this.angle+=this.speed*dt; }
+  draw(ctx,palette,t){
+    const {cx,cy,R,n,sunR,planetR,angle}=this;
+    // Sun
+    ctx.beginPath();
+    ctx.arc(cx,cy,sunR,0,TAU);
+    ctx.strokeStyle=palette.color(0,0.9,t*20);
+    ctx.lineWidth=2;
+    ctx.stroke();
+    // Gear teeth on sun
+    for(let i=0;i<12;i++){
+      const a=TAU*i/12+angle;
+      ctx.beginPath();
+      ctx.moveTo(cx+Math.cos(a)*(sunR-4),cy+Math.sin(a)*(sunR-4));
+      ctx.lineTo(cx+Math.cos(a)*(sunR+4),cy+Math.sin(a)*(sunR+4));
+      ctx.stroke();
+    }
+    // Planets
+    const orbit=R*0.6;
+    for(let i=0;i<n;i++){
+      const a=TAU*i/n+angle*0.5;
+      const px=cx+Math.cos(a)*orbit, py=cy+Math.sin(a)*orbit;
+      ctx.beginPath(); ctx.arc(px,py,planetR,0,TAU);
+      ctx.strokeStyle=palette.color(i+1,0.8,t*15);
+      ctx.lineWidth=1.5;
+      ctx.stroke();
+      // Planet teeth
+      for(let j=0;j<8;j++){
+        const a2=TAU*j/8-angle*2;
+        ctx.beginPath();
+        ctx.moveTo(px+Math.cos(a2)*(planetR-3),py+Math.sin(a2)*(planetR-3));
+        ctx.lineTo(px+Math.cos(a2)*(planetR+3),py+Math.sin(a2)*(planetR+3));
+        ctx.stroke();
+      }
+      // Rod to sun
+      ctx.beginPath();
+      ctx.moveTo(cx+Math.cos(a)*sunR,cy+Math.sin(a)*sunR);
+      ctx.lineTo(px,py);
+      ctx.strokeStyle=palette.color(0,0.3);
+      ctx.lineWidth=1;
+      ctx.stroke();
+    }
+    // Ring gear
+    ctx.beginPath(); ctx.arc(cx,cy,R,0,TAU);
+    ctx.strokeStyle=palette.color(n+1,0.4);
+    ctx.lineWidth=3;
+    ctx.stroke();
+  }
+}
+
+// 20. Gyroscope rotor swarm
+class GyroSwarm {
+  constructor(cx,cy,scale,n=5){
+    this.gyros=[];
+    for(let i=0;i<n;i++){
+      const a=TAU*i/n, r=scale*(0.3+rand(0,0.4));
+      this.gyros.push({
+        cx:cx+Math.cos(a)*r, cy:cy+Math.sin(a)*r,
+        R:scale*(0.1+rand(0,0.15)),
+        spin:rand(1,4)*(Math.random()<0.5?1:-1),
+        tilt:rand(0,TAU),
+        tiltSpeed:rand(-0.5,0.5),
+        phase:rand(0,TAU)
+      });
+    }
+  }
+  update(dt){
+    this.gyros.forEach(g=>{
+      g.tilt+=g.tiltSpeed*dt;
+      g.phase+=g.spin*dt;
+    });
+  }
+  draw(ctx,palette,t){
+    this.gyros.forEach((g,i)=>{
+      const {cx,cy,R,tilt,phase}=g;
+      const tiltX=Math.cos(tilt)*0.4, tiltY=Math.sin(tilt)*0.4;
+      // Outer ring (ellipse simulation)
+      ctx.save();
+      ctx.translate(cx,cy);
+      ctx.rotate(tilt);
+      ctx.scale(1,Math.abs(Math.cos(tiltX*2))*0.3+0.1);
+      ctx.beginPath(); ctx.arc(0,0,R,0,TAU);
+      ctx.strokeStyle=palette.color(i,0.7,t*25);
+      ctx.lineWidth=2; ctx.stroke();
+      ctx.restore();
+      // Axle
+      ctx.beginPath();
+      ctx.moveTo(cx-Math.cos(tilt)*R,cy-Math.sin(tilt)*R);
+      ctx.lineTo(cx+Math.cos(tilt)*R,cy+Math.sin(tilt)*R);
+      ctx.strokeStyle=palette.color(i+2,0.9);
+      ctx.lineWidth=1.5; ctx.stroke();
+      // Spinning disc lines
+      for(let j=0;j<6;j++){
+        const a=phase+TAU*j/6;
+        const ex=Math.cos(a)*R*0.8*Math.cos(tilt);
+        const ey=Math.sin(a)*R*0.8;
+        ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(cx+ex,cy+ey);
+        ctx.strokeStyle=palette.color(j,0.4,t*10); ctx.lineWidth=1; ctx.stroke();
+      }
+    });
+  }
+}
+
+// 21. Cellular automaton (Game of Life variant)
+class CellularAutomaton {
+  constructor(w,h,cellSize=8){
+    this.cs=cellSize;
+    this.gw=Math.floor(w/cellSize);
+    this.gh=Math.floor(h/cellSize);
+    this.cells=new Uint8Array(this.gw*this.gh);
+    this.next=new Uint8Array(this.gw*this.gh);
+    this.age=new Float32Array(this.gw*this.gh);
+    // Random init
+    for(let i=0;i<this.cells.length;i++) if(Math.random()<0.35) this.cells[i]=1;
+    this.rule=randi(0,3); // 0=life,1=maze,2=coral
+    this.stepCount=0;
+  }
+  step(){
+    const W=this.gw,H=this.gh;
+    // Rule tables: 0=Life B3/S23, 1=Maze B3/S12345, 2=Coral B3/S45678
+    const birthSets=[[3],[3],[3]];
+    const surviveSets=[[2,3],[1,2,3,4,5],[4,5,6,7,8]];
+    const bSet=birthSets[this.rule];
+    const sSet=surviveSets[this.rule];
+    for(let y=0;y<H;y++) for(let x=0;x<W;x++){
+      let n=0;
+      for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++){
+        if(dx===0&&dy===0) continue;
+        const nx=mod(x+dx,W),ny=mod(y+dy,H);
+        n+=this.cells[ny*W+nx];
+      }
+      const i=y*W+x;
+      const alive=this.cells[i];
+      const newAlive=(alive ? sSet.indexOf(n)>=0 : bSet.indexOf(n)>=0) ? 1 : 0;
+      this.next[i]=newAlive;
+      this.age[i]=newAlive ? (this.age[i]+1) : 0;
+    }
+    this.cells.set(this.next);
+    this.stepCount++;
+    if(this.stepCount%200===0) this.randomize();
+  }
+  randomize(){
+    const cx=this.gw>>1,cy=this.gh>>1,r=this.gw/4|0;
+    for(let dy=-r;dy<=r;dy++) for(let dx=-r;dx<=r;dx++){
+      if(dx*dx+dy*dy<r*r&&Math.random()<0.5){
+        const i=(cy+dy)*this.gw+(cx+dx);
+        if(i>=0&&i<this.cells.length) this.cells[i]=Math.random()<0.5?1:0;
+      }
+    }
+  }
+  draw(ctx,palette,t,screenW,screenH){
+    const cs=this.cs;
+    for(let y=0;y<this.gh;y++) for(let x=0;x<this.gw;x++){
+      const i=y*this.gw+x;
+      if(!this.cells[i]) continue;
+      const age=Math.min(this.age[i]/20,1);
+      const h=mod(palette.base+age*120+x*2+t*10,360);
+      const [r,g,b]=hslToRgb(h,palette.saturation,30+age*50);
+      ctx.fillStyle=rgbStr(r,g,b,0.7+age*0.3);
+      ctx.fillRect(x*cs,y*cs,cs-1,cs-1);
+    }
+  }
+}
+
+// ─── Main Universe Class ──────────────────────────────────────
+class Universe {
+  constructor(w,h){
+    this.W=w; this.H=h;
+    this.CX=w/2; this.CY=h/2;
+    this.palette=new Palette();
+    this.t=0;
+    this.energy=0;
+    this.morphPhase=0;
+    this.morphSpeed=rand(0.003,0.012);
+    this.layers=[];
+    this.physLayers=[];
+    this.bgSystem=null;
+    this.build();
+  }
+  build(){
+    this.layers=[];
+    this.physLayers=[];
+    // Choose tile systems
+    const scale=Math.min(this.W,this.H)*0.45;
+    const tileSystem=randi(0,15);
+    const physSystem=randi(0,6);
+    const overlaySystem=randi(0,8);
+
+    this.tileSystem=tileSystem;
+    this.physSystem=physSystem;
+
+    // Tiling layer
+    this.tiles=this.buildTiles(tileSystem,scale);
+    // Physics overlay
+    this.physics=this.buildPhysics(physSystem,scale);
+    // BG
+    this.bgType=randi(0,4);
+    // Secondary overlay
+    this.overlay=this.buildOverlay(overlaySystem,scale*0.6);
+    // Particles (always)
+    this.particles=new ParticleSystem(Math.min(80,30+randi(0,50)),this.CX,this.CY,scale*0.5);
+    // Attractor
+    this.attractor=new StrangeAttractor(this.CX,this.CY,scale*0.4);
+    // Morph params
+    this.tileAlpha=rand(0.15,0.6);
+    this.physAlpha=rand(0.3,0.8);
+    this.blendMode=pick(['source-over','screen','multiply','overlay','lighter']);
+    this.rotation=rand(0,TAU);
+    this.rotSpeed=rand(-0.003,0.003);
+    this.zoom=rand(0.7,1.3);
+    this.zoomTarget=rand(0.7,1.3);
+    // Warp
+    this.warpX=rand(0.001,0.005)*(Math.random()<0.5?1:-1);
+    this.warpY=rand(0.001,0.005)*(Math.random()<0.5?1:-1);
+    // Hypercube angle
+    this.hypAngle=0;
+    // Dimension
+    this.dimProj=randi(4,10); // 4-9D
+    // Star field
+    this.stars=[];
+    for(let i=0;i<100;i++) this.stars.push({
+      x:rand(0,this.W),y:rand(0,this.H),
+      r:rand(0.5,2),speed:rand(0.1,0.5)
+    });
+    // Vortices
+    this.vortices=[];
+    const nv=randi(2,6);
+    for(let i=0;i<nv;i++) this.vortices.push({
+      x:this.CX+rand(-scale*0.5,scale*0.5),
+      y:this.CY+rand(-scale*0.5,scale*0.5),
+      str:rand(20,80)*(Math.random()<0.5?1:-1),
+      radius:rand(scale*0.1,scale*0.4)
+    });
+  }
+  buildTiles(system,scale){
+    const cx=this.CX,cy=this.CY;
+    switch(system){
+      case 0: return penroseTiles(cx,cy,scale,4);
+      case 1: return ammannBeenker(cx,cy,scale,3);
+      case 2: return hexTiles(cx,cy,scale*0.12,8);
+      case 3: return triangleTiles(cx,cy,scale*0.1,10);
+      case 4: return squareTiles(cx,cy,scale*0.1,10);
+      case 5: return voronoiTiles(cx,cy,scale);
+      case 6: return islamicStars(cx,cy,scale*0.15,5);
+      case 7: return apollonianCircles(cx,cy,scale,4);
+      case 8: return hyperbolicTiles(cx,cy,scale,4);
+      case 9: return celticKnot(cx,cy,scale*0.1,7);
+      case 10: return hilbertCurve(cx,cy,scale*0.9,5);
+      case 11: return mandalaTiles(cx,cy,scale*0.9,12,5);
+      case 12: return labyrinthTiles(cx,cy,scale*0.9,5);
+      case 13: return hypercubeTiles(cx,cy,scale*0.5,0);
+      case 14: return mandalaTiles(cx,cy,scale*0.8,16,6);
+      default: return penroseTiles(cx,cy,scale,4);
+    }
+  }
+  buildPhysics(system,scale){
+    switch(system){
+      case 0: return new ReactionDiffusion(this.W,this.H);
+      case 1: return new LatticeBoltzmann(this.W,this.H);
+      case 2: return new PlanetaryGear(this.CX,this.CY,scale*0.6);
+      case 3: return new GyroSwarm(this.CX,this.CY,scale*0.7,5);
+      case 4: return new CellularAutomaton(this.W,this.H,Math.max(4,Math.floor(Math.min(this.W,this.H)/80)));
+      case 5: return null;
+      default: return null;
+    }
+  }
+  buildOverlay(system,scale){
+    const cx=this.CX,cy=this.CY;
+    switch(system){
+      case 0: return mandalaTiles(cx,cy,scale,8,3);
+      case 1: return islamicStars(cx,cy,scale*0.2,3);
+      case 2: return hexTiles(cx,cy,scale*0.15,5);
+      case 3: return hyperbolicTiles(cx,cy,scale,3);
+      case 4: return celticKnot(cx,cy,scale*0.15,5);
+      case 5: return penroseTiles(cx,cy,scale,3);
+      case 6: return squareTiles(cx,cy,scale*0.15,6);
+      case 7: return apollonianCircles(cx,cy,scale,3);
+      default: return [];
+    }
+  }
+  update(dt){
+    this.t+=dt;
+    this.palette.evolve(dt);
+    this.hypAngle+=dt*0.5;
+    this.rotation+=this.rotSpeed;
+    this.zoom=lerp(this.zoom,this.zoomTarget,0.002);
+    if(Math.abs(this.zoom-this.zoomTarget)<0.01) this.zoomTarget=rand(0.7,1.3);
+    this.morphPhase+=this.morphSpeed;
+    // Update tiling if dynamic
+    if(this.tileSystem===13){
+      this.tiles=hypercubeTiles(this.CX,this.CY,Math.min(this.W,this.H)*0.25,this.hypAngle);
+    }
+    // Physics
+    if(this.physics){
+      if(this.physics instanceof ReactionDiffusion) this.physics.step(2);
+      else if(this.physics instanceof LatticeBoltzmann) this.physics.step();
+      else if(this.physics instanceof PlanetaryGear) this.physics.update(dt);
+      else if(this.physics instanceof GyroSwarm) this.physics.update(dt);
+      else if(this.physics instanceof CellularAutomaton) this.physics.step();
+    }
+    // Particles
+    const attr=[this.CX+Math.cos(this.t*0.3)*this.W*0.2,this.CY+Math.sin(this.t*0.2)*this.H*0.2];
+    this.particles.update(dt,this.CX,this.CY,attr);
+    // Attractor
+    this.attractor.step(dt);
+    // Energy
+    let e=0;
+    this.particles.vel.forEach(v=>e+=v[0]*v[0]+v[1]*v[1]);
+    this.energy=lerp(this.energy,Math.sqrt(e/this.particles.n)*0.1,0.1);
+  }
+  drawBackground(ctx){
+    const t=this.t, pal=this.palette;
+    const grd=ctx.createRadialGradient(this.CX,this.CY,0,this.CX,this.CY,Math.max(this.W,this.H)*0.7);
+    const h1=mod(pal.base,360), h2=mod(pal.base+120,360), h3=mod(pal.base+240,360);
+    const [r1,g1,b1]=hslToRgb(h1,pal.saturation,8);
+    const [r2,g2,b2]=hslToRgb(h2,pal.saturation,4);
+    const [r3,g3,b3]=hslToRgb(h3,pal.saturation,12);
+    grd.addColorStop(0,rgbStr(r3,g3,b3,1));
+    grd.addColorStop(0.5,rgbStr(r1,g1,b1,1));
+    grd.addColorStop(1,rgbStr(r2,g2,b2,1));
+    ctx.fillStyle=grd;
+    ctx.fillRect(0,0,this.W,this.H);
+    // Nebula wisps
+    for(let i=0;i<3;i++){
+      const a=t*0.1+TAU*i/3;
+      const nx=this.CX+Math.cos(a)*this.W*0.25, ny=this.CY+Math.sin(a)*this.H*0.25;
+      const g=ctx.createRadialGradient(nx,ny,0,nx,ny,this.W*0.35);
+      const [nr,ng2,nb]=hslToRgb(mod(h2+i*40,360),pal.saturation,20);
+      g.addColorStop(0,rgbStr(nr,ng2,nb,0.08));
+      g.addColorStop(1,rgbStr(0,0,0,0));
+      ctx.fillStyle=g;
+      ctx.fillRect(0,0,this.W,this.H);
+    }
+    // Stars
+    this.stars.forEach(s=>{
+      s.x=mod(s.x-s.speed,this.W);
+      const a=0.3+Math.sin(t*s.speed*2+s.y)*0.3;
+      ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,TAU);
+      ctx.fillStyle=pal.color(0,a,s.x/this.W*120);
+      ctx.fill();
+    });
+  }
+  drawTiles(ctx,tiles,alpha,shift=0,lw=1,fill=false){
+    if(!tiles||!tiles.length) return;
+    const pal=this.palette, t=this.t;
+    tiles.forEach((tile,i)=>{
+      if(!tile.verts||tile.verts.length<2) return;
+      const h=mod(pal.base+i*7+shift+t*15,360);
+      const [r,g,b]=hslToRgb(h,pal.saturation,50+Math.sin(i*0.3+t)*20);
+      if(tile.isPath){
+        ctx.beginPath();
+        ctx.moveTo(tile.verts[0][0],tile.verts[0][1]);
+        for(let j=1;j<tile.verts.length;j++) ctx.lineTo(tile.verts[j][0],tile.verts[j][1]);
+        ctx.strokeStyle=rgbStr(r,g,b,alpha*0.8);
+        ctx.lineWidth=lw; ctx.stroke();
+        return;
+      }
+      if(tile.isLine){
+        ctx.beginPath();
+        ctx.moveTo(tile.verts[0][0],tile.verts[0][1]);
+        ctx.lineTo(tile.verts[1][0],tile.verts[1][1]);
+        ctx.strokeStyle=rgbStr(r,g,b,alpha);
+        ctx.lineWidth=lw*2; ctx.stroke();
+        return;
+      }
+      drawPoly(ctx,tile.verts);
+      if(fill){
+        const [r2,g2,b2]=hslToRgb(h,pal.saturation,15);
+        ctx.fillStyle=rgbStr(r2,g2,b2,alpha*0.3);
+        ctx.fill();
+      }
+      ctx.strokeStyle=rgbStr(r,g,b,alpha);
+      ctx.lineWidth=lw;
+      ctx.stroke();
+    });
+  }
+  drawVortices(ctx){
+    const t=this.t, pal=this.palette;
+    this.vortices.forEach((v,i)=>{
+      const n=24;
+      for(let j=0;j<n;j++){
+        const a=TAU*j/n+t*v.str*0.01;
+        const r=v.radius*((j+1)/n);
+        const x=v.x+Math.cos(a)*r, y=v.y+Math.sin(a)*r;
+        const h=mod(pal.base+j*5+t*20,360);
+        const [cr,cg,cb]=hslToRgb(h,pal.saturation,50);
+        ctx.beginPath();ctx.arc(x,y,1+r*0.02,0,TAU);
+        ctx.fillStyle=rgbStr(cr,cg,cb,0.4);
+        ctx.fill();
+      }
+    });
+  }
+  drawParticles(ctx){
+    const pal=this.palette, t=this.t;
+    const ps=this.particles;
+    // Springs
+    ps.springs.forEach(({i,j})=>{
+      const a=ps.pos[i], b=ps.pos[j];
+      const dx=b[0]-a[0],dy=b[1]-a[1];
+      const d=Math.sqrt(dx*dx+dy*dy);
+      const h=mod(pal.base+d,360);
+      const [r,g,bl]=hslToRgb(h,pal.saturation,50);
+      ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);
+      ctx.strokeStyle=rgbStr(r,g,bl,0.3);
+      ctx.lineWidth=0.5;ctx.stroke();
+    });
+    ps.pos.forEach((p,i)=>{
+      const v=ps.vel[i];
+      const speed=Math.sqrt(v[0]*v[0]+v[1]*v[1]);
+      const h=mod(pal.base+speed*50+i*10,360);
+      const [r,g,b]=hslToRgb(h,pal.saturation,60+speed*20);
+      ctx.beginPath();ctx.arc(p[0],p[1],2+speed,0,TAU);
+      ctx.fillStyle=rgbStr(r,g,b,0.7);
+      ctx.fill();
+    });
+  }
+  drawInterference(ctx){
+    const t=this.t, pal=this.palette;
+    const n=6;
+    for(let i=0;i<n;i++){
+      const a=TAU*i/n+t*0.1;
+      const cx=this.CX+Math.cos(a)*this.W*0.3, cy=this.CY+Math.sin(a)*this.H*0.3;
+      const g=ctx.createRadialGradient(cx,cy,0,cx,cy,Math.min(this.W,this.H)*0.4);
+      const h=mod(pal.base+i*60+t*20,360);
+      const [r,grn,b]=hslToRgb(h,pal.saturation,50);
+      g.addColorStop(0,rgbStr(r,grn,b,0.12));
+      g.addColorStop(0.5,rgbStr(r,grn,b,0.03));
+      g.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=g;
+      ctx.fillRect(0,0,this.W,this.H);
+    }
+  }
+  drawHigherDimGrid(ctx){
+    // Project n-dimensional simplex / cross-polytope
+    const n=Math.min(this.dimProj,8);
+    const scale=Math.min(this.W,this.H)*0.3;
+    const t=this.t, pal=this.palette;
+    // Generate n-D vertices of cross-polytope
+    const verts=[];
+    for(let i=0;i<n;i++){
+      const pos=new Array(n).fill(0); pos[i]=1; verts.push(pos);
+      const neg=new Array(n).fill(0); neg[i]=-1; verts.push(neg);
+    }
+    // Projection matrix (rotating)
+    const proj2D=v=>{
+      let x=0,y=0;
+      for(let i=0;i<n;i++){
+        x+=v[i]*Math.cos(TAU*i/n+t*0.2+i*0.1);
+        y+=v[i]*Math.sin(TAU*i/n+t*0.15+i*0.12);
+      }
+      return[this.CX+x*scale,this.CY+y*scale];
+    };
+    const projected=verts.map(proj2D);
+    // Edges: connect vertices that differ in 2 coords
+    for(let i=0;i<verts.length;i++){
+      for(let j=i+1;j<verts.length;j++){
+        let diff=0;for(let k=0;k<n;k++) if(verts[i][k]!==verts[j][k]) diff++;
+        if(diff<=2){
+          const h=mod(pal.base+(i+j)*15+t*20,360);
+          const [r,g,b]=hslToRgb(h,pal.saturation,50);
+          ctx.beginPath();
+          ctx.moveTo(projected[i][0],projected[i][1]);
+          ctx.lineTo(projected[j][0],projected[j][1]);
+          ctx.strokeStyle=rgbStr(r,g,b,0.5);
+          ctx.lineWidth=1;ctx.stroke();
+        }
+      }
+    }
+    projected.forEach((p,i)=>{
+      const h=mod(pal.base+i*20+t*30,360);
+      const [r,g,b]=hslToRgb(h,pal.saturation,70);
+      ctx.beginPath();ctx.arc(p[0],p[1],4,0,TAU);
+      ctx.fillStyle=rgbStr(r,g,b,0.9);ctx.fill();
+    });
+  }
+  draw(ctx){
+    const {W,H,CX,CY,t,palette:pal}=this;
+    this.drawBackground(ctx);
+    ctx.save();
+    ctx.translate(CX,CY);
+    ctx.rotate(this.rotation);
+    ctx.scale(this.zoom,this.zoom);
+    ctx.translate(-CX,-CY);
+    // Physics background
+    if(this.physics instanceof ReactionDiffusion){
+      const img=this.physics.render(pal,t);
+      ctx.globalAlpha=0.6;
+      ctx.drawImage(img,0,0,W,H);
+      ctx.globalAlpha=1;
+    } else if(this.physics instanceof LatticeBoltzmann){
+      const img=this.physics.render(pal,t);
+      ctx.globalAlpha=0.5;
+      ctx.drawImage(img,0,0,W,H);
+      ctx.globalAlpha=1;
+    }
+    ctx.restore();
+    // Interference waves
+    this.drawInterference(ctx);
+    // Higher dimension projection
+    this.drawHigherDimGrid(ctx);
+    // Main tiling
+    ctx.save();
+    ctx.translate(CX,CY);
+    ctx.rotate(this.rotation*0.5);
+    ctx.scale(this.zoom*0.95,this.zoom*0.95);
+    ctx.translate(-CX,-CY);
+    ctx.globalCompositeOperation=this.blendMode;
+    this.drawTiles(ctx,this.tiles,this.tileAlpha,0,1,true);
+    ctx.globalCompositeOperation='source-over';
+    ctx.restore();
+    // Overlay tiling
+    ctx.save();
+    ctx.translate(CX,CY);
+    ctx.rotate(-this.rotation*0.7);
+    ctx.scale(this.zoom*1.05,this.zoom*1.05);
+    ctx.translate(-CX,-CY);
+    ctx.globalCompositeOperation='screen';
+    this.drawTiles(ctx,this.overlay,this.tileAlpha*0.5,60,0.5,false);
+    ctx.globalCompositeOperation='source-over';
+    ctx.restore();
+    // Vortices
+    this.drawVortices(ctx);
+    // Physics overlays that draw themselves
+    if(this.physics instanceof PlanetaryGear) this.physics.draw(ctx,pal,t);
+    else if(this.physics instanceof GyroSwarm) this.physics.draw(ctx,pal,t);
+    else if(this.physics instanceof CellularAutomaton) this.physics.draw(ctx,pal,t,W,H);
+    // Attractor trail
+    ctx.globalCompositeOperation='screen';
+    this.attractor.draw(ctx,pal,t);
+    ctx.globalCompositeOperation='source-over';
+    // Spring-mass particles
+    this.drawParticles(ctx);
+    // Edge glow
+    const grd=ctx.createRadialGradient(CX,CY,Math.min(W,H)*0.3,CX,CY,Math.max(W,H)*0.7);
+    const h=mod(pal.base+180,360);
+    const [r,g,b]=hslToRgb(h,pal.saturation,20);
+    grd.addColorStop(0,'rgba(0,0,0,0)');
+    grd.addColorStop(1,rgbStr(r,g,b,0.6));
+    ctx.fillStyle=grd;
+    ctx.fillRect(0,0,W,H);
+    // Luminous center bloom
+    const bloom=ctx.createRadialGradient(CX,CY,0,CX,CY,Math.min(W,H)*0.2);
+    const [br,bg2,bb]=hslToRgb(pal.base,pal.saturation,80);
+    bloom.addColorStop(0,rgbStr(br,bg2,bb,0.08));
+    bloom.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle=bloom;
+    ctx.fillRect(0,0,W,H);
+  }
+}
+
+// ─── Resize ───────────────────────────────────────────────────
+function resize(){
+  W=canvas.width=window.innerWidth;
+  H=canvas.height=window.innerHeight;
+  CX=W/2; CY=H/2;
+}
+
+// ─── Regenerate ──────────────────────────────────────────────
+function regenerate(){
+  if(universe) universe=null;
+  universe=new Universe(W,H);
+  t=0; frame=0;
+}
+
+// ─── HUD ─────────────────────────────────────────────────────
+function updateHUD(){
+  if(!hudVisible){hud.classList.remove('visible');return;}
+  hud.classList.add('visible');
+  const u=universe;
+  const tileNames=['Penrose P3','Ammann-Beenker','Hexagonal','Triangular','Square','Voronoi','Islamic Stars','Apollonian','Hyperbolic','Celtic Knot','Hilbert Curve','Mandala','Labyrinth','Hypercube','Mughal Rosette'];
+  const physNames=['Reaction-Diffusion','Lattice Boltzmann','Planetary Gear','Gyro Swarm','Cellular Automaton','None'];
+  hud.innerHTML=`
+FPS: ${fps.toFixed(0)}<br>
+FRAME: ${frame}<br>
+TIME: ${t.toFixed(1)}s<br>
+TILING: ${tileNames[u.tileSystem]||'—'}<br>
+PHYSICS: ${physNames[u.physSystem]||'—'}<br>
+DIM: ${u.dimProj}D projection<br>
+TILES: ${u.tiles?u.tiles.length:0}<br>
+ENERGY: ${u.energy.toFixed(3)}<br>
+BLEND: ${u.blendMode}<br>
+PALETTE: ${u.palette.base.toFixed(0)}°<br>
+SOUND: ${soundEnabled?'ON':'OFF'}
+  `.trim();
+}
+
+// ─── Main Loop ────────────────────────────────────────────────
+function loop(ts){
+  animId=requestAnimationFrame(loop);
+  const dt=Math.min((ts-lastTime)/1000,0.05);
+  fps=lerp(fps,1/Math.max(dt,0.001),0.05);
+  lastTime=ts;
+  t+=dt; frame++;
+  if(!universe) return;
+  universe.update(dt);
+  universe.draw(ctx);
+  updateHUD();
+  if(soundEnabled&&soundEngine) soundEngine.update(universe.energy,universe.palette.base);
+  // Fade hint
+  if(frame===180) hint.classList.add('fade');
+}
+
+// ─── Input ───────────────────────────────────────────────────
+window.addEventListener('keydown',e=>{
+  if(e.code==='Space'||e.key===' '){e.preventDefault();regenerate();}
+  if(e.key==='h'||e.key==='H'){hudVisible=!hudVisible;updateHUD();}
+  if(e.key==='s'||e.key==='S'){
+    soundEnabled=!soundEnabled;
+    if(soundEnabled){
+      initAudio();
+      if(audioCtx&&!soundEngine) soundEngine=new SoundEngine(audioCtx);
+    } else {
+      if(soundEngine){soundEngine.dispose();soundEngine=null;}
+      stopAudio();
+    }
+  }
+});
+canvas.addEventListener('click',()=>regenerate());
+canvas.addEventListener('touchend',e=>{e.preventDefault();regenerate();},{passive:false});
+window.addEventListener('resize',()=>{resize();regenerate();});
+
+// ─── Boot ─────────────────────────────────────────────────────
+resize();
+regenerate();
+requestAnimationFrame(ts=>{lastTime=ts;loop(ts);});
+
+})();
+</script>
+</body>
+</html>

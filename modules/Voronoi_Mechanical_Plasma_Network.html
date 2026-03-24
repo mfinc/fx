@@ -1,0 +1,1086 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Voronoi Mechanical Plasma Network</title>
+<meta name="description" content="An immersive generative art simulation featuring dynamic Voronoi tessellation structures with charged plasma particles, elastic electromagnetic filaments, and emergent plasma wave flows. Experience a living mechanical-electromagnetic lattice governed by electrostatic physics rendered as glowing cellular webs and lightning-like energy streams.">
+<meta name="keywords" content="voronoi generative art, plasma simulation visualization, computational audiovisual physics art, voronoi tessellation animation, plasma network simulation, generative art javascript, electromagnetic lattice visualization, particle physics simulation, procedural generative art, voronoi diagram animation, plasma wave visualization, neon generative art, audiovisual generative simulation, electrostatic particle simulation, spring constraint physics, voronoi cells animation, glowing plasma filaments, lightning simulation art, generative art canvas, computational art physics">
+<meta property="og:title" content="Voronoi Mechanical Plasma Network">
+<meta property="og:description" content="Dynamic Voronoi tessellation with charged plasma particles and electromagnetic filaments — a living mechanical lattice of glowing cellular webs and plasma waves.">
+<meta name="theme-color" content="#000000">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+  canvas { display: block; position: fixed; top: 0; left: 0; cursor: crosshair; }
+  #hud {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    pointer-events: none; z-index: 10;
+    font-family: 'Courier New', monospace;
+    display: none;
+  }
+  #hud.visible { display: block; }
+  .hud-corner {
+    position: absolute; padding: 14px 18px;
+    font-size: 11px; line-height: 1.9; letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .hud-tl { top: 0; left: 0; }
+  .hud-tr { top: 0; right: 0; text-align: right; }
+  .hud-bl { bottom: 0; left: 0; }
+  .hud-br { bottom: 0; right: 0; text-align: right; }
+  .hud-label { opacity: 0.45; margin-right: 6px; }
+  .hud-val { font-weight: bold; }
+  .hud-keys {
+    position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 18px; align-items: center; opacity: 0.55;
+    font-size: 10px; letter-spacing: 0.12em;
+  }
+  .key { display: inline-flex; align-items: center; gap: 5px; }
+  .key kbd {
+    border: 1px solid currentColor; padding: 2px 6px; border-radius: 3px;
+    font-family: inherit; font-size: 10px; opacity: 0.8;
+  }
+  #title-flash {
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    font-family: 'Courier New', monospace; font-size: clamp(11px, 1.5vw, 18px);
+    letter-spacing: 0.35em; text-transform: uppercase; text-align: center;
+    pointer-events: none; z-index: 20; opacity: 0;
+    text-shadow: 0 0 30px currentColor;
+    transition: opacity 0.3s;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div class="hud-corner hud-tl" id="hud-tl"></div>
+  <div class="hud-corner hud-tr" id="hud-tr"></div>
+  <div class="hud-corner hud-bl" id="hud-bl"></div>
+  <div class="hud-corner hud-br" id="hud-br"></div>
+  <div class="hud-keys" id="hud-keys">
+    <span class="key"><kbd>SPACE</kbd> Regenerate</span>
+    <span class="key"><kbd>H</kbd> Toggle HUD</span>
+    <span class="key"><kbd>S</kbd> Toggle Sound</span>
+    <span class="key"><kbd>CLICK</kbd> Shockwave</span>
+  </div>
+</div>
+<div id="title-flash"></div>
+
+<script>
+// ============================================================
+// VORONOI MECHANICAL PLASMA NETWORK
+// ============================================================
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const hud = document.getElementById('hud');
+const titleFlash = document.getElementById('title-flash');
+
+let W, H, cx, cy;
+let animFrame, startTime = Date.now();
+let hudVisible = false, soundEnabled = false;
+let frame = 0, fps = 60, lastFpsTime = 0, frameCount = 0;
+
+// Audio
+let audioCtx = null, masterGain = null;
+let audioStarted = false;
+
+// Simulation state
+let particles = [], edges = [], voronoiCells = [];
+let palette = {};
+let simParams = {};
+let shockwaves = [];
+let totalCollisions = 0, totalEnergy = 0;
+
+// ============================================================
+// PALETTE GENERATOR
+// ============================================================
+function generatePalette() {
+  const schemes = [
+    // Cyan/Magenta plasma
+    () => ({
+      bg: [0,0,5],
+      primary: [0, 220, 255],
+      secondary: [255, 0, 200],
+      accent: [180, 255, 100],
+      hot: [255, 180, 50],
+      cold: [30, 50, 180],
+      name: 'CYAN-MAGENTA PLASMA'
+    }),
+    // Emerald/Gold
+    () => ({
+      bg: [0,5,2],
+      primary: [0, 255, 120],
+      secondary: [255, 200, 0],
+      accent: [100, 255, 200],
+      hot: [255, 120, 0],
+      cold: [0, 80, 60],
+      name: 'EMERALD DISCHARGE'
+    }),
+    // Violet/Orange
+    () => ({
+      bg: [2,0,8],
+      primary: [160, 0, 255],
+      secondary: [255, 100, 0],
+      accent: [255, 0, 130],
+      hot: [255, 200, 100],
+      cold: [40, 0, 80],
+      name: 'VIOLET STORM'
+    }),
+    // Red/White plasma
+    () => ({
+      bg: [8,0,0],
+      primary: [255, 50, 0],
+      secondary: [255, 255, 200],
+      accent: [255, 150, 0],
+      hot: [255, 255, 255],
+      cold: [100, 0, 0],
+      name: 'CRIMSON CORONA'
+    }),
+    // Arctic blue/white
+    () => ({
+      bg: [0,2,8],
+      primary: [0, 150, 255],
+      secondary: [200, 240, 255],
+      accent: [0, 255, 255],
+      hot: [255, 255, 255],
+      cold: [0, 20, 80],
+      name: 'ARCTIC DISCHARGE'
+    }),
+    // Gold/Violet
+    () => ({
+      bg: [3,2,0],
+      primary: [255, 180, 0],
+      secondary: [200, 80, 255],
+      accent: [255, 240, 120],
+      hot: [255, 255, 200],
+      cold: [80, 40, 0],
+      name: 'SOLAR CORONA'
+    }),
+    // Pink/Teal
+    () => ({
+      bg: [4,0,4],
+      primary: [255, 0, 180],
+      secondary: [0, 255, 200],
+      accent: [255, 150, 255],
+      hot: [255, 220, 255],
+      cold: [60, 0, 60],
+      name: 'NEON AURORA'
+    }),
+    // White/Indigo
+    () => ({
+      bg: [1,1,5],
+      primary: [220, 220, 255],
+      secondary: [80, 0, 255],
+      accent: [180, 100, 255],
+      hot: [255, 255, 255],
+      cold: [20, 10, 60],
+      name: 'INDIGO LATTICE'
+    }),
+  ];
+  const scheme = schemes[Math.floor(Math.random() * schemes.length)]();
+  // Add harmonic offset for animation
+  scheme.hue1 = Math.random() * 360;
+  scheme.hue2 = scheme.hue1 + 60 + Math.random() * 180;
+  scheme.flowSpeed = 0.3 + Math.random() * 0.7;
+  return scheme;
+}
+
+function rgb(r,g,b,a=1) {
+  return `rgba(${Math.round(r)},${Math.round(g)},${Math.round(b)},${a})`;
+}
+function lerpColor(c1, c2, t) {
+  return [
+    c1[0] + (c2[0]-c1[0])*t,
+    c1[1] + (c2[1]-c1[1])*t,
+    c1[2] + (c2[2]-c1[2])*t
+  ];
+}
+function colorWithEnergy(base, energy, t) {
+  const hot = palette.hot;
+  const mix = Math.min(1, energy * 0.008);
+  const pulse = 0.7 + 0.3 * Math.sin(t * 3 + energy * 0.01);
+  const c = lerpColor(base, hot, mix);
+  return [c[0]*pulse, c[1]*pulse, c[2]*pulse];
+}
+
+// ============================================================
+// SIM PARAMS
+// ============================================================
+function generateSimParams() {
+  return {
+    N: Math.floor(18 + Math.random() * 22),          // particle count
+    restLength: 80 + Math.random() * 80,              // spring rest length
+    springK: 0.008 + Math.random() * 0.012,           // spring stiffness
+    repulsion: 1200 + Math.random() * 2000,           // electrostatic strength
+    damping: 0.985 + Math.random() * 0.01,            // velocity damping
+    turbulence: 0.06 + Math.random() * 0.14,          // random force
+    plasmaFlow: 0.4 + Math.random() * 0.8,            // plasma wave speed
+    edgeThreshold: 200 + Math.random() * 150,         // max edge connection dist
+    chargeVariance: 0.5 + Math.random() * 1.5,        // charge strength variance
+    massVariance: 0.5 + Math.random() * 1.0,          // mass variance
+    waveFreq: 0.5 + Math.random() * 2.0,              // plasma wave frequency
+    lightningProbability: 0.004 + Math.random() * 0.008,
+    cellGlowIntensity: 0.3 + Math.random() * 0.5,
+    fieldLines: Math.floor(3 + Math.random() * 5),    // field line count per particle
+  };
+}
+
+// ============================================================
+// DELAUNAY / VORONOI (Fortune's sweep - simplified triangulation)
+// ============================================================
+function triangulate(points) {
+  // Bowyer-Watson Delaunay triangulation
+  const n = points.length;
+  if (n < 3) return [];
+
+  // Super-triangle
+  const sx = -W*2, sy = -H*2, sw = W*6, sh = H*6;
+  const st = [
+    {x: sx, y: sy},
+    {x: sx + sw, y: sy},
+    {x: sx + sw*0.5, y: sy + sh}
+  ];
+  const stIdx = [n, n+1, n+2];
+  const allPts = [...points, ...st];
+
+  let triangles = [[n, n+1, n+2]]; // indices
+
+  function circumcircle(i,j,k) {
+    const ax=allPts[i].x, ay=allPts[i].y;
+    const bx=allPts[j].x, by=allPts[j].y;
+    const cx2=allPts[k].x, cy2=allPts[k].y;
+    const D = 2*(ax*(by-cy2)+bx*(cy2-ay)+cx2*(ay-by));
+    if (Math.abs(D) < 1e-10) return null;
+    const ux=((ax*ax+ay*ay)*(by-cy2)+(bx*bx+by*by)*(cy2-ay)+(cx2*cx2+cy2*cy2)*(ay-by))/D;
+    const uy=((ax*ax+ay*ay)*(cx2-bx)+(bx*bx+by*by)*(ax-cx2)+(cx2*cx2+cy2*cy2)*(bx-ax))/D;
+    const r = Math.hypot(ax-ux, ay-uy);
+    return {x:ux, y:uy, r};
+  }
+
+  for (let pi = 0; pi < n; pi++) {
+    const p = allPts[pi];
+    let badTris = [], edges2 = [];
+
+    for (const tri of triangles) {
+      const cc = circumcircle(tri[0],tri[1],tri[2]);
+      if (!cc) continue;
+      if (Math.hypot(p.x-cc.x, p.y-cc.y) < cc.r + 0.001) {
+        badTris.push(tri);
+      }
+    }
+
+    const edgeCount = {};
+    for (const tri of badTris) {
+      const tedges = [[tri[0],tri[1]],[tri[1],tri[2]],[tri[2],tri[0]]];
+      for (const e of tedges) {
+        const key = e[0]<e[1] ? `${e[0]}_${e[1]}` : `${e[1]}_${e[0]}`;
+        edgeCount[key] = (edgeCount[key]||0)+1;
+      }
+    }
+    const boundary = Object.entries(edgeCount).filter(([,c])=>c===1).map(([k])=>{
+      const [a,b]=k.split('_'); return [+a,+b];
+    });
+
+    triangles = triangles.filter(t => !badTris.includes(t));
+    for (const [a,b] of boundary) triangles.push([a, b, pi]);
+  }
+
+  // Remove super-triangle
+  triangles = triangles.filter(t =>
+    !t.some(i => stIdx.includes(i))
+  );
+
+  return triangles;
+}
+
+// ============================================================
+// VORONOI CELLS from Delaunay dual
+// ============================================================
+function buildVoronoiCells(points, triangles) {
+  const n = points.length;
+  const allPts = [...points, {x:-W*2,y:-H*2},{x:W*4,y:-H*2},{x:W*2,y:H*4}];
+
+  function circumcenter(i,j,k) {
+    const ax=allPts[i].x,ay=allPts[i].y;
+    const bx=allPts[j].x,by=allPts[j].y;
+    const cx2=allPts[k].x,cy2=allPts[k].y;
+    const D=2*(ax*(by-cy2)+bx*(cy2-ay)+cx2*(ay-by));
+    if(Math.abs(D)<1e-10) return {x:cx,y:cy};
+    const ux=((ax*ax+ay*ay)*(by-cy2)+(bx*bx+by*by)*(cy2-ay)+(cx2*cx2+cy2*cy2)*(ay-by))/D;
+    const uy=((ax*ax+ay*ay)*(cx2-bx)+(bx*bx+by*by)*(ax-cx2)+(cx2*cx2+cy2*cy2)*(bx-ax))/D;
+    return {x:ux,y:uy};
+  }
+
+  // Build adjacency: for each point, which triangles contain it
+  const pointTris = Array.from({length:n},()=>[]);
+  for (let ti=0; ti<triangles.length; ti++) {
+    for (const pi of triangles[ti]) {
+      if (pi < n) pointTris[pi].push(ti);
+    }
+  }
+
+  const cells = [];
+  for (let pi=0; pi<n; pi++) {
+    const tris = pointTris[pi];
+    if (tris.length < 2) { cells.push([]); continue; }
+
+    // Get circumcenters
+    const centers = tris.map(ti=>{
+      const t=triangles[ti];
+      return circumcenter(t[0],t[1],t[2]);
+    });
+
+    // Sort by angle around particle
+    const px=points[pi].x, py=points[pi].y;
+    centers.sort((a,b)=>Math.atan2(a.y-py,a.x-px)-Math.atan2(b.y-py,b.x-px));
+
+    // Clip to reasonable bounds
+    const clipped = centers.filter(c=>
+      c.x>-W && c.x<W*2 && c.y>-H && c.y<H*2
+    );
+    cells.push(clipped.length >= 3 ? clipped : centers);
+  }
+  return cells;
+}
+
+// ============================================================
+// PARTICLE SYSTEM
+// ============================================================
+function createParticles(n) {
+  const pts = [];
+  // Poisson-ish distribution
+  const minDist = Math.min(W,H) / (Math.sqrt(n) * 1.2);
+  let tries = 0;
+  while (pts.length < n && tries < n * 100) {
+    tries++;
+    const margin = 60;
+    const x = margin + Math.random() * (W - margin*2);
+    const y = margin + Math.random() * (H - margin*2);
+    let ok = true;
+    for (const p of pts) {
+      if (Math.hypot(p.x-x, p.y-y) < minDist) { ok=false; break; }
+    }
+    if (ok) pts.push({ x, y });
+  }
+
+  return pts.map((p, i) => ({
+    x: p.x, y: p.y,
+    vx: (Math.random()-0.5)*2, vy: (Math.random()-0.5)*2,
+    ax: 0, ay: 0,
+    mass: 0.5 + Math.random() * simParams.massVariance,
+    charge: (Math.random()-0.3) * simParams.chargeVariance * (Math.random()<0.5?1:-1),
+    radius: 2.5 + Math.random() * 3.5,
+    energy: Math.random() * 200,
+    phase: Math.random() * Math.PI * 2,
+    phaseSpeed: (0.5 + Math.random()) * (Math.random()<0.5?1:-1) * 0.02,
+    id: i,
+    flickerTimer: 0,
+    trail: [],
+    lastCollision: 0,
+  }));
+}
+
+// ============================================================
+// EDGE NETWORK
+// ============================================================
+function buildEdgeNetwork(pts, tris) {
+  const edgeSet = new Set();
+  const edges = [];
+  for (const [a,b,c] of tris) {
+    const pairs = [[a,b],[b,c],[a,c]];
+    for (const [i,j] of pairs) {
+      if (i>=pts.length || j>=pts.length) continue;
+      const key = i<j?`${i}_${j}`:`${j}_${i}`;
+      if (!edgeSet.has(key)) {
+        edgeSet.add(key);
+        const dist = Math.hypot(pts[i].x-pts[j].x, pts[i].y-pts[j].y);
+        if (dist < simParams.edgeThreshold) {
+          edges.push({
+            a: i, b: j,
+            restLength: dist * (0.8 + Math.random()*0.4),
+            tension: 0,
+            plasmaPhase: Math.random()*Math.PI*2,
+            plasmaSpeed: (0.3+Math.random()*0.7) * (Math.random()<0.5?1:-1),
+            lightning: Math.random() < 0.3,
+            energy: 0,
+          });
+        }
+      }
+    }
+  }
+  return edges;
+}
+
+// ============================================================
+// LIGHTNING EFFECT
+// ============================================================
+function buildLightningPath(x1,y1,x2,y2,segs,displacement) {
+  let pts = [{x:x1,y:y1},{x:x2,y:y2}];
+  for (let iter=0; iter<3; iter++) {
+    const next = [];
+    for (let i=0; i<pts.length-1; i++) {
+      const mx=(pts[i].x+pts[i+1].x)*0.5;
+      const my=(pts[i].y+pts[i+1].y)*0.5;
+      const nx=-(pts[i+1].y-pts[i].y);
+      const ny=pts[i+1].x-pts[i].x;
+      const len=Math.hypot(nx,ny)||1;
+      const off=(Math.random()-0.5)*displacement;
+      next.push(pts[i]);
+      next.push({x:mx+nx/len*off, y:my+ny/len*off});
+    }
+    next.push(pts[pts.length-1]);
+    pts=next;
+    displacement*=0.5;
+  }
+  return pts;
+}
+
+// ============================================================
+// AUDIO ENGINE
+// ============================================================
+function initAudio() {
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  masterGain = audioCtx.createGain();
+  masterGain.gain.value = soundEnabled ? 0.18 : 0;
+  masterGain.connect(audioCtx.destination);
+}
+
+function playTone(freq, duration, type='sine', gainVal=0.1, detune=0) {
+  if (!audioCtx || !soundEnabled) return;
+  try {
+    const osc = audioCtx.createOscillator();
+    const env = audioCtx.createGain();
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.value = freq;
+    filter.Q.value = 2;
+    osc.type = type;
+    osc.frequency.value = freq;
+    osc.detune.value = detune;
+    env.gain.setValueAtTime(0, audioCtx.currentTime);
+    env.gain.linearRampToValueAtTime(gainVal, audioCtx.currentTime + 0.01);
+    env.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+    osc.connect(filter); filter.connect(env); env.connect(masterGain);
+    osc.start(audioCtx.currentTime);
+    osc.stop(audioCtx.currentTime + duration);
+  } catch(e){}
+}
+
+function playSpark(x, y, energy) {
+  if (!audioCtx || !soundEnabled) return;
+  try {
+    const bufSize = audioCtx.sampleRate * 0.05;
+    const buf = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i=0; i<bufSize; i++) data[i] = (Math.random()*2-1) * Math.exp(-i/(bufSize*0.3));
+    const src = audioCtx.createBufferSource();
+    const env = audioCtx.createGain();
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = 'highpass';
+    filter.frequency.value = 800 + energy * 10;
+    src.buffer = buf;
+    env.gain.setValueAtTime(0.05 + energy * 0.0003, audioCtx.currentTime);
+    env.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime+0.08);
+    src.connect(filter); filter.connect(env); env.connect(masterGain);
+    src.start();
+  } catch(e){}
+}
+
+let droneOscs = [], droneActive = false;
+function startDrone() {
+  if (!audioCtx || !soundEnabled || droneActive) return;
+  droneActive = true;
+  const base = 55 + Math.random()*30;
+  const harmonics = [1, 2, 3, 4.5, 6];
+  droneOscs = harmonics.map((h,i) => {
+    try {
+      const osc = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      osc.type = i===0?'sawtooth':'sine';
+      osc.frequency.value = base*h;
+      g.gain.value = (0.015/(i+1));
+      osc.connect(g); g.connect(masterGain);
+      osc.start();
+      return {osc, g, base: base*h};
+    } catch(e){ return null; }
+  }).filter(Boolean);
+}
+function stopDrone() {
+  droneActive = false;
+  droneOscs.forEach(d => { try { d.osc.stop(); } catch(e){} });
+  droneOscs = [];
+}
+function modulateDrone(energy) {
+  if (!droneActive) return;
+  const t = audioCtx.currentTime;
+  droneOscs.forEach((d,i) => {
+    try {
+      const detune = Math.sin(frame*0.02+i)*30 * (energy/1000);
+      d.osc.detune.setTargetAtTime(detune, t, 0.5);
+      d.g.gain.setTargetAtTime(0.015/(i+1) * (0.5 + energy/2000), t, 0.3);
+    } catch(e){}
+  });
+}
+
+// ============================================================
+// SIMULATION STEP
+// ============================================================
+function simStep(t) {
+  const dt = 1/60;
+  const pts = particles;
+  const n = pts.length;
+
+  // Reset accelerations
+  for (const p of pts) { p.ax=0; p.ay=0; }
+
+  // Electrostatic repulsion between all pairs
+  for (let i=0; i<n; i++) {
+    for (let j=i+1; j<n; j++) {
+      const dx=pts[j].x-pts[i].x, dy=pts[j].y-pts[i].y;
+      const d2=dx*dx+dy*dy;
+      if (d2<1) continue;
+      const d=Math.sqrt(d2);
+      // Coulomb-like force
+      const F = simParams.repulsion * pts[i].charge * pts[j].charge / d2;
+      const fx=F*dx/d, fy=F*dy/d;
+      pts[i].ax -= fx/pts[i].mass;
+      pts[i].ay -= fy/pts[i].mass;
+      pts[j].ax += fx/pts[j].mass;
+      pts[j].ay += fy/pts[j].mass;
+
+      // Collision detection
+      if (d < (pts[i].radius+pts[j].radius)*3) {
+        totalCollisions++;
+        if (frame - pts[i].lastCollision > 15 && frame - pts[j].lastCollision > 15) {
+          pts[i].lastCollision = pts[j].lastCollision = frame;
+          pts[i].energy += 30; pts[j].energy += 30;
+          if (soundEnabled && Math.random()<0.15) {
+            playSpark(pts[i].x, pts[i].y, Math.min(200, pts[i].energy));
+          }
+        }
+      }
+    }
+  }
+
+  // Spring forces along edges
+  for (const e of edges) {
+    const a=pts[e.a], b=pts[e.b];
+    const dx=b.x-a.x, dy=b.y-a.y;
+    const d=Math.hypot(dx,dy)||1;
+    const stretch=d-e.restLength;
+    e.tension = Math.abs(stretch);
+    e.energy = e.tension;
+    const F=simParams.springK*stretch;
+    const fx=F*dx/d, fy=F*dy/d;
+    a.ax += fx/a.mass; a.ay += fy/a.mass;
+    b.ax -= fx/b.mass; b.ay -= fy/b.mass;
+
+    // Plasma phase propagation
+    e.plasmaPhase += e.plasmaSpeed * simParams.plasmaFlow * dt * 60;
+  }
+
+  // Turbulence + boundary
+  for (const p of pts) {
+    p.ax += (Math.random()-0.5)*simParams.turbulence*60;
+    p.ay += (Math.random()-0.5)*simParams.turbulence*60;
+
+    // Soft boundary repulsion
+    const margin=40;
+    if (p.x<margin)   p.ax += (margin-p.x)*0.5;
+    if (p.x>W-margin) p.ax -= (p.x-(W-margin))*0.5;
+    if (p.y<margin)   p.ay += (margin-p.y)*0.5;
+    if (p.y>H-margin) p.ay -= (p.y-(H-margin))*0.5;
+
+    // Shockwave forces
+    for (const sw of shockwaves) {
+      const dx=p.x-sw.x, dy=p.y-sw.y;
+      const d=Math.hypot(dx,dy)||1;
+      const diff=Math.abs(d-sw.r);
+      if (diff<sw.width) {
+        const F=sw.force*(1-diff/sw.width);
+        p.ax += F*dx/d; p.ay += F*dy/d;
+        p.energy += F*0.5;
+      }
+    }
+
+    // Integrate
+    p.vx = (p.vx + p.ax*dt) * simParams.damping;
+    p.vy = (p.vy + p.ay*dt) * simParams.damping;
+    p.x += p.vx; p.y += p.vy;
+    p.phase += p.phaseSpeed;
+    p.energy = Math.max(0, p.energy * 0.98 + Math.abs(p.vx+p.vy)*5);
+
+    // Trail
+    p.trail.push({x:p.x, y:p.y});
+    if (p.trail.length > 12) p.trail.shift();
+  }
+
+  // Update shockwaves
+  for (let i=shockwaves.length-1; i>=0; i--) {
+    shockwaves[i].r += shockwaves[i].speed;
+    shockwaves[i].opacity *= 0.93;
+    if (shockwaves[i].opacity < 0.01 || shockwaves[i].r > Math.hypot(W,H)) {
+      shockwaves.splice(i,1);
+    }
+  }
+
+  // Rebuild Voronoi periodically
+  if (frame % 4 === 0) {
+    const pts2 = particles.map(p=>({x:p.x, y:p.y}));
+    try {
+      const tris = triangulate(pts2);
+      voronoiCells = buildVoronoiCells(pts2, tris);
+      // Rebuild edges from triangulation
+      if (frame % 20 === 0) {
+        edges = buildEdgeNetwork(pts2, tris);
+      }
+    } catch(e) {}
+  }
+
+  // Total energy
+  totalEnergy = particles.reduce((s,p)=>s+p.energy,0);
+
+  // Audio modulation
+  if (soundEnabled && audioCtx && frame%8===0) modulateDrone(totalEnergy/n);
+}
+
+// ============================================================
+// RENDER
+// ============================================================
+function render(t) {
+  const ts = t * 0.001;
+
+  // Background clear
+  const bg = palette.bg;
+  ctx.fillStyle = rgb(...bg);
+  ctx.fillRect(0,0,W,H);
+
+  // Subtle background field lines
+  renderFieldLines(ts);
+
+  // Voronoi cells
+  renderVoronoiCells(ts);
+
+  // Edges / plasma filaments
+  renderEdges(ts);
+
+  // Shockwaves
+  renderShockwaves(ts);
+
+  // Particle trails
+  renderTrails(ts);
+
+  // Particles
+  renderParticles(ts);
+
+  // Lightning arcs
+  if (Math.random() < simParams.lightningProbability * 60) {
+    renderRandomLightning(ts);
+  }
+
+  // Scanline overlay
+  renderScanlines();
+}
+
+function renderFieldLines(ts) {
+  const pc = palette.primary;
+  ctx.globalAlpha = 0.04;
+  for (let i=0; i<simParams.fieldLines; i++) {
+    const p = particles[i % particles.length];
+    const angle = ts * (0.1+i*0.07) + p.phase;
+    const len = 80 + p.energy * 0.2;
+    ctx.strokeStyle = rgb(...pc);
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+    ctx.lineTo(p.x + Math.cos(angle)*len, p.y + Math.sin(angle)*len);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function renderVoronoiCells(ts) {
+  if (!voronoiCells.length) return;
+  const pc = palette.primary;
+  const sc = palette.secondary;
+  const ac = palette.accent;
+  const gi = simParams.cellGlowIntensity;
+
+  for (let i=0; i<voronoiCells.length; i++) {
+    const cell = voronoiCells[i];
+    if (!cell || cell.length < 3) continue;
+    const p = particles[i];
+    if (!p) continue;
+
+    const energy = Math.min(1, p.energy / 400);
+    const pulse = 0.5 + 0.5*Math.sin(ts*simParams.waveFreq + p.phase);
+    const colorT = (Math.sin(ts * palette.flowSpeed + i * 0.7) + 1) * 0.5;
+    const cellColor = lerpColor(pc, sc, colorT);
+
+    ctx.beginPath();
+    ctx.moveTo(cell[0].x, cell[0].y);
+    for (let j=1; j<cell.length; j++) ctx.lineTo(cell[j].x, cell[j].y);
+    ctx.closePath();
+
+    // Cell fill - very subtle
+    const alpha = (0.02 + energy * 0.06) * gi * (0.7 + 0.3*pulse);
+    ctx.fillStyle = rgb(...cellColor, alpha);
+    ctx.fill();
+
+    // Cell border - glowing
+    const borderAlpha = (0.25 + energy * 0.45) * (0.6 + 0.4*pulse);
+    ctx.strokeStyle = rgb(...cellColor, borderAlpha);
+    ctx.lineWidth = 0.8 + energy * 1.5;
+    ctx.shadowColor = rgb(...cellColor);
+    ctx.shadowBlur = 8 + energy * 20 * gi;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
+}
+
+function renderEdges(ts) {
+  for (const e of edges) {
+    const a=particles[e.a], b=particles[e.b];
+    if (!a || !b) continue;
+    const dx=b.x-a.x, dy=b.y-a.y;
+    const d=Math.hypot(dx,dy)||1;
+
+    const tension01 = Math.min(1, e.tension/100);
+    const phaseT = (Math.sin(e.plasmaPhase) + 1) * 0.5;
+    const colorT = (Math.sin(ts * palette.flowSpeed * 2 + e.plasmaPhase) + 1) * 0.5;
+    const edgeColor = lerpColor(palette.primary, palette.secondary, colorT);
+    const hotColor = lerpColor(edgeColor, palette.hot, tension01);
+
+    // Draw plasma filament as bezier with perpendicular displacement
+    const nx=-dy/d, ny=dx/d;
+    const waveMag = 8 + tension01 * 25;
+    const midOff = Math.sin(e.plasmaPhase * 2) * waveMag;
+    const mx=(a.x+b.x)/2 + nx*midOff;
+    const my=(a.y+b.y)/2 + ny*midOff;
+
+    // Outer glow
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.quadraticCurveTo(mx, my, b.x, b.y);
+    ctx.strokeStyle = rgb(...hotColor, 0.15);
+    ctx.lineWidth = 3 + tension01 * 8;
+    ctx.shadowColor = rgb(...hotColor);
+    ctx.shadowBlur = 12 + tension01 * 20;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // Core filament
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.quadraticCurveTo(mx, my, b.x, b.y);
+    ctx.strokeStyle = rgb(...hotColor, 0.6 + 0.4*phaseT);
+    ctx.lineWidth = 0.8 + tension01 * 2;
+    ctx.stroke();
+
+    // Plasma flow dots
+    const numDots = 3;
+    for (let di=0; di<numDots; di++) {
+      const tDot = ((e.plasmaPhase * 0.3 + di/numDots) % 1 + 1) % 1;
+      const qx=(1-tDot)*(1-tDot)*a.x + 2*(1-tDot)*tDot*mx + tDot*tDot*b.x;
+      const qy=(1-tDot)*(1-tDot)*a.y + 2*(1-tDot)*tDot*my + tDot*tDot*b.y;
+      const dotR = 1.5 + tension01 * 2.5;
+      ctx.beginPath();
+      ctx.arc(qx, qy, dotR, 0, Math.PI*2);
+      ctx.fillStyle = rgb(...palette.hot, 0.8);
+      ctx.shadowColor = rgb(...palette.hot);
+      ctx.shadowBlur = 10;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+
+    // Lightning discharge on high-tension edges
+    if (e.lightning && tension01 > 0.4 && Math.random()<0.15) {
+      renderLightningBolt(a.x,a.y,b.x,b.y,tension01,ts);
+    }
+  }
+}
+
+function renderLightningBolt(x1,y1,x2,y2,intensity,ts) {
+  const path = buildLightningPath(x1,y1,x2,y2,8,20*intensity);
+  const c = lerpColor(palette.accent, palette.hot, intensity);
+
+  ctx.beginPath();
+  ctx.moveTo(path[0].x, path[0].y);
+  for (let i=1; i<path.length; i++) ctx.lineTo(path[i].x, path[i].y);
+
+  ctx.strokeStyle = rgb(...c, 0.9);
+  ctx.lineWidth = 1;
+  ctx.shadowColor = rgb(...c);
+  ctx.shadowBlur = 15;
+  ctx.stroke();
+
+  // Bright core
+  ctx.strokeStyle = rgb(255,255,255,0.7);
+  ctx.lineWidth = 0.4;
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+}
+
+function renderRandomLightning(ts) {
+  if (particles.length < 2) return;
+  const i = Math.floor(Math.random()*particles.length);
+  const j = Math.floor(Math.random()*particles.length);
+  if (i===j) return;
+  const a=particles[i], b=particles[j];
+  const d=Math.hypot(a.x-b.x, a.y-b.y);
+  if (d > simParams.edgeThreshold*1.5) return;
+  renderLightningBolt(a.x,a.y,b.x,b.y,0.3+Math.random()*0.7,ts);
+  if (soundEnabled && Math.random()<0.3) {
+    playTone(200+Math.random()*800, 0.1, 'sawtooth', 0.05);
+  }
+}
+
+function renderShockwaves(ts) {
+  for (const sw of shockwaves) {
+    const c = lerpColor(palette.primary, palette.hot, sw.opacity);
+    ctx.beginPath();
+    ctx.arc(sw.x, sw.y, sw.r, 0, Math.PI*2);
+    ctx.strokeStyle = rgb(...c, sw.opacity * 0.8);
+    ctx.lineWidth = 3;
+    ctx.shadowColor = rgb(...c);
+    ctx.shadowBlur = 20;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(sw.x, sw.y, sw.r*0.9, 0, Math.PI*2);
+    ctx.strokeStyle = rgb(...palette.hot, sw.opacity * 0.3);
+    ctx.lineWidth = 8;
+    ctx.shadowBlur = 40;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
+}
+
+function renderTrails(ts) {
+  for (const p of particles) {
+    if (p.trail.length < 2) continue;
+    const speed = Math.hypot(p.vx, p.vy);
+    if (speed < 0.5) continue;
+    const tc = lerpColor(palette.secondary, palette.primary, Math.min(1,speed/5));
+    ctx.beginPath();
+    ctx.moveTo(p.trail[0].x, p.trail[0].y);
+    for (let i=1; i<p.trail.length; i++) ctx.lineTo(p.trail[i].x, p.trail[i].y);
+    ctx.strokeStyle = rgb(...tc, 0.3);
+    ctx.lineWidth = p.radius * 0.5;
+    ctx.shadowColor = rgb(...tc);
+    ctx.shadowBlur = 5;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
+}
+
+function renderParticles(ts) {
+  for (const p of particles) {
+    const energy01 = Math.min(1, p.energy/500);
+    const pulse = 0.7 + 0.3*Math.sin(p.phase + ts*3);
+    const r = p.radius * (1 + energy01*1.5) * pulse;
+    const pc = lerpColor(palette.primary, palette.hot, energy01);
+
+    // Outer corona
+    const grad = ctx.createRadialGradient(p.x,p.y,0, p.x,p.y, r*6);
+    grad.addColorStop(0, rgb(...pc, 0.4 * pulse));
+    grad.addColorStop(0.5, rgb(...pc, 0.15));
+    grad.addColorStop(1, rgb(...pc, 0));
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r*6, 0, Math.PI*2);
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    // Inner glow
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r*2.5, 0, Math.PI*2);
+    ctx.fillStyle = rgb(...pc, 0.3);
+    ctx.shadowColor = rgb(...pc);
+    ctx.shadowBlur = 20 + energy01*40;
+    ctx.fill();
+
+    // Core
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r, 0, Math.PI*2);
+    ctx.fillStyle = rgb(...lerpColor(pc, [255,255,255], 0.6));
+    ctx.shadowBlur = 10;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // Charge rings
+    if (Math.abs(p.charge) > 0.5) {
+      const sign = p.charge > 0 ? 1 : -1;
+      const ringColor = sign > 0 ? palette.accent : palette.secondary;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r*3 + Math.sin(p.phase)*2, 0, Math.PI*2);
+      ctx.strokeStyle = rgb(...ringColor, 0.3 + 0.2*pulse);
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+  }
+}
+
+function renderScanlines() {
+  ctx.globalAlpha = 0.025;
+  ctx.fillStyle = '#000';
+  for (let y=0; y<H; y+=4) {
+    ctx.fillRect(0, y, W, 2);
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ============================================================
+// HUD UPDATE
+// ============================================================
+function updateHUD(ts) {
+  const c = palette.primary;
+  const col = `rgb(${c[0]},${c[1]},${c[2]})`;
+  document.querySelectorAll('.hud-corner, .hud-keys').forEach(el => el.style.color = col);
+
+  const avgEnergy = totalEnergy / (particles.length||1);
+  document.getElementById('hud-tl').innerHTML = `
+    <div><span class="hud-label">SYSTEM</span><span class="hud-val">${palette.name}</span></div>
+    <div><span class="hud-label">PARTICLES</span><span class="hud-val">${particles.length}</span></div>
+    <div><span class="hud-label">EDGES</span><span class="hud-val">${edges.length}</span></div>
+    <div><span class="hud-label">CELLS</span><span class="hud-val">${voronoiCells.filter(c=>c&&c.length>=3).length}</span></div>
+  `;
+  document.getElementById('hud-tr').innerHTML = `
+    <div><span class="hud-label">FPS</span><span class="hud-val">${fps.toFixed(0)}</span></div>
+    <div><span class="hud-label">ENERGY</span><span class="hud-val">${avgEnergy.toFixed(1)}</span></div>
+    <div><span class="hud-label">COLLISIONS</span><span class="hud-val">${totalCollisions}</span></div>
+    <div><span class="hud-label">AUDIO</span><span class="hud-val">${soundEnabled?'ON':'OFF'}</span></div>
+  `;
+  document.getElementById('hud-bl').innerHTML = `
+    <div><span class="hud-label">SPRING K</span><span class="hud-val">${simParams.springK.toFixed(4)}</span></div>
+    <div><span class="hud-label">TURBULENCE</span><span class="hud-val">${simParams.turbulence.toFixed(3)}</span></div>
+    <div><span class="hud-label">PLASMA FLOW</span><span class="hud-val">${simParams.plasmaFlow.toFixed(2)}</span></div>
+  `;
+  document.getElementById('hud-br').innerHTML = `
+    <div><span class="hud-label">REPULSION</span><span class="hud-val">${simParams.repulsion.toFixed(0)}</span></div>
+    <div><span class="hud-label">DAMPING</span><span class="hud-val">${simParams.damping.toFixed(4)}</span></div>
+    <div><span class="hud-label">RUNTIME</span><span class="hud-val">${ts.toFixed(1)}s</span></div>
+  `;
+}
+
+// ============================================================
+// INIT / REGENERATE
+// ============================================================
+function init() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  cx = W/2; cy = H/2;
+
+  palette = generatePalette();
+  simParams = generateSimParams();
+
+  particles = createParticles(simParams.N);
+  totalCollisions = 0; totalEnergy = 0;
+  shockwaves = [];
+
+  // Initial triangulation
+  const pts2 = particles.map(p=>({x:p.x,y:p.y}));
+  try {
+    const tris = triangulate(pts2);
+    voronoiCells = buildVoronoiCells(pts2, tris);
+    edges = buildEdgeNetwork(pts2, tris);
+  } catch(e) {
+    voronoiCells = []; edges = [];
+  }
+
+  // Flash title
+  titleFlash.style.color = `rgb(${palette.primary.join(',')})`;
+  titleFlash.style.textShadow = `0 0 30px rgb(${palette.primary.join(',')})`;
+  titleFlash.textContent = palette.name;
+  titleFlash.style.opacity = '1';
+  setTimeout(()=>{ titleFlash.style.opacity='0'; }, 2000);
+
+  if (soundEnabled) {
+    stopDrone();
+    setTimeout(startDrone, 200);
+  }
+}
+
+// ============================================================
+// MAIN LOOP
+// ============================================================
+function loop(ts) {
+  animFrame = requestAnimationFrame(loop);
+  frame++;
+
+  // FPS
+  frameCount++;
+  if (ts - lastFpsTime > 1000) {
+    fps = frameCount * 1000 / (ts - lastFpsTime);
+    frameCount = 0; lastFpsTime = ts;
+  }
+
+  const elapsed = ts - (startTime = startTime||ts);
+
+  simStep(ts);
+  render(ts);
+  if (hudVisible) updateHUD((ts - startTime)*0.001);
+}
+
+// ============================================================
+// INPUT
+// ============================================================
+window.addEventListener('keydown', e => {
+  if (e.code === 'Space') {
+    e.preventDefault();
+    if (!audioStarted) { initAudio(); audioStarted = true; }
+    init();
+  }
+  if (e.key === 'h' || e.key === 'H') {
+    hudVisible = !hudVisible;
+    hud.classList.toggle('visible', hudVisible);
+  }
+  if (e.key === 's' || e.key === 'S') {
+    soundEnabled = !soundEnabled;
+    if (!audioStarted) { initAudio(); audioStarted = true; }
+    if (masterGain) masterGain.gain.setTargetAtTime(soundEnabled?0.18:0, audioCtx.currentTime, 0.1);
+    if (soundEnabled) { startDrone(); }
+    else { stopDrone(); }
+  }
+});
+
+canvas.addEventListener('click', e => {
+  if (!audioStarted) { initAudio(); audioStarted = true; }
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+  shockwaves.push({ x:mx, y:my, r:0, speed:5+Math.random()*5, force:8+Math.random()*12, opacity:1, width:60 });
+  if (soundEnabled) {
+    playTone(80+Math.random()*40, 0.5, 'sine', 0.15);
+    playTone(200+Math.random()*200, 0.2, 'sawtooth', 0.05);
+  }
+});
+
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  if (!audioStarted) { initAudio(); audioStarted = true; }
+  for (const touch of e.changedTouches) {
+    const rect = canvas.getBoundingClientRect();
+    shockwaves.push({
+      x: touch.clientX-rect.left, y: touch.clientY-rect.top,
+      r:0, speed:5+Math.random()*5, force:10, opacity:1, width:60
+    });
+  }
+}, { passive:false });
+
+window.addEventListener('resize', () => {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  cx=W/2; cy=H/2;
+});
+
+// ============================================================
+// BOOT
+// ============================================================
+startTime = performance.now();
+init();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

@@ -1,0 +1,1031 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Vector Chaos Arcade Singularity</title>
+<meta name="description" content="An unprecedented real-time generative audiovisual engine rendering living chaotic universes through Mandelbrot fractals, strange attractors, Fourier waves, kaleidoscopic symmetries, and cybernetic vector art — a trans-human arcade singularity built entirely from elegant mathematical structures.">
+<meta name="keywords" content="generative art, vector graphics, fractal engine, Mandelbrot, Julia set, Lorenz attractor, Fourier series, kaleidoscope, Coxeter symmetry, Möbius transform, procedural audio, arcade aesthetics, Tron, Atari, chaos theory, strange attractors, CIELAB color, HSV gradients, particle systems, Bézier curves, cybernetic art, transhumanism, genomic visualization, category theory, Hilbert space, wavelet transform, tensor field, bifurcation cascade, quaternion rotation, web generative art">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Courier New',monospace}
+  canvas{display:block;position:fixed;top:0;left:0;width:100%;height:100%;touch-action:none}
+  #hud{position:fixed;top:12px;left:12px;color:#0ff;font-size:11px;line-height:1.7;
+    text-shadow:0 0 8px #0ff,0 0 20px #0ff;pointer-events:none;display:none;z-index:10;
+    background:rgba(0,0,30,0.5);padding:8px 12px;border:1px solid rgba(0,255,255,0.3);border-radius:4px}
+  #hint{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);color:rgba(0,255,255,0.5);
+    font-size:10px;letter-spacing:2px;pointer-events:none;z-index:10;text-align:center;
+    text-shadow:0 0 6px #0ff;transition:opacity 2s}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<div id="hint">SPACE / TAP · NEW UNIVERSE &nbsp;|&nbsp; H · HUD &nbsp;|&nbsp; S · SOUND</div>
+<script>
+// ═══════════════════════════════════════════════════════════════
+//  VECTOR CHAOS ARCADE SINGULARITY  — single-file generative engine
+// ═══════════════════════════════════════════════════════════════
+(()=>{
+'use strict';
+
+const canvas=document.getElementById('c');
+const gl=null; // pure 2D canvas
+const ctx=canvas.getContext('2d',{alpha:false});
+const hud=document.getElementById('hud');
+const hint=document.getElementById('hint');
+
+let W,H,cx,cy,dpr;
+let t=0, frame=0, lastT=0;
+let showHUD=false, soundOn=false;
+let audioCtx=null, masterGain=null;
+let universe={};
+let animId=null;
+let fps=60,fpsAlpha=0.05;
+let tapFade=null;
+
+// ─── resize ──────────────────────────────────────────────────
+function resize(){
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth; H=window.innerHeight;
+  cx=W/2; cy=H/2;
+  canvas.width=W*dpr; canvas.height=H*dpr;
+  canvas.style.width=W+'px'; canvas.style.height=H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+window.addEventListener('resize',resize);
+resize();
+
+// ─── PRNG ────────────────────────────────────────────────────
+let seed=Date.now();
+function srand(s){seed=s>>>0}
+function rand(){seed=(seed*1664525+1013904223)>>>0;return seed/4294967296}
+function rr(a,b){return a+(b-a)*rand()}
+function ri(a,b){return Math.floor(rr(a,b+1))}
+function pick(arr){return arr[Math.floor(rand()*arr.length)]}
+
+// ─── COLOR SCIENCE ───────────────────────────────────────────
+function hsl(h,s,l,a=1){return `hsla(${h|0},${s|0}%,${l|0}%,${a})`}
+function hsv2rgb(h,s,v){
+  h=((h%360)+360)%360;s/=100;v/=100;
+  let c=v*s,x=c*(1-Math.abs((h/60)%2-1)),m=v-c;
+  let r,g,b;
+  if(h<60){r=c;g=x;b=0}else if(h<120){r=x;g=c;b=0}
+  else if(h<180){r=0;g=c;b=x}else if(h<240){r=0;g=x;b=c}
+  else if(h<300){r=x;g=0;b=c}else{r=c;g=0;b=x}
+  return [(r+m)*255,(g+m)*255,(b+m)*255];
+}
+function lab2rgb(L,a,b){
+  let fy=(L+16)/116,fx=a/500+fy,fz=fy-b/200;
+  const d=6/29,d3=d*d*d;
+  let x=(fx>d?fx*fx*fx:3*d*d*(fx-4/29))*0.95047;
+  let y=(fy>d?fy*fy*fy:3*d*d*(fy-4/29));
+  let z=(fz>d?fz*fz*fz:3*d*d*(fz-4/29))*1.08883;
+  let r=x*3.2406+y*-1.5372+z*-0.4986;
+  let g=x*-0.9689+y*1.8758+z*0.0415;
+  let bv=x*0.0557+y*-0.2040+z*1.0570;
+  const gam=v=>v>0.0031308?1.055*Math.pow(Math.max(v,0),1/2.4)-0.055:12.92*Math.max(v,0);
+  return [gam(r)*255,gam(g)*255,gam(bv)*255];
+}
+function rgb2hex(r,g,b){
+  return '#'+[r,g,b].map(v=>Math.max(0,Math.min(255,v|0)).toString(16).padStart(2,'0')).join('');
+}
+function chromaHarm(baseH,scheme,idx){
+  const schemes={
+    triad:[0,120,240],split:[0,150,210],
+    analog:[0,30,60],comp:[0,180,30],
+    tetra:[0,90,180,270]
+  };
+  const offsets=schemes[scheme]||schemes.triad;
+  return (baseH+(offsets[idx%offsets.length]||0)+360)%360;
+}
+
+// ─── UNIVERSE SEED ───────────────────────────────────────────
+function newUniverse(){
+  const s=Date.now()^(Math.random()*0xFFFFFFFF);
+  srand(s);
+  universe={
+    seed:s,
+    baseHue:rr(0,360),
+    hueSpeed:rr(3,18),
+    scheme:pick(['triad','split','analog','comp','tetra']),
+    saturation:rr(70,100),
+    brightness:rr(75,100),
+
+    // attractor
+    attractor:pick(['lorenz','rossler','henon','duffing','thomas']),
+    aParams:attractorParams(),
+
+    // fractal mode
+    fracMode:pick(['mandelbrot','julia','lyapunov','bifurcation']),
+    juliaC:[rr(-0.9,0.9),rr(-0.9,0.9)],
+    fractalScale:rr(0.5,2.0),
+
+    // symmetry
+    symmetry:ri(3,12),
+    coxeterK:ri(2,7),
+    mobiusA:[rr(-1,1),rr(-1,1)],
+    mobiusB:[rr(-1,1),rr(-1,1)],
+
+    // fourier
+    fourierN:ri(4,12),
+    fourierAmps:Array.from({length:12},()=>rr(0.3,1.5)),
+    fourierPhases:Array.from({length:12},()=>rr(0,Math.TAU||Math.PI*2)),
+
+    // field
+    fieldType:pick(['tensor','vortex','saddle','wave','helix']),
+    fieldScale:rr(0.003,0.01),
+
+    // particles
+    nParticles:Math.min(ri(120,300),240),
+    trailLen:ri(20,60),
+
+    // ribbons
+    nRibbons:ri(5,14),
+
+    // fireworks
+    fireworkRate:rr(0.4,1.2),
+
+    // genomic / morphism network
+    genomeNodes:ri(8,20),
+    genomeEdges:ri(12,35),
+    genomeSpeed:rr(0.2,0.8),
+
+    // wavelet / spiral
+    waveletOctaves:ri(3,7),
+
+    // arena
+    arenaType:pick(['tron_grid','atari_rings','coxeter_web','tensor_mesh','void']),
+    arenaScale:rr(0.5,1.2),
+
+    // color mode
+    colorMode:pick(['hsv_spectral','lab_journey','harmonic_cycle','chromatic_fire']),
+
+    // performance tier (auto-detect)
+    tier: navigator.hardwareConcurrency>=4?'high':'low'
+  };
+
+  // re-seed particles
+  universe.particles=initParticles(universe.nParticles);
+  universe.ribbons=initRibbons(universe.nRibbons);
+  universe.fireworks=[];
+  universe.genome=initGenome(universe.genomeNodes,universe.genomeEdges);
+  universe.attState=attInitState(universe.attractor);
+  universe.attHistory=[];
+  universe.attMaxHistory=universe.tier==='high'?400:200;
+  t=0; frame=0;
+}
+
+function attractorParams(){
+  return{
+    sigma:rr(8,14),rho:rr(24,32),beta:rr(2,3),  // lorenz
+    a:rr(0.1,0.3),b:rr(0.1,0.3),c:rr(4,6),       // rossler
+    ha:rr(1.2,1.5),hb:rr(0.2,0.4),              // henon
+    da:rr(0.2,0.5),db:rr(1,2),                  // duffing
+    th:rr(0.1,0.25)                              // thomas
+  };
+}
+function attInitState(type){
+  if(type==='henon')return{x:0.1,y:0};
+  return{x:rr(-1,1),y:rr(-1,1),z:rr(-1,1)};
+}
+function attStep(state,type,p,dt){
+  const{x,y,z=0}=state;
+  if(type==='lorenz'){
+    return{x:x+dt*(p.sigma*(y-x)),y:y+dt*(x*(p.rho-z)-y),z:z+dt*(x*y-p.beta*z)};
+  }else if(type==='rossler'){
+    return{x:x+dt*(-y-z),y:y+dt*(x+p.a*y),z:z+dt*(p.b+z*(x-p.c))};
+  }else if(type==='henon'){
+    return{x:1-p.ha*x*x+y,y:p.hb*x,z:0};
+  }else if(type==='duffing'){
+    return{x:x+dt*y,y:y+dt*(-p.da*y+x-x*x*x+p.db*Math.sin(t)),z:0};
+  }else{// thomas
+    return{x:x+dt*(-p.th*x+Math.sin(y)),y:y+dt*(-p.th*y+Math.sin(z)),z:z+dt*(-p.th*z+Math.sin(x))};
+  }
+}
+
+// ─── PARTICLES ───────────────────────────────────────────────
+function initParticles(n){
+  return Array.from({length:n},()=>({
+    x:rr(0,W),y:rr(0,H),
+    vx:rr(-2,2),vy:rr(-2,2),
+    hue:rr(0,360),trail:[],
+    life:rr(0.3,1),mass:rr(0.5,2),
+    type:pick(['dot','diamond','cross','star','circle'])
+  }));
+}
+function initRibbons(n){
+  return Array.from({length:n},()=>({
+    points:[],maxPts:ri(40,100),
+    cx:rr(0.1,0.9)*W,cy:rr(0.1,0.9)*H,
+    r:rr(50,200),phase:rr(0,Math.PI*2),
+    speed:rr(0.3,1.5)*(rand()>0.5?1:-1),
+    width:rr(1.5,6),hue:rr(0,360),
+    sat:rr(70,100),bri:rr(60,100),
+    fourier:Array.from({length:ri(2,5)},()=>({f:rr(1,8),a:rr(20,100),p:rr(0,Math.PI*2)}))
+  }));
+}
+function initGenome(n,e){
+  const nodes=Array.from({length:n},(_,i)=>({
+    id:i,x:rr(0.1,0.9)*W,y:rr(0.1,0.9)*H,
+    vx:rr(-0.5,0.5),vy:rr(-0.5,0.5),
+    hue:rr(0,360),r:rr(4,12),
+    type:pick(['human','cyber','hybrid','node'])
+  }));
+  const edges=[];
+  for(let i=0;i<e;i++){
+    edges.push({a:ri(0,n-1),b:ri(0,n-1),phase:rr(0,Math.PI*2),speed:rr(0.5,2)});
+  }
+  return{nodes,edges};
+}
+
+// ─── FIREWORKS ───────────────────────────────────────────────
+function spawnFirework(){
+  const hue=universe.baseHue+rand()*120;
+  const n=ri(20,60);
+  const fx=rr(W*0.15,W*0.85),fy=rr(H*0.1,H*0.7);
+  const sparks=Array.from({length:n},()=>{
+    const a=rand()*Math.PI*2,sp=rr(1,6);
+    return{x:fx,y:fy,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,
+      life:1,decay:rr(0.012,0.03),hue:hue+rr(-30,30),
+      trail:[],size:rr(1,3)};
+  });
+  universe.fireworks.push({sparks,x:fx,y:fy,hue,burst:false,timer:0});
+}
+
+// ─── MATH HELPERS ────────────────────────────────────────────
+const TAU=Math.PI*2;
+function lerp(a,b,t){return a+(b-a)*t}
+function clamp(v,a,b){return Math.max(a,Math.min(b,v))}
+function smoothstep(a,b,x){x=clamp((x-a)/(b-a),0,1);return x*x*(3-2*x)}
+
+// Mandelbrot iteration
+function mandelbrot(cr,ci,maxIter){
+  let zr=0,zi=0,i=0;
+  while(i<maxIter&&zr*zr+zi*zi<4){
+    let nzr=zr*zr-zi*zi+cr;
+    zi=2*zr*zi+ci;zr=nzr;i++;
+  }
+  return i/maxIter;
+}
+// Julia
+function julia(zr,zi,cr,ci,maxIter){
+  let i=0;
+  while(i<maxIter&&zr*zr+zi*zi<4){
+    let nzr=zr*zr-zi*zi+cr;
+    zi=2*zr*zi+ci;zr=nzr;i++;
+  }
+  return i/maxIter;
+}
+
+// Möbius transform
+function mobius(x,y,ar,ai,br,bi){
+  // w=(az+b)/(z+1)
+  const nr=ar*x-ai*y+br, ni=ar*y+ai*x+bi;
+  const dr=x+1,di=y;
+  const d2=dr*dr+di*di+1e-9;
+  return[(nr*dr+ni*di)/d2,(ni*dr-nr*di)/d2];
+}
+
+// Fourier path
+function fourierPath(u,amps,phases,n,scale){
+  let x=0,y=0;
+  for(let k=0;k<n;k++){
+    const f=k+1,a=amps[k]||1,ph=phases[k]||0;
+    x+=a*Math.cos(f*u+ph)*scale;
+    y+=a*Math.sin(f*u*1.3+ph+k)*scale;
+  }
+  return[x,y];
+}
+
+// Logistic bifurcation
+function logisticY(r,x0,iter,transient){
+  let x=x0;
+  for(let i=0;i<transient;i++)x=r*x*(1-x);
+  return x;
+}
+
+// Vector field
+function fieldVec(x,y,type,s,time){
+  const nx=(x-cx)*s,ny=(y-cy)*s;
+  if(type==='tensor'){
+    return[Math.sin(nx+ny+time)*Math.cos(ny-time),Math.cos(nx-ny+time)*Math.sin(nx+time)];
+  }else if(type==='vortex'){
+    const r2=nx*nx+ny*ny+0.01;
+    return[-ny/r2+Math.sin(time),nx/r2+Math.cos(time)];
+  }else if(type==='saddle'){
+    return[nx*Math.cos(time)+ny*Math.sin(time),-ny*Math.cos(time)+nx*Math.sin(time)];
+  }else if(type==='wave'){
+    return[Math.sin(nx*2+time),Math.cos(ny*2+time*0.7)];
+  }else{
+    return[Math.sin(nx+Math.cos(ny+time)),Math.cos(ny+Math.sin(nx+time*0.8))];
+  }
+}
+
+// Quaternion rotation (3D→2D projection)
+function quatRotate(x,y,z,qw,qx,qy,qz){
+  const tx=2*(qy*z-qz*y);
+  const ty=2*(qz*x-qx*z);
+  const tz=2*(qx*y-qy*x);
+  return[x+qw*tx+qy*tz-qz*ty,y+qw*ty+qz*tx-qx*tz];
+}
+
+// ─── COLOR PALETTES ──────────────────────────────────────────
+function getColor(idx,total,layer){
+  const u=universe;
+  const h0=(u.baseHue+t*u.hueSpeed+layer*37)%360;
+  const ratio=idx/Math.max(total-1,1);
+  if(u.colorMode==='hsv_spectral'){
+    const h=chromaHarm(h0,u.scheme,idx)+ratio*120;
+    return hsl(h%360,u.saturation,u.brightness-layer*8);
+  }else if(u.colorMode==='lab_journey'){
+    const L=50+ratio*40;
+    const a=Math.cos(ratio*TAU+t*0.5)*60;
+    const b=Math.sin(ratio*TAU*0.7+t*0.3)*60;
+    const [r,g,bv]=lab2rgb(L,a,b);
+    return `rgb(${r|0},${g|0},${bv|0})`;
+  }else if(u.colorMode==='harmonic_cycle'){
+    const h=(h0+ratio*300+Math.sin(t*0.4+idx)*30)%360;
+    return hsl(h,90,65);
+  }else{
+    const h=(h0+ratio*60)%360;
+    const s=80+ratio*20;
+    const l=40+ratio*40+Math.sin(t*0.5)*10;
+    return hsl(h,s,l);
+  }
+}
+
+// ─── DRAW HELPERS ────────────────────────────────────────────
+function bezierRibbon(pts,width,color1,color2){
+  if(pts.length<4)return;
+  ctx.save();
+  const grad=ctx.createLinearGradient(pts[0].x,pts[0].y,pts[pts.length-1].x,pts[pts.length-1].y);
+  grad.addColorStop(0,color1);grad.addColorStop(1,color2);
+  ctx.strokeStyle=grad;
+  ctx.lineWidth=width;
+  ctx.lineCap='round';
+  ctx.lineJoin='round';
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x,pts[0].y);
+  for(let i=1;i<pts.length-2;i++){
+    const mx=(pts[i].x+pts[i+1].x)/2;
+    const my=(pts[i].y+pts[i+1].y)/2;
+    ctx.quadraticCurveTo(pts[i].x,pts[i].y,mx,my);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawKaleidoscope(drawFn,sym){
+  const sliceAngle=TAU/sym;
+  for(let s=0;s<sym;s++){
+    ctx.save();
+    ctx.translate(cx,cy);
+    ctx.rotate(s*sliceAngle);
+    drawFn(s);
+    ctx.restore();
+    ctx.save();
+    ctx.translate(cx,cy);
+    ctx.rotate(s*sliceAngle);
+    ctx.scale(1,-1);
+    drawFn(s);
+    ctx.restore();
+  }
+}
+
+function drawParticleShape(type,x,y,r,color){
+  ctx.save();
+  ctx.fillStyle=color;ctx.strokeStyle=color;ctx.lineWidth=1;
+  if(type==='diamond'){
+    ctx.beginPath();ctx.moveTo(x,y-r);ctx.lineTo(x+r,y);ctx.lineTo(x,y+r);ctx.lineTo(x-r,y);ctx.closePath();ctx.fill();
+  }else if(type==='cross'){
+    const t=r/3;
+    ctx.fillRect(x-t,y-r,t*2,r*2);ctx.fillRect(x-r,y-t,r*2,t*2);
+  }else if(type==='star'){
+    ctx.beginPath();
+    for(let i=0;i<5;i++){
+      const a=i/5*TAU-Math.PI/2;const a2=a+TAU/10;
+      if(i===0)ctx.moveTo(x+r*Math.cos(a),y+r*Math.sin(a));
+      else ctx.lineTo(x+r*Math.cos(a),y+r*Math.sin(a));
+      ctx.lineTo(x+r*0.4*Math.cos(a2),y+r*0.4*Math.sin(a2));
+    }ctx.closePath();ctx.fill();
+  }else if(type==='circle'){
+    ctx.beginPath();ctx.arc(x,y,r,0,TAU);ctx.stroke();
+  }else{
+    ctx.fillRect(x-r/2,y-r/2,r,r);
+  }
+  ctx.restore();
+}
+
+// ─── ARENA DRAW ──────────────────────────────────────────────
+function drawArena(){
+  const u=universe;
+  const atype=u.arenaType;
+  ctx.save();
+  ctx.globalAlpha=0.15;
+
+  if(atype==='tron_grid'){
+    const spacing=Math.min(W,H)/12*u.arenaScale;
+    const hue=(u.baseHue+t*u.hueSpeed)%360;
+    ctx.strokeStyle=hsl(hue,100,60,0.4);ctx.lineWidth=1;
+    const offX=(t*30)%spacing;const offY=(t*20)%spacing;
+    for(let x=-spacing+offX;x<W+spacing;x+=spacing){
+      ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();
+    }
+    for(let y=-spacing+offY;y<H+spacing;y+=spacing){
+      ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();
+    }
+    // perspective lines to cx,cy
+    ctx.globalAlpha=0.08;
+    ctx.strokeStyle=hsl((hue+40)%360,100,70,0.3);
+    for(let i=0;i<20;i++){
+      const angle=i/20*TAU+t*0.05;
+      ctx.beginPath();ctx.moveTo(cx,cy);
+      ctx.lineTo(cx+Math.cos(angle)*W,cy+Math.sin(angle)*H);ctx.stroke();
+    }
+  }else if(atype==='atari_rings'){
+    const nRings=12;
+    for(let i=0;i<nRings;i++){
+      const r=((i/nRings+t*0.1)%1)*Math.min(W,H)*0.55;
+      const hue=(u.baseHue+i*30+t*u.hueSpeed)%360;
+      ctx.beginPath();ctx.arc(cx,cy,r,0,TAU);
+      ctx.strokeStyle=hsl(hue,100,70,0.5);ctx.lineWidth=1.5;ctx.stroke();
+    }
+    // scanlines
+    ctx.globalAlpha=0.04;
+    ctx.fillStyle=hsl(u.baseHue,80,20);
+    for(let y=0;y<H;y+=4)ctx.fillRect(0,y,W,2);
+  }else if(atype==='coxeter_web'){
+    const sym=u.symmetry;
+    ctx.globalAlpha=0.12;
+    drawKaleidoscope(s=>{
+      const layers=6;
+      for(let l=1;l<=layers;l++){
+        const r=l/layers*Math.min(cx,cy)*1.5;
+        const hue=(u.baseHue+l*20+t*u.hueSpeed*0.5)%360;
+        ctx.strokeStyle=hsl(hue,90,60);ctx.lineWidth=0.8;
+        ctx.beginPath();
+        for(let v=0;v<u.coxeterK;v++){
+          const a=v/u.coxeterK*TAU;
+          const a2=(v+1)/u.coxeterK*TAU;
+          if(v===0)ctx.moveTo(r*Math.cos(a),r*Math.sin(a));
+          else ctx.lineTo(r*Math.cos(a),r*Math.sin(a));
+          ctx.lineTo(r*Math.cos(a2),r*Math.sin(a2));
+        }
+        ctx.closePath();ctx.stroke();
+      }
+    },sym);
+  }else if(atype==='tensor_mesh'){
+    const step=Math.min(W,H)/20;
+    ctx.globalAlpha=0.1;
+    for(let x=0;x<W;x+=step){
+      for(let y=0;y<H;y+=step){
+        const[vx,vy]=fieldVec(x,y,u.fieldType,u.fieldScale,t);
+        const mag=Math.sqrt(vx*vx+vy*vy);
+        const hue=(u.baseHue+mag*200+t*u.hueSpeed)%360;
+        ctx.strokeStyle=hsl(hue,90,65,0.6);ctx.lineWidth=1;
+        ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x+vx*step*3,y+vy*step*3);ctx.stroke();
+      }
+    }
+  }
+  ctx.restore();
+}
+
+// ─── FRACTAL LAYER ───────────────────────────────────────────
+function drawFractalLayer(){
+  const u=universe;
+  if(u.fracMode==='bifurcation'){
+    drawBifurcation();return;
+  }
+  const N=u.tier==='high'?50:30;
+  const step=Math.min(W,H)/N;
+  ctx.save();ctx.globalAlpha=0.18;
+  for(let ix=0;ix<N;ix++){
+    for(let iy=0;iy<N;iy++){
+      const sx=(ix/N-0.5)*3.5/u.fractalScale;
+      const sy=(iy/N-0.5)*3.5/u.fractalScale;
+      let v;
+      if(u.fracMode==='mandelbrot'){
+        v=mandelbrot(sx+Math.sin(t*0.05)*0.3,sy+Math.cos(t*0.04)*0.3,20);
+      }else if(u.fracMode==='julia'){
+        const[cr,ci]=u.juliaC;
+        v=julia(sx,sy,cr+Math.sin(t*0.07)*0.1,ci+Math.cos(t*0.06)*0.1,20);
+      }else{
+        v=Math.sin(sx*2+t)*Math.cos(sy*2-t)*0.5+0.5;
+      }
+      if(v>0.05&&v<0.95){
+        const hue=(u.baseHue+v*240+t*u.hueSpeed)%360;
+        ctx.fillStyle=hsl(hue,95,55+v*20,0.5);
+        ctx.fillRect(ix*step,iy*step,step+1,step+1);
+      }
+    }
+  }
+  ctx.restore();
+}
+
+function drawBifurcation(){
+  const u=universe;
+  ctx.save();ctx.globalAlpha=0.35;
+  const pts=u.tier==='high'?2000:800;
+  for(let i=0;i<pts;i++){
+    const r=2.5+i/pts*1.5+Math.sin(t*0.1)*0.3;
+    let x=logisticY(r,0.5+rand()*0.01,80,50);
+    const px=i/pts*W;
+    const py=H-(x*H*0.7+H*0.1);
+    const hue=(u.baseHue+i/pts*180+t*u.hueSpeed)%360;
+    ctx.fillStyle=hsl(hue,90,70);
+    ctx.fillRect(px,py,2,2);
+  }
+  ctx.restore();
+}
+
+// ─── ATTRACTOR ───────────────────────────────────────────────
+function stepAttractor(){
+  const u=universe;
+  const dt=0.01;
+  for(let i=0;i<(u.tier==='high'?5:3);i++){
+    u.attState=attStep(u.attState,u.attractor,u.aParams,dt);
+    const s=u.attState;
+    // project 3D→2D with quaternion rotation
+    const qw=Math.cos(t*0.1),qx=Math.sin(t*0.07)*0.3,qy=Math.sin(t*0.05)*0.3,qz=0;
+    const scale=Math.min(W,H)*0.08;
+    const[px,py]=quatRotate(s.x,s.y,s.z||0,qw,qx,qy,qz);
+    u.attHistory.push({x:cx+px*scale,y:cy+py*scale,z:s.z||0});
+    if(u.attHistory.length>u.attMaxHistory)u.attHistory.shift();
+  }
+}
+function drawAttractor(){
+  const u=universe;
+  if(u.attHistory.length<2)return;
+  ctx.save();ctx.globalAlpha=0.7;ctx.lineWidth=1.2;ctx.lineCap='round';
+  for(let i=1;i<u.attHistory.length;i++){
+    const ratio=i/u.attHistory.length;
+    const p=u.attHistory[i-1],q=u.attHistory[i];
+    const hue=(u.baseHue+ratio*200+t*u.hueSpeed)%360;
+    ctx.strokeStyle=hsl(hue,100,50+ratio*30,ratio*0.8);
+    ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(q.x,q.y);ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// ─── FOURIER CURVES ──────────────────────────────────────────
+function drawFourierCurves(){
+  const u=universe;
+  const sym=u.symmetry;
+  drawKaleidoscope(s=>{
+    const pts=40;
+    ctx.save();
+    ctx.globalAlpha=0.55;ctx.lineWidth=2;ctx.lineCap='round';
+    for(let layer=0;layer<3;layer++){
+      ctx.beginPath();
+      const scale=(80+layer*40)*u.arenaScale;
+      for(let i=0;i<=pts;i++){
+        const u2=i/pts*TAU+t*(0.3+layer*0.1)+s*TAU/sym;
+        const[fx,fy]=fourierPath(u2,universe.fourierAmps,universe.fourierPhases,universe.fourierN,scale/(universe.fourierN||4));
+        if(i===0)ctx.moveTo(fx,fy);else ctx.lineTo(fx,fy);
+      }
+      const hue=(u.baseHue+s*360/sym+layer*60+t*u.hueSpeed)%360;
+      ctx.strokeStyle=hsl(hue,95,65);
+      ctx.stroke();
+    }
+    ctx.restore();
+  },sym);
+}
+
+// ─── RIBBONS ─────────────────────────────────────────────────
+function updateRibbons(dt){
+  for(const r of universe.ribbons){
+    r.phase+=r.speed*dt;
+    let rx=0,ry=0;
+    for(const f of r.fourier){
+      rx+=f.a*Math.cos(f.f*r.phase+f.p);
+      ry+=f.a*Math.sin(f.f*r.phase*0.8+f.p+1);
+    }
+    const[mx,my]=mobius(rx/200,ry/200,...universe.mobiusA,...universe.mobiusB);
+    r.points.unshift({x:r.cx+mx*r.r*2,y:r.cy+my*r.r*2});
+    if(r.points.length>r.maxPts)r.points.pop();
+  }
+}
+function drawRibbons(){
+  for(const r of universe.ribbons){
+    if(r.points.length<4)continue;
+    const h=(r.hue+t*universe.hueSpeed)%360;
+    const c1=hsl(h,r.sat,r.bri,0.8);
+    const c2=hsl((h+120)%360,r.sat,r.bri*0.6,0.2);
+    bezierRibbon(r.points,r.width,c1,c2);
+  }
+}
+
+// ─── PARTICLES ───────────────────────────────────────────────
+function updateParticles(dt){
+  const u=universe;
+  for(const p of u.particles){
+    const[fvx,fvy]=fieldVec(p.x,p.y,u.fieldType,u.fieldScale,t);
+    p.vx+=fvx*0.4*dt;p.vy+=fvy*0.4*dt;
+    // attractor pull
+    if(u.attHistory.length>0){
+      const att=u.attHistory[u.attHistory.length-1];
+      const dx=att.x-p.x,dy=att.y-p.y;
+      const d=Math.sqrt(dx*dx+dy*dy)+50;
+      p.vx+=dx/d*0.3*dt;p.vy+=dy/d*0.3*dt;
+    }
+    // damping
+    p.vx*=0.98;p.vy*=0.98;
+    // speed clamp
+    const spd=Math.sqrt(p.vx*p.vx+p.vy*p.vy);
+    if(spd>5){p.vx=p.vx/spd*5;p.vy=p.vy/spd*5;}
+    p.x+=p.vx;p.y+=p.vy;
+    // wrap
+    if(p.x<0)p.x+=W;if(p.x>W)p.x-=W;
+    if(p.y<0)p.y+=H;if(p.y>H)p.y-=H;
+    // trail
+    p.trail.unshift({x:p.x,y:p.y});
+    if(p.trail.length>universe.trailLen)p.trail.pop();
+    p.hue=(p.hue+0.5+dt)%360;
+  }
+}
+function drawParticles(){
+  const u=universe;
+  for(const p of u.particles){
+    // trail
+    if(p.trail.length>2){
+      ctx.save();ctx.globalAlpha=0.4;ctx.lineWidth=1;ctx.lineCap='round';
+      ctx.beginPath();
+      for(let i=0;i<p.trail.length;i++){
+        const alpha=1-i/p.trail.length;
+        if(i===0)ctx.moveTo(p.trail[i].x,p.trail[i].y);
+        else ctx.lineTo(p.trail[i].x,p.trail[i].y);
+      }
+      const hue=(p.hue+t*u.hueSpeed)%360;
+      ctx.strokeStyle=hsl(hue,100,70,0.5);ctx.stroke();ctx.restore();
+    }
+    // particle
+    const hue=(p.hue+t*u.hueSpeed)%360;
+    const color=hsl(hue,100,75,0.9);
+    const r=3*p.mass;
+    ctx.save();ctx.shadowColor=color;ctx.shadowBlur=6;
+    drawParticleShape(p.type,p.x,p.y,r,color);
+    ctx.restore();
+  }
+}
+
+// ─── FIREWORKS ───────────────────────────────────────────────
+function updateFireworks(dt){
+  const u=universe;
+  // spawn
+  if(rand()<u.fireworkRate*dt*0.5)spawnFirework();
+  // clamp
+  if(u.fireworks.length>8)u.fireworks.shift();
+  // update
+  for(const fw of u.fireworks){
+    fw.timer+=dt;
+    for(const sp of fw.sparks){
+      sp.x+=sp.vx;sp.y+=sp.vy;sp.vy+=0.1;
+      sp.trail.unshift({x:sp.x,y:sp.y});
+      if(sp.trail.length>12)sp.trail.pop();
+      sp.life-=sp.decay;
+    }
+    fw.sparks=fw.sparks.filter(sp=>sp.life>0);
+  }
+  u.fireworks=u.fireworks.filter(fw=>fw.sparks.length>0);
+}
+function drawFireworks(){
+  for(const fw of universe.fireworks){
+    for(const sp of fw.sparks){
+      ctx.save();ctx.globalAlpha=sp.life*0.8;ctx.lineWidth=sp.size;
+      if(sp.trail.length>1){
+        ctx.beginPath();ctx.moveTo(sp.trail[0].x,sp.trail[0].y);
+        for(const pt of sp.trail)ctx.lineTo(pt.x,pt.y);
+        const hue=(sp.hue+t*universe.hueSpeed)%360;
+        ctx.strokeStyle=hsl(hue,100,70,sp.life);ctx.stroke();
+      }
+      const hue=(sp.hue+t*universe.hueSpeed)%360;
+      ctx.fillStyle=hsl(hue,100,85,sp.life);
+      ctx.beginPath();ctx.arc(sp.x,sp.y,sp.size,0,TAU);ctx.fill();
+      ctx.restore();
+    }
+  }
+}
+
+// ─── GENOME / MORPHISM NETWORK ───────────────────────────────
+function updateGenome(dt){
+  const g=universe.genome;
+  for(const n of g.nodes){
+    const[fx,fy]=fieldVec(n.x,n.y,universe.fieldType,universe.fieldScale*2,t);
+    n.vx+=fx*0.2;n.vy+=fy*0.2;
+    n.vx*=0.95;n.vy*=0.95;
+    n.x+=n.vx*universe.genomeSpeed;n.y+=n.vy*universe.genomeSpeed;
+    if(n.x<30)n.vx+=0.5;if(n.x>W-30)n.vx-=0.5;
+    if(n.y<30)n.vy+=0.5;if(n.y>H-30)n.vy-=0.5;
+    n.hue=(n.hue+0.3)%360;
+  }
+}
+function drawGenome(){
+  const g=universe.genome;
+  const u=universe;
+  // edges (morphism arrows)
+  for(const e of g.edges){
+    const na=g.nodes[e.a],nb=g.nodes[e.b];
+    if(!na||!nb)continue;
+    const progress=(Math.sin(t*e.speed+e.phase)+1)/2;
+    const mx=lerp(na.x,nb.x,progress),my=lerp(na.y,nb.y,progress);
+    ctx.save();ctx.globalAlpha=0.4;
+    const hue=(na.hue+nb.hue)/2;
+    ctx.strokeStyle=hsl(hue,90,65,0.5);ctx.lineWidth=1;
+    ctx.setLineDash([4,8]);ctx.beginPath();ctx.moveTo(na.x,na.y);ctx.lineTo(nb.x,nb.y);ctx.stroke();
+    ctx.setLineDash([]);
+    // traveling dot
+    ctx.fillStyle=hsl((hue+60)%360,100,80,0.9);
+    ctx.beginPath();ctx.arc(mx,my,2.5,0,TAU);ctx.fill();
+    ctx.restore();
+  }
+  // nodes (trans-human-oid entities)
+  for(const n of g.nodes){
+    const hue=(n.hue+t*u.hueSpeed)%360;
+    const pulse=1+Math.sin(t*2+n.id)*0.3;
+    ctx.save();ctx.globalAlpha=0.75;
+    ctx.shadowColor=hsl(hue,100,70);ctx.shadowBlur=10;
+    if(n.type==='human'){
+      // humanoid head
+      ctx.strokeStyle=hsl(hue,90,70);ctx.lineWidth=1.5;
+      ctx.beginPath();ctx.arc(n.x,n.y,n.r*pulse,0,TAU);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(n.x,n.y+n.r);ctx.lineTo(n.x,n.y+n.r*2.5);
+      ctx.moveTo(n.x-n.r,n.y+n.r*1.5);ctx.lineTo(n.x+n.r,n.y+n.r*1.5);ctx.stroke();
+    }else if(n.type==='cyber'){
+      // circuit square
+      ctx.strokeStyle=hsl(hue,100,80);ctx.lineWidth=1.5;
+      ctx.strokeRect(n.x-n.r*pulse,n.y-n.r*pulse,n.r*pulse*2,n.r*pulse*2);
+      ctx.beginPath();ctx.moveTo(n.x-n.r,n.y);ctx.lineTo(n.x+n.r,n.y);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(n.x,n.y-n.r);ctx.lineTo(n.x,n.y+n.r);ctx.stroke();
+    }else if(n.type==='hybrid'){
+      // half circle half square
+      ctx.strokeStyle=hsl(hue,95,75);ctx.lineWidth=1.5;
+      ctx.beginPath();ctx.arc(n.x,n.y,n.r*pulse,Math.PI,TAU);
+      ctx.lineTo(n.x+n.r*pulse,n.y+n.r*pulse);ctx.lineTo(n.x-n.r*pulse,n.y+n.r*pulse);ctx.closePath();ctx.stroke();
+    }else{
+      ctx.fillStyle=hsl(hue,90,60,0.8);
+      ctx.beginPath();ctx.arc(n.x,n.y,n.r*pulse*0.5,0,TAU);ctx.fill();
+    }
+    ctx.restore();
+  }
+}
+
+// ─── WAVELET SPIRAL ──────────────────────────────────────────
+function drawWaveletSpiral(){
+  const u=universe;
+  ctx.save();ctx.globalAlpha=0.35;
+  const octaves=u.waveletOctaves;
+  drawKaleidoscope(s=>{
+    for(let oct=0;oct<octaves;oct++){
+      const freq=Math.pow(2,oct);
+      const nPts=60;
+      ctx.beginPath();ctx.lineWidth=2/(oct+1);
+      for(let i=0;i<=nPts;i++){
+        const theta=i/nPts*TAU*freq+t*(0.2+oct*0.1);
+        const r2=(40+oct*25)*u.arenaScale*(1+0.3*Math.sin(theta*3+t));
+        const wavelet=Math.exp(-((theta-Math.PI)*(theta-Math.PI))/(2*0.5*0.5))*Math.cos(theta*5);
+        const rmod=r2*(1+wavelet*0.4);
+        const x=rmod*Math.cos(theta);const y=rmod*Math.sin(theta);
+        if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
+      }
+      const hue=(u.baseHue+oct*40+s*15+t*u.hueSpeed)%360;
+      ctx.strokeStyle=hsl(hue,90,60+oct*5,0.7);ctx.stroke();
+    }
+  },u.symmetry);
+  ctx.restore();
+}
+
+// ─── LYAPUNOV RINGS ──────────────────────────────────────────
+function drawLyapunov(){
+  const u=universe;
+  ctx.save();ctx.globalAlpha=0.2;
+  const N=u.tier==='high'?80:40;
+  for(let i=0;i<N;i++){
+    const r=(i/N)*Math.min(cx,cy)*1.4;
+    const lyap=Math.sin(i/N*TAU+t*0.3)*Math.cos(i/N*TAU*1.7+t*0.2);
+    if(lyap<0.1)continue;
+    const hue=(u.baseHue+lyap*180+t*u.hueSpeed)%360;
+    ctx.strokeStyle=hsl(hue,95,60,lyap*0.5);
+    ctx.lineWidth=1+lyap*2;
+    ctx.beginPath();ctx.arc(cx,cy,r,0,TAU);ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// ─── AUDIO ENGINE ────────────────────────────────────────────
+let oscillators=[],noiseNode=null,analyser=null;
+
+function initAudio(){
+  if(audioCtx)return;
+  audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+  masterGain=audioCtx.createGain();
+  masterGain.gain.value=0.12;
+  masterGain.connect(audioCtx.destination);
+  analyser=audioCtx.createAnalyser();
+  analyser.fftSize=256;
+  analyser.connect(masterGain);
+  startOscillators();
+}
+function startOscillators(){
+  if(!audioCtx)return;
+  stopOscillators();
+  const u=universe;
+  const baseFreq=110+rand()*220;
+  const types=['sine','sawtooth','triangle','square'];
+  for(let i=0;i<4;i++){
+    const osc=audioCtx.createOscillator();
+    const gain=audioCtx.createGain();
+    const filter=audioCtx.createBiquadFilter();
+    filter.type='bandpass';filter.frequency.value=baseFreq*(i+1);filter.Q.value=3+i;
+    osc.type=pick(types);
+    osc.frequency.value=baseFreq*[1,1.5,2,3][i];
+    gain.gain.value=0.3/(i+1);
+    osc.connect(filter);filter.connect(gain);gain.connect(analyser);
+    osc.start();
+    oscillators.push({osc,gain,filter,baseFreq:baseFreq*(i+1)});
+  }
+  // noise
+  const bufLen=audioCtx.sampleRate*2;
+  const buf=audioCtx.createBuffer(1,bufLen,audioCtx.sampleRate);
+  const data=buf.getChannelData(0);
+  for(let i=0;i<bufLen;i++)data[i]=(Math.random()*2-1)*0.15;
+  noiseNode=audioCtx.createBufferSource();
+  noiseNode.buffer=buf;noiseNode.loop=true;
+  const noiseFilter=audioCtx.createBiquadFilter();
+  noiseFilter.type='highpass';noiseFilter.frequency.value=2000;
+  const noiseGain=audioCtx.createGain();noiseGain.gain.value=0.05;
+  noiseNode.connect(noiseFilter);noiseFilter.connect(noiseGain);noiseGain.connect(analyser);
+  noiseNode.start();
+}
+function stopOscillators(){
+  for(const o of oscillators){try{o.osc.stop();o.osc.disconnect();}catch(e){}}
+  oscillators=[];
+  if(noiseNode){try{noiseNode.stop();noiseNode.disconnect();}catch(e){}}
+  noiseNode=null;
+}
+function updateAudio(){
+  if(!audioCtx||!soundOn)return;
+  const u=universe;
+  const att=u.attState;
+  const mag=Math.sqrt((att.x||0)**2+(att.y||0)**2+(att.z||0)**2);
+  for(let i=0;i<oscillators.length;i++){
+    const o=oscillators[i];
+    const modFreq=o.baseFreq*(1+Math.sin(t*(0.1+i*0.07))*0.2+mag*0.01);
+    o.osc.frequency.setTargetAtTime(modFreq,audioCtx.currentTime,0.1);
+    o.gain.gain.setTargetAtTime(0.3/(i+1)*(0.5+0.5*Math.sin(t*(0.3+i*0.1))),audioCtx.currentTime,0.05);
+  }
+}
+
+// ─── BACKGROUND ──────────────────────────────────────────────
+function drawBackground(){
+  const u=universe;
+  const hue=(u.baseHue+t*u.hueSpeed*0.2)%360;
+  // deep void with subtle radial
+  const g=ctx.createRadialGradient(cx,cy,0,cx,cy,Math.max(W,H)*0.8);
+  g.addColorStop(0,hsl(hue,30,8));
+  g.addColorStop(0.5,hsl((hue+30)%360,20,4));
+  g.addColorStop(1,'#000');
+  ctx.fillStyle=g;
+  ctx.fillRect(0,0,W,H);
+}
+
+// ─── GLOW OVERLAY ────────────────────────────────────────────
+function drawGlowOverlay(){
+  const u=universe;
+  const hue=(u.baseHue+t*u.hueSpeed)%360;
+  ctx.save();ctx.globalAlpha=0.06;
+  const rg=ctx.createRadialGradient(cx,cy,0,cx,cy,Math.min(cx,cy)*1.2);
+  rg.addColorStop(0,hsl(hue,100,70));
+  rg.addColorStop(0.5,hsl((hue+120)%360,80,40));
+  rg.addColorStop(1,'transparent');
+  ctx.fillStyle=rg;ctx.fillRect(0,0,W,H);
+  ctx.restore();
+}
+
+// ─── HUD UPDATE ──────────────────────────────────────────────
+function updateHUD(){
+  if(!showHUD){hud.style.display='none';return;}
+  hud.style.display='block';
+  const u=universe;
+  const att=u.attState;
+  hud.innerHTML=`
+FPS: ${fps|0} &nbsp;|&nbsp; FRAME: ${frame}<br>
+ATTRACTOR: ${u.attractor.toUpperCase()}<br>
+STATE: [${(att.x||0).toFixed(2)}, ${(att.y||0).toFixed(2)}, ${(att.z||0).toFixed(2)}]<br>
+FRACTAL: ${u.fracMode.toUpperCase()}<br>
+SYMMETRY: ${u.symmetry} &nbsp;|&nbsp; ARENA: ${u.arenaType}<br>
+COLOR: ${u.colorMode}<br>
+PARTICLES: ${u.particles.length}<br>
+FIREWORKS: ${u.fireworks.length}<br>
+SOUND: ${soundOn?'ON':'OFF'}<br>
+SEED: ${u.seed.toString(16).toUpperCase()}`;
+}
+
+// ─── MAIN LOOP ───────────────────────────────────────────────
+function loop(ts){
+  animId=requestAnimationFrame(loop);
+  const rawDt=Math.min((ts-lastT)/1000,0.05);
+  lastT=ts;
+  fps=fps*(1-fpsAlpha)+(1/Math.max(rawDt,0.001))*fpsAlpha;
+  t+=rawDt;frame++;
+
+  // adaptive quality
+  const u=universe;
+  const dt=rawDt;
+
+  // updates
+  stepAttractor();
+  updateRibbons(dt);
+  updateParticles(dt);
+  updateFireworks(dt);
+  updateGenome(dt);
+  updateAudio();
+
+  // render pipeline
+  drawBackground();
+
+  // layer 1: arena structure
+  drawArena();
+
+  // layer 2: lyapunov rings
+  drawLyapunov();
+
+  // layer 3: fractal field
+  ctx.save();ctx.globalAlpha=0.8;
+  drawFractalLayer();
+  ctx.restore();
+
+  // layer 4: wavelet spirals
+  drawWaveletSpiral();
+
+  // layer 5: fourier curves with kaleidoscope
+  drawFourierCurves();
+
+  // layer 6: attractor path
+  drawAttractor();
+
+  // layer 7: ribbons
+  ctx.save();ctx.globalAlpha=0.7;
+  drawRibbons();
+  ctx.restore();
+
+  // layer 8: genome network
+  ctx.save();ctx.globalAlpha=0.65;
+  drawGenome();
+  ctx.restore();
+
+  // layer 9: particles
+  ctx.save();ctx.globalAlpha=0.85;
+  drawParticles();
+  ctx.restore();
+
+  // layer 10: fireworks
+  drawFireworks();
+
+  // glow
+  drawGlowOverlay();
+
+  // scanline overlay (Atari/Tron feel)
+  if(u.arenaType==='atari_rings'||frame%120<60){
+    ctx.save();ctx.globalAlpha=0.03;
+    ctx.fillStyle='#000';
+    for(let y=0;y<H;y+=3)ctx.fillRect(0,y,W,1);
+    ctx.restore();
+  }
+
+  updateHUD();
+}
+
+// ─── CONTROLS ────────────────────────────────────────────────
+function restart(){
+  newUniverse();
+  if(soundOn){stopOscillators();startOscillators();}
+  // flash hint
+  hint.style.opacity='1';
+  clearTimeout(tapFade);
+  tapFade=setTimeout(()=>hint.style.opacity='0',2000);
+}
+
+window.addEventListener('keydown',e=>{
+  if(e.code==='Space'){e.preventDefault();restart();}
+  else if(e.code==='KeyH'){showHUD=!showHUD;}
+  else if(e.code==='KeyS'){
+    soundOn=!soundOn;
+    if(soundOn){initAudio();if(audioCtx.state==='suspended')audioCtx.resume();startOscillators();}
+    else{stopOscillators();}
+  }
+});
+
+canvas.addEventListener('click',restart);
+canvas.addEventListener('touchstart',e=>{e.preventDefault();restart();},{passive:false});
+
+// ─── INIT ────────────────────────────────────────────────────
+newUniverse();
+hint.style.opacity='1';
+tapFade=setTimeout(()=>hint.style.opacity='0',4000);
+requestAnimationFrame(ts=>{lastT=ts;loop(ts);});
+
+})();
+</script>
+</body>
+</html>

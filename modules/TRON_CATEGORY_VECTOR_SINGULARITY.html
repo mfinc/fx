@@ -1,0 +1,911 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>TRON CATEGORY VECTOR SINGULARITY — Generative Art Engine</title>
+<meta name="description" content="Browser-native generative art engine fusing Atari 2600 vector minimalism with Tron neon grid architecture. Features CRISPR-algorithmic evolution, category theory visualization, fractal attractors, and procedural audiovisual synthesis. A trans-human-oid transformation rendered as luminous category objects and dynamic morphism flows.">
+<meta name="keywords" content="generative art engine, Atari vector graphics, Tron cyber aesthetics, CRISPR evolution visualization, category theory visualization, procedural audiovisual simulation, browser generative systems, neon grid architecture, fractal attractor art, particle system visualization, cybernetic transformation art, vector field simulation, graph rewriting systems, recursive geometric art, spectral gradient animation, arcade arena aesthetics, real-time procedural audio, Web Audio API synthesis, canvas 2D generative, algorithmic color cycling">
+<meta name="author" content="TRON SINGULARITY ENGINE">
+<meta property="og:title" content="TRON CATEGORY VECTOR SINGULARITY">
+<meta property="og:description" content="Generative audiovisual engine: Atari vectors × Tron neon × CRISPR evolution × Category Theory morphisms">
+<meta name="theme-color" content="#000011">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000;cursor:crosshair}
+canvas{display:block;position:fixed;top:0;left:0;width:100%!important;height:100%!important}
+#hud{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;display:none;font-family:'Courier New',monospace;font-size:11px;color:rgba(0,255,180,0.7);z-index:10}
+#hud.on{display:block}
+#hudtl{position:absolute;top:12px;left:14px;line-height:1.7;text-shadow:0 0 8px currentColor}
+#hudtr{position:absolute;top:12px;right:14px;text-align:right;line-height:1.7;text-shadow:0 0 8px currentColor}
+#hudb{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);text-align:center;line-height:1.8;text-shadow:0 0 8px currentColor;letter-spacing:2px;font-size:10px}
+#flash{position:fixed;top:0;left:0;width:100%;height:100%;background:#fff;opacity:0;pointer-events:none;z-index:20;transition:opacity 0.05s}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div id="hudtl"></div>
+  <div id="hudtr"></div>
+  <div id="hudb">SPACE/CLICK/TOUCH · REGENERATE &nbsp;|&nbsp; H · HUD &nbsp;|&nbsp; S · SOUND</div>
+</div>
+<div id="flash"></div>
+<script>
+(function(){
+'use strict';
+
+// ─── GLOBALS ──────────────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d', {alpha: false});
+const hud = document.getElementById('hud');
+const hudTL = document.getElementById('hudtl');
+const hudTR = document.getElementById('hudtr');
+const flash = document.getElementById('flash');
+
+let W, H, CX, CY;
+let frame = 0, fps = 60, lastT = 0, fpsAlpha = 0.05;
+let hudOn = false, soundOn = false;
+let universe = {};
+let audioCtx = null, masterGain = null;
+let rngSeed = Math.random() * 0xFFFFFFFF | 0;
+
+// ─── SEEDED RNG ───────────────────────────────────────────────────────────────
+let _s = rngSeed;
+function rng(){ _s ^= _s<<13; _s ^= _s>>17; _s ^= _s<<5; return ((_s>>>0)/4294967296); }
+function rngRange(a,b){ return a + rng()*(b-a); }
+function rngInt(a,b){ return Math.floor(rngRange(a,b)); }
+function rngPick(arr){ return arr[rngInt(0,arr.length)]; }
+
+// ─── MATH UTILS ───────────────────────────────────────────────────────────────
+const PI = Math.PI, TAU = PI*2;
+const sin = Math.sin, cos = Math.cos, sqrt = Math.sqrt, abs = Math.abs, floor = Math.floor, pow = Math.pow;
+function lerp(a,b,t){ return a+(b-a)*t; }
+function clamp(v,a,b){ return v<a?a:v>b?b:v; }
+function smoothstep(e0,e1,x){ let t=clamp((x-e0)/(e1-e0),0,1); return t*t*(3-2*t); }
+function hsl(h,s,l,a){ return `hsla(${h|0},${s|0}%,${l|0}%,${a===undefined?1:a})`; }
+function mod(x,n){ return ((x%n)+n)%n; }
+
+// ─── RESIZE ───────────────────────────────────────────────────────────────────
+function resize(){
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  CX = W/2; CY = H/2;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ─── COLOR PALETTE SYSTEM ─────────────────────────────────────────────────────
+function makePalette(){
+  const modes = ['spectral','neon','acid','ice','plasma','ember','cyber','void','aurora'];
+  const mode = rngPick(modes);
+  const baseH = rngRange(0,360);
+  const spread = rngRange(30,180);
+  const sat = rngRange(70,100);
+  const shift = rngRange(0.3,1.5); // hue drift speed
+  return {mode, baseH, spread, sat, shift, phase:0};
+}
+
+function paletteColor(pal, t, brightness, alpha){
+  pal.phase += 0.0003 * pal.shift;
+  const p = mod(t + pal.phase, 1);
+  let h,s,l;
+  const bH = pal.baseH;
+  const sp = pal.spread;
+  switch(pal.mode){
+    case 'spectral': h=bH+p*360; s=pal.sat; l=30+brightness*50; break;
+    case 'neon':     h=bH+p*sp; s=100; l=40+brightness*40; break;
+    case 'acid':     h=mod(bH+p*120+sin(p*TAU)*30,360); s=100; l=35+brightness*45; break;
+    case 'ice':      h=180+p*60; s=70+p*30; l=40+brightness*50; break;
+    case 'plasma':   h=bH+p*sp*2+sin(p*TAU*3)*20; s=100; l=30+brightness*60; break;
+    case 'ember':    h=mod(p*60,360); s=100; l=20+brightness*60; break;
+    case 'cyber':    h=bH+floor(p*6)*60; s=pal.sat; l=30+brightness*50; break;
+    case 'void':     h=bH+p*30; s=80; l=10+brightness*60; break;
+    case 'aurora':   h=bH+sin(p*TAU)*sp; s=80+brightness*20; l=35+brightness*40; break;
+    default:         h=bH+p*sp; s=pal.sat; l=40+brightness*40;
+  }
+  return hsl(mod(h,360), s, l, alpha===undefined?1:alpha);
+}
+
+// ─── TRON GRID ────────────────────────────────────────────────────────────────
+function makeGrid(pal){
+  const cellW = rngRange(40,120);
+  const cellH = rngRange(40,120);
+  const speed = rngRange(0.2,1.2);
+  const perspective = rngRange(0.3,0.9);
+  return {cellW, cellH, speed, perspective, phase:0, pal};
+}
+
+function drawGrid(g, t, pal){
+  g.phase = t * g.speed * 0.0008;
+  ctx.save();
+  const vp = g.perspective;
+  const horizon = CY * (0.3 + vp*0.3);
+  const glow = rngRange(0.3,0.8);
+
+  // horizontal lines (receding)
+  for(let i=0;i<28;i++){
+    const yNorm = i/27;
+    const yFade = pow(yNorm,1.5);
+    const y = lerp(horizon, H+50, yFade + mod(g.phase*0.5, 1/27));
+    if(y < horizon) continue;
+    const alpha = smoothstep(0,1,yFade) * 0.8;
+    const col = paletteColor(pal, yNorm*0.4, yFade, alpha);
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 0.5 + yFade*1.5;
+    ctx.beginPath();
+    const spread = lerp(0, W*1.5, yFade);
+    ctx.moveTo(CX - spread, y);
+    ctx.lineTo(CX + spread, y);
+    ctx.stroke();
+  }
+
+  // vertical lines (converging to vanishing point)
+  for(let i=-20;i<=20;i++){
+    const xFrac = i/20;
+    const x0 = CX + xFrac * W * 0.6;
+    const xTop = CX + xFrac * 15;
+    const alpha = (1 - abs(xFrac)*0.5) * 0.6;
+    const col = paletteColor(pal, 0.5+xFrac*0.3, 0.5, alpha);
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    ctx.moveTo(xTop, horizon);
+    ctx.lineTo(x0, H+50);
+    ctx.stroke();
+  }
+
+  // horizon glow
+  const grad = ctx.createLinearGradient(0, horizon-30, 0, horizon+30);
+  grad.addColorStop(0,'transparent');
+  const hc = paletteColor(pal, 0.5, 1, glow);
+  grad.addColorStop(0.5, hc);
+  grad.addColorStop(1,'transparent');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, horizon-30, W, 60);
+  ctx.restore();
+}
+
+// ─── CATEGORY THEORY NODES + MORPHISMS ───────────────────────────────────────
+function makeCatGraph(pal){
+  const N = rngInt(6,16);
+  const nodes = [];
+  for(let i=0;i<N;i++){
+    const angle = TAU*i/N + rng()*0.5;
+    const r = rngRange(80, Math.min(W,H)*0.32);
+    nodes.push({
+      id:i,
+      x: CX + cos(angle)*r,
+      y: CY + sin(angle)*r,
+      vx: rngRange(-0.3,0.3),
+      vy: rngRange(-0.3,0.3),
+      size: rngRange(4,14),
+      phase: rng()*TAU,
+      freq: rngRange(0.5,3),
+      color: rng(),
+      morphCount: 0,
+      label: String.fromCharCode(65+i)
+    });
+  }
+  const morphisms = [];
+  const morphTypes = ['functor','natural','adjoint','limit','colimit'];
+  for(let i=0;i<N;i++){
+    const numMorph = rngInt(1,4);
+    for(let m=0;m<numMorph;m++){
+      const target = rngInt(0,N);
+      if(target===i) continue;
+      morphisms.push({
+        from: i, to: target,
+        phase: rng()*TAU,
+        speed: rngRange(0.5,3),
+        type: rngPick(morphTypes),
+        curvature: rngRange(-1.5,1.5),
+        particles: Array.from({length:rngInt(2,6)},()=>({t:rng(),speed:rngRange(0.003,0.012)})),
+        color: rng()
+      });
+      nodes[i].morphCount++;
+    }
+  }
+  return {nodes, morphisms, pal, rewriteTimer:0, rewritePhase:0};
+}
+
+function updateCatGraph(cg, dt){
+  const {nodes} = cg;
+  const N = nodes.length;
+  // gentle node drift
+  for(let i=0;i<N;i++){
+    const n = nodes[i];
+    n.x += n.vx;
+    n.y += n.vy;
+    // soft boundary repulsion
+    const margin = 60;
+    if(n.x<margin) n.vx += 0.05;
+    if(n.x>W-margin) n.vx -= 0.05;
+    if(n.y<margin) n.vy += 0.05;
+    if(n.y>H-margin) n.vy -= 0.05;
+    n.vx *= 0.995;
+    n.vy *= 0.995;
+    n.vx += rngRange(-0.02,0.02);
+    n.vy += rngRange(-0.02,0.02);
+    n.vx = clamp(n.vx,-1.5,1.5);
+    n.vy = clamp(n.vy,-1.5,1.5);
+  }
+  // update morphism particles
+  for(const m of cg.morphisms){
+    m.phase += dt*0.001*m.speed;
+    for(const p of m.particles){
+      p.t = mod(p.t + p.speed, 1);
+    }
+  }
+  // CRISPR rewrite timer
+  cg.rewriteTimer += dt;
+  if(cg.rewriteTimer > rngRange(1500,4000)){
+    cg.rewriteTimer = 0;
+    cg.rewritePhase = 1.0;
+    // mutate: swap a node or reroute morphism
+    if(rng()<0.5 && cg.morphisms.length>0){
+      const mi = rngInt(0,cg.morphisms.length);
+      cg.morphisms[mi].to = rngInt(0,N);
+      cg.morphisms[mi].curvature = rngRange(-1.5,1.5);
+      cg.morphisms[mi].color = rng();
+    } else {
+      const ni = rngInt(0,N);
+      nodes[ni].size = rngRange(4,14);
+      nodes[ni].color = rng();
+    }
+  }
+  if(cg.rewritePhase>0) cg.rewritePhase = max0(cg.rewritePhase - dt*0.002);
+}
+function max0(x){ return x<0?0:x; }
+
+function drawCatGraph(cg, t, pal){
+  const {nodes, morphisms} = cg;
+
+  // draw morphisms
+  for(const m of morphisms){
+    const a = nodes[m.from], b = nodes[m.to];
+    if(!a||!b) continue;
+    const col = paletteColor(pal, m.color, 0.7, 0.6);
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 1;
+
+    // cubic bezier control points
+    const mx = (a.x+b.x)/2, my = (a.y+b.y)/2;
+    const dx = b.x-a.x, dy = b.y-a.y;
+    const len = sqrt(dx*dx+dy*dy)||1;
+    const perp = m.curvature * len * 0.35;
+    const cx1 = mx - dy/len*perp + dx*0.1;
+    const cy1 = my + dx/len*perp + dy*0.1;
+
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.quadraticCurveTo(cx1, cy1, b.x, b.y);
+    ctx.stroke();
+
+    // arrowhead
+    const ang = Math.atan2(b.y - cy1, b.x - cx1);
+    const as = 8;
+    ctx.beginPath();
+    ctx.moveTo(b.x, b.y);
+    ctx.lineTo(b.x - as*cos(ang-0.4), b.y - as*sin(ang-0.4));
+    ctx.lineTo(b.x - as*cos(ang+0.4), b.y - as*sin(ang+0.4));
+    ctx.closePath();
+    ctx.fillStyle = col;
+    ctx.fill();
+
+    // flowing particles along bezier
+    for(const p of m.particles){
+      const pt = getBezierPoint(a.x,a.y,cx1,cy1,b.x,b.y,p.t);
+      const pc = paletteColor(pal, m.color, 1, 0.9);
+      ctx.beginPath();
+      ctx.arc(pt.x, pt.y, 2.5, 0, TAU);
+      ctx.fillStyle = pc;
+      ctx.fill();
+      // glow
+      const grd = ctx.createRadialGradient(pt.x,pt.y,0,pt.x,pt.y,8);
+      grd.addColorStop(0, paletteColor(pal,m.color,1,0.5));
+      grd.addColorStop(1,'transparent');
+      ctx.beginPath();
+      ctx.arc(pt.x,pt.y,8,0,TAU);
+      ctx.fillStyle=grd;
+      ctx.fill();
+    }
+  }
+
+  // CRISPR rewrite flash
+  if(cg.rewritePhase>0){
+    ctx.strokeStyle = `rgba(255,255,255,${cg.rewritePhase*0.6})`;
+    ctx.lineWidth = cg.rewritePhase*3;
+    for(const n of nodes){
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, n.size+cg.rewritePhase*20, 0, TAU);
+      ctx.stroke();
+    }
+  }
+
+  // draw nodes
+  for(const n of nodes){
+    const pulse = 1 + 0.25*sin(t*0.001*n.freq + n.phase);
+    const r = n.size * pulse;
+    const col = paletteColor(pal, n.color, 0.9, 1);
+
+    // outer glow
+    const grd = ctx.createRadialGradient(n.x,n.y,0,n.x,n.y,r*4);
+    grd.addColorStop(0, paletteColor(pal, n.color, 1, 0.4));
+    grd.addColorStop(1, 'transparent');
+    ctx.beginPath(); ctx.arc(n.x,n.y,r*4,0,TAU);
+    ctx.fillStyle=grd; ctx.fill();
+
+    // core
+    ctx.beginPath(); ctx.arc(n.x,n.y,r,0,TAU);
+    ctx.fillStyle = col; ctx.fill();
+
+    // inner bright
+    ctx.beginPath(); ctx.arc(n.x,n.y,r*0.4,0,TAU);
+    ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.fill();
+
+    // diamond bracket (Atari vector style)
+    ctx.strokeStyle = paletteColor(pal,n.color,1,0.7);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    const d = r*2.2;
+    ctx.moveTo(n.x-d,n.y); ctx.lineTo(n.x,n.y-d);
+    ctx.lineTo(n.x+d,n.y); ctx.lineTo(n.x,n.y+d);
+    ctx.closePath(); ctx.stroke();
+  }
+}
+
+function getBezierPoint(x0,y0,cx,cy,x1,y1,t){
+  const mt = 1-t;
+  return {
+    x: mt*mt*x0 + 2*mt*t*cx + t*t*x1,
+    y: mt*mt*y0 + 2*mt*t*cy + t*t*y1
+  };
+}
+
+// ─── HUMAN SILHOUETTE DISASSEMBLY ─────────────────────────────────────────────
+function makeHumanoid(){
+  const cx = rngRange(W*0.2, W*0.8);
+  const cy = rngRange(H*0.25, H*0.75);
+  const scale = rngRange(0.4, 0.9);
+  const disassemblyRate = rngRange(0.00015, 0.0006);
+  return {cx,cy,scale,disassemblyRate,phase:rng()*TAU,
+    modules:[], disassemblyT:rng(),
+    colorBase: rng(), lastModuleTime:0};
+}
+
+function getHumanoidParts(h){
+  // Returns body part polygons scaled to h
+  const s = h.scale * Math.min(W,H)*0.18;
+  const cx = h.cx, cy = h.cy;
+  return [
+    // head
+    {type:'ellipse',x:cx,y:cy-s*1.5,rx:s*0.22,ry:s*0.28,key:'head'},
+    // torso
+    {type:'rect',x:cx-s*0.22,y:cy-s*1.1,w:s*0.44,h:s*0.7,key:'torso'},
+    // left arm
+    {type:'rect',x:cx-s*0.48,y:cy-s*1.05,w:s*0.18,h:s*0.62,key:'larm'},
+    // right arm
+    {type:'rect',x:cx+s*0.3,y:cy-s*1.05,w:s*0.18,h:s*0.62,key:'rarm'},
+    // left leg
+    {type:'rect',x:cx-s*0.26,y:cy-s*0.38,w:s*0.2,h:s*0.72,key:'lleg'},
+    // right leg
+    {type:'rect',x:cx+s*0.06,y:cy-s*0.38,w:s*0.2,h:s*0.72,key:'rleg'},
+  ];
+}
+
+function updateHumanoid(h, t, dt){
+  h.disassemblyT = clamp(h.disassemblyT + h.disassemblyRate * dt, 0, 1);
+  // spawn cybernetic modules from disassembly
+  if(h.disassemblyT > 0.1 && t - h.lastModuleTime > 400){
+    h.lastModuleTime = t;
+    const parts = getHumanoidParts(h);
+    const part = rngPick(parts);
+    h.modules.push({
+      x: part.x + rngRange(-20,20),
+      y: (part.type==='ellipse'?part.y:part.y+part.h/2) + rngRange(-20,20),
+      vx: rngRange(-1.5,1.5), vy: rngRange(-2,-0.2),
+      size: rngRange(4,12), color:rng(), angle:rng()*TAU,
+      av: rngRange(-0.05,0.05), life:1, decay:rngRange(0.0005,0.002),
+      shape: rngPick(['square','diamond','cross','hex','circuit'])
+    });
+  }
+  // update modules
+  for(const m of h.modules){
+    m.x += m.vx; m.y += m.vy;
+    m.vy += 0.02; m.vx *= 0.99;
+    m.angle += m.av;
+    m.life -= m.decay;
+  }
+  h.modules = h.modules.filter(m=>m.life>0);
+}
+
+function drawHumanoid(h, t, pal){
+  const parts = getHumanoidParts(h);
+  const dT = h.disassemblyT;
+  const pulse = sin(t*0.002+h.phase)*0.5+0.5;
+
+  for(const part of parts){
+    const baseAlpha = (1-dT)*0.8 + 0.1;
+    const col = paletteColor(pal, h.colorBase+0.1, 0.6+pulse*0.4, baseAlpha);
+    const glowCol = paletteColor(pal, h.colorBase, 1, baseAlpha*0.4);
+
+    // CRISPR-edit glitch: fragments break off
+    const fragOffset = dT > 0.3 ? rngRange(-dT*8,dT*8) : 0;
+
+    ctx.save();
+    ctx.shadowBlur = 10 + pulse*15;
+    ctx.shadowColor = glowCol;
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 1.5;
+    ctx.fillStyle = paletteColor(pal, h.colorBase, 0.2, baseAlpha*0.15);
+
+    if(part.type==='ellipse'){
+      ctx.beginPath();
+      ctx.ellipse(part.x+fragOffset, part.y+fragOffset, part.rx, part.ry, 0, 0, TAU);
+      ctx.fill(); ctx.stroke();
+      // scan lines on head
+      for(let sl=0;sl<6;sl++){
+        const sy = part.y - part.ry + sl*(part.ry*2/5);
+        ctx.beginPath();
+        ctx.moveTo(part.x-part.rx*0.9+fragOffset, sy+fragOffset);
+        ctx.lineTo(part.x+part.rx*0.9+fragOffset, sy+fragOffset);
+        ctx.globalAlpha = 0.3;
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+    } else {
+      ctx.beginPath();
+      ctx.rect(part.x+fragOffset, part.y+fragOffset, part.w, part.h);
+      ctx.fill(); ctx.stroke();
+      // circuit lines inside
+      ctx.lineWidth=0.5;
+      ctx.globalAlpha=0.4;
+      const nx = rngInt(2,5);
+      for(let ci=0;ci<nx;ci++){
+        const lx = part.x + part.w*ci/(nx-1) + fragOffset;
+        ctx.beginPath();
+        ctx.moveTo(lx, part.y+fragOffset);
+        ctx.lineTo(lx, part.y+part.h+fragOffset);
+        ctx.stroke();
+      }
+      ctx.globalAlpha=1;
+    }
+    ctx.restore();
+  }
+
+  // draw floating cybernetic modules
+  for(const m of h.modules){
+    const a = m.life;
+    const col = paletteColor(pal, m.color, 0.9, a);
+    ctx.save();
+    ctx.translate(m.x, m.y);
+    ctx.rotate(m.angle);
+    ctx.strokeStyle = col;
+    ctx.fillStyle = paletteColor(pal, m.color, 0.3, a*0.3);
+    ctx.lineWidth = 1;
+    ctx.shadowBlur = 8; ctx.shadowColor = col;
+    const sz = m.size;
+    switch(m.shape){
+      case 'square':
+        ctx.strokeRect(-sz,-sz,sz*2,sz*2);
+        ctx.fillRect(-sz,-sz,sz*2,sz*2); break;
+      case 'diamond':
+        ctx.beginPath();
+        ctx.moveTo(0,-sz); ctx.lineTo(sz,0);
+        ctx.lineTo(0,sz); ctx.lineTo(-sz,0);
+        ctx.closePath(); ctx.fill(); ctx.stroke(); break;
+      case 'cross':
+        ctx.beginPath();
+        ctx.moveTo(-sz,0); ctx.lineTo(sz,0);
+        ctx.moveTo(0,-sz); ctx.lineTo(0,sz);
+        ctx.stroke(); break;
+      case 'hex':
+        ctx.beginPath();
+        for(let hi=0;hi<6;hi++){
+          const ha = hi*PI/3 - PI/6;
+          hi===0?ctx.moveTo(cos(ha)*sz,sin(ha)*sz):ctx.lineTo(cos(ha)*sz,sin(ha)*sz);
+        }
+        ctx.closePath(); ctx.fill(); ctx.stroke(); break;
+      case 'circuit':
+        ctx.strokeRect(-sz,-sz,sz*2,sz*2);
+        ctx.beginPath();
+        ctx.moveTo(-sz,0); ctx.lineTo(-sz/2,0); ctx.lineTo(0,-sz/2); ctx.lineTo(0,0); ctx.lineTo(sz/2,0); ctx.lineTo(sz,0);
+        ctx.stroke(); break;
+    }
+    ctx.restore();
+  }
+}
+
+// ─── FRACTAL ATTRACTOR (Clifford) ─────────────────────────────────────────────
+function makeAttractor(){
+  const types = ['clifford','dejong','pickover','julia'];
+  const type = rngPick(types);
+  const a=rngRange(-2.5,2.5),b=rngRange(-2.5,2.5),c=rngRange(-2.5,2.5),d=rngRange(-2.5,2.5);
+  const scale = rngRange(0.12,0.28)*Math.min(W,H);
+  const offsetX = CX + rngRange(-W*0.15,W*0.15);
+  const offsetY = CY + rngRange(-H*0.15,H*0.15);
+  const count = rngInt(800,2400);
+  const colorBase = rng();
+  return {type,a,b,c,d,scale,offsetX,offsetY,count,colorBase,
+    x:rng()*0.5,y:rng()*0.5,iterBatch:0};
+}
+
+function drawAttractor(att, t, pal){
+  let {x,y,a,b,c,d} = att;
+  const drift = sin(t*0.0003)*0.1;
+  const ad = a+drift, bd = b+drift;
+
+  ctx.globalAlpha = 0.35;
+  for(let i=0;i<att.count;i++){
+    let nx,ny;
+    switch(att.type){
+      case 'clifford':
+        nx = sin(ad*y)+c*cos(ad*x);
+        ny = sin(bd*x)+d*cos(bd*y); break;
+      case 'dejong':
+        nx = sin(a*y)-cos(b*x);
+        ny = sin(c*x)-cos(d*y); break;
+      case 'pickover':
+        nx = sin(a*y)+c*cos(a*x);
+        ny = sin(b*x)+d*cos(b*y); break;
+      case 'julia':
+        nx = x*x-y*y+a*0.5;
+        ny = 2*x*y+b*0.5; break;
+      default:
+        nx=sin(a*y);ny=sin(b*x);
+    }
+    x=nx; y=ny;
+    const px = att.offsetX + x*att.scale;
+    const py = att.offsetY + y*att.scale;
+    const cn = (x*x+y*y)/(att.a*att.a+att.b*att.b+0.001);
+    ctx.fillStyle = paletteColor(pal, mod(att.colorBase+cn*0.3,1), 0.8, 0.6);
+    ctx.fillRect(px-0.5,py-0.5,1,1);
+  }
+  att.x=x; att.y=y;
+  ctx.globalAlpha=1;
+}
+
+// ─── VECTOR FIELD PARTICLES ───────────────────────────────────────────────────
+function makeVectorField(){
+  const fieldType = rngPick(['curl','dipole','vortex','sine','strange']);
+  const count = rngInt(180,500);
+  const particles = Array.from({length:count},()=>({
+    x:rngRange(0,W), y:rngRange(0,H),
+    vx:0, vy:0, life:rng(), maxLife:rngRange(0.003,0.015),
+    color:rng(), trail:[], maxTrail:rngInt(6,20)
+  }));
+  const strength = rngRange(0.5,3);
+  const freq = rngRange(1,4);
+  return {fieldType,particles,strength,freq,colorBase:rng()};
+}
+
+function fieldVector(vf,x,y,t){
+  const nx = x/W*2-1, ny = y/H*2-1;
+  const ts = t*0.0003;
+  const f = vf.freq;
+  let fx=0,fy=0;
+  switch(vf.fieldType){
+    case 'curl':
+      fx = sin(ny*f+ts)*vf.strength;
+      fy = -cos(nx*f+ts)*vf.strength; break;
+    case 'dipole':
+      const r2 = nx*nx+ny*ny+0.01;
+      fx = (2*nx*ny/(r2*r2))*vf.strength;
+      fy = ((ny*ny-nx*nx)/(r2*r2))*vf.strength; break;
+    case 'vortex':
+      fx = -ny*vf.strength / (nx*nx+ny*ny+0.1);
+      fy = nx*vf.strength / (nx*nx+ny*ny+0.1); break;
+    case 'sine':
+      fx = sin(ny*f+ts*2)*vf.strength;
+      fy = cos(nx*f+ts)*vf.strength; break;
+    case 'strange':
+      fx = (sin(ny*f)*cos(ts)-ny)*vf.strength*0.5;
+      fy = (cos(nx*f)*sin(ts)+nx)*vf.strength*0.5; break;
+  }
+  return {x:fx,y:fy};
+}
+
+function updateVectorField(vf,t,dt){
+  for(const p of vf.particles){
+    const v = fieldVector(vf,p.x,p.y,t);
+    p.vx = lerp(p.vx,v.x,0.15);
+    p.vy = lerp(p.vy,v.y,0.15);
+    p.trail.push({x:p.x,y:p.y});
+    if(p.trail.length>p.maxTrail) p.trail.shift();
+    p.x += p.vx*dt*0.12;
+    p.y += p.vy*dt*0.12;
+    p.life += p.maxLife;
+    if(p.life>=1 || p.x<0||p.x>W||p.y<0||p.y>H){
+      p.x=rngRange(0,W); p.y=rngRange(0,H);
+      p.life=0; p.vx=0; p.vy=0; p.trail=[];
+      p.color=rng();
+    }
+  }
+}
+
+function drawVectorField(vf,t,pal){
+  for(const p of vf.particles){
+    if(p.trail.length<2) continue;
+    const alpha = p.life * 0.6;
+    ctx.strokeStyle = paletteColor(pal, p.color, 0.8, alpha);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(p.trail[0].x,p.trail[0].y);
+    for(let i=1;i<p.trail.length;i++) ctx.lineTo(p.trail[i].x,p.trail[i].y);
+    ctx.lineTo(p.x,p.y);
+    ctx.stroke();
+  }
+}
+
+// ─── RECURSIVE GEOMETRIC GROWTH ───────────────────────────────────────────────
+function makeRecursiveGeo(){
+  const depth = rngInt(3,6);
+  const shape = rngPick(['triangle','square','pentagon','hex','star']);
+  const scale = rngRange(0.55,0.75);
+  const rotStep = rngRange(0.08,0.6);
+  const cx = rngRange(W*0.15,W*0.85);
+  const cy = rngRange(H*0.15,H*0.85);
+  const baseR = rngRange(40,100);
+  const colorBase = rng();
+  const spin = rngRange(-0.3,0.3);
+  return {depth,shape,scale,rotStep,cx,cy,baseR,colorBase,spin,phase:rng()*TAU};
+}
+
+function drawRecursiveGeo(geo, t, pal, depth, cx, cy, r, angle){
+  if(depth<=0||r<2) return;
+  const sides = geo.shape==='triangle'?3:geo.shape==='square'?4:geo.shape==='pentagon'?5:geo.shape==='star'?5:6;
+  const alpha = (depth/geo.depth)*0.7;
+  const col = paletteColor(pal, geo.colorBase+depth*0.1, 0.5+depth*0.1, alpha);
+  ctx.strokeStyle=col;
+  ctx.lineWidth=0.5+depth*0.3;
+  ctx.beginPath();
+  for(let i=0;i<=sides;i++){
+    const a = angle + i*TAU/sides;
+    const px = cx+cos(a)*r, py = cy+sin(a)*r;
+    i===0?ctx.moveTo(px,py):ctx.lineTo(px,py);
+    if(geo.shape==='star'&&i<sides){
+      const a2 = angle+(i+0.5)*TAU/sides;
+      ctx.lineTo(cx+cos(a2)*r*0.4, cy+sin(a2)*r*0.4);
+    }
+  }
+  ctx.stroke();
+  for(let i=0;i<sides;i++){
+    const a = angle + i*TAU/sides;
+    const px = cx+cos(a)*r, py = cy+sin(a)*r;
+    drawRecursiveGeo(geo,t,pal,depth-1,px,py,r*geo.scale,angle+geo.rotStep);
+  }
+}
+
+function drawGeoWrap(geo, t, pal){
+  geo.phase += 0.0004*geo.spin;
+  ctx.save();
+  drawRecursiveGeo(geo,t,pal,geo.depth,geo.cx,geo.cy,geo.baseR+sin(t*0.001)*15,t*0.0004*geo.spin+geo.phase);
+  ctx.restore();
+}
+
+// ─── AUDIO ENGINE ─────────────────────────────────────────────────────────────
+function initAudio(){
+  if(audioCtx) return;
+  audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+  masterGain = audioCtx.createGain();
+  masterGain.gain.value = soundOn ? 0.18 : 0;
+  masterGain.connect(audioCtx.destination);
+  scheduleAudio();
+}
+
+let audioScheduler = null;
+function scheduleAudio(){
+  if(!audioCtx) return;
+  if(audioScheduler) clearInterval(audioScheduler);
+  if(!soundOn){masterGain.gain.value=0; return;}
+  masterGain.gain.value = 0.18;
+
+  let stepI = 0;
+  const tempo = 0.13 + rng()*0.12;
+
+  audioScheduler = setInterval(()=>{
+    if(!soundOn||!audioCtx) return;
+    const now = audioCtx.currentTime;
+    const u = universe;
+    if(!u.pal) return;
+
+    // derive pitch from visual state
+    const nodeCount = u.catGraph ? u.catGraph.nodes.length : 8;
+    const baseFreq = 60 + nodeCount * 15 + sin(frame*0.03)*40;
+    const scale = [0,2,3,5,7,8,10]; // minor scale
+    const note = scale[stepI % scale.length];
+    const freq = baseFreq * pow(2, note/12);
+
+    // oscillator
+    const osc = audioCtx.createOscillator();
+    const oscGain = audioCtx.createGain();
+    const filter = audioCtx.createBiquadFilter();
+
+    const waveforms = ['sawtooth','square','triangle','sine'];
+    osc.type = waveforms[stepI%waveforms.length];
+    osc.frequency.setValueAtTime(freq, now);
+    osc.frequency.exponentialRampToValueAtTime(freq*1.002, now+tempo*0.5);
+
+    filter.type = 'lowpass';
+    filter.frequency.value = 800 + sin(frame*0.02)*600;
+    filter.Q.value = 2 + sin(frame*0.05)*8;
+
+    oscGain.gain.setValueAtTime(0,now);
+    oscGain.gain.linearRampToValueAtTime(0.3,now+0.01);
+    oscGain.gain.exponentialRampToValueAtTime(0.001,now+tempo*0.9);
+
+    osc.connect(filter);
+    filter.connect(oscGain);
+    oscGain.connect(masterGain);
+    osc.start(now);
+    osc.stop(now+tempo);
+
+    // occasional bass hit
+    if(stepI%8===0){
+      const bass = audioCtx.createOscillator();
+      const bg = audioCtx.createGain();
+      bass.type='sine';
+      bass.frequency.value=baseFreq*0.25;
+      bg.gain.setValueAtTime(0.6,now);
+      bg.gain.exponentialRampToValueAtTime(0.001,now+0.3);
+      bass.connect(bg); bg.connect(masterGain);
+      bass.start(now); bass.stop(now+0.35);
+    }
+
+    stepI++;
+  }, tempo*1000);
+}
+
+function stopAudio(){
+  if(audioScheduler){ clearInterval(audioScheduler); audioScheduler=null; }
+  if(masterGain) masterGain.gain.linearRampToValueAtTime(0,audioCtx?audioCtx.currentTime+0.1:0);
+}
+
+// ─── UNIVERSE CONSTRUCTOR ─────────────────────────────────────────────────────
+function makeUniverse(){
+  _s = (Date.now()^(Math.random()*0xFFFFFFFF|0)) >>> 0;
+  const pal = makePalette();
+  return {
+    pal,
+    grid: rng()<0.85 ? makeGrid(pal) : null,
+    catGraph: makeCatGraph(pal),
+    humanoids: Array.from({length:rngInt(1,3)},()=>makeHumanoid()),
+    attractor: rng()<0.8 ? makeAttractor() : null,
+    vectorField: makeVectorField(),
+    geos: Array.from({length:rngInt(1,4)},()=>makeRecursiveGeo()),
+    bgH: rng()*360,
+    scanlineOpacity: rngRange(0.03,0.15),
+    vignetteStrength: rngRange(0.3,0.8),
+    globalRotation: rngRange(-0.0002,0.0002),
+    born: performance.now()
+  };
+}
+
+// ─── SCANLINES + VIGNETTE ─────────────────────────────────────────────────────
+function drawScanlines(u){
+  ctx.save();
+  ctx.globalAlpha = u.scanlineOpacity;
+  for(let y=0;y<H;y+=3){
+    ctx.fillStyle='#000';
+    ctx.fillRect(0,y,W,1);
+  }
+  ctx.restore();
+
+  // vignette
+  const vgrd = ctx.createRadialGradient(CX,CY,0,CX,CY,Math.max(W,H)*0.7);
+  vgrd.addColorStop(0,'transparent');
+  vgrd.addColorStop(1,`rgba(0,0,0,${u.vignetteStrength})`);
+  ctx.fillStyle=vgrd;
+  ctx.fillRect(0,0,W,H);
+}
+
+// ─── BACKGROUND ───────────────────────────────────────────────────────────────
+function drawBackground(u, t){
+  // evolve bg hue
+  u.bgH = mod(u.bgH + 0.05, 360);
+  const bgCol1 = hsl(u.bgH, 20, 3);
+  const bgCol2 = hsl(mod(u.bgH+60,360), 30, 6);
+  const grad = ctx.createRadialGradient(CX,CY,0,CX,CY,Math.max(W,H)*0.8);
+  grad.addColorStop(0,bgCol2);
+  grad.addColorStop(1,bgCol1);
+  ctx.fillStyle=grad;
+  ctx.fillRect(0,0,W,H);
+}
+
+// ─── HUD UPDATE ───────────────────────────────────────────────────────────────
+function updateHUD(u, t){
+  if(!hudOn) return;
+  const age = ((t - u.born)*0.001).toFixed(1);
+  const cats = u.catGraph;
+  hudTL.innerHTML = `FRAME: ${frame}<br>FPS: ${fps.toFixed(1)}<br>AGE: ${age}s<br>PALETTE: ${u.pal.mode.toUpperCase()}<br>NODES: ${cats.nodes.length}<br>MORPHISMS: ${cats.morphisms.length}`;
+  hudTR.innerHTML = `RES: ${W}×${H}<br>FIELD: ${u.vectorField.fieldType.toUpperCase()}<br>ATTRACTOR: ${u.attractor?u.attractor.type.toUpperCase():'OFF'}<br>HUMANOIDS: ${u.humanoids.length}<br>GEOS: ${u.geos.length}<br>SOUND: ${soundOn?'ON':'OFF'}`;
+}
+
+// ─── MAIN LOOP ────────────────────────────────────────────────────────────────
+universe = makeUniverse();
+
+function loop(ts){
+  requestAnimationFrame(loop);
+  const dt = clamp(ts - lastT, 1, 50);
+  lastT = ts;
+  fps = lerp(fps, 1000/dt, fpsAlpha);
+  frame++;
+
+  const u = universe;
+  const t = ts;
+
+  // clear
+  drawBackground(u, t);
+
+  // grid
+  if(u.grid) drawGrid(u.grid, t, u.pal);
+
+  // attractors (under everything)
+  if(u.attractor) drawAttractor(u.attractor, t, u.pal);
+
+  // vector field
+  updateVectorField(u.vectorField, t, dt);
+  drawVectorField(u.vectorField, t, u.pal);
+
+  // recursive geos
+  for(const g of u.geos) drawGeoWrap(g, t, u.pal);
+
+  // humanoids
+  for(const h of u.humanoids){ updateHumanoid(h,t,dt); drawHumanoid(h,t,u.pal); }
+
+  // category graph
+  updateCatGraph(u.catGraph, dt);
+  drawCatGraph(u.catGraph, t, u.pal);
+
+  // scanlines + vignette
+  drawScanlines(u);
+
+  // HUD
+  updateHUD(u, t);
+}
+
+requestAnimationFrame(loop);
+
+// ─── REGENERATE ───────────────────────────────────────────────────────────────
+function regenerate(){
+  // flash
+  flash.style.opacity='1';
+  setTimeout(()=>{ flash.style.opacity='0'; },80);
+
+  universe = makeUniverse();
+
+  if(soundOn){
+    stopAudio();
+    setTimeout(scheduleAudio, 200);
+  }
+}
+
+// ─── INPUT ────────────────────────────────────────────────────────────────────
+window.addEventListener('keydown', e=>{
+  if(e.shiftKey) return;
+  switch(e.code){
+    case 'Space': e.preventDefault(); regenerate(); break;
+    case 'KeyH':
+      hudOn=!hudOn;
+      hud.classList.toggle('on',hudOn); break;
+    case 'KeyS':
+      soundOn=!soundOn;
+      if(soundOn){
+        initAudio();
+        if(audioCtx&&audioCtx.state==='suspended') audioCtx.resume();
+        scheduleAudio();
+      } else {
+        stopAudio();
+      }
+      break;
+  }
+});
+
+window.addEventListener('click', e=>{ regenerate(); });
+window.addEventListener('touchend', e=>{ e.preventDefault(); regenerate(); },{ passive:false });
+window.addEventListener('contextmenu', e=>e.preventDefault());
+
+})();
+</script>
+</body>
+</html>

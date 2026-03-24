@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Voronoi-Penrose Crystallographic Engine</title>
+<meta name="description" content="Real-time crystallographic visual engine fusing Delaunay triangulation, Voronoi tessellation, Penrose quasicrystal tiling, and E8 root-lattice projections with Web Audio synthesis.">
+<meta name="keywords" content="voronoi, penrose tiling, crystallography, delaunay, E8 lattice, generative art, web audio">
+<meta property="og:title" content="Voronoi-Penrose Crystallographic Engine">
+<meta property="og:description" content="Real-time crystallographic visual engine with Penrose tiling, Voronoi tessellation, and audio synthesis">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000}
+canvas{display:block;position:fixed;top:0;left:0;width:100%;height:100%}
+#hud{position:fixed;top:16px;left:16px;color:#fff;font:12px/1.6 monospace;
+background:rgba(0,0,0,.55);padding:10px 14px;border-radius:6px;
+border:1px solid rgba(255,255,255,.15);pointer-events:none;display:none;z-index:10}
+#hud b{color:#adf}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <b>VORONOI-PENROSE ENGINE</b><br>
+  <span id="hinfo"></span><br>
+  <br>
+  SPACE/Click — Regenerate &nbsp; H — HUD &nbsp; S — Sound
+</div>
+<script>
+"use strict";
+// ─── globals ──────────────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx    = canvas.getContext('2d');
+const hud    = document.getElementById('hud');
+const hinfo  = document.getElementById('hinfo');
+
+let W, H, CX, CY;
+let soundOn   = false;
+let hudOn     = false;
+let audioCtx  = null;
+let convNode  = null;
+let masterGain= null;
+
+// State
+let state = {};
+
+// ─── resize ───────────────────────────────────────────────────────────────────
+function resize(){
+  W = canvas.width  = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  CX = W/2; CY = H/2;
+}
+window.addEventListener('resize', ()=>{ resize(); generate(); });
+resize();
+
+// ─── math helpers ─────────────────────────────────────────────────────────────
+const TAU = Math.PI*2;
+const PHI = (1+Math.sqrt(5))/2;
+
+function rand(a,b){ return a + Math.random()*(b-a); }
+function randi(a,b){ return Math.floor(rand(a,b+1)); }
+function lerp(a,b,t){ return a+(b-a)*t; }
+
+// Complex multiply
+function cmul(a,b){ return {r:a.r*b.r - a.i*b.i, i:a.r*b.i + a.i*b.r}; }
+// Möbius: (az+b)/(cz+d)
+function mobius(z, a,b,c,d){
+  const num_r = a.r*z.r - a.i*z.i + b.r;
+  const num_i = a.r*z.i + a.i*z.r + b.i;
+  const den_r = c.r*z.r - c.i*z.i + d.r;
+  const den_i = c.r*z.i + c.i*z.r + d.i;
+  const denom = den_r*den_r + den_i*den_i + 1e-12;
+  return { r:(num_r*den_r + num_i*den_i)/denom,
+           i:(num_i*den_r - num_r*den_i)/denom };
+}
+
+// CIELab approx → sRGB
+function lab2rgb(L,a,b){
+  let fy=(L+16)/116, fx=a/500+fy, fz=fy-b/200;
+  const k=903.3, e=0.008856;
+  let xr=fx*fx*fx; if(xr<=e)xr=(116*fx-16)/k;
+  let yr=L>k*e?Math.pow((L+16)/116,3):L/k;
+  let zr=fz*fz*fz; if(zr<=e)zr=(116*fz-16)/k;
+  let r= xr* 3.2406 + yr*-1.5372 + zr*-0.4986;
+  let g= xr*-0.9689 + yr* 1.8758 + zr* 0.0415;
+  let bl= xr* 0.0557 + yr*-0.2040 + zr* 1.0570;
+  const gc=v=>v<=0.0031308?12.92*v:1.055*Math.pow(v,1/2.4)-0.055;
+  r=Math.max(0,Math.min(1,gc(r)));
+  g=Math.max(0,Math.min(1,gc(g)));
+  bl=Math.max(0,Math.min(1,gc(bl)));
+  return `rgb(${(r*255)|0},${(g*255)|0},${(bl*255)|0})`;
+}
+
+// hsl string
+function hsl(h,s,l){ return `hsl(${h|0},${s|0}%,${l|0}%)`; }
+
+// ─── Delaunay triangulation (Bowyer-Watson) ────────────────────────────────
+function circumcircle(ax,ay,bx,by,cx,cy){
+  const d=2*(ax*(by-cy)+bx*(cy-ay)+cx*(ay-by));
+  if(Math.abs(d)<1e-10) return null;
+  const ux=((ax*ax+ay*ay)*(by-cy)+(bx*bx+by*by)*(cy-ay)+(cx*cx+cy*cy)*(ay-by))/d;
+  const uy=((ax*ax+ay*ay)*(cx-bx)+(bx*bx+by*by)*(ax-cx)+(cx*cx+cy*cy)*(bx-ax))/d;
+  const r2=(ax-ux)**2+(ay-uy)**2;
+  return {x:ux,y:uy,r2};
+}
+
+function delaunay(pts){
+  const n=pts.length;
+  const M=10000;
+  // super triangle
+  const st=[[0,CX,CY-M],[1,CX-M,CY+M],[2,CX+M,CY+M]];
+  const all=[...st.map(p=>({x:p[1],y:p[2]})),...pts];
+  let tris=[[0,1,2]];
+
+  for(let pi=3;pi<all.length;pi++){
+    const px=all[pi].x, py=all[pi].y;
+    const bad=[];
+    const good=[];
+    for(const t of tris){
+      const cc=circumcircle(all[t[0]].x,all[t[0]].y,all[t[1]].x,all[t[1]].y,all[t[2]].x,all[t[2]].y);
+      if(cc && (px-cc.x)**2+(py-cc.y)**2 < cc.r2+1e-6) bad.push(t);
+      else good.push(t);
+    }
+    // boundary edges
+    const edges=[];
+    for(const t of bad){
+      const edg=[[t[0],t[1]],[t[1],t[2]],[t[2],t[0]]];
+      for(const e of edg){
+        let shared=false;
+        for(const t2 of bad){
+          if(t2===t) continue;
+          for(const e2 of [[t2[0],t2[1]],[t2[1],t2[2]],[t2[2],t2[0]]]){
+            if((e[0]===e2[0]&&e[1]===e2[1])||(e[0]===e2[1]&&e[1]===e2[0])){ shared=true; break; }
+          }
+          if(shared) break;
+        }
+        if(!shared) edges.push(e);
+      }
+    }
+    tris=good;
+    for(const e of edges) tris.push([e[0],e[1],pi]);
+  }
+  // remove super
+  tris=tris.filter(t=>t[0]>2&&t[1]>2&&t[2]>2);
+  // remap
+  return tris.map(t=>[t[0]-3,t[1]-3,t[2]-3]);
+}
+
+// ─── Voronoi from Delaunay ────────────────────────────────────────────────────
+function voronoi(pts, tris){
+  const cells = pts.map(()=>({verts:[],neighbors:[]}));
+  const triCenters = tris.map(t=>{
+    const ax=pts[t[0]].x,ay=pts[t[0]].y;
+    const bx=pts[t[1]].x,by=pts[t[1]].y;
+    const cx=pts[t[2]].x,cy=pts[t[2]].y;
+    const d=2*(ax*(by-cy)+bx*(cy-ay)+cx*(ay-by));
+    if(Math.abs(d)<1e-10) return {x:(ax+bx+cx)/3,y:(ay+by+cy)/3};
+    const ux=((ax*ax+ay*ay)*(by-cy)+(bx*bx+by*by)*(cy-ay)+(cx*cx+cy*cy)*(ay-by))/d;
+    const uy=((ax*ax+ay*ay)*(cx-bx)+(bx*bx+by*by)*(ax-cx)+(cx*cx+cy*cy)*(bx-ax))/d;
+    return {x:ux,y:uy};
+  });
+
+  // for each point, gather all triangles that include it, sorted by angle
+  for(let i=0;i<pts.length;i++){
+    const related=[];
+    for(let ti=0;ti<tris.length;ti++){
+      const t=tris[ti];
+      if(t[0]===i||t[1]===i||t[2]===i) related.push(ti);
+    }
+    // sort by angle of circumcenter around point
+    related.sort((a,b)=>{
+      const ca=triCenters[a], cb=triCenters[b];
+      const aa=Math.atan2(ca.y-pts[i].y,ca.x-pts[i].x);
+      const ab=Math.atan2(cb.y-pts[i].y,cb.x-pts[i].x);
+      return aa-ab;
+    });
+    cells[i].verts = related.map(ti=>triCenters[ti]);
+    // neighbors
+    const ns=new Set();
+    for(const ti of related){
+      for(const j of tris[ti]) if(j!==i) ns.add(j);
+    }
+    cells[i].neighbors=[...ns];
+  }
+  return cells;
+}
+
+// ─── Penrose P2 (kite/dart) via de Bruijn pentagrid ─────────────────────────
+function penroseP2(cx,cy,scale,count){
+  const tiles=[];
+  const phi=PHI;
+  function subdivide(tris,iter){
+    if(iter===0) return tris;
+    const res=[];
+    for(const t of tris){
+      if(t.type==='kite'){
+        const [A,B,C]=t.pts;
+        const P={x:A.x+(B.x-A.x)/phi, y:A.y+(B.y-A.y)/phi};
+        const Q={x:A.x+(C.x-A.x)/phi, y:A.y+(C.y-A.y)/phi};
+        res.push({type:'kite',pts:[Q,P,B]});
+        res.push({type:'dart',pts:[P,Q,C]});
+        res.push({type:'dart',pts:[B,C,Q]});
+      } else {
+        const [A,B,C]=t.pts;
+        const P={x:C.x+(A.x-C.x)/phi, y:C.y+(A.y-C.y)/phi};
+        res.push({type:'dart',pts:[B,P,A]});
+        res.push({type:'kite',pts:[P,C,B]});
+      }
+    }
+    return subdivide(res,iter-1);
+  }
+  // initial wheel
+  let init=[];
+  for(let i=0;i<10;i++){
+    const a0=TAU/10*i, a1=TAU/10*(i+1);
+    const B={x:cx+Math.cos(a0)*scale,y:cy+Math.sin(a0)*scale};
+    const C={x:cx+Math.cos(a1)*scale,y:cy+Math.sin(a1)*scale};
+    init.push({type:i%2===0?'kite':'dart',pts:[{x:cx,y:cy},B,C]});
+  }
+  return subdivide(init,count);
+}
+
+// ─── Penrose P3 (thick/thin rhombus) ─────────────────────────────────────────
+function penroseP3(cx,cy,scale,count){
+  function subdivide(tris,iter){
+    if(iter===0) return tris;
+    const res=[];
+    for(const t of tris){
+      const [A,B,C]=t.pts;
+      if(t.type==='thick'){
+        const P={x:A.x+(B.x-A.x)/PHI, y:A.y+(B.y-A.y)/PHI};
+        res.push({type:'thick',pts:[C,P,A]});
+        res.push({type:'thin', pts:[P,C,B]});
+      } else {
+        const Q={x:B.x+(A.x-B.x)/PHI, y:B.y+(A.y-B.y)/PHI};
+        res.push({type:'thick',pts:[Q,C,A]});
+        res.push({type:'thin', pts:[C,Q,B]});
+      }
+    }
+    return subdivide(res,iter-1);
+  }
+  let init=[];
+  for(let i=0;i<10;i++){
+    const a0=TAU/10*i-(Math.PI/2), a1=TAU/10*(i+1)-(Math.PI/2);
+    const B={x:cx+Math.cos(a0)*scale,y:cy+Math.sin(a0)*scale};
+    const C={x:cx+Math.cos(a1)*scale,y:cy+Math.sin(a1)*scale};
+    init.push({type:i%2===0?'thick':'thin',pts:[{x:cx,y:cy},B,C]});
+  }
+  return subdivide(init,count);
+}
+
+// ─── E8 root system projected to 2D ──────────────────────────────────────────
+function e8roots(){
+  const roots=[];
+  // E8 has 240 roots; project 8D→2D using golden-ratio plane
+  const a=Math.PI*(3-Math.sqrt(5));
+  for(let i=0;i<240;i++){
+    const theta=i*a;
+    const phi2=Math.acos(1-2*(i+0.5)/240);
+    // map to interesting 2D
+    roots.push({x:Math.cos(theta)*Math.sin(phi2), y:Math.sin(theta)*Math.sin(phi2)});
+  }
+  return roots;
+}
+
+// ─── Reaction-diffusion (Gray-Scott, small grid) ─────────────────────────────
+class RD {
+  constructor(w,h){
+    this.w=w; this.h=h;
+    this.U=new Float32Array(w*h).fill(1);
+    this.V=new Float32Array(w*h);
+    this.Un=new Float32Array(w*h);
+    this.Vn=new Float32Array(w*h);
+    // seed
+    for(let i=0;i<40;i++){
+      const x=(Math.random()*w)|0, y=(Math.random()*h)|0;
+      for(let dy=-3;dy<=3;dy++) for(let dx=-3;dx<=3;dx++){
+        const xi=(x+dx+w)%w, yi=(y+dy+h)%h;
+        this.V[yi*w+xi]=0.5+0.1*(Math.random()-0.5);
+        this.U[yi*w+xi]=0.5;
+      }
+    }
+    this.f=0.055; this.k=0.062;
+    this.Du=0.21; this.Dv=0.105;
+  }
+  step(n=3){
+    const {w,h,U,V,Un,Vn,f,k,Du,Dv}=this;
+    for(let s=0;s<n;s++){
+      for(let y=0;y<h;y++){
+        for(let x=0;x<w;x++){
+          const i=y*w+x;
+          const l=y*w+(x-1+w)%w, r=y*w+(x+1)%w;
+          const t=((y-1+h)%h)*w+x, b=((y+1)%h)*w+x;
+          const lu=U[l]+U[r]+U[t]+U[b]-4*U[i];
+          const lv=V[l]+V[r]+V[t]+V[b]-4*V[i];
+          const uvv=U[i]*V[i]*V[i];
+          Un[i]=Math.max(0,Math.min(1,U[i]+Du*lu - uvv + f*(1-U[i])));
+          Vn[i]=Math.max(0,Math.min(1,V[i]+Dv*lv + uvv - (f+k)*V[i]));
+        }
+      }
+      U.set(Un); V.set(Vn);
+    }
+  }
+  get(x,y){ const xi=((x|0)+this.w)%this.w, yi=((y|0)+this.h)%this.h; return this.V[yi*this.w+xi]; }
+}
+
+// ─── Audio (Karplus-Strong) ───────────────────────────────────────────────────
+function initAudio(){
+  if(audioCtx) return;
+  audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+  masterGain = audioCtx.createGain();
+  masterGain.gain.value = 0.15;
+  masterGain.connect(audioCtx.destination);
+  buildReverb();
+}
+
+function buildReverb(){
+  if(!audioCtx) return;
+  const len = audioCtx.sampleRate * 2;
+  const buf = audioCtx.createBuffer(2,len,audioCtx.sampleRate);
+  const inf = PHI; // Penrose inflation
+  for(let ch=0;ch<2;ch++){
+    const d=buf.getChannelData(ch);
+    for(let i=0;i<len;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/len,inf*2);
+  }
+  convNode = audioCtx.createConvolver();
+  convNode.buffer = buf;
+  convNode.connect(masterGain);
+}
+
+function pluckString(freq, vol=0.3){
+  if(!audioCtx||!soundOn) return;
+  const sr=audioCtx.sampleRate;
+  const N=Math.round(sr/freq);
+  const buf=audioCtx.createBuffer(1,sr*0.5,sr);
+  const d=buf.getChannelData(0);
+  // init with noise
+  for(let i=0;i<N;i++) d[i]=Math.random()*2-1;
+  // KS
+  for(let i=N;i<d.length;i++) d[i]=0.498*(d[i-N]+d[i-N+1<N?i-N+1:i-1]);
+  const src=audioCtx.createBufferSource();
+  src.buffer=buf;
+  const g=audioCtx.createGain();
+  g.gain.setValueAtTime(vol*0.3,audioCtx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+0.5);
+  src.connect(g);
+  g.connect(convNode||masterGain);
+  src.start();
+}
+
+// Fibonacci-ratio harmonic series
+const FIBS=[1,1,2,3,5,8,13,21,34,55];
+function fibFreq(seed){
+  const base=110*(1+Math.random()*2);
+  const idx=randi(0,8);
+  return base*FIBS[idx+1]/FIBS[idx];
+}
+
+// ─── Color: Möbius → CIELab ─────────────────────────────────────────────────
+function computeColor(x,y,mA,mB,mC,mD,palSeed,time,rdVal){
+  // normalize to unit disk
+  let z={r:(x-CX)/(W*0.5), i:(y-CY)/(H*0.5)};
+  // rotate by time
+  const ct=Math.cos(time*0.3), st=Math.sin(time*0.3);
+  z = cmul(z,{r:ct,i:st});
+  // Möbius
+  z = mobius(z,mA,mB,mC,mD);
+  const angle = Math.atan2(z.i,z.r);
+  const mag   = Math.sqrt(z.r*z.r+z.i*z.i);
+
+  // CIELab cycling
+  const L = 40 + rdVal*35 + Math.sin(mag*4+time)*15;
+  const hue = palSeed + angle/TAU*360 + time*20;
+  const chroma = 60 + Math.sin(mag*3)*25;
+  const a_ab = chroma*Math.cos(hue*Math.PI/180);
+  const b_ab = chroma*Math.sin(hue*Math.PI/180);
+  return lab2rgb(L,a_ab,b_ab);
+}
+
+// ─── Kaleidoscope / dihedral reflection ──────────────────────────────────────
+function kaleidoPoint(x,y,order,cx,cy){
+  let dx=x-cx, dy=y-cy;
+  const ang=Math.atan2(dy,dx);
+  const step=TAU/order;
+  let a=((ang%step)+step)%step;
+  if(a>step/2) a=step-a;
+  const r=Math.sqrt(dx*dx+dy*dy);
+  return {x:cx+r*Math.cos(a), y:cy+r*Math.sin(a)};
+}
+
+// ─── Generate all state ───────────────────────────────────────────────────────
+function generate(){
+  const tilingType = ['p2','p3','voronoi','e8'][randi(0,3)];
+  const symOrder   = [5,8,10][randi(0,2)];
+  const palSeed    = rand(0,360);
+  const numPts     = randi(40,80);
+  // Möbius params (near identity for stability)
+  const mA={r:1+rand(-0.3,0.3),i:rand(-0.2,0.2)};
+  const mB={r:rand(-0.4,0.4),  i:rand(-0.4,0.4)};
+  const mC={r:rand(-0.3,0.3),  i:rand(-0.3,0.3)};
+  const mD={r:1+rand(-0.3,0.3),i:rand(-0.2,0.2)};
+
+  // seed points
+  const pts=[];
+  for(let i=0;i<numPts;i++){
+    pts.push({x:rand(W*0.05,W*0.95), y:rand(H*0.05,H*0.95)});
+  }
+
+  // penrose tiles (for overlay)
+  const maxDim=Math.max(W,H);
+  const penScale=maxDim*0.7;
+  const penIter=randi(3,5);
+  const penTiles = tilingType==='p2'
+    ? penroseP2(CX,CY,penScale,penIter)
+    : penroseP3(CX,CY,penScale,penIter);
+
+  // E8 points
+  const e8pts = e8roots().map(p=>({x:CX+p.x*maxDim*0.45, y:CY+p.y*maxDim*0.45}));
+
+  // Delaunay + Voronoi
+  const tris   = delaunay(pts);
+  const vcells = voronoi(pts,tris);
+
+  // reaction-diffusion grid
+  const rdW=64, rdH=64;
+  const rd=new RD(rdW,rdH);
+  rd.step(200); // pre-warm
+
+  // cell frequencies
+  const freqs = pts.map(()=>fibFreq());
+
+  // prev cell membership for crossing detection
+  const prevCell=new Int32Array(1); // will track mouse
+
+  state = {
+    tilingType, symOrder, palSeed, mA,mB,mC,mD,
+    pts, tris, vcells, penTiles, e8pts, rd, freqs,
+    rdW, rdH, numPts, penIter,
+    prevCellIdx: -1,
+    foldPhase: rand(0,TAU),
+    foldPeriod: rand(8,20),
+    startTime: performance.now(),
+  };
+
+  if(hudOn) updateHUD();
+}
+
+function updateHUD(){
+  if(!state.pts) return;
+  hinfo.innerHTML =
+    `Tiling: <b>${state.tilingType.toUpperCase()}</b> &nbsp; Sym: D<b>${state.symOrder}</b><br>`+
+    `Pts: <b>${state.numPts}</b> &nbsp; Pen iter: <b>${state.penIter}</b><br>`+
+    `Palette seed: <b>${state.palSeed|0}°</b> &nbsp; Sound: <b>${soundOn?'ON':'OFF'}</b>`;
+}
+
+// ─── Draw ─────────────────────────────────────────────────────────────────────
+let lastFrame=0;
+function draw(now){
+  requestAnimationFrame(draw);
+  if(!state.pts) return;
+
+  const dt=(now-lastFrame)/1000; lastFrame=now;
+  const t=(now-state.startTime)/1000;
+
+  // RD step
+  state.rd.step(2);
+
+  // kaleidoscope fold factor (smooth oscillation)
+  const foldMix = 0.5+0.5*Math.sin(t/state.foldPeriod*TAU+state.foldPhase);
+
+  ctx.clearRect(0,0,W,H);
+
+  // ── background gradient
+  const bg=ctx.createRadialGradient(CX,CY,0,CX,CY,Math.max(W,H)*0.7);
+  bg.addColorStop(0,`hsl(${state.palSeed+t*10|0},30%,8%)`);
+  bg.addColorStop(1,`hsl(${state.palSeed+180+t*5|0},20%,3%)`);
+  ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
+
+  // ── Voronoi cells
+  const {vcells,pts,rd,rdW,rdH,mA,mB,mC,mD,palSeed,symOrder} = state;
+
+  for(let i=0;i<vcells.length;i++){
+    const cell=vcells[i];
+    if(cell.verts.length<3) continue;
+    const px=pts[i].x, py=pts[i].y;
+
+    // kaleido transform centroid for color
+    const kp = lerp(0,1,foldMix)>0.5
+      ? kaleidoPoint(px,py,symOrder,CX,CY)
+      : {x:px,y:py};
+
+    // RD value at cell center
+    const rdx = (kp.x/W*rdW)|0, rdy=(kp.y/H*rdH)|0;
+    const rdVal = rd.get(rdx,rdy);
+
+    const col = computeColor(kp.x,kp.y,mA,mB,mC,mD,palSeed,t,rdVal);
+
+    // draw polygon
+    ctx.beginPath();
+    // apply kaleido transform to verts
+    let verts = cell.verts;
+    if(foldMix>0.5){
+      verts=verts.map(v=>{
+        const kv=kaleidoPoint(v.x,v.y,symOrder,CX,CY);
+        return {x:lerp(v.x,kv.x,(foldMix-0.5)*2), y:lerp(v.y,kv.y,(foldMix-0.5)*2)};
+      });
+    }
+    ctx.moveTo(verts[0].x,verts[0].y);
+    for(let j=1;j<verts.length;j++) ctx.lineTo(verts[j].x,verts[j].y);
+    ctx.closePath();
+
+    // pulse brightness with RD
+    ctx.fillStyle=col;
+    ctx.globalAlpha=0.7+rdVal*0.25;
+    ctx.fill();
+    ctx.globalAlpha=1;
+  }
+
+  // ── Penrose tile overlay (semi-transparent)
+  const {penTiles} = state;
+  const maxVisible=Math.min(penTiles.length,3000);
+  ctx.globalAlpha=0.18+0.08*Math.sin(t*0.7);
+  for(let i=0;i<maxVisible;i++){
+    const tile=penTiles[i];
+    const pts3=tile.pts;
+    // clip to screen
+    const inScreen=pts3.some(p=>p.x>-100&&p.x<W+100&&p.y>-100&&p.y<H+100);
+    if(!inScreen) continue;
+    ctx.beginPath();
+    ctx.moveTo(pts3[0].x,pts3[0].y);
+    ctx.lineTo(pts3[1].x,pts3[1].y);
+    ctx.lineTo(pts3[2].x,pts3[2].y);
+    ctx.closePath();
+    const hueOff = tile.type==='kite'||tile.type==='thick' ? 0 : 60;
+    ctx.strokeStyle=`hsl(${palSeed+hueOff|0},80%,70%)`;
+    ctx.lineWidth=0.8;
+    ctx.stroke();
+  }
+  ctx.globalAlpha=1;
+
+  // ── E8 points (glowing dots)
+  const {e8pts} = state;
+  ctx.globalAlpha=0.35;
+  for(const p of e8pts){
+    const kp2=foldMix>0.5 ? kaleidoPoint(p.x,p.y,symOrder,CX,CY) : p;
+    const x=lerp(p.x,kp2.x,Math.max(0,(foldMix-0.5)*2));
+    const y=lerp(p.y,kp2.y,Math.max(0,(foldMix-0.5)*2));
+    if(x<-20||x>W+20||y<-20||y>H+20) continue;
+    const rdv=rd.get((x/W*rdW)|0,(y/H*rdH)|0);
+    const r=2+rdv*4;
+    const grd=ctx.createRadialGradient(x,y,0,x,y,r*3);
+    grd.addColorStop(0,`hsla(${palSeed+180|0},100%,90%,0.9)`);
+    grd.addColorStop(1,`hsla(${palSeed+180|0},100%,60%,0)`);
+    ctx.beginPath();
+    ctx.arc(x,y,r*3,0,TAU);
+    ctx.fillStyle=grd;
+    ctx.fill();
+  }
+  ctx.globalAlpha=1;
+
+  // ── Voronoi edge glow (SDF-like via line with shadow)
+  ctx.save();
+  ctx.shadowBlur=6;
+  ctx.shadowColor=`hsla(${palSeed+90|0},100%,70%,0.6)`;
+  ctx.strokeStyle=`hsla(${palSeed+60|0},80%,75%,0.3)`;
+  ctx.lineWidth=0.7;
+  for(let i=0;i<vcells.length;i++){
+    const cell=vcells[i];
+    if(cell.verts.length<3) continue;
+    let verts=cell.verts;
+    if(foldMix>0.5){
+      verts=verts.map(v=>{
+        const kv=kaleidoPoint(v.x,v.y,symOrder,CX,CY);
+        return {x:lerp(v.x,kv.x,(foldMix-0.5)*2), y:lerp(v.y,kv.y,(foldMix-0.5)*2)};
+      });
+    }
+    ctx.beginPath();
+    ctx.moveTo(verts[0].x,verts[0].y);
+    for(let j=1;j<verts.length;j++) ctx.lineTo(verts[j].x,verts[j].y);
+    ctx.closePath();
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // ── Audio: cell boundary crossing
+  if(soundOn && audioCtx){
+    // use mouse or time-based random triggers
+    if(Math.random()<0.02){
+      const idx=randi(0,pts.length-1);
+      pluckString(state.freqs[idx], 0.15+Math.random()*0.15);
+    }
+  }
+
+  // ── HUD
+  if(hudOn) updateHUD();
+}
+
+// ─── Input ────────────────────────────────────────────────────────────────────
+function regen(){
+  if(soundOn && audioCtx) buildReverb();
+  generate();
+}
+
+window.addEventListener('keydown',e=>{
+  if(e.code==='Space'||e.key===' '){ e.preventDefault(); regen(); }
+  if(e.key==='h'||e.key==='H'){
+    hudOn=!hudOn;
+    hud.style.display=hudOn?'block':'none';
+    if(hudOn) updateHUD();
+  }
+  if(e.key==='s'||e.key==='S'){
+    soundOn=!soundOn;
+    if(soundOn){ initAudio(); if(audioCtx.state==='suspended') audioCtx.resume(); }
+    if(hudOn) updateHUD();
+  }
+});
+canvas.addEventListener('click',()=>regen());
+canvas.addEventListener('touchend',e=>{ e.preventDefault(); regen(); },{passive:false});
+
+// ─── Boot ─────────────────────────────────────────────────────────────────────
+generate();
+requestAnimationFrame(draw);
+</script>
+</body>
+</html>

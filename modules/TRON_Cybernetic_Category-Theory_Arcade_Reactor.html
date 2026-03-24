@@ -1,0 +1,936 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>TRON Cybernetic Category-Theory Arcade Reactor</title>
+<meta name="description" content="A full-screen generative visualization system rendering an endlessly evolving Tron-style vector universe with neon splines, particle beams, strange attractors, and category-theory morphism diagrams.">
+<meta name="keywords" content="Tron, generative art, category theory, cybernetic, arcade, vector graphics, strange attractors, Fourier, Voronoi, neon, particle system, procedural audio">
+<meta property="og:title" content="TRON Cybernetic Category-Theory Arcade Reactor">
+<meta property="og:description" content="Endlessly evolving Tron-style vector universe with mathematics-driven generative visuals and procedural arcade audio.">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#000011">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Courier New',monospace}
+  canvas{display:block;position:fixed;top:0;left:0;width:100%;height:100%;touch-action:none}
+  #hud{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;display:none;z-index:10}
+  #hud-inner{position:absolute;top:16px;left:16px;color:#0ff;font-size:11px;line-height:1.7;text-shadow:0 0 8px #0ff,0 0 20px #0af;letter-spacing:.05em}
+  #hud-br{position:absolute;bottom:16px;right:16px;color:#f0f;font-size:10px;text-align:right;text-shadow:0 0 8px #f0f;letter-spacing:.08em}
+  #hud-bc{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);color:#ff0;font-size:10px;text-shadow:0 0 8px #ff0;letter-spacing:.1em;white-space:nowrap}
+  #hint{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);color:rgba(0,255,255,.45);font-size:10px;letter-spacing:.15em;pointer-events:none;z-index:11;white-space:nowrap;transition:opacity 1s}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div id="hud-inner" id="hi"></div>
+  <div id="hud-br">SECTOR <span id="sec">--</span> / NODE <span id="nod">--</span></div>
+  <div id="hud-bc">◈ TRON CYBERNETIC REACTOR ◈</div>
+</div>
+<div id="hint">SPACE / TAP = NEW UNIVERSE &nbsp;|&nbsp; H = HUD &nbsp;|&nbsp; S = SOUND</div>
+<script>
+(function(){
+'use strict';
+
+/* ── canvas setup ── */
+const cv=document.getElementById('c');
+const ctx=cv.getContext('2d');
+let W,H,cx,cy,dpr;
+
+function resize(){
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth;H=window.innerHeight;
+  cv.width=W*dpr;cv.height=H*dpr;
+  cv.style.width=W+'px';cv.style.height=H+'px';
+  ctx.scale(dpr,dpr);
+  cx=W/2;cy=H/2;
+}
+window.addEventListener('resize',()=>{resize();universe.gridDirty=true;});
+resize();
+
+/* ── math helpers ── */
+const TAU=Math.PI*2;
+const sin=Math.sin,cos=Math.cos,abs=Math.abs,sqrt=Math.sqrt,floor=Math.floor,pow=Math.pow,atan2=Math.atan2;
+function rnd(a=1,b=0){return b+Math.random()*(a-b);}
+function rndi(a,b=0){return floor(rnd(a,b));}
+function lerp(a,b,t){return a+(b-a)*t;}
+function clamp(v,lo,hi){return v<lo?lo:v>hi?hi:v;}
+function hsl(h,s,l,a=1){return `hsla(${h|0},${s|0}%,${l|0}%,${a})`;}
+function mod(a,b){return((a%b)+b)%b;}
+
+/* ── Möbius transform ── */
+function mobius(zr,zi,ar,ai,br,bi,cr,ci,dr,di){
+  // (az+b)/(cz+d)
+  const nr=ar*zr-ai*zi+br, ni=ar*zi+ai*zr+bi;
+  const de_r=cr*zr-ci*zi+dr, de_i=cr*zi+ci*zr+di;
+  const d2=de_r*de_r+de_i*de_i+1e-12;
+  return [(nr*de_r+ni*de_i)/d2,(ni*de_r-nr*de_i)/d2];
+}
+
+/* ── strange attractor step (Clifford) ── */
+function clifford(x,y,a,b,c,d){
+  return [sin(a*y)+c*cos(a*x), sin(b*x)+d*cos(b*y)];
+}
+
+/* ── logistic map ── */
+function logistic(x,r){return r*x*(1-x);}
+
+/* ── spherical harmonics magnitude ── */
+function sphHarm(theta,phi,l,m){
+  // simplified real part for even l,m
+  return abs(cos(m*phi)*pow(sin(theta),abs(m))*cos(l*theta));
+}
+
+/* ── Fourier synthesis ── */
+function fourierY(x,coeffs){
+  let y=0;
+  for(let i=0;i<coeffs.length;i++){
+    const c=coeffs[i];
+    y+=c.a*sin(c.f*x+c.p)+c.b*cos(c.f*x+c.p2);
+  }
+  return y;
+}
+
+/* ── Voronoi seed distance ── */
+function voronoiDist(px,py,seeds){
+  let d1=1e9,d2=1e9;
+  for(let s of seeds){
+    const d=(px-s.x)*(px-s.x)+(py-s.y)*(py-s.y);
+    if(d<d1){d2=d1;d1=d;}else if(d<d2)d2=d;
+  }
+  return [sqrt(d1),sqrt(d2)];
+}
+
+/* ── color palette system ── */
+const PALETTES=[
+  // 0 arcade neon
+  t=>hsl(180+sin(t*.7)*60,100,60+sin(t*1.3)*10),
+  // 1 spectral gradient
+  t=>hsl(mod(t*137.5,360),90,55),
+  // 2 banded rainbow
+  t=>hsl(mod(t*60,360),100,50),
+  // 3 cyberpunk magenta/cyan
+  t=>hsl(mod(t*180,360)<90?290+sin(t)*30:185+cos(t)*25,100,60),
+  // 4 ember
+  t=>hsl(sin(t*.4)*30+15,100,50+sin(t)*10),
+  // 5 matrix green
+  t=>hsl(120+sin(t*.3)*20,100,40+sin(t*2)*15),
+  // 6 violet plasma
+  t=>hsl(260+sin(t*.5)*40,90,55+cos(t)*10),
+];
+
+/* ── universe state ── */
+let U={};
+let t=0,frame=0;
+
+function randomUniverse(){
+  U={
+    seed:Math.random(),
+    // grid
+    gridScale:rnd(80,40),
+    gridAngle:rnd(TAU),
+    gridDirty:true,
+    // attractor
+    aA:rnd(3,-3),aB:rnd(3,-3),aC:rnd(3,-3),aD:rnd(3,-3),
+    // color
+    pal:rndi(PALETTES.length),
+    pal2:rndi(PALETTES.length),
+    palBlend:rnd(1),
+    hueShift:rnd(360),
+    hueSpeed:rnd(.4,.05)*( Math.random()<.5?1:-1),
+    // logistic
+    logR:rnd(4,3.5),
+    // Fourier
+    fourier:Array.from({length:6},()=>({a:rnd(1,-1),b:rnd(1,-1),f:rnd(5,.5),p:rnd(TAU),p2:rnd(TAU)})),
+    // spherical harmonics
+    shL:rndi(5,1),shM:rndi(4),
+    // Mobius
+    mobAr:rnd(1.5,-.75),mobAi:rnd(1,.5)*( Math.random()<.5?1:-1),
+    mobBr:rnd(.5,-.25),mobBi:rnd(.5,-.25),
+    mobCr:rnd(.3,-.15),mobCi:rnd(.3,-.15),
+    mobDr:rnd(1.5,.5),mobDi:rnd(.3,-.15),
+    // Coxeter symmetry order 3-8
+    symOrder:rndi(8,3),
+    // Voronoi
+    voroSeeds:Array.from({length:rndi(22,8)},()=>({x:rnd(W),y:rnd(H),vx:rnd(1.5,-.75),vy:rnd(1.5,-.75)})),
+    // particles
+    particles:Array.from({length:180},()=>mkParticle()),
+    // morphism nodes (category theory objects)
+    catNodes:Array.from({length:rndi(9,5)},()=>mkCatNode()),
+    // vector humans
+    humans:Array.from({length:rndi(5,2)},()=>mkHuman()),
+    // splines
+    splines:Array.from({length:rndi(8,4)},()=>mkSpline()),
+    // beam streaks
+    beams:Array.from({length:rndi(12,6)},()=>mkBeam()),
+    // tensor field
+    tensorAngle:rnd(TAU),
+    tensorFreq:rnd(4,1),
+    // kaleidoscope phase
+    kalePhase:rnd(TAU),
+    kaleSpeed:rnd(.008,.001)*( Math.random()<.5?1:-1),
+    // audio
+    audioNodes:{},
+    sector:rndi(999,100),
+    node:rndi(999,10),
+  };
+  // reset time feel
+  t=0; frame=0;
+}
+
+function mkParticle(){
+  const angle=rnd(TAU);
+  const speed=rnd(3,.5);
+  return{
+    x:rnd(W),y:rnd(H),
+    vx:cos(angle)*speed,vy:sin(angle)*speed,
+    life:rnd(1,.2),decay:rnd(.008,.002),
+    size:rnd(3,.5),trail:[],
+    type:rndi(4), // 0=dot,1=cross,2=diamond,3=spark
+    hue:rnd(360),
+  };
+}
+
+function mkCatNode(){
+  return{
+    x:rnd(W*.8,W*.1),y:rnd(H*.8,H*.1),
+    vx:rnd(.6,-.3),vy:rnd(.6,-.3),
+    label:String.fromCharCode(65+rndi(26)),
+    r:rnd(22,10),
+    morphisms:[], // filled after all nodes created
+    phase:rnd(TAU),
+    hue:rnd(360),
+  };
+}
+
+function mkHuman(){
+  return{
+    x:rnd(W*.85,W*.075),y:rnd(H*.75,H*.15),
+    vx:rnd(.8,-.4),vy:rnd(.8,-.4),
+    scale:rnd(1.2,.4),
+    decompose:0, // 0..1 CRISPR decomposition
+    decomposeSpeed:rnd(.004,.001),
+    phase:rnd(TAU),
+    hue:rnd(360),
+    parts:Array.from({length:8},()=>({
+      ox:rnd(30,-15),oy:rnd(30,-15),
+      angle:rnd(TAU),spin:rnd(.05,-.025),
+    })),
+  };
+}
+
+function mkSpline(){
+  const pts=Array.from({length:rndi(6,3)},()=>({
+    x:rnd(W),y:rnd(H),
+    vx:rnd(1.5,-.75),vy:rnd(1.5,-.75),
+  }));
+  return{pts,hue:rnd(360),width:rnd(2.5,.5),phase:rnd(TAU),speed:rnd(.02,.005)};
+}
+
+function mkBeam(){
+  return{
+    x:rnd(W),y:rnd(H),
+    angle:rnd(TAU),
+    speed:rnd(6,2),
+    length:rnd(300,60),
+    width:rnd(3,.5),
+    hue:rnd(360),
+    life:1,
+    decay:rnd(.015,.003),
+  };
+}
+
+/* ── grid cache ── */
+let gridCanvas=null;
+function buildGrid(){
+  gridCanvas=document.createElement('canvas');
+  gridCanvas.width=W*dpr;gridCanvas.height=H*dpr;
+  const g=gridCanvas.getContext('2d');
+  g.scale(dpr,dpr);
+  const gs=U.gridScale;
+  const hue=mod(U.hueShift+180,360);
+  g.strokeStyle=`hsla(${hue|0},100%,55%,0.18)`;
+  g.lineWidth=.7;
+  // perspective grid
+  const vp={x:cx,y:cy*.4};
+  const rows=floor(H/gs)+2;
+  const cols=floor(W/gs)+2;
+  // horizontal lines perspective
+  for(let r=0;r<=rows;r++){
+    const y0=cy+r*gs*.6;
+    if(y0>H)break;
+    const xSpread=(y0-vp.y)/(cy-vp.y+.001)*cx;
+    g.beginPath();g.moveTo(vp.x-xSpread,y0);g.lineTo(vp.x+xSpread,y0);g.stroke();
+  }
+  // vertical lines perspective
+  for(let c=-cols;c<=cols;c++){
+    const x0=vp.x+c*gs*.5;
+    g.beginPath();g.moveTo(x0,cy);g.lineTo(vp.x,vp.y);g.stroke();
+  }
+  // flat top grid
+  g.strokeStyle=`hsla(${hue|0},100%,55%,0.09)`;
+  for(let r=0;r*gs<cy;r++){
+    g.beginPath();g.moveTo(0,r*gs);g.lineTo(W,r*gs);g.stroke();
+  }
+  for(let c=0;c*gs<W;c++){
+    g.beginPath();g.moveTo(c*gs,0);g.lineTo(c*gs,cy);g.stroke();
+  }
+  U.gridDirty=false;
+}
+
+/* ── color helper ── */
+function getColor(tt,alpha=1){
+  const p1=PALETTES[U.pal];
+  const p2=PALETTES[U.pal2];
+  const h1=p1(tt+U.hueShift*.017);
+  const h2=p2(tt+U.hueShift*.017+1.5);
+  // Parse hsl strings for blend -- simpler: just alternate
+  if(U.palBlend<.3) return h1.replace(/[\d.]+\)$/,alpha+')');
+  if(U.palBlend>.7) return h2.replace(/[\d.]+\)$/,alpha+')');
+  return h1.replace(/[\d.]+\)$/,alpha+')');
+}
+
+/* ── draw functions ── */
+function drawGrid(){
+  if(U.gridDirty||!gridCanvas) buildGrid();
+  ctx.drawImage(gridCanvas,0,0,W,H);
+}
+
+function drawVoronoi(dt){
+  // update seeds
+  for(let s of U.voroSeeds){
+    s.x+=s.vx;s.y+=s.vy;
+    if(s.x<0||s.x>W)s.vx*=-1;
+    if(s.y<0||s.y>H)s.vy*=-1;
+  }
+  // draw edges between close seeds
+  const seeds=U.voroSeeds;
+  const hue=mod(U.hueShift+t*20,360);
+  for(let i=0;i<seeds.length;i++){
+    for(let j=i+1;j<seeds.length;j++){
+      const dx=seeds[i].x-seeds[j].x;
+      const dy=seeds[i].y-seeds[j].y;
+      const d=sqrt(dx*dx+dy*dy);
+      if(d<W*.25){
+        const alpha=clamp(1-d/(W*.25),0,1)*.35;
+        ctx.beginPath();
+        ctx.strokeStyle=hsl(mod(hue+i*17,360),100,60,alpha);
+        ctx.lineWidth=.8;
+        ctx.moveTo(seeds[i].x,seeds[i].y);
+        ctx.lineTo(seeds[j].x,seeds[j].y);
+        ctx.stroke();
+      }
+    }
+    // seed dot
+    ctx.beginPath();
+    ctx.fillStyle=hsl(mod(hue+i*17,360),100,70,.7);
+    ctx.arc(seeds[i].x,seeds[i].y,2,0,TAU);
+    ctx.fill();
+  }
+}
+
+function drawAttractor(){
+  let x=.1,y=.1;
+  const scale=min(W,H)*.35;
+  const {aA,aB,aC,aD}=U;
+  const hue=mod(U.hueShift+t*15,360);
+  ctx.save();
+  ctx.translate(cx,cy);
+  ctx.globalAlpha=.55;
+  for(let i=0;i<1800;i++){
+    [x,y]=clifford(x,y,aA+sin(t*.1)*.3,aB+cos(t*.13)*.3,aC,aD);
+    const px=x*scale,py=y*scale;
+    const hh=mod(hue+i*.1,360);
+    ctx.fillStyle=hsl(hh,100,65,.4);
+    ctx.fillRect(px-.7,py-.7,1.4,1.4);
+  }
+  ctx.restore();
+  ctx.globalAlpha=1;
+}
+
+function drawKaleidoscope(){
+  const n=U.symOrder;
+  const phase=U.kalePhase;
+  const R=min(W,H)*.38;
+  const hue=mod(U.hueShift+t*8,360);
+  ctx.save();
+  ctx.translate(cx,cy);
+  for(let k=0;k<n;k++){
+    ctx.save();
+    ctx.rotate((TAU/n)*k+phase);
+    // draw a Fourier-shaped wedge
+    ctx.beginPath();
+    const steps=60;
+    for(let s=0;s<=steps;s++){
+      const theta=(s/steps)*(TAU/n)-(TAU/n/2);
+      const r=R*(0.5+0.5*sphHarm(theta*3+t*.2,s*.1+t*.15,U.shL,U.shM));
+      const px=cos(theta)*r, py=sin(theta)*r;
+      s===0?ctx.moveTo(px,py):ctx.lineTo(px,py);
+    }
+    ctx.closePath();
+    const grad=ctx.createRadialGradient(0,0,0,0,0,R);
+    grad.addColorStop(0,hsl(mod(hue+k*30,360),100,60,.0));
+    grad.addColorStop(.5,hsl(mod(hue+k*30+60,360),100,55,.12));
+    grad.addColorStop(1,hsl(mod(hue+k*30+120,360),100,50,.0));
+    ctx.fillStyle=grad;
+    ctx.fill();
+    ctx.strokeStyle=hsl(mod(hue+k*40,360),100,70,.3);
+    ctx.lineWidth=.8;
+    ctx.stroke();
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+function drawSplines(dt){
+  for(let sp of U.splines){
+    // move control points
+    for(let p of sp.pts){
+      p.x+=p.vx;p.y+=p.vy;
+      if(p.x<-100||p.x>W+100)p.vx*=-1;
+      if(p.y<-100||p.y>H+100)p.vy*=-1;
+    }
+    sp.phase+=sp.speed;
+    const pts=sp.pts;
+    const hue=mod(U.hueShift+sp.hue+t*10,360);
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x,pts[0].y);
+    for(let i=1;i<pts.length-1;i++){
+      const mx=(pts[i].x+pts[i+1].x)/2;
+      const my=(pts[i].y+pts[i+1].y)/2;
+      ctx.quadraticCurveTo(pts[i].x,pts[i].y,mx,my);
+    }
+    const last=pts[pts.length-1];
+    ctx.lineTo(last.x,last.y);
+    ctx.strokeStyle=hsl(hue,100,65,.7);
+    ctx.lineWidth=sp.width;
+    ctx.shadowColor=hsl(hue,100,70,1);
+    ctx.shadowBlur=8;
+    ctx.stroke();
+    ctx.shadowBlur=0;
+  }
+}
+
+function drawBeams(dt){
+  for(let b of U.beams){
+    b.x+=cos(b.angle)*b.speed;
+    b.y+=sin(b.angle)*b.speed;
+    b.life-=b.decay;
+    if(b.life<=0||b.x<-500||b.x>W+500||b.y<-500||b.y>H+500){
+      Object.assign(b,mkBeam());
+    }
+    const hue=mod(U.hueShift+b.hue+t*15,360);
+    ctx.save();
+    ctx.translate(b.x,b.y);
+    ctx.rotate(b.angle);
+    const gr=ctx.createLinearGradient(-b.length,0,0,0);
+    gr.addColorStop(0,hsl(hue,100,65,0));
+    gr.addColorStop(1,hsl(hue,100,75,b.life*.9));
+    ctx.strokeStyle=gr;
+    ctx.lineWidth=b.width;
+    ctx.shadowColor=hsl(hue,100,80,1);
+    ctx.shadowBlur=12;
+    ctx.beginPath();ctx.moveTo(-b.length,0);ctx.lineTo(0,0);ctx.stroke();
+    ctx.shadowBlur=0;
+    ctx.restore();
+  }
+}
+
+function drawParticles(dt){
+  for(let p of U.particles){
+    p.x+=p.vx;p.y+=p.vy;
+    p.life-=p.decay;
+    p.trail.push({x:p.x,y:p.y});
+    if(p.trail.length>18)p.trail.shift();
+    if(p.life<=0){
+      Object.assign(p,mkParticle());
+      continue;
+    }
+    const hue=mod(U.hueShift+p.hue+t*12,360);
+    // trail
+    if(p.trail.length>2){
+      ctx.beginPath();
+      ctx.moveTo(p.trail[0].x,p.trail[0].y);
+      for(let i=1;i<p.trail.length;i++)ctx.lineTo(p.trail[i].x,p.trail[i].y);
+      ctx.strokeStyle=hsl(hue,100,60,p.life*.3);
+      ctx.lineWidth=.7;
+      ctx.stroke();
+    }
+    ctx.fillStyle=hsl(hue,100,75,p.life*.9);
+    ctx.shadowColor=hsl(hue,100,80,1);
+    ctx.shadowBlur=6;
+    const sz=p.size*p.life;
+    if(p.type===0){
+      ctx.beginPath();ctx.arc(p.x,p.y,sz,0,TAU);ctx.fill();
+    }else if(p.type===1){
+      ctx.fillRect(p.x-sz*.5,p.y-sz*1.5,sz,sz*3);
+      ctx.fillRect(p.x-sz*1.5,p.y-sz*.5,sz*3,sz);
+    }else if(p.type===2){
+      ctx.save();ctx.translate(p.x,p.y);ctx.rotate(Math.PI/4);
+      ctx.fillRect(-sz,-sz,sz*2,sz*2);ctx.restore();
+    }else{
+      ctx.save();ctx.translate(p.x,p.y);
+      ctx.rotate(t*3);
+      ctx.fillRect(-sz*.3,-sz*2,sz*.6,sz*4);
+      ctx.rotate(Math.PI/2);
+      ctx.fillRect(-sz*.3,-sz*2,sz*.6,sz*4);
+      ctx.restore();
+    }
+    ctx.shadowBlur=0;
+    // bounce
+    if(p.x<0||p.x>W)p.vx*=-1;
+    if(p.y<0||p.y>H)p.vy*=-1;
+  }
+}
+
+function drawCategoryTheory(){
+  const nodes=U.catNodes;
+  // update positions
+  for(let n of nodes){
+    n.x+=n.vx;n.y+=n.vy;
+    if(n.x<80||n.x>W-80)n.vx*=-1;
+    if(n.y<80||n.y>H-80)n.vy*=-1;
+    n.phase+=.018;
+  }
+  const hue=mod(U.hueShift+t*5,360);
+  // draw morphisms (arrows between nodes = category theory morphisms)
+  for(let i=0;i<nodes.length;i++){
+    for(let j=0;j<nodes.length;j++){
+      if(i===j)continue;
+      const ni=nodes[i],nj=nodes[j];
+      const dx=nj.x-ni.x,dy=nj.y-ni.y;
+      const d=sqrt(dx*dx+dy*dy);
+      if(d>W*.55)continue;
+      // animated morphism trajectory (curved)
+      const t0=mod(t*.5+i*.3,1);
+      const mx=lerp(ni.x,nj.x,.5)+cos(ni.phase+j)*40;
+      const my=lerp(ni.y,nj.y,.5)+sin(ni.phase+j)*40;
+      // draw faint morphism arc
+      ctx.beginPath();
+      ctx.moveTo(ni.x,ni.y);
+      ctx.quadraticCurveTo(mx,my,nj.x,nj.y);
+      const mhue=mod(hue+i*25+j*17,360);
+      ctx.strokeStyle=hsl(mhue,100,60,.18);
+      ctx.lineWidth=.9;
+      ctx.stroke();
+      // animated particle along morphism
+      const tt=mod(t0,1);
+      const bx=lerp(lerp(ni.x,mx,tt),lerp(mx,nj.x,tt),tt);
+      const by=lerp(lerp(ni.y,my,tt),lerp(my,nj.y,tt),tt);
+      ctx.beginPath();
+      ctx.arc(bx,by,2.5,0,TAU);
+      ctx.fillStyle=hsl(mhue,100,80,.85);
+      ctx.shadowColor=hsl(mhue,100,85,1);
+      ctx.shadowBlur=8;
+      ctx.fill();
+      ctx.shadowBlur=0;
+      // arrowhead at end
+      const ex=nj.x-dx/d*nj.r;
+      const ey=nj.y-dy/d*nj.r;
+      const ang=atan2(dy,dx);
+      ctx.save();ctx.translate(ex,ey);ctx.rotate(ang);
+      ctx.beginPath();
+      ctx.moveTo(0,0);ctx.lineTo(-7,-4);ctx.lineTo(-7,4);ctx.closePath();
+      ctx.fillStyle=hsl(mhue,100,70,.45);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+  // draw nodes (objects in category)
+  for(let i=0;i<nodes.length;i++){
+    const n=nodes[i];
+    const nhue=mod(hue+n.hue+i*40,360);
+    const pulse=1+sin(n.phase)*.15;
+    // glow ring
+    ctx.beginPath();
+    ctx.arc(n.x,n.y,n.r*pulse+6,0,TAU);
+    ctx.strokeStyle=hsl(nhue,100,65,.2);
+    ctx.lineWidth=3;
+    ctx.stroke();
+    // main circle
+    ctx.beginPath();
+    ctx.arc(n.x,n.y,n.r*pulse,0,TAU);
+    ctx.strokeStyle=hsl(nhue,100,70,.9);
+    ctx.lineWidth=1.5;
+    ctx.shadowColor=hsl(nhue,100,75,1);
+    ctx.shadowBlur=12;
+    ctx.stroke();
+    ctx.shadowBlur=0;
+    // label
+    ctx.font=`bold ${floor(n.r*.8)}px 'Courier New'`;
+    ctx.fillStyle=hsl(nhue,100,85,1);
+    ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText(n.label,n.x,n.y);
+  }
+}
+
+function drawHuman(h,dt){
+  h.decompose=clamp(h.decompose+h.decomposeSpeed,0,1);
+  if(h.decompose>=1)Object.assign(h,mkHuman());
+  h.x+=h.vx;h.y+=h.vy;
+  if(h.x<0||h.x>W)h.vx*=-1;
+  if(h.y<0||h.y>H)h.vy*=-1;
+  h.phase+=.025;
+  const sc=h.scale;
+  const d=h.decompose;
+  const hue=mod(U.hueShift+h.hue+t*8,360);
+  ctx.save();
+  ctx.translate(h.x,h.y);
+  ctx.strokeStyle=hsl(hue,100,70,.9-d*.4);
+  ctx.lineWidth=1.2;
+  ctx.shadowColor=hsl(hue,100,75,1);
+  ctx.shadowBlur=8;
+  const sep=d*25; // parts separate as d increases
+
+  // body parts as vector geometry, decomposing
+  const parts=[
+    // head
+    ()=>{
+      ctx.beginPath();
+      ctx.arc(h.parts[0].ox*d,(-40+h.parts[0].oy*d)*sc,8*sc,0,TAU);
+      ctx.stroke();
+      // "eyes"
+      ctx.beginPath();ctx.arc((-3+h.parts[0].ox*d*.3)*sc,(-42+h.parts[0].oy*d*.3)*sc,2*sc,0,TAU);ctx.fill();
+      ctx.beginPath();ctx.arc((3+h.parts[0].ox*d*.3)*sc,(-42+h.parts[0].oy*d*.3)*sc,2*sc,0,TAU);ctx.fill();
+    },
+    // torso
+    ()=>{
+      const ox=h.parts[1].ox*d,oy=h.parts[1].oy*d;
+      ctx.strokeRect((ox-7)*sc,(oy-28)*sc,14*sc,22*sc);
+      // internal CRISPR line
+      if(d>.3){
+        ctx.beginPath();
+        ctx.moveTo((ox-7)*sc,(oy-28+d*22)*sc);
+        ctx.lineTo((ox+7)*sc,(oy-28+d*11)*sc);
+        ctx.globalAlpha=d*.7;ctx.stroke();ctx.globalAlpha=1;
+      }
+    },
+    // left arm
+    ()=>{
+      const ox=h.parts[2].ox*d,oy=h.parts[2].oy*d;
+      ctx.beginPath();
+      ctx.moveTo((ox-7)*sc,(oy-26)*sc);
+      ctx.lineTo((ox-7-12*sc),((oy-14)*sc));
+      ctx.lineTo((ox-7-10*sc),((oy)*sc));
+      ctx.stroke();
+    },
+    // right arm
+    ()=>{
+      const ox=h.parts[3].ox*d,oy=h.parts[3].oy*d;
+      ctx.beginPath();
+      ctx.moveTo((ox+7)*sc,(oy-26)*sc);
+      ctx.lineTo((ox+7+12)*sc,((oy-14)*sc));
+      ctx.lineTo((ox+7+10)*sc,((oy)*sc));
+      ctx.stroke();
+    },
+    // left leg
+    ()=>{
+      const ox=h.parts[4].ox*d,oy=h.parts[4].oy*d;
+      ctx.beginPath();
+      ctx.moveTo((ox-4)*sc,(oy-6)*sc);
+      ctx.lineTo((ox-6)*sc,(oy+18)*sc);
+      ctx.lineTo((ox-10)*sc,(oy+26)*sc);
+      ctx.stroke();
+    },
+    // right leg
+    ()=>{
+      const ox=h.parts[5].ox*d,oy=h.parts[5].oy*d;
+      ctx.beginPath();
+      ctx.moveTo((ox+4)*sc,(oy-6)*sc);
+      ctx.lineTo((ox+6)*sc,(oy+18)*sc);
+      ctx.lineTo((ox+10)*sc,(oy+26)*sc);
+      ctx.stroke();
+    },
+  ];
+
+  ctx.fillStyle=hsl(hue,100,70,.9-d*.4);
+  for(let fn of parts){
+    ctx.save();
+    if(d>.1){
+      ctx.rotate(h.parts[parts.indexOf(fn)%h.parts.length].angle);
+      h.parts[parts.indexOf(fn)%h.parts.length].angle+=h.parts[parts.indexOf(fn)%h.parts.length].spin*d;
+    }
+    fn();
+    ctx.restore();
+  }
+  ctx.shadowBlur=0;
+  ctx.restore();
+}
+
+function drawTensorField(){
+  const freq=U.tensorFreq;
+  const hue=mod(U.hueShift+t*4,360);
+  const step=floor(min(W,H)/18);
+  ctx.lineWidth=.7;
+  for(let gx=step;gx<W;gx+=step){
+    for(let gy=step;gy<H;gy+=step){
+      const nx=(gx/W-.5)*TAU,ny=(gy/H-.5)*TAU;
+      const angle=U.tensorAngle+sin(nx*freq+t*.3)*cos(ny*freq+t*.2)*TAU;
+      const len=step*.35;
+      ctx.save();
+      ctx.translate(gx,gy);ctx.rotate(angle);
+      ctx.beginPath();ctx.moveTo(-len*.5,0);ctx.lineTo(len*.5,0);
+      ctx.strokeStyle=hsl(mod(hue+gx*.1+gy*.05,360),80,55,.22);
+      ctx.stroke();
+      // arrowhead
+      ctx.beginPath();ctx.moveTo(len*.5,0);ctx.lineTo(len*.3,-3);ctx.lineTo(len*.3,3);ctx.closePath();
+      ctx.fillStyle=hsl(mod(hue+gx*.1+gy*.05,360),80,65,.22);ctx.fill();
+      ctx.restore();
+    }
+  }
+}
+
+function drawMobiusFlow(){
+  const hue=mod(U.hueShift+t*6,360);
+  ctx.save();
+  const scale=min(W,H)*.45;
+  const {mobAr,mobAi,mobBr,mobBi,mobCr,mobCi,mobDr,mobDi}=U;
+  for(let i=0;i<120;i++){
+    const theta=(i/120)*TAU+t*.05;
+    const zr=cos(theta)*.7,zi=sin(theta)*.7;
+    const [wr,wi]=mobius(zr,zi,mobAr+sin(t*.07)*.1,mobAi,mobBr,mobBi,mobCr,mobCi,mobDr+cos(t*.11)*.1,mobDi);
+    const px=cx+wr*scale,py=cy+wi*scale;
+    const nhue=mod(hue+i*3,360);
+    ctx.beginPath();ctx.arc(px,py,2,0,TAU);
+    ctx.fillStyle=hsl(nhue,100,65,.55);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawLogisticBifurcation(){
+  // draw logistic map bifurcation diagram strip along bottom
+  const y0=H*.92,stripH=H*.06;
+  const hue=mod(U.hueShift+t*3,360);
+  ctx.save();ctx.globalAlpha=.4;
+  const rBase=U.logR;
+  for(let px=0;px<W;px+=2){
+    const r=3.5+(px/W)*.5;
+    let x=rBase*.13+.3;
+    for(let i=0;i<80;i++)x=logistic(x,r);
+    for(let i=0;i<40;i++){
+      x=logistic(x,r);
+      const py=y0+x*stripH;
+      ctx.fillStyle=hsl(mod(hue+px*.15,360),100,65,.5);
+      ctx.fillRect(px,py,1.5,1.5);
+    }
+  }
+  ctx.restore();
+}
+
+function drawFourierSpectrum(){
+  const hue=mod(U.hueShift+t*9,360);
+  ctx.save();
+  ctx.translate(0,cy);
+  ctx.globalAlpha=.35;
+  ctx.beginPath();
+  const steps=W;
+  ctx.moveTo(0,0);
+  for(let px=0;px<=steps;px++){
+    const xn=(px/W)*TAU*4;
+    const y=fourierY(xn+t*.5,U.fourier)*cy*.25;
+    ctx.lineTo(px,y);
+  }
+  ctx.strokeStyle=hsl(hue,100,65,1);
+  ctx.lineWidth=1.2;
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawScanlines(){
+  ctx.save();
+  ctx.globalAlpha=.04;
+  ctx.fillStyle='#000';
+  for(let y=0;y<H;y+=3){ctx.fillRect(0,y,W,1);}
+  ctx.restore();
+}
+
+function drawVignette(){
+  const g=ctx.createRadialGradient(cx,cy,min(W,H)*.25,cx,cy,min(W,H)*.8);
+  g.addColorStop(0,'rgba(0,0,0,0)');
+  g.addColorStop(1,'rgba(0,0,16,.7)');
+  ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+}
+
+/* ── HUD ── */
+let hudOn=false;
+const hudEl=document.getElementById('hud');
+const hudInner=document.getElementById('hud-inner');
+const secEl=document.getElementById('sec');
+const nodEl=document.getElementById('nod');
+function updateHUD(){
+  if(!hudOn)return;
+  secEl.textContent=U.sector||'--';
+  nodEl.textContent=U.node||'--';
+  hudInner.innerHTML=`
+FPS: ${(1000/frameDt).toFixed(0)}<br>
+SYM: ${U.symOrder}-fold Coxeter<br>
+ATTR: Clifford [${U.aA.toFixed(2)},${U.aB.toFixed(2)}]<br>
+PAL: ${U.pal}▷${U.pal2} blend:${U.palBlend.toFixed(2)}<br>
+LOG-R: ${U.logR.toFixed(3)}<br>
+NODES: ${U.catNodes.length} objects<br>
+BEAMS: ${U.beams.length} active<br>
+PARTS: ${U.particles.length}<br>
+SND: ${soundOn?'ON':'OFF'}
+  `;
+}
+
+/* ── audio ── */
+let soundOn=false;
+let audioCtx=null;
+let masterGain=null;
+let audioNodes=[];
+
+function initAudio(){
+  if(audioCtx)return;
+  audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+  masterGain=audioCtx.createGain();
+  masterGain.gain.value=0.18;
+  masterGain.connect(audioCtx.destination);
+}
+
+function startAudio(){
+  initAudio();
+  stopAudio();
+  // bass drone
+  const bass=audioCtx.createOscillator();
+  bass.type='sawtooth';
+  bass.frequency.value=55+U.logR*8;
+  const bassGain=audioCtx.createGain();bassGain.gain.value=.35;
+  const bassFilter=audioCtx.createBiquadFilter();bassFilter.type='lowpass';bassFilter.frequency.value=200;
+  bass.connect(bassFilter);bassFilter.connect(bassGain);bassGain.connect(masterGain);
+  bass.start();audioNodes.push(bass,bassGain,bassFilter);
+
+  // mid pulse
+  const mid=audioCtx.createOscillator();
+  mid.type='square';mid.frequency.value=220*(1+U.aA*.1);
+  const midGain=audioCtx.createGain();midGain.gain.value=.12;
+  const midFilter=audioCtx.createBiquadFilter();midFilter.type='bandpass';midFilter.frequency.value=800;midFilter.Q.value=3;
+  mid.connect(midFilter);midFilter.connect(midGain);midGain.connect(masterGain);
+  mid.start();audioNodes.push(mid,midGain,midFilter);
+
+  // arp oscillator
+  const arp=audioCtx.createOscillator();
+  arp.type='triangle';arp.frequency.value=440;
+  const arpGain=audioCtx.createGain();arpGain.gain.value=.08;
+  arp.connect(arpGain);arpGain.connect(masterGain);
+  arp.start();audioNodes.push(arp,arpGain);
+
+  // noise hi
+  const bufSize=audioCtx.sampleRate*2;
+  const buf=audioCtx.createBuffer(1,bufSize,audioCtx.sampleRate);
+  const data=buf.getChannelData(0);
+  for(let i=0;i<bufSize;i++)data[i]=(Math.random()*2-1);
+  const noise=audioCtx.createBufferSource();noise.buffer=buf;noise.loop=true;
+  const noiseGain=audioCtx.createGain();noiseGain.gain.value=.015;
+  const noiseFilter=audioCtx.createBiquadFilter();noiseFilter.type='highpass';noiseFilter.frequency.value=4000;
+  noise.connect(noiseFilter);noiseFilter.connect(noiseGain);noiseGain.connect(masterGain);
+  noise.start();audioNodes.push(noise,noiseGain,noiseFilter);
+
+  // modulate arp
+  const lfo=audioCtx.createOscillator();lfo.type='sine';lfo.frequency.value=U.logR*.7;
+  const lfoGain=audioCtx.createGain();lfoGain.gain.value=120;
+  lfo.connect(lfoGain);lfoGain.connect(arp.frequency);lfo.start();
+  audioNodes.push(lfo,lfoGain);
+
+  // stochastic pings
+  U.audioNodes.arp=arp;U.audioNodes.bass=bass;
+}
+
+function stopAudio(){
+  for(let n of audioNodes){try{n.stop&&n.stop();n.disconnect&&n.disconnect();}catch(e){}}
+  audioNodes=[];
+}
+
+let arpNotes=[110,165,220,330,440,550,660];
+let arpIdx=0;
+let arpTimer=0;
+
+function tickAudio(dt){
+  if(!soundOn||!audioCtx)return;
+  arpTimer+=dt;
+  if(arpTimer>0.12+U.logR*.02){
+    arpTimer=0;
+    arpIdx=(arpIdx+1)%arpNotes.length;
+    const f=arpNotes[arpIdx]*(1+sin(t*.3)*.15);
+    if(U.audioNodes.arp)U.audioNodes.arp.frequency.setTargetAtTime(f,audioCtx.currentTime,.04);
+    // ping
+    if(Math.random()<.3){
+      const osc=audioCtx.createOscillator();osc.type='sine';osc.frequency.value=f*2;
+      const env=audioCtx.createGain();env.gain.setValueAtTime(.12,audioCtx.currentTime);
+      env.gain.exponentialRampToValueAtTime(.001,audioCtx.currentTime+.25);
+      osc.connect(env);env.connect(masterGain);osc.start();osc.stop(audioCtx.currentTime+.26);
+    }
+  }
+}
+
+/* ── hint fade ── */
+const hintEl=document.getElementById('hint');
+setTimeout(()=>{hintEl.style.opacity='0';},4000);
+
+/* ── main loop ── */
+let last=0,frameDt=16;
+
+function frame_fn(now){
+  requestAnimationFrame(frame_fn);
+  const dt=(now-last)/1000;last=now;
+  frameDt=dt*1000;
+  if(dt>0.2)return; // skip large gaps
+  t+=dt;
+  frame++;
+  U.hueShift+=U.hueSpeed*60*dt;
+  U.kalePhase+=U.kaleSpeed*60*dt;
+
+  // clear
+  ctx.fillStyle='rgba(0,0,14,0.18)';
+  ctx.fillRect(0,0,W,H);
+
+  drawGrid();
+  drawTensorField();
+  drawVoronoi(dt);
+  drawFourierSpectrum();
+  drawLogisticBifurcation();
+  drawAttractor();
+  drawKaleidoscope();
+  drawMobiusFlow();
+  drawSplines(dt);
+  drawBeams(dt);
+  drawCategoryTheory();
+  for(let h of U.humans)drawHuman(h,dt);
+  drawParticles(dt);
+  drawScanlines();
+  drawVignette();
+
+  if(soundOn)tickAudio(dt);
+  updateHUD();
+}
+
+/* ── controls ── */
+function newUniverse(){
+  randomUniverse();
+  if(soundOn&&audioCtx){stopAudio();startAudio();}
+}
+
+window.addEventListener('keydown',e=>{
+  if(e.code==='Space'){e.preventDefault();newUniverse();}
+  if(e.code==='KeyH'){hudOn=!hudOn;hudEl.style.display=hudOn?'block':'none';}
+  if(e.code==='KeyS'){
+    soundOn=!soundOn;
+    if(soundOn){initAudio();startAudio();}
+    else stopAudio();
+  }
+});
+cv.addEventListener('click',()=>newUniverse());
+cv.addEventListener('touchend',e=>{e.preventDefault();newUniverse();},{passive:false});
+
+function min(a,b){return a<b?a:b;}
+
+/* ── boot ── */
+randomUniverse();
+requestAnimationFrame(frame_fn);
+
+})();
+</script>
+</body>
+</html>

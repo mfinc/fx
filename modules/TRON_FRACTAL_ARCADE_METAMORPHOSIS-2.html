@@ -1,0 +1,876 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>TRON FRACTAL ARCADE METAMORPHOSIS — Generative Audiovisual Engine</title>
+<meta name="description" content="A self-contained generative audiovisual engine fusing Tron cyber aesthetics, Atari arcade vector graphics, CRISPR evolution simulation, category theory morphisms, and experimental audiovisual mathematics into a living fractal computation universe.">
+<meta name="keywords" content="generative art engine, Tron cyber aesthetics, Atari arcade graphics, CRISPR evolution simulation, category theory visualization, experimental audiovisual mathematics, fractal computation, neon lattice, cybernetic laboratory, algorithmic art, procedural generation, L-systems, strange attractor, particle swarm, WebAudio synthesis, generative music, vector manifold, light cycle geometry, digital dissolution, morphing topology">
+<meta property="og:title" content="TRON FRACTAL ARCADE METAMORPHOSIS">
+<meta property="og:description" content="Generative audiovisual engine: Tron × Atari × CRISPR × Category Theory × Fractal Mathematics">
+<meta name="robots" content="index, follow">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Courier New',monospace}
+  canvas{display:block;position:fixed;top:0;left:0;width:100%;height:100%;image-rendering:pixelated}
+  #hud{display:none;position:fixed;top:12px;left:12px;color:#0ff;font-size:11px;line-height:1.7;
+    text-shadow:0 0 8px #0ff;pointer-events:none;z-index:10;background:rgba(0,0,0,.6);padding:8px 12px;border:1px solid #0ff4;border-radius:3px}
+  #hud.on{display:block}
+  #keys{position:fixed;bottom:10px;right:12px;color:#fff4;font-size:10px;text-align:right;pointer-events:none;z-index:10;line-height:1.8}
+  #banner{position:fixed;top:0;left:0;width:100%;text-align:center;padding:6px;color:#fff2;font-size:10px;letter-spacing:3px;pointer-events:none;z-index:10}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<div id="keys">SPACE/CLICK · NEW WORLD &nbsp;|&nbsp; H · HUD &nbsp;|&nbsp; S · SOUND</div>
+<div id="banner">TRON FRACTAL ARCADE METAMORPHOSIS</div>
+
+<script>
+'use strict';
+// ─── CANVAS SETUP ────────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const hud = document.getElementById('hud');
+let W, H, cx, cy;
+
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  cx = W / 2; cy = H / 2;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ─── STATE ───────────────────────────────────────────────────────────────────
+let hudOn = false, soundOn = false, frame = 0, fps = 0, lastFps = 0;
+let world = {};
+let audioCtx = null, masterGain = null, reverb = null;
+let oscillators = [], lfoNodes = [], scheduledNotes = [];
+
+// ─── RANDOM UTILS ────────────────────────────────────────────────────────────
+const rand = (a, b) => a + Math.random() * (b - a);
+const randInt = (a, b) => Math.floor(rand(a, b + 1));
+const pick = arr => arr[Math.floor(Math.random() * arr.length)];
+const TAU = Math.PI * 2;
+
+// ─── COLOR ENGINE ────────────────────────────────────────────────────────────
+function hsl(h, s, l, a = 1) { return `hsla(${h|0},${s|0}%,${l|0}%,${a})`; }
+
+// Safely apply alpha to any color string (hsl, hex, rgb, named)
+function withAlpha(col, a) {
+  if (!col || typeof col !== 'string') return `rgba(0,255,255,${a})`;
+  const s = col.trim();
+  if (s.startsWith('hsla(')) return s.replace(/,([\d.]+)\)$/, `,${a})`);
+  if (s.startsWith('hsl('))  return s.replace('hsl(','hsla(').replace(')',`,${a})`);
+  if (s.startsWith('rgba(')) return s.replace(/,([\d.]+)\)$/, `,${a})`);
+  if (s.startsWith('rgb('))  return s.replace('rgb(','rgba(').replace(')',`,${a})`);
+  if (s.startsWith('#')) {
+    let hex = s.slice(1);
+    if (hex.length === 3 || hex.length === 4) hex = hex.slice(0,3).split('').map(c=>c+c).join('');
+    else hex = hex.slice(0,6);
+    const r = parseInt(hex.slice(0,2),16), g = parseInt(hex.slice(2,4),16), b = parseInt(hex.slice(4,6),16);
+    if (isNaN(r)||isNaN(g)||isNaN(b)) return `rgba(0,255,255,${a})`;
+    return `rgba(${r},${g},${b},${a})`;
+  }
+  return `rgba(0,255,255,${a})`;
+}
+
+function buildPalette() {
+  const modes = ['spectral','neon','acid','plasma','solar','cyber','vaporwave','aurora','fractal','void'];
+  const mode = pick(modes);
+  const base = rand(0, 360);
+  let p = { mode, base, colors: [], bg: '#000', accent: '', secondary: '' };
+
+  switch(mode) {
+    case 'spectral': p.colors = [0,60,120,180,240,300].map(h=>hsl((base+h)%360,100,60)); break;
+    case 'neon':     p.colors = [base,(base+72)%360,(base+144)%360,(base+216)%360,(base+288)%360].map(h=>hsl(h,100,65)); break;
+    case 'acid':     p.colors = [hsl(base,100,70),hsl((base+180)%360,100,70),hsl((base+90)%360,80,80),'#fff','#0ff']; break;
+    case 'plasma':   p.colors = [hsl(base,90,50),hsl((base+30)%360,100,60),hsl((base+60)%360,100,70),'rgba(255,255,255,0.5)']; break;
+    case 'solar':    p.colors = ['#ff0','#f80','#f40','#ff8','#fa0','#fff']; break;
+    case 'cyber':    p.colors = ['#0ff','#f0f','#0f8','#08f','#ff0','#fff']; break;
+    case 'vaporwave':p.colors = ['#f8c','#c8f','#8cf','#fcf','#8ff']; break;
+    case 'aurora':   p.colors = ['#0f8','#08f','#0ff','#8f0','#4ff']; break;
+    case 'fractal':  p.colors = [hsl(base,100,40),hsl((base+45)%360,100,60),hsl((base+90)%360,90,80),'#fff','#000']; break;
+    case 'void':     p.colors = [hsl(base,80,20),hsl((base+180)%360,100,60),hsl((base+90)%360,60,10),'rgba(0,255,255,0.13)']; break;
+  }
+  p.accent = p.colors[0];
+  p.secondary = p.colors[1] || p.colors[0];
+  return p;
+}
+
+function paletteColor(p, t, alpha = 1) {
+  const n = p.colors.length;
+  const i = Math.floor(t * n) % n;
+  const j = (i + 1) % n;
+  return p.colors[i < n ? i : 0];
+}
+
+// ─── WORLD GENERATION ────────────────────────────────────────────────────────
+function generateWorld() {
+  const pal = buildPalette();
+  const systems = ['arena','corridor','chamber','attractor','lsystem','morphism','dissolve','swarm'];
+  const active = systems.filter(() => Math.random() > 0.3).slice(0, randInt(3, 6));
+  if (active.length < 2) active.push(pick(systems));
+
+  return {
+    pal,
+    active,
+    seed: Math.random() * 1e9 | 0,
+    t: 0,
+    speed: rand(0.3, 1.2),
+    // Arena
+    arena: { cells: randInt(6, 18), rotate: rand(-0.5, 0.5), pulse: rand(0.5, 2) },
+    // Light cycle grid
+    grid: { cols: randInt(8, 24), rows: randInt(6, 18), trails: Array.from({length: randInt(4, 12)}, () => ({
+      x: rand(0.1, 0.9), y: rand(0.1, 0.9),
+      dx: pick([-1,1]) * rand(0.002, 0.008),
+      dy: pick([-1,1]) * rand(0.002, 0.008),
+      history: [], color: Math.random(), len: randInt(20, 80)
+    }))},
+    // L-System
+    lsys: buildLSystem(),
+    // Strange Attractor
+    attractor: buildAttractor(),
+    // Particle swarm
+    swarm: Array.from({length: randInt(80, 200)}, () => ({
+      x: rand(0, 1), y: rand(0, 1), vx: rand(-0.002, 0.002), vy: rand(-0.002, 0.002),
+      phase: rand(0, TAU), freq: rand(0.01, 0.05), color: Math.random(), size: rand(1, 4)
+    })),
+    // Morphism nodes (category theory graph)
+    morphism: buildMorphism(),
+    // CRISPR dissolution
+    crispr: buildCrispr(),
+    // Fractal overlay
+    fractal: { type: pick(['julia','mandel','newton']), cx: rand(-0.8, 0.8), cy: rand(-0.8, 0.8), zoom: rand(0.5, 2), iter: randInt(32, 96) },
+    // Audio params
+    audio: { bpm: randInt(60, 180), scale: pick(['minor','major','phrygian','dorian','pentatonic']), baseFreq: pick([55,110,220,440]) }
+  };
+}
+
+function buildLSystem() {
+  const rules = [
+    { axiom:'F', rules:{'F':'F+F-F-F+F'}, angle: 90 },
+    { axiom:'X', rules:{'X':'F+[[X]-X]-F[-FX]+X','F':'FF'}, angle: 25 },
+    { axiom:'F', rules:{'F':'FF+[+F-F-F]-[-F+F+F]'}, angle: 22.5 },
+    { axiom:'L', rules:{'L':'L+R+','R':'-L-R'}, angle: 60 },
+    { axiom:'F-F-F-F', rules:{'F':'F-F+F+FF-F-F+F'}, angle: 90 },
+  ];
+  const r = pick(rules);
+  let str = r.axiom;
+  const depth = randInt(3, 5);
+  for (let i = 0; i < depth; i++) {
+    str = str.split('').map(c => r.rules[c] || c).join('');
+    if (str.length > 8000) break;
+  }
+  return { str, angle: r.angle * Math.PI / 180, step: rand(3, 12), ox: rand(0.2, 0.8), oy: rand(0.3, 0.9), rot: rand(0, TAU) };
+}
+
+function buildAttractor() {
+  const types = ['lorenz','clifford','tinkerbell','dejong','duffing'];
+  const type = pick(types);
+  const params = {
+    lorenz: { sigma: rand(8,12), rho: rand(24,32), beta: rand(2,3), x:1, y:1, z:1 },
+    clifford: { a: rand(-2,2), b: rand(-2,2), c: rand(-2,2), d: rand(-2,2), x:0.1, y:0 },
+    tinkerbell: { a: rand(0.7,0.9), b: rand(-0.6,-0.4), c: rand(1.8,2.2), d: rand(0.4,0.6), x:0.1, y:0 },
+    dejong: { a: rand(-3,3), b: rand(-3,3), c: rand(-3,3), d: rand(-3,3), x:0, y:0 },
+    duffing: { a: rand(0.1,0.3), b: rand(0.1,0.4), x:0.1, y:0 }
+  };
+  return { type, params: params[type], history: [], maxHistory: 3000, scale: rand(0.1, 0.25) };
+}
+
+function buildMorphism() {
+  const n = randInt(6, 14);
+  const nodes = Array.from({length: n}, (_, i) => ({
+    x: rand(0.1, 0.9), y: rand(0.1, 0.9),
+    vx: rand(-0.001, 0.001), vy: rand(-0.001, 0.001),
+    phase: rand(0, TAU), r: rand(8, 22),
+    label: String.fromCharCode(65 + i % 26)
+  }));
+  const edges = [];
+  for (let i = 0; i < n; i++) {
+    const k = randInt(1, 3);
+    for (let j = 0; j < k; j++) {
+      const t = randInt(0, n - 1);
+      if (t !== i) edges.push({ from: i, to: t, phase: rand(0, TAU) });
+    }
+  }
+  return { nodes, edges };
+}
+
+function buildCrispr() {
+  return Array.from({length: randInt(6, 16)}, () => ({
+    x: rand(0.05, 0.95), y: rand(0.05, 0.95),
+    size: rand(20, 70), phase: rand(0, TAU),
+    speed: rand(0.01, 0.04), modules: randInt(4, 12),
+    dissolve: rand(0, 1), dv: rand(0.003, 0.01) * pick([-1, 1])
+  }));
+}
+
+// ─── AUDIO ENGINE ────────────────────────────────────────────────────────────
+function initAudio() {
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  masterGain = audioCtx.createGain();
+  masterGain.gain.value = 0.15;
+
+  // Reverb convolver
+  reverb = audioCtx.createConvolver();
+  const rLen = audioCtx.sampleRate * 2;
+  const rBuf = audioCtx.createBuffer(2, rLen, audioCtx.sampleRate);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = rBuf.getChannelData(ch);
+    for (let i = 0; i < rLen; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / rLen, 2);
+  }
+  reverb.buffer = rBuf;
+
+  const reverbGain = audioCtx.createGain();
+  reverbGain.gain.value = 0.3;
+  masterGain.connect(reverb);
+  reverb.connect(reverbGain);
+  reverbGain.connect(audioCtx.destination);
+  masterGain.connect(audioCtx.destination);
+}
+
+const SCALES = {
+  minor: [0,2,3,5,7,8,10],
+  major: [0,2,4,5,7,9,11],
+  phrygian: [0,1,3,5,7,8,10],
+  dorian: [0,2,3,5,7,9,10],
+  pentatonic: [0,3,5,7,10]
+};
+
+function noteFreq(base, scale, degree) {
+  const sc = SCALES[scale];
+  const oct = Math.floor(degree / sc.length);
+  const note = sc[degree % sc.length];
+  return base * Math.pow(2, (oct * 12 + note) / 12);
+}
+
+function playNote(freq, dur, type = 'sine', gain = 0.3, when = 0) {
+  if (!audioCtx || !soundOn) return;
+  const t = audioCtx.currentTime + when;
+  const osc = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, t);
+  osc.frequency.exponentialRampToValueAtTime(freq * (1 + rand(-0.01, 0.01)), t + dur * 0.5);
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(gain, t + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  osc.connect(g);
+  g.connect(masterGain);
+  osc.start(t);
+  osc.stop(t + dur + 0.05);
+}
+
+function scheduleAudio() {
+  if (!soundOn || !audioCtx || !world.audio) return;
+  const { bpm, scale, baseFreq } = world.audio;
+  const beat = 60 / bpm;
+  const now = audioCtx.currentTime;
+  // Clean old
+  scheduledNotes = scheduledNotes.filter(s => s > now);
+  if (scheduledNotes.length > 8) return;
+  // Schedule next few beats
+  for (let i = 0; i < 4; i++) {
+    const when = beat * (i + 1);
+    const deg = randInt(0, 7);
+    const freq = noteFreq(baseFreq, scale, deg);
+    playNote(freq, beat * 0.8, pick(['sine','square','sawtooth','triangle']), rand(0.1, 0.25), when);
+    if (Math.random() > 0.6) {
+      playNote(freq * 2, beat * 0.4, 'sine', 0.1, when + beat * 0.5);
+    }
+    scheduledNotes.push(now + when);
+  }
+  // Drone
+  if (Math.random() > 0.9) {
+    playNote(baseFreq / 2, beat * 4, 'sine', 0.05, 0);
+  }
+}
+
+// ─── DRAW SUBSYSTEMS ─────────────────────────────────────────────────────────
+function drawBackground(t, pal) {
+  const grd = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(W, H) * 0.8);
+  const c0 = pal.colors[0], c1 = pal.colors[1] || '#000', c2 = pal.colors[2] || '#000';
+  grd.addColorStop(0, withAlpha(c0, 0.13));
+  grd.addColorStop(0.5, withAlpha(c1, 0.07));
+  grd.addColorStop(1, '#000');
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, W, H);
+
+  // Scanlines
+  ctx.fillStyle = 'rgba(0,0,0,0.06)';
+  for (let y = 0; y < H; y += 4) {
+    ctx.fillRect(0, y, W, 2);
+  }
+}
+
+function drawArena(t, world) {
+  const { pal, arena } = world;
+  const n = arena.cells;
+  const r = Math.min(W, H) * 0.45;
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(t * arena.rotate * 0.2);
+
+  for (let ring = 0; ring < 4; ring++) {
+    const rr = r * (0.25 + ring * 0.25);
+    const pulse = 1 + 0.05 * Math.sin(t * arena.pulse + ring * 1.3);
+    ctx.beginPath();
+    for (let i = 0; i <= n; i++) {
+      const a = (i / n) * TAU + t * (ring % 2 ? 0.1 : -0.1);
+      const rp = rr * pulse;
+      const x = Math.cos(a) * rp, y = Math.sin(a) * rp;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    const col = pal.colors[(ring + (t * 0.3 | 0)) % pal.colors.length];
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 1.5;
+    ctx.globalAlpha = 0.4 + 0.2 * Math.sin(t + ring);
+    ctx.stroke();
+
+    // Radial spokes
+    if (ring === 3) {
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * TAU + t * 0.05;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr);
+        ctx.strokeStyle = withAlpha(col, 0.27);
+        ctx.lineWidth = 0.8;
+        ctx.stroke();
+      }
+    }
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+function drawGrid(t, world) {
+  const { pal, grid } = world;
+  const cellW = W / grid.cols, cellH = H / grid.rows;
+  ctx.globalAlpha = 0.25;
+
+  // Grid lines
+  ctx.strokeStyle = pal.colors[1] || '#0ff';
+  ctx.lineWidth = 0.5;
+  for (let x = 0; x <= grid.cols; x++) {
+    ctx.beginPath();
+    ctx.moveTo(x * cellW, 0);
+    ctx.lineTo(x * cellW, H);
+    ctx.stroke();
+  }
+  for (let y = 0; y <= grid.rows; y++) {
+    ctx.beginPath();
+    ctx.moveTo(0, y * cellH);
+    ctx.lineTo(W, y * cellH);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+
+  // Light cycle trails
+  for (const tr of grid.trails) {
+    tr.x += tr.dx;
+    tr.y += tr.dy;
+    if (tr.x < 0 || tr.x > 1) tr.dx *= -1;
+    if (tr.y < 0 || tr.y > 1) tr.dy *= -1;
+    tr.history.push({ x: tr.x * W, y: tr.y * H });
+    if (tr.history.length > tr.len) tr.history.shift();
+
+    const col = pal.colors[Math.floor(tr.color * pal.colors.length)];
+    for (let i = 1; i < tr.history.length; i++) {
+      const a = i / tr.history.length;
+      ctx.beginPath();
+      ctx.moveTo(tr.history[i-1].x, tr.history[i-1].y);
+      ctx.lineTo(tr.history[i].x, tr.history[i].y);
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 2 * a;
+      ctx.globalAlpha = a * 0.9;
+      ctx.stroke();
+    }
+    // Head glow
+    if (tr.history.length > 0) {
+      const h = tr.history[tr.history.length - 1];
+      ctx.beginPath();
+      ctx.arc(h.x, h.y, 4, 0, TAU);
+      ctx.fillStyle = col;
+      ctx.globalAlpha = 1;
+      ctx.fill();
+      // Glow
+      const grd = ctx.createRadialGradient(h.x, h.y, 0, h.x, h.y, 12);
+      grd.addColorStop(0, withAlpha(col, 0.67));
+      grd.addColorStop(1, withAlpha(col, 0));
+      ctx.beginPath();
+      ctx.arc(h.x, h.y, 12, 0, TAU);
+      ctx.fillStyle = grd;
+      ctx.fill();
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawLSystem(t, world) {
+  const { pal, lsys } = world;
+  const col = pal.colors[(t * 0.2 | 0) % pal.colors.length];
+  ctx.save();
+  ctx.translate(lsys.ox * W, lsys.oy * H);
+  ctx.rotate(lsys.rot + t * 0.05);
+  ctx.globalAlpha = 0.5;
+  ctx.strokeStyle = col;
+  ctx.lineWidth = 0.8;
+
+  let x = 0, y = 0, angle = -Math.PI / 2;
+  const stack = [];
+  const step = lsys.step * (0.9 + 0.1 * Math.sin(t));
+  const da = lsys.angle;
+
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  for (const c of lsys.str) {
+    switch(c) {
+      case 'F': case 'L': case 'R': {
+        const nx = x + Math.cos(angle) * step;
+        const ny = y + Math.sin(angle) * step;
+        ctx.lineTo(nx, ny);
+        x = nx; y = ny; break;
+      }
+      case '+': angle += da + 0.02 * Math.sin(t * 2); break;
+      case '-': angle -= da + 0.02 * Math.sin(t * 2); break;
+      case '[': stack.push({ x, y, angle }); ctx.stroke(); ctx.beginPath(); ctx.moveTo(x, y); break;
+      case ']': const s = stack.pop(); if (s) { x = s.x; y = s.y; angle = s.angle; ctx.stroke(); ctx.beginPath(); ctx.moveTo(x,y); } break;
+    }
+  }
+  ctx.stroke();
+  ctx.restore();
+  ctx.globalAlpha = 1;
+}
+
+function stepAttractor(att, dt) {
+  const { type, params: p } = att;
+  let { x, y, z } = p;
+  let nx, ny, nz = z || 0;
+
+  if (type === 'lorenz') {
+    const dx = p.sigma * (y - x);
+    const dy = x * (p.rho - z) - y;
+    const dz = x * y - p.beta * z;
+    const h = dt * 0.002;
+    nx = x + dx * h; ny = y + dy * h; nz = z + dz * h;
+  } else if (type === 'clifford') {
+    nx = Math.sin(p.a * y) + p.c * Math.cos(p.a * x);
+    ny = Math.sin(p.b * x) + p.d * Math.cos(p.b * y);
+  } else if (type === 'tinkerbell') {
+    nx = x*x - y*y + p.a*x + p.b*y;
+    ny = 2*x*y + p.c*x + p.d*y;
+  } else if (type === 'dejong') {
+    nx = Math.sin(p.a * y) - Math.cos(p.b * x);
+    ny = Math.sin(p.c * x) - Math.cos(p.d * y);
+  } else {
+    nx = y; ny = -p.b * x + p.a * y - y * y * y;
+  }
+  p.x = nx; p.y = ny; if (nz !== undefined) p.z = nz;
+  return { x: nx, y: ny };
+}
+
+function drawAttractor(t, world) {
+  const { pal, attractor: att } = world;
+  for (let i = 0; i < 80; i++) {
+    const pt = stepAttractor(att, 1);
+    att.history.push(pt);
+    if (att.history.length > att.maxHistory) att.history.shift();
+  }
+
+  const scale = att.scale * Math.min(W, H);
+  ctx.save();
+  ctx.translate(cx, cy);
+  const n = att.history.length;
+  for (let i = 1; i < n; i++) {
+    const a = i / n;
+    const ci = Math.floor(a * pal.colors.length);
+    const pt = att.history[i], pp = att.history[i - 1];
+    ctx.beginPath();
+    ctx.moveTo(pp.x * scale, pp.y * scale);
+    ctx.lineTo(pt.x * scale, pt.y * scale);
+    ctx.strokeStyle = pal.colors[ci % pal.colors.length];
+    ctx.lineWidth = 0.8;
+    ctx.globalAlpha = a * 0.6;
+    ctx.stroke();
+  }
+  ctx.restore();
+  ctx.globalAlpha = 1;
+}
+
+function drawMorphism(t, world) {
+  const { pal, morphism: m } = world;
+  const nodes = m.nodes;
+
+  // Move nodes
+  for (const nd of nodes) {
+    nd.x += nd.vx + 0.001 * Math.sin(t * 0.3 + nd.phase);
+    nd.y += nd.vy + 0.001 * Math.cos(t * 0.3 + nd.phase);
+    if (nd.x < 0.05 || nd.x > 0.95) nd.vx *= -1;
+    if (nd.y < 0.05 || nd.y > 0.95) nd.vy *= -1;
+    nd.x = Math.max(0.05, Math.min(0.95, nd.x));
+    nd.y = Math.max(0.05, Math.min(0.95, nd.y));
+  }
+
+  // Draw edges (morphisms)
+  for (const e of m.edges) {
+    const a = nodes[e.from], b = nodes[e.to];
+    if (!a || !b) continue;
+    const mx = (a.x + b.x) / 2 * W + 30 * Math.sin(t * 0.5 + e.phase);
+    const my = (a.y + b.y) / 2 * H + 30 * Math.cos(t * 0.5 + e.phase);
+    ctx.beginPath();
+    ctx.moveTo(a.x * W, a.y * H);
+    ctx.quadraticCurveTo(mx, my, b.x * W, b.y * H);
+    const col = pal.colors[Math.floor(e.phase / TAU * pal.colors.length)];
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 1.2;
+    ctx.globalAlpha = 0.5 + 0.3 * Math.sin(t + e.phase);
+    ctx.stroke();
+
+    // Arrow
+    const dx = b.x * W - mx, dy = b.y * H - my;
+    const angle = Math.atan2(dy, dx);
+    const tx = b.x * W - Math.cos(angle) * (b.r + 4);
+    const ty = b.y * H - Math.sin(angle) * (b.r + 4);
+    ctx.beginPath();
+    ctx.moveTo(tx, ty);
+    ctx.lineTo(tx - 8 * Math.cos(angle - 0.4), ty - 8 * Math.sin(angle - 0.4));
+    ctx.lineTo(tx - 8 * Math.cos(angle + 0.4), ty - 8 * Math.sin(angle + 0.4));
+    ctx.closePath();
+    ctx.fillStyle = col;
+    ctx.fill();
+  }
+
+  // Draw nodes
+  for (let i = 0; i < nodes.length; i++) {
+    const nd = nodes[i];
+    const col = pal.colors[i % pal.colors.length];
+    const px = nd.x * W, py = nd.y * H;
+    const pulse = nd.r * (1 + 0.15 * Math.sin(t * 2 + nd.phase));
+
+    // Glow
+    const grd = ctx.createRadialGradient(px, py, 0, px, py, pulse * 2);
+    grd.addColorStop(0, withAlpha(col, 0.67));
+    grd.addColorStop(1, withAlpha(col, 0));
+    ctx.beginPath();
+    ctx.arc(px, py, pulse * 2, 0, TAU);
+    ctx.fillStyle = grd;
+    ctx.globalAlpha = 0.8;
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(px, py, pulse, 0, TAU);
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 2;
+    ctx.globalAlpha = 1;
+    ctx.stroke();
+
+    // Label
+    ctx.fillStyle = col;
+    ctx.font = `bold ${10 + pulse * 0.3}px Courier New`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(nd.label, px, py);
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawSwarm(t, world) {
+  const { pal, swarm } = world;
+  // Attractor point that moves
+  const ax = cx + Math.cos(t * 0.17) * W * 0.3;
+  const ay = cy + Math.sin(t * 0.13) * H * 0.3;
+
+  for (const p of swarm) {
+    const px = p.x * W, py = p.y * H;
+    // Attraction
+    const dx = ax - px, dy = ay - py;
+    const d = Math.sqrt(dx*dx + dy*dy) + 1;
+    const force = 0.00008;
+    p.vx += dx / d * force + rand(-0.0005, 0.0005);
+    p.vy += dy / d * force + rand(-0.0005, 0.0005);
+    p.vx *= 0.98; p.vy *= 0.98;
+    p.x += p.vx; p.y += p.vy;
+    p.x = (p.x + 1) % 1; p.y = (p.y + 1) % 1;
+    p.phase += p.freq;
+
+    const col = pal.colors[Math.floor(p.color * pal.colors.length)];
+    const sz = p.size * (1 + 0.5 * Math.sin(p.phase));
+    ctx.beginPath();
+    ctx.arc(p.x * W, p.y * H, sz, 0, TAU);
+    ctx.fillStyle = col;
+    ctx.globalAlpha = 0.6 + 0.4 * Math.sin(p.phase);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawCrispr(t, world) {
+  const { pal, crispr } = world;
+
+  for (const cell of crispr) {
+    cell.phase += cell.speed;
+    cell.dissolve += cell.dv;
+    if (cell.dissolve > 1 || cell.dissolve < 0) cell.dv *= -1;
+    cell.dissolve = Math.max(0, Math.min(1, cell.dissolve));
+
+    const px = cell.x * W, py = cell.y * H;
+    const sz = cell.size;
+    const d = cell.dissolve;
+    const col = pal.colors[Math.floor(d * pal.colors.length)];
+    const m = cell.modules;
+
+    if (d < 0.4) {
+      // Whole cell (hexagonal)
+      ctx.beginPath();
+      for (let i = 0; i <= m; i++) {
+        const a = (i / m) * TAU + cell.phase;
+        const r = sz * (1 + 0.1 * Math.sin(i * 3 + t));
+        i === 0 ? ctx.moveTo(px + Math.cos(a)*r, py + Math.sin(a)*r) : ctx.lineTo(px + Math.cos(a)*r, py + Math.sin(a)*r);
+      }
+      ctx.closePath();
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 1.5;
+      ctx.globalAlpha = 1 - d * 2;
+      ctx.stroke();
+    }
+
+    // CRISPR cut lines
+    const cuts = Math.floor(d * m);
+    for (let i = 0; i < cuts; i++) {
+      const a1 = (i / m) * TAU + cell.phase;
+      const a2 = ((i + 0.5) / m) * TAU + cell.phase;
+      const disp = d * sz * 0.5;
+      const ex = px + Math.cos(a1) * sz + Math.cos(a2) * disp;
+      const ey = py + Math.sin(a1) * sz + Math.sin(a2) * disp;
+
+      ctx.beginPath();
+      ctx.arc(ex, ey, sz / m * 0.8 * (1 + Math.sin(t * 3 + i)), 0, TAU);
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 1;
+      ctx.globalAlpha = d * 0.8;
+      ctx.stroke();
+
+      // Connector line (category morphism arrow)
+      ctx.beginPath();
+      ctx.moveTo(px + Math.cos(a1) * sz * 0.5, py + Math.sin(a1) * sz * 0.5);
+      ctx.lineTo(ex, ey);
+      ctx.strokeStyle = pal.colors[(i + 1) % pal.colors.length];
+      ctx.lineWidth = 0.7;
+      ctx.globalAlpha = d * 0.5;
+      ctx.stroke();
+    }
+
+    // Fractal recursion marks (DNA helix style)
+    for (let i = 0; i < 8; i++) {
+      const ht = i / 8;
+      const hx = px - sz * 0.5 + i * sz * 0.14;
+      const hy1 = py + Math.sin(ht * TAU * 2 + t + cell.phase) * sz * 0.3;
+      const hy2 = py + Math.sin(ht * TAU * 2 + t + cell.phase + Math.PI) * sz * 0.3;
+      ctx.beginPath();
+      ctx.moveTo(hx, hy1);
+      ctx.lineTo(hx, hy2);
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 1;
+      ctx.globalAlpha = d * 0.6;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(hx, hy1, 2, 0, TAU);
+      ctx.fillStyle = col;
+      ctx.fill();
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawFractalOverlay(t, world) {
+  const { pal, fractal: fr } = world;
+  // Lightweight julia-set stripe along edge
+  const N = 40, M = 28;
+  const cellW = W / N, cellH = H / M;
+  const cr = fr.cx + 0.02 * Math.sin(t * 0.1);
+  const ci = fr.cy + 0.02 * Math.cos(t * 0.13);
+
+  ctx.globalAlpha = 0.15;
+  for (let xi = 0; xi < N; xi++) {
+    for (let yi = 0; yi < M; yi++) {
+      let x = (xi / N - 0.5) * 3 / fr.zoom;
+      let y = (yi / M - 0.5) * 2 / fr.zoom;
+      let iter = 0;
+      while (x*x + y*y < 4 && iter < fr.iter) {
+        const xn = x*x - y*y + cr;
+        y = 2*x*y + ci; x = xn; iter++;
+      }
+      if (iter < fr.iter) {
+        const a = iter / fr.iter;
+        const col = pal.colors[Math.floor(a * pal.colors.length)];
+        ctx.fillStyle = col;
+        ctx.fillRect(xi * cellW, yi * cellH, cellW + 1, cellH + 1);
+      }
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawNeonText(t, pal) {
+  const phrases = ['CRISPR.EXE','MORPHISM://','TRON_VECTOR','ATTRACTOR_Σ','L_SYSTEM_∞','CATEGORY_THEORY','FRACTAL_COMPUTE','ARCADE_REALITY','DISSOLVE_v2.7','CYBERNETIC_LAB'];
+  const ph = phrases[Math.floor(t * 0.15) % phrases.length];
+  const x = cx + Math.sin(t * 0.2) * W * 0.15;
+  const y = cy + Math.cos(t * 0.17) * H * 0.1;
+  const col = pal.colors[(t * 0.3 | 0) % pal.colors.length];
+
+  ctx.save();
+  ctx.globalAlpha = 0.35 + 0.2 * Math.sin(t * 3);
+  ctx.font = `bold ${18 + 8 * Math.sin(t)}px 'Courier New'`;
+  ctx.fillStyle = col;
+  ctx.shadowColor = col;
+  ctx.shadowBlur = 20;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(ph, x, y);
+  ctx.restore();
+}
+
+function drawHexGrid(t, pal) {
+  const size = 30 + 10 * Math.sin(t * 0.3);
+  const col = pal.colors[1] || '#0ff';
+  ctx.globalAlpha = 0.08;
+  ctx.strokeStyle = col;
+  ctx.lineWidth = 0.5;
+  const hexW = size * 2;
+  const hexH = Math.sqrt(3) * size;
+  const cols = Math.ceil(W / hexW) + 2;
+  const rows = Math.ceil(H / hexH) + 2;
+  for (let row = -1; row < rows; row++) {
+    for (let col2 = -1; col2 < cols; col2++) {
+      const ox = col2 * hexW * 0.75 + (row % 2) * hexW * 0.375 + (t * 5 % hexW) - size;
+      const oy = row * hexH + (t * 3 % hexH) - size;
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const a = i * Math.PI / 3 + Math.PI / 6;
+        const x = ox + Math.cos(a) * size;
+        const y = oy + Math.sin(a) * size;
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      ctx.stroke();
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawChromatic(t, pal) {
+  // Chromatic stream bands
+  const bands = 6;
+  for (let b = 0; b < bands; b++) {
+    const y0 = (H / bands) * b;
+    const y1 = y0 + H / bands;
+    const phase = b / bands * TAU + t * 0.1;
+    const col = pal.colors[b % pal.colors.length];
+    const grd = ctx.createLinearGradient(0, y0, W, y1);
+    grd.addColorStop(0, withAlpha(col, 0));
+    grd.addColorStop(0.3 + 0.2 * Math.sin(phase), withAlpha(col, 0.094));
+    grd.addColorStop(1, withAlpha(col, 0));
+    ctx.fillStyle = grd;
+    ctx.globalAlpha = 0.12 + 0.08 * Math.sin(t * 0.7 + b);
+    ctx.fillRect(0, y0, W, y1 - y0);
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ─── MAIN RENDER LOOP ────────────────────────────────────────────────────────
+let lastTime = 0;
+function render(now) {
+  requestAnimationFrame(render);
+  const dt = Math.min(now - lastTime, 50);
+  lastTime = now;
+  frame++;
+
+  // FPS counter
+  if (frame % 30 === 0) { fps = (1000 / dt) | 0; }
+
+  const t = world.t;
+  world.t += (dt / 1000) * world.speed;
+
+  // Clear
+  ctx.globalAlpha = 0.18;
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, W, H);
+  ctx.globalAlpha = 1;
+
+  const pal = world.pal;
+  const act = world.active;
+
+  // Background
+  drawBackground(t, pal);
+  drawHexGrid(t, pal);
+  drawChromatic(t, pal);
+
+  // Subsystems
+  if (act.includes('chamber') || act.includes('fractal')) drawFractalOverlay(t, world);
+  if (act.includes('arena')) drawArena(t, world);
+  if (act.includes('corridor')) drawGrid(t, world);
+  if (act.includes('lsystem')) drawLSystem(t, world);
+  if (act.includes('attractor')) drawAttractor(t, world);
+  if (act.includes('morphism')) drawMorphism(t, world);
+  if (act.includes('swarm')) drawSwarm(t, world);
+  if (act.includes('dissolve')) drawCrispr(t, world);
+
+  drawNeonText(t, pal);
+
+  // Audio sync
+  if (soundOn && frame % 60 === 0) scheduleAudio();
+
+  // HUD
+  if (hudOn) {
+    hud.innerHTML = `
+      FPS: ${fps} | FRAME: ${frame}<br>
+      PALETTE: ${pal.mode.toUpperCase()}<br>
+      SYSTEMS: ${world.active.join(' · ').toUpperCase()}<br>
+      ATTRACTOR: ${world.attractor.type.toUpperCase()}<br>
+      L-SYS LEN: ${world.lsys.str.length}<br>
+      PARTICLES: ${world.swarm.length}<br>
+      SPEED: ${world.speed.toFixed(2)}<br>
+      AUDIO: ${soundOn ? 'ON · BPM:' + world.audio.bpm : 'OFF'}<br>
+      MORPHISM NODES: ${world.morphism.nodes.length}
+    `;
+  }
+}
+
+// ─── WORLD INIT ──────────────────────────────────────────────────────────────
+function newWorld() {
+  // Stop old oscillators
+  oscillators.forEach(o => { try { o.stop(); } catch(e){} });
+  oscillators = []; scheduledNotes = [];
+  world = generateWorld();
+}
+
+// ─── INPUT ───────────────────────────────────────────────────────────────────
+window.addEventListener('keydown', e => {
+  if (e.shiftKey) return; // SHIFT: never
+  switch(e.code) {
+    case 'Space': e.preventDefault(); newWorld(); break;
+    case 'KeyH': hudOn = !hudOn; hud.classList.toggle('on', hudOn); break;
+    case 'KeyS':
+      soundOn = !soundOn;
+      if (soundOn) {
+        initAudio();
+        if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+      }
+      break;
+  }
+});
+
+canvas.addEventListener('click', newWorld);
+canvas.addEventListener('touchstart', e => { e.preventDefault(); newWorld(); }, { passive: false });
+
+// ─── BOOT ────────────────────────────────────────────────────────────────────
+newWorld();
+requestAnimationFrame(render);
+</script>
+</body>
+</html>

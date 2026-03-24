@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Truchet Tile Gear Cosmos – Generative Mechanical Universe</title>
+
+<meta name="description" content="Truchet Tile Gear Cosmos is a generative audiovisual mechanical universe where Truchet tile patterns form interconnected gear systems transmitting torque across a procedural tiling producing rotational resonance waves, neon energy pulses and synchronized mechanical sound synthesis.">
+<meta name="keywords" content="Truchet tiles, generative art, gear simulation, procedural animation, mechanical simulation, generative audiovisual art, kinetic art, HTML5 canvas generative art, gear machine animation, algorithmic art, procedural tiling">
+
+<style>
+html,body{
+margin:0;
+padding:0;
+background:black;
+overflow:hidden;
+font-family:monospace;
+}
+canvas{
+display:block;
+}
+#hud{
+position:fixed;
+top:10px;
+left:10px;
+color:#0ff;
+font-size:12px;
+pointer-events:none;
+}
+</style>
+</head>
+
+<body>
+<canvas id="c"></canvas>
+<div id="hud">TRUCHET TILE GEAR COSMOS<br>SPACE/CLICK: regenerate<br>S: sound toggle<br>H: HUD toggle</div>
+
+<script>
+
+const canvas=document.getElementById("c");
+const ctx=canvas.getContext("2d");
+
+let W,H;
+function resize(){
+W=canvas.width=window.innerWidth;
+H=canvas.height=window.innerHeight;
+}
+window.addEventListener("resize",resize);
+resize();
+
+let hud=document.getElementById("hud");
+let hudVisible=false;
+hud.style.display="none";
+
+let audioCtx=null;
+let soundEnabled=false;
+let masterGain;
+
+function initAudio(){
+if(audioCtx)return;
+
+audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+masterGain=audioCtx.createGain();
+masterGain.gain.value=0.2;
+masterGain.connect(audioCtx.destination);
+}
+
+class Gear{
+constructor(x,y,r,ratio){
+this.x=x;
+this.y=y;
+this.r=r;
+this.ratio=ratio;
+this.angle=Math.random()*Math.PI*2;
+this.vel=(Math.random()*0.02+0.01)*(Math.random()<0.5?-1:1);
+}
+
+update(torque){
+this.vel+=torque*0.0002;
+this.vel*=0.995;
+this.angle+=this.vel;
+}
+
+draw(palette){
+
+ctx.save();
+ctx.translate(this.x,this.y);
+ctx.rotate(this.angle);
+
+ctx.strokeStyle=palette[0];
+ctx.lineWidth=2;
+
+ctx.beginPath();
+ctx.arc(0,0,this.r,0,Math.PI*2);
+ctx.stroke();
+
+let teeth=10+Math.floor(this.r/4);
+
+for(let i=0;i<teeth;i++){
+let a=i*Math.PI*2/teeth;
+ctx.beginPath();
+ctx.moveTo(Math.cos(a)*this.r,Math.sin(a)*this.r);
+ctx.lineTo(Math.cos(a)*(this.r+4),Math.sin(a)*(this.r+4));
+ctx.stroke();
+}
+
+ctx.restore();
+
+}
+}
+
+let tiles=[];
+let gears=[];
+let gridSize=80;
+let palette=[];
+
+function randomPalette(){
+
+let base=Math.random()*360;
+palette=[];
+
+for(let i=0;i<5;i++){
+palette.push(`hsl(${(base+i*40)%360},100%,60%)`);
+}
+
+}
+
+function generate(){
+
+tiles=[];
+gears=[];
+randomPalette();
+
+let cols=Math.ceil(W/gridSize)+1;
+let rows=Math.ceil(H/gridSize)+1;
+
+for(let y=0;y<rows;y++){
+for(let x=0;x<cols;x++){
+
+let type=Math.random()<0.5?0:1;
+
+tiles.push({x,y,type});
+
+let cx=x*gridSize+gridSize/2;
+let cy=y*gridSize+gridSize/2;
+
+let r=gridSize*0.28*(0.6+Math.random()*0.6);
+let ratio=0.5+Math.random()*2;
+
+gears.push(new Gear(cx,cy,r,ratio));
+
+}
+}
+
+}
+
+generate();
+
+function drawTruchet(tile){
+
+let x=tile.x*gridSize;
+let y=tile.y*gridSize;
+
+ctx.lineWidth=3;
+ctx.strokeStyle=palette[1];
+
+ctx.beginPath();
+
+if(tile.type===0){
+ctx.arc(x,y,gridSize,0,Math.PI/2);
+ctx.arc(x+gridSize,y+gridSize,gridSize,Math.PI,Math.PI*1.5);
+}else{
+ctx.arc(x+gridSize,y,gridSize,Math.PI/2,Math.PI);
+ctx.arc(x,y+gridSize,gridSize,Math.PI*1.5,0);
+}
+
+ctx.stroke();
+
+}
+
+function torquePulse(g){
+
+let d=Math.abs(g.vel);
+
+ctx.beginPath();
+ctx.strokeStyle=palette[2];
+ctx.lineWidth=1;
+
+ctx.arc(g.x,g.y,g.r+8+d*200,0,Math.PI*2);
+ctx.stroke();
+
+}
+
+let oscillators=[];
+
+function updateAudio(){
+
+if(!soundEnabled)return;
+if(!audioCtx)return;
+
+while(oscillators.length<gears.length){
+
+let osc=audioCtx.createOscillator();
+let gain=audioCtx.createGain();
+
+osc.type="sine";
+gain.gain.value=0;
+
+osc.connect(gain);
+gain.connect(masterGain);
+
+osc.start();
+
+oscillators.push({osc,gain});
+
+}
+
+for(let i=0;i<gears.length;i++){
+
+let g=gears[i];
+let o=oscillators[i];
+
+let freq=80+Math.abs(g.vel)*2000;
+
+o.osc.frequency.value=freq;
+o.gain.gain.value=Math.min(0.05,Math.abs(g.vel)*0.1);
+
+}
+
+}
+
+function step(){
+
+ctx.fillStyle="rgba(0,0,0,0.2)";
+ctx.fillRect(0,0,W,H);
+
+tiles.forEach(drawTruchet);
+
+for(let i=0;i<gears.length;i++){
+
+let g=gears[i];
+
+let torque=0;
+
+if(i>0){
+torque+=gears[i-1].vel*g.ratio*10;
+}
+
+g.update(torque);
+
+g.draw(palette);
+
+torquePulse(g);
+
+}
+
+updateAudio();
+
+requestAnimationFrame(step);
+
+}
+
+step();
+
+window.addEventListener("keydown",e=>{
+
+if(e.code==="Space"){
+generate();
+}
+
+if(e.key==="h"||e.key==="H"){
+hudVisible=!hudVisible;
+hud.style.display=hudVisible?"block":"none";
+}
+
+if(e.key==="s"||e.key==="S"){
+
+soundEnabled=!soundEnabled;
+
+if(soundEnabled){
+initAudio();
+}
+
+}
+
+});
+
+window.addEventListener("click",generate);
+
+</script>
+</body>
+</html>
