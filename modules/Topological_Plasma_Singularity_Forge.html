@@ -1,0 +1,869 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Topological Plasma Singularity Forge</title>
+<meta name="description" content="WebGL2 ray-marched topological plasma singularity — Mandelbrot-Julia fractals, Voronoi-Delaunay tessellation, Clifford rotations, kaleidoscopic symmetry, FFT-wavelet spectral synthesis, granular FM sound">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#000;overflow:hidden}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+#hud{
+  display:none;position:fixed;top:12px;left:12px;
+  color:#0ff;font:11px/1.9 'Courier New',monospace;
+  background:rgba(0,8,18,.88);padding:10px 15px;
+  border:1px solid rgba(0,255,255,.28);border-radius:4px;
+  pointer-events:none;z-index:10;
+  text-shadow:0 0 8px rgba(0,255,255,.6);
+  letter-spacing:.04em;
+}
+#hud span{color:rgba(0,255,255,.55);font-size:10px}
+#keys{
+  position:fixed;bottom:12px;left:50%;transform:translateX(-50%);
+  color:rgba(255,255,255,.25);font:10px 'Courier New',monospace;
+  pointer-events:none;z-index:10;white-space:nowrap;letter-spacing:.08em;
+}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<div id="keys">SPACE / CLICK — randomize &nbsp;&nbsp;&nbsp; H — hud &nbsp;&nbsp;&nbsp; S — sound</div>
+<script>
+'use strict';
+
+/* ═══════════════════════════════════════════════════════════════
+   STATE
+═══════════════════════════════════════════════════════════════ */
+let showHud = false, soundOn = false;
+let resScale = 0.65, fpsSmooth = 60, frameCount = 0, lastT = 0;
+
+const P = {
+  s1:[0,0,0,0], s2:[0,0,0,0], s3:[0,0,0,0],
+  juliaC:[-.7,.27], blend:.5,
+  caRule:110, kSym:6, bifR:3.78, iso:0,
+  pal:new Float32Array(12)
+};
+
+const rnd = (a=0,b=1) => a+Math.random()*(b-a);
+const rndArr = n => Array.from({length:n},()=>rnd(-1,1));
+
+function hsl2rgb(h,s,l){
+  const q=l<.5?l*(1+s):l+s-l*s, p=2*l-q;
+  const f=t=>{t=(t%1+1)%1;return t<1/6?p+(q-p)*6*t:t<1/2?q:t<2/3?p+(q-p)*(2/3-t)*6:p};
+  return [f(h+1/3),f(h),f(h-1/3)];
+}
+
+function randomize(){
+  P.s1=rndArr(4); P.s2=rndArr(4); P.s3=rndArr(4);
+  P.juliaC=[rnd(-.9,.9),rnd(-.9,.9)];
+  P.blend=rnd(0,1);
+  P.caRule=Math.floor(rnd(0,256));
+  P.kSym=Math.floor(rnd(3,9));
+  P.bifR=rnd(3.45,3.98);
+  P.iso=rnd(-.12,.12);
+  const bh=rnd(0,1);
+  for(let i=0;i<4;i++){
+    const [r,g,b]=hsl2rgb((bh+i*rnd(.08,.28))%1, rnd(.55,1.), rnd(.28,.72));
+    P.pal.set([r,g,b],i*3);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   WEBGL2
+═══════════════════════════════════════════════════════════════ */
+const canvas=document.getElementById('c');
+const gl=canvas.getContext('webgl2',{antialias:false,powerPreference:'high-performance'});
+if(!gl){document.body.innerHTML='<p style="color:#f44;padding:30px;font:20px monospace">WebGL2 not supported.</p>';throw 0;}
+
+function mkShader(type,src){
+  const s=gl.createShader(type);
+  gl.shaderSource(s,src); gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){
+    console.error(gl.getShaderInfoLog(s));
+    console.error(src.split('\n').map((l,i)=>`${String(i+1).padStart(4)}: ${l}`).join('\n'));
+  }
+  return s;
+}
+function mkProg(vsrc,fsrc){
+  const p=gl.createProgram();
+  gl.attachShader(p,mkShader(gl.VERTEX_SHADER,vsrc));
+  gl.attachShader(p,mkShader(gl.FRAGMENT_SHADER,fsrc));
+  gl.linkProgram(p);
+  if(!gl.getProgramParameter(p,gl.LINK_STATUS)) console.error(gl.getProgramInfoLog(p));
+  return p;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   VERTEX SHADER (shared)
+═══════════════════════════════════════════════════════════════ */
+const VS=`#version 300 es
+layout(location=0) in vec2 a;
+out vec2 vUV;
+void main(){vUV=a*.5+.5;gl_Position=vec4(a,0,1);}`;
+
+/* ═══════════════════════════════════════════════════════════════
+   SCENE FRAGMENT SHADER
+═══════════════════════════════════════════════════════════════ */
+const FS_SCENE=`#version 300 es
+precision highp float;
+in vec2 vUV;
+out vec4 O;
+
+uniform vec2  uRes;
+uniform float uT;
+uniform vec4  uS1,uS2,uS3;
+uniform vec2  uJC;
+uniform float uBlend,uCaR,uKSym,uBifR,uIso;
+uniform vec3  uPal[4];
+
+#define PI   3.14159265358979
+#define TAU  6.28318530717959
+#define STEPS 56
+#define EPS   0.0018
+#define FAR   15.0
+
+// ── Rotation helpers ──────────────────────────────────────────
+mat2 R2(float a){float c=cos(a),s=sin(a);return mat2(c,-s,s,c);}
+
+// ── Hashing ───────────────────────────────────────────────────
+float h1(float p){p=fract(p*.1031);p*=p+33.33;return fract(p*(p+p));}
+float h3(vec3 p){p=fract(p*vec3(.1031,.103,.0973));p+=dot(p,p.yxz+33.33);return fract((p.x+p.y)*p.z);}
+vec2  h22(vec2 p){p=vec2(dot(p,vec2(127.1,311.7)),dot(p,vec2(269.5,183.3)));return fract(sin(p)*43758.5453);}
+vec3  h33(vec3 p){p=fract(p*vec3(.1031,.103,.0973));p+=dot(p,p.yxz+33.33);return fract((p.xxy+p.yxx)*p.zyx);}
+
+// ── 2D Voronoi-Delaunay fractures ─────────────────────────────
+vec2 voronoi(vec2 p){
+  vec2 i=floor(p),f=fract(p);
+  float d1=8.,d2=8.;
+  for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){
+    vec2 n=vec2(x,y);
+    vec2 r=n+h22(i+n)-f;
+    float d=dot(r,r);
+    if(d<d1){d2=d1;d1=d;}else if(d<d2)d2=d;
+  }
+  return vec2(sqrt(d1),sqrt(d2)-sqrt(d1));
+}
+
+// ── Cellular Automata rule field ──────────────────────────────
+float caField(vec3 p,float t){
+  float tr=floor(t*.7);
+  vec3 c=floor(p*2.2);
+  float sum=0.;
+  // Von Neumann neighborhood (5 cells)
+  sum+=step(.5,h3(c+vec3(1,0,0)+vec3(tr*.37,uCaR*.011,0)));
+  sum+=step(.5,h3(c+vec3(-1,0,0)+vec3(tr*.37,uCaR*.011,0)));
+  sum+=step(.5,h3(c+vec3(0,1,0)+vec3(tr*.37,uCaR*.011,0)));
+  sum+=step(.5,h3(c+vec3(0,-1,0)+vec3(tr*.37,uCaR*.011,0)));
+  float alive=step(.5,h3(c+vec3(tr*.37,uCaR*.011,0)));
+  // Rule-based state transition (outer totalistic)
+  float ruleIdx=fract(sum*uCaR/255.);
+  float next=step(.5,fract(uCaR*ruleIdx));
+  return mix(alive,next,.65)*2.-1.;
+}
+
+// ── Mandelbrot-Julia hybrid iteration ─────────────────────────
+float mj(vec2 c){
+  vec2 z=mix(c,vec2(0),uBlend);
+  vec2 k=mix(c,uJC,uBlend);
+  float i=0.;
+  for(int n=0;n<18;n++){
+    z=vec2(z.x*z.x-z.y*z.y,2.*z.x*z.y)+k;
+    if(dot(z,z)>4.){
+      i=float(n)+1.-log2(log2(dot(z,z)+.001));
+      break;
+    }
+    i=float(n);
+  }
+  return i/18.;
+}
+
+// ── Logistic map bifurcation chaos ────────────────────────────
+float logist(float x,float r){
+  for(int i=0;i<14;i++) x=r*x*(1.-x);
+  return x;
+}
+
+// ── IFS attractor fractal ─────────────────────────────────────
+float ifs(vec3 p,float t){
+  float sc=1.;
+  for(int i=0;i<4;i++){
+    p=abs(p)-.85;
+    p.xy*=R2(t*.025+uS2.x*float(i)*.8);
+    p.yz*=R2(t*.033+uS2.y*float(i)*.6);
+    p=p*1.38-vec3(.35);
+    sc*=1.38;
+  }
+  return length(p)/sc;
+}
+
+// ── Riemannian metric warping (Ricci-like curvature flow) ─────
+vec3 riemann(vec3 p,float t){
+  float r=length(p)+.001;
+  // Gaussian curvature approximation K(r)
+  float K=uS3.z*.45*exp(-r*r*.35);
+  vec3 n=p/r;
+  // Ricci flow deformation: conformal factor varies along manifold
+  float phi=sin(r*PI*(abs(uS3.w)+.5)+t*.09)*.2+sin(r*1.7+t*.06)*.12;
+  return p+n*K*phi;
+}
+
+// ── Kaleidoscope space folding ────────────────────────────────
+vec3 kaleido(vec3 p,float t){
+  float sym=floor(uKSym);
+  float ang=PI/sym;
+  // Rotating fold angle for flowing symmetry
+  float rot=t*.05*uS1.w;
+  // Fold in XY polar
+  float a=atan(p.y,p.x)+rot;
+  a=mod(a+PI,ang*2.)-ang;
+  float rxy=length(p.xy);
+  p.xy=rxy*vec2(cos(a-rot),sin(a-rot));
+  // Fold in XZ polar  
+  float b=atan(p.z,p.x);
+  b=mod(b+PI,ang*2.)-ang;
+  float rxz=length(p.xz);
+  p.xz=rxz*vec2(cos(b),sin(b));
+  return p;
+}
+
+// ── Clifford algebra bivector rotation (4D→3D projection) ────
+vec3 clifford(vec3 p,float t){
+  // Rotate in 3 independent planes simultaneously
+  float a=t*uS1.x*.22, b=t*uS1.y*.17, c_=t*uS1.z*.13;
+  p.xy*=R2(a);  p.yz*=R2(b);  p.xz*=R2(c_);
+  // Golden-ratio coupled second rotation (Clifford parallel transport)
+  p.xy*=R2(-b*.618);
+  p.yz*=R2(c_*.382);
+  p.xz*=R2(-a*.236);
+  return p;
+}
+
+// ── Coupled harmonic oscillator tensor field ──────────────────
+vec3 harmOsc(vec3 p,float t){
+  vec3 w=abs(uS2.xyz)*1.8+.4;
+  float k=uS2.w*.35;
+  // Tensor coupling: each axis driven by neighbours
+  float dx=sin(w.x*t+k*cos(w.y*t)+k*.5*sin(w.z*t));
+  float dy=sin(w.y*t+k*cos(w.z*t)+k*.5*sin(w.x*t));
+  float dz=cos(w.z*t+k*sin(w.x*t)+k*.5*cos(w.y*t));
+  return p+vec3(dx,dy,dz)*.11;
+}
+
+// ── Gyroid-Schwartz implicit surface ─────────────────────────
+float gyroid(vec3 p,float t){
+  vec3 q=p+t*.04;
+  return dot(sin(q),cos(q.yzx))*.65;
+}
+
+// ═══════════════════════════════════════════════════════════
+// MAIN SDF — Topological Plasma Singularity
+// ═══════════════════════════════════════════════════════════
+float SDF(vec3 p){
+  float t=uT;
+  
+  // 1. Riemannian manifold warping
+  p=riemann(p,t);
+  
+  // 2. Kaleidoscopic reflection folding
+  p=kaleido(p,t);
+  
+  // 3. Clifford / quaternion rotation
+  p=clifford(p,t);
+  
+  // 4. Harmonic oscillator tensor coupling
+  p=harmOsc(p,t);
+  
+  // 5. Mandelbrot-Julia hybrid displacement
+  vec2 proj=p.xy*.38+vec2(cos(t*.073),sin(t*.109))*.22;
+  float fracD=mj(proj);
+  float amp=.38*(1.+.28*sin(t*.11+uS3.x));
+  
+  // 6. IFS fractal implicit surface
+  float ifsDist=ifs(p,t);
+  
+  // 7. Logistic bifurcation shape morphing
+  float bif1=logist(fract(t*.0091+.31),uBifR);
+  float bif2=logist(fract(t*.0137+.67),uBifR);
+  float bif3=logist(fract(t*.0173+.19),uBifR);
+  
+  // 8. Base topology: sphere ↔ torus ↔ gyroid
+  float sphere=length(p)-1.65;
+  float torus=length(vec2(length(p.xz)-1.05,p.y))-.36;
+  float gyr=gyroid(p*1.1,t);
+  
+  float base=mix(sphere,torus,bif1);
+  base=mix(base,gyr*.7,bif2*.4);
+  base=mix(base,ifsDist*1.15,bif3*.25);
+  
+  // 9. Fractal sinusoidal displacement (Mandelbrot-Julia driven)
+  base+=sin(fracD*PI*6.+t*.08+uS3.y)*amp;
+  base+=sin(fracD*PI*11.+t*.13)*amp*.25;
+  
+  // 10. Voronoi-Delaunay fracture network
+  vec2 voro=voronoi(p.xy*1.25+vec2(t*.035,t*.028));
+  vec2 voro2=voronoi(p.yz*1.1+vec2(t*.027,t*.041));
+  // Edge fractures create topology cuts
+  float fracture=min(voro.y,voro2.y);
+  base-=smoothstep(.18,.0,fracture)*.22;
+  
+  // 11. Cellular automata morphogen field
+  float ca=caField(p,t);
+  base+=ca*.055;
+  
+  // 12. Level-set morphogenesis (iso-value evolution)
+  float iso=sin(t*.13*abs(uS3.x)+.8)*0.17
+           +sin(t*.21*(abs(uS3.y)+.1)+2.1)*.09
+           +uIso;
+  base-=iso;
+  
+  return base;
+}
+
+// ── Tetrahedron normal estimation ─────────────────────────────
+vec3 N(vec3 p){
+  const vec2 e=vec2(.0025,-.0025);
+  return normalize(e.xyy*SDF(p+e.xyy)+e.yyx*SDF(p+e.yyx)
+                  +e.yxy*SDF(p+e.yxy)+e.xxx*SDF(p+e.xxx));
+}
+
+// ── Approximate ambient occlusion ─────────────────────────────
+float ao(vec3 p,vec3 n){
+  float o=0.,w=1.;
+  for(int i=1;i<=4;i++){
+    float h=.022*float(i);
+    o+=(h-SDF(p+n*h))/h*w;
+    w*=.5;
+  }
+  return clamp(1.-o*.42,0.,1.);
+}
+
+// ── FFT-wavelet hybrid spectral color ─────────────────────────
+// Simulates FFT decomposition via dyadic octave sinusoids,
+// Gaussian-smoothed palette interpolation
+vec3 specColor(float ph,float t){
+  // 4 dyadic octave frequency bands (wavelet decomposition)
+  const float W[4]=float[4](.48,.26,.15,.11);
+  vec3 col=vec3(0.);
+  for(int i=0;i<4;i++){
+    float f=pow(2.,float(i));
+    // Band-limited oscillation per octave
+    float s=sin(f*(ph*TAU+t*.065*f))*.5+.5;
+    // Gaussian-smoothed palette lookup (simulates Gaussian convolution)
+    float idx=s*3.;
+    int i0=clamp(int(idx),0,3);
+    int i1=min(i0+1,3);
+    float fr=fract(idx);
+    // Smoothstep approximates Gaussian kernel falloff
+    fr=fr*fr*(3.-2.*fr);
+    col+=mix(uPal[i0],uPal[i1],fr)*W[i];
+  }
+  return col;
+}
+
+// ── Main ──────────────────────────────────────────────────────
+void main(){
+  vec2 uv=(gl_FragCoord.xy*2.-uRes)/uRes.y;
+  
+  // Orbiting camera with breathing motion
+  float camR=4.3+sin(uT*.067)*.75;
+  float yaw=uT*.038*(uS1.w*.7+.3)+uS1.x*.5;
+  float pit=sin(uT*.029)*.32+uS1.y*.1;
+  
+  vec3 ro=vec3(sin(yaw)*cos(pit),sin(pit),cos(yaw)*cos(pit))*camR;
+  vec3 ta=vec3(0.);
+  vec3 fwd=normalize(ta-ro);
+  vec3 rgt=normalize(cross(vec3(0,1,0),fwd));
+  vec3 up=cross(fwd,rgt);
+  
+  // Ray direction with slight barrel distortion for plasma lens
+  float lensK=.04;
+  vec2 uvd=uv*(1.+lensK*dot(uv,uv));
+  vec3 rd=normalize(fwd+uvd.x*rgt*.82+uvd.y*up*.82);
+  
+  // ── Ray march ─────────────────────────────────────────────
+  float t=.06, tHit=FAR;
+  float minD=1e5;
+  int hitStep=0;
+  for(int i=0;i<STEPS;i++){
+    vec3 pos=ro+rd*t;
+    float d=SDF(pos);
+    float ad=abs(d);
+    minD=min(minD,ad);
+    if(ad<EPS){tHit=t;hitStep=i;break;}
+    if(t>FAR) break;
+    t+=max(d*.62,.0008);
+  }
+  
+  vec3 col;
+  
+  if(tHit<FAR){
+    vec3 p=ro+rd*tHit;
+    vec3 nor=N(p);
+    vec3 vd=normalize(ro-p);
+    
+    // ── Three dynamic plasma light sources ────────────────────
+    float lt=uT*.18;
+    vec3 L0=normalize(vec3(sin(lt)*2.2,1.8,cos(lt)*2.2));
+    vec3 L1=normalize(vec3(-1.8,sin(lt*.6)-.8,cos(lt*.8)*1.5));
+    vec3 L2=normalize(vec3(sin(lt*.4)*1.3,-.6,cos(lt*.35)*2.));
+    
+    float d0=max(dot(nor,L0),0.);
+    float d1=max(dot(nor,L1),0.)*.55;
+    float d2=max(dot(nor,L2),0.)*.35;
+    float diff=d0+d1+d2;
+    
+    // Blinn-Phong specular
+    vec3 H=normalize(L0+vd);
+    float spec=pow(max(dot(nor,H),0.),44.)*1.4;
+    
+    // Fresnel rim emission (plasma edge glow)
+    float fres=pow(1.-max(dot(nor,vd),0.),4.2);
+    
+    // Ambient occlusion
+    float occ=ao(p,nor);
+    
+    // ── Spectral color synthesis ───────────────────────────────
+    // Phase derived from: surface position + MJ iteration + distance
+    float mjV=mj(p.xy*.32+vec2(sin(uT*.053),cos(uT*.041))*.18);
+    float phase=dot(p,vec3(.27,.44,.18))+mjV*1.8+length(p)*.14;
+    
+    col=specColor(phase,uT);
+    
+    // Voronoi fracture edge coloring (dark crack lines)
+    vec2 voro=voronoi(p.xy*1.25);
+    float crackMask=smoothstep(.0,.1,voro.y);
+    vec3 crackCol=specColor(phase+.4,uT)*.1;
+    col=mix(crackCol,col,crackMask);
+    
+    // Logistic chaos color distortion
+    float bifCol=logist(fract(length(p.xy)*.3+uT*.007),uBifR);
+    col=mix(col,specColor(bifCol,uT*.5),.22);
+    
+    // ── Lighting composite ────────────────────────────────────
+    col=col*(0.035+diff*occ)+vec3(1.,.92,.82)*spec+col*fres*.75;
+    
+    // Proximity plasma glow (near-miss glow from SDF)
+    float nearGlow=exp(-minD*10.)*0.7;
+    col+=specColor(phase+.55,uT)*nearGlow;
+    
+    // Iteration-count iridescence (step-count shimmer)
+    float iterT=float(hitStep)/float(STEPS);
+    col+=specColor(iterT+uT*.007,uT*.4)*iterT*.22;
+    
+    // CA field luminescent pulse
+    float caPulse=caField(p,uT)*.5+.5;
+    col+=specColor(caPulse*.3+phase*.1,uT)*caPulse*.08;
+    
+  } else {
+    // ── Background: deep space plasma nebula ──────────────────
+    float bgPh=dot(rd,vec3(1.,.7,.5))*.35+uT*.013;
+    col=specColor(bgPh,uT)*.022;
+    
+    // Volumetric near-miss glow (backlit plasma cloud)
+    float glow=exp(-minD*6.)*0.55;
+    col+=specColor(bgPh+.42,uT)*glow;
+    
+    // Distant star field (tiny flickers)
+    float star=h3(floor(rd*180.));
+    if(star>.975) col+=vec3(star-.975)*40.*step(.5,h1(star+uT*.001));
+  }
+  
+  // ── Tone mapping + gamma ───────────────────────────────────
+  col=col/(1.+col); // Reinhard
+  col=pow(max(col,vec3(0.)),vec3(1./2.2));
+  
+  // Vignette
+  float vig=1.-smoothstep(.5,1.3,length(vUV-.5)*2.1);
+  col*=vig;
+  
+  // Subtle scanline flicker (plasma instability)
+  float scan=sin(vUV.y*uRes.y*PI+uT*.5)*.015+.985;
+  col*=scan;
+  
+  O=vec4(col,1.);
+}`;
+
+/* ═══════════════════════════════════════════════════════════════
+   BLOOM PASS — Gaussian blur (9-tap separable)
+═══════════════════════════════════════════════════════════════ */
+const FS_BLUR=`#version 300 es
+precision mediump float;
+in vec2 vUV; out vec4 O;
+uniform sampler2D uTex;
+uniform vec2 uDir;
+
+const float W[5]=float[5](.2270270,.1945946,.1216216,.0540541,.0162162);
+
+void main(){
+  vec2 px=uDir/vec2(textureSize(uTex,0));
+  vec3 c=texture(uTex,vUV).rgb*W[0];
+  for(int i=1;i<5;i++){
+    c+=texture(uTex,vUV+px*float(i)).rgb*W[i];
+    c+=texture(uTex,vUV-px*float(i)).rgb*W[i];
+  }
+  O=vec4(c,1.);
+}`;
+
+/* ═══════════════════════════════════════════════════════════════
+   COMPOSITE PASS — Additive bloom + chromatic aberration
+═══════════════════════════════════════════════════════════════ */
+const FS_COMP=`#version 300 es
+precision mediump float;
+in vec2 vUV; out vec4 O;
+uniform sampler2D uScene,uBloom;
+uniform float uBStr;
+
+void main(){
+  vec3 s=texture(uScene,vUV).rgb;
+  vec3 b=texture(uBloom,vUV).rgb;
+  
+  // Chromatic aberration on bloom edges
+  float edge=length(b);
+  vec2 ab=normalize(vUV-.5)*.004*edge;
+  float br=texture(uBloom,vUV+ab).r;
+  float bb=texture(uBloom,vUV-ab).b;
+  b.r=mix(b.r,br,.7); b.b=mix(b.b,bb,.7);
+  
+  // Additive bloom composite
+  vec3 col=s+b*uBStr;
+  
+  // Film grain (subtle)
+  float g=fract(sin(dot(vUV,vec2(12.9898,78.233))+fract(uBStr*.001))*43758.5)*0.025-0.0125;
+  col=clamp(col+g,0.,1.);
+  
+  O=vec4(col,1.);
+}`;
+
+/* ═══════════════════════════════════════════════════════════════
+   COMPILE PROGRAMS
+═══════════════════════════════════════════════════════════════ */
+const pScene=mkProg(VS,FS_SCENE);
+const pBlur =mkProg(VS,FS_BLUR);
+const pComp =mkProg(VS,FS_COMP);
+
+/* ═══════════════════════════════════════════════════════════════
+   GEOMETRY — Fullscreen triangle (single draw call)
+═══════════════════════════════════════════════════════════════ */
+const vbo=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,vbo);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
+
+function mkVAO(prog){
+  const vao=gl.createVertexArray();
+  gl.bindVertexArray(vao);
+  gl.bindBuffer(gl.ARRAY_BUFFER,vbo);
+  gl.enableVertexAttribArray(0);
+  gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
+  gl.bindVertexArray(null);
+  return vao;
+}
+const vaoScene=mkVAO(pScene);
+const vaoBlur =mkVAO(pBlur);
+const vaoComp =mkVAO(pComp);
+
+/* ═══════════════════════════════════════════════════════════════
+   FRAMEBUFFERS
+═══════════════════════════════════════════════════════════════ */
+let fbos=[];
+
+function mkFBO(w,h){
+  const fb=gl.createFramebuffer();
+  const tx=gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D,tx);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA8,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,fb);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,tx,0);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+  return {fb,tx,w,h};
+}
+
+function buildFBOs(){
+  fbos.forEach(f=>{gl.deleteFramebuffer(f.fb);gl.deleteTexture(f.tx);});
+  const W=canvas.width, H=canvas.height;
+  const sw=Math.floor(W*resScale)|0, sh=Math.floor(H*resScale)|0;
+  const bw=Math.max(Math.floor(W*.5)|0,4), bh=Math.max(Math.floor(H*.5)|0,4);
+  fbos=[mkFBO(sw,sh),mkFBO(bw,bh),mkFBO(bw,bh)];
+}
+
+function resize(){
+  canvas.width=window.innerWidth;
+  canvas.height=window.innerHeight;
+  buildFBOs();
+}
+window.addEventListener('resize',resize);
+resize();
+
+/* ═══════════════════════════════════════════════════════════════
+   UNIFORM LOCATIONS
+═══════════════════════════════════════════════════════════════ */
+function locs(prog,...names){
+  const o={};
+  names.forEach(n=>o[n]=gl.getUniformLocation(prog,n));
+  return o;
+}
+
+const sU=locs(pScene,'uRes','uT','uS1','uS2','uS3','uJC','uBlend','uCaR','uKSym','uBifR','uIso','uPal');
+const bU=locs(pBlur,'uTex','uDir');
+const cU=locs(pComp,'uScene','uBloom','uBStr');
+
+/* ═══════════════════════════════════════════════════════════════
+   RENDER
+═══════════════════════════════════════════════════════════════ */
+function render(timeSec){
+  const q=P;
+
+  // ── PASS 1: Scene ──────────────────────────────────────────
+  const sc=fbos[0];
+  gl.bindFramebuffer(gl.FRAMEBUFFER,sc.fb);
+  gl.viewport(0,0,sc.w,sc.h);
+  gl.useProgram(pScene);
+  gl.bindVertexArray(vaoScene);
+
+  gl.uniform2f(sU.uRes,sc.w,sc.h);
+  gl.uniform1f(sU.uT,timeSec);
+  gl.uniform4fv(sU.uS1,q.s1);
+  gl.uniform4fv(sU.uS2,q.s2);
+  gl.uniform4fv(sU.uS3,q.s3);
+  gl.uniform2fv(sU.uJC,q.juliaC);
+  gl.uniform1f(sU.uBlend,q.blend);
+  gl.uniform1f(sU.uCaR,q.caRule);
+  gl.uniform1f(sU.uKSym,q.kSym);
+  gl.uniform1f(sU.uBifR,q.bifR);
+  gl.uniform1f(sU.uIso,q.iso);
+  gl.uniform3fv(sU.uPal,q.pal);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+
+  // ── PASS 2: Horizontal Gaussian bloom blur ─────────────────
+  const b1=fbos[1];
+  gl.bindFramebuffer(gl.FRAMEBUFFER,b1.fb);
+  gl.viewport(0,0,b1.w,b1.h);
+  gl.useProgram(pBlur);
+  gl.bindVertexArray(vaoBlur);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D,sc.tx);
+  gl.uniform1i(bU.uTex,0);
+  gl.uniform2f(bU.uDir,1,0);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+
+  // ── PASS 3: Vertical Gaussian bloom blur ───────────────────
+  const b2=fbos[2];
+  gl.bindFramebuffer(gl.FRAMEBUFFER,b2.fb);
+  gl.viewport(0,0,b2.w,b2.h);
+  gl.bindTexture(gl.TEXTURE_2D,b1.tx);
+  gl.uniform2f(bU.uDir,0,1);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+
+  // ── PASS 4: Composite to screen ───────────────────────────
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+  gl.viewport(0,0,canvas.width,canvas.height);
+  gl.useProgram(pComp);
+  gl.bindVertexArray(vaoComp);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D,sc.tx);
+  gl.activeTexture(gl.TEXTURE1);
+  gl.bindTexture(gl.TEXTURE_2D,b2.tx);
+  gl.uniform1i(cU.uScene,0);
+  gl.uniform1i(cU.uBloom,1);
+  gl.uniform1f(cU.uBStr,.48);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   ANIMATION LOOP — adaptive resolution
+═══════════════════════════════════════════════════════════════ */
+let startT=null;
+function loop(now){
+  requestAnimationFrame(loop);
+  if(!startT) startT=now;
+  const dt=now-lastT; lastT=now;
+  if(dt>0) fpsSmooth=fpsSmooth*.93+(1000/dt)*.07;
+  frameCount++;
+
+  // Adaptive resolution (check every 90 frames)
+  if(frameCount%90===0){
+    if(fpsSmooth<36 && resScale>.42){resScale=Math.max(.42,resScale-.1);buildFBOs();}
+    else if(fpsSmooth>58 && resScale<1.){resScale=Math.min(1.,resScale+.06);buildFBOs();}
+  }
+
+  render((now-startT)*.001);
+  hudUpdate();
+  soundUpdate((now-startT)*.001);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   HUD
+═══════════════════════════════════════════════════════════════ */
+const hudEl=document.getElementById('hud');
+function hudUpdate(){
+  if(!showHud) return;
+  const jc=P.juliaC;
+  hudEl.innerHTML=
+    `<span>FPS</span> ${fpsSmooth.toFixed(1)} &nbsp;<span>SCALE</span> ${(resScale*100).toFixed(0)}%<br>`+
+    `<span>JULIA C</span> ${jc[0].toFixed(4)} + ${jc[1].toFixed(4)}i<br>`+
+    `<span>MJ BLEND</span> ${P.blend.toFixed(3)}<br>`+
+    `<span>CA RULE</span> ${P.caRule}<br>`+
+    `<span>KALEIDO</span> ${P.kSym}-fold<br>`+
+    `<span>BIFUR r</span> ${P.bifR.toFixed(5)}<br>`+
+    `<span>ISO OFF</span> ${P.iso.toFixed(4)}<br>`+
+    `<span>SOUND</span> ${soundOn?'<span style="color:#0f0">ON</span>':'OFF'}`;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SOUND — Granular/FM synthesis driven by spectral centroid
+═══════════════════════════════════════════════════════════════ */
+let actx=null, sndNodes={};
+
+function initSound(){
+  if(actx) return;
+  actx=new(window.AudioContext||window.webkitAudioContext)();
+
+  const master=actx.createGain(); master.gain.value=0.;
+  // Smooth fade in
+  master.gain.linearRampToValueAtTime(.09,actx.currentTime+.5);
+
+  // Convolution reverb (simple exponential decay IR)
+  const rev=actx.createConvolver();
+  const irL=Math.floor(actx.sampleRate*2.5);
+  const irB=actx.createBuffer(2,irL,actx.sampleRate);
+  for(let ch=0;ch<2;ch++){
+    const d=irB.getChannelData(ch);
+    for(let i=0;i<irL;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/irL,2.8);
+  }
+  rev.buffer=irB;
+
+  const revGain=actx.createGain(); revGain.gain.value=.28;
+  const dryGain=actx.createGain(); dryGain.gain.value=.72;
+  const comp=actx.createDynamicsCompressor();
+  comp.threshold.value=-18; comp.ratio.value=4;
+  comp.connect(actx.destination);
+  dryGain.connect(comp); rev.connect(revGain); revGain.connect(comp);
+  master.connect(dryGain); master.connect(rev);
+
+  // FM Voice 1 — main plasma tone
+  const car1=actx.createOscillator(); car1.type='sine'; car1.frequency.value=110;
+  const mod1=actx.createOscillator(); mod1.type='sine'; mod1.frequency.value=220;
+  const mg1=actx.createGain(); mg1.gain.value=90;
+  mod1.connect(mg1); mg1.connect(car1.frequency);
+  const cg1=actx.createGain(); cg1.gain.value=.6;
+  car1.connect(cg1); cg1.connect(master);
+
+  // FM Voice 2 — subharmonic bass
+  const car2=actx.createOscillator(); car2.type='sine'; car2.frequency.value=55;
+  const mod2=actx.createOscillator(); mod2.type='triangle'; mod2.frequency.value=110;
+  const mg2=actx.createGain(); mg2.gain.value=45;
+  mod2.connect(mg2); mg2.connect(car2.frequency);
+  const cg2=actx.createGain(); cg2.gain.value=.35;
+  car2.connect(cg2); cg2.connect(master);
+
+  // FM Voice 3 — high shimmer
+  const car3=actx.createOscillator(); car3.type='sine'; car3.frequency.value=440;
+  const mod3=actx.createOscillator(); mod3.type='sine'; mod3.frequency.value=880;
+  const mg3=actx.createGain(); mg3.gain.value=180;
+  mod3.connect(mg3); mg3.connect(car3.frequency);
+  const cg3=actx.createGain(); cg3.gain.value=.18;
+  car3.connect(cg3); cg3.connect(master);
+
+  // Granular noise texture — bandpass filtered white noise
+  const bufLen=actx.sampleRate*3;
+  const nBuf=actx.createBuffer(1,bufLen,actx.sampleRate);
+  const nd=nBuf.getChannelData(0);
+  // Brownian noise (more organic than white)
+  let v=0;
+  for(let i=0;i<bufLen;i++){v+=(Math.random()*2-1)*.1;v*=.98;nd[i]=v;}
+  const nSrc=actx.createBufferSource();
+  nSrc.buffer=nBuf; nSrc.loop=true;
+
+  const bp1=actx.createBiquadFilter(); bp1.type='bandpass'; bp1.frequency.value=600; bp1.Q.value=4;
+  const bp2=actx.createBiquadFilter(); bp2.type='bandpass'; bp2.frequency.value=1200; bp2.Q.value=6;
+  const ng1=actx.createGain(); ng1.gain.value=.15;
+  const ng2=actx.createGain(); ng2.gain.value=.08;
+  nSrc.connect(bp1); bp1.connect(ng1); ng1.connect(master);
+  nSrc.connect(bp2); bp2.connect(ng2); ng2.connect(master);
+
+  // LFO — modulates filter freq for granular sweep
+  const lfo=actx.createOscillator(); lfo.type='sine'; lfo.frequency.value=.15;
+  const lfog=actx.createGain(); lfog.gain.value=350;
+  lfo.connect(lfog); lfog.connect(bp1.frequency); lfog.connect(bp2.frequency);
+
+  // LFO2 — AM tremolo on shimmer
+  const lfo2=actx.createOscillator(); lfo2.type='sine'; lfo2.frequency.value=.08;
+  const lfog2=actx.createGain(); lfog2.gain.value=.08;
+  lfo2.connect(lfog2); lfog2.connect(cg3.gain);
+
+  [car1,mod1,car2,mod2,car3,mod3,nSrc,lfo,lfo2].forEach(n=>n.start());
+
+  sndNodes={car1,mod1,mg1,car2,mod2,mg2,car3,mod3,mg3,bp1,bp2,lfo,lfo2,lfog,cg3};
+}
+
+function soundUpdate(t){
+  if(!soundOn||!actx) return;
+  const ct=actx.currentTime;
+  const tau=.6; // smoothing time constant
+
+  // Spectral centroid: computed from Julia constant + bifurcation + time
+  const julMag=Math.sqrt(P.juliaC[0]**2+P.juliaC[1]**2);
+  const bif=P.bifR;
+  // Simulate spectral centroid evolution via logistic chaos
+  let lx=Math.abs(Math.sin(t*.17+julMag));
+  for(let i=0;i<12;i++) lx=bif*lx*(1-lx);
+  const centroid=55+lx*380+julMag*120;
+
+  // Harmonic series intervals
+  sndNodes.car1.frequency.setTargetAtTime(centroid,ct,tau);
+  sndNodes.mod1.frequency.setTargetAtTime(centroid*(1.5+P.blend*.5),ct,tau);
+  sndNodes.mg1.gain.setTargetAtTime(centroid*.9,ct,tau);
+
+  sndNodes.car2.frequency.setTargetAtTime(centroid*.5,ct,tau*1.5);
+  sndNodes.mod2.frequency.setTargetAtTime(centroid,ct,tau*1.5);
+
+  sndNodes.car3.frequency.setTargetAtTime(centroid*4+Math.sin(t*.13)*centroid,ct,tau*.5);
+  sndNodes.mg3.gain.setTargetAtTime(centroid*1.4,ct,tau*.5);
+
+  // LFO rate tied to bifurcation chaos
+  sndNodes.lfo.frequency.setTargetAtTime(.05+bif*.12,ct,tau*2);
+  sndNodes.lfo2.frequency.setTargetAtTime(.03+lx*.2,ct,tau);
+  sndNodes.lfog.gain.setTargetAtTime(200+centroid*.6,ct,tau);
+
+  // Filter sweep
+  sndNodes.bp1.frequency.setTargetAtTime(centroid*2.5,ct,tau);
+  sndNodes.bp2.frequency.setTargetAtTime(centroid*6,ct,tau*.7);
+}
+
+function toggleSound(){
+  soundOn=!soundOn;
+  if(soundOn){
+    if(!actx) initSound();
+    else actx.resume();
+  } else {
+    if(actx) actx.suspend();
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   EVENTS
+═══════════════════════════════════════════════════════════════ */
+window.addEventListener('keydown',e=>{
+  if(e.code==='Space'){e.preventDefault();randomize();}
+  if(e.key.toLowerCase()==='h'){
+    showHud=!showHud;
+    hudEl.style.display=showHud?'block':'none';
+  }
+  if(e.key.toLowerCase()==='s') toggleSound();
+});
+canvas.addEventListener('click',()=>randomize());
+canvas.addEventListener('touchend',e=>{e.preventDefault();randomize();},{passive:false});
+
+/* ═══════════════════════════════════════════════════════════════
+   LAUNCH
+═══════════════════════════════════════════════════════════════ */
+randomize();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

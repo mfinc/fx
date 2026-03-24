@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Rotating Spectral Cellular Automaton Vortex</title>
+<meta name="description" content="High performance WebGL rotating cellular automata vortex visualization with full-screen generative color cycling, randomized parameters, and interactive regeneration via spacebar or click.">
+<meta name="keywords" content="WebGL generative art, cellular automata visualization, rotating vortex animation, GLSL shader art, interactive procedural graphics, color cycling fractal, HTML5 canvas animation">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+html,body{
+margin:0;
+padding:0;
+background:#000;
+overflow:hidden;
+}
+canvas{
+position:absolute;
+top:0;
+left:0;
+background:#000;
+}
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+
+<script>
+const view=document.getElementById("view");
+const vctx=view.getContext("2d",{alpha:false});
+
+let W,H,diag;
+let buffer=document.createElement("canvas");
+let bctx=buffer.getContext("2d",{alpha:false});
+
+let ca={},noise,phase=0,rotation=0;
+
+/* ---------- Resize ---------- */
+function resize(){
+W=view.width=innerWidth;
+H=view.height=innerHeight;
+
+diag=Math.ceil(Math.sqrt(W*W+H*H));
+buffer.width=diag;
+buffer.height=diag;
+
+initCA();
+}
+window.addEventListener("resize",resize);
+
+/* ---------- RNG ---------- */
+function mulberry32(a){
+return function(){
+let t=a+=0x6D2B79F5;
+t=Math.imul(t^t>>>15,t|1);
+t^=t+Math.imul(t^t>>>7,t|61);
+return((t^t>>>14)>>>0)/4294967296;
+}
+}
+
+/* ---------- Noise ---------- */
+function Noise(seed){
+this.p=new Uint8Array(512);
+for(let i=0;i<256;i++)this.p[i]=i;
+let r=mulberry32(seed);
+for(let i=255;i>0;i--){
+let j=Math.floor(r()*256);
+[this.p[i],this.p[j]]=[this.p[j],this.p[i]];
+}
+for(let i=0;i<256;i++)this.p[i+256]=this.p[i];
+}
+Noise.prototype.fade=t=>t*t*t*(t*(t*6-15)+10);
+Noise.prototype.lerp=(a,b,t)=>a+(b-a)*t;
+Noise.prototype.grad=function(h,x,y){
+let u=h&1?x:-x;
+let v=h&2?y:-y;
+return u+v;
+};
+Noise.prototype.noise=function(x,y){
+let X=Math.floor(x)&255,Y=Math.floor(y)&255;
+x-=Math.floor(x);y-=Math.floor(y);
+let u=this.fade(x),v=this.fade(y);
+let A=this.p[X]+Y,B=this.p[X+1]+Y;
+return this.lerp(
+this.lerp(this.grad(this.p[A],x,y),this.grad(this.p[B],x-1,y),u),
+this.lerp(this.grad(this.p[A+1],x,y-1),this.grad(this.p[B+1],x-1,y-1),u),
+v);
+};
+
+/* ---------- Randomize Everything ---------- */
+function randomize(){
+noise=new Noise(Math.random()*1e9);
+phase=0;
+rotation=0;
+initCA();
+}
+
+/* ---------- Cellular Automaton ---------- */
+function initCA(){
+ca.size=4;
+ca.cols=Math.floor(diag/ca.size);
+ca.rows=Math.floor(diag/ca.size);
+ca.grid=new Uint8Array(ca.cols*ca.rows);
+ca.age=new Uint16Array(ca.cols*ca.rows);
+
+for(let i=0;i<ca.grid.length;i++)
+if(Math.random()<0.25)ca.grid[i]=1;
+}
+
+function stepCA(){
+let newGrid=new Uint8Array(ca.grid.length);
+
+for(let y=0;y<ca.rows;y++)
+for(let x=0;x<ca.cols;x++){
+let i=y*ca.cols+x,n=0;
+for(let dy=-1;dy<=1;dy++)
+for(let dx=-1;dx<=1;dx++){
+if(dx||dy){
+let xx=(x+dx+ca.cols)%ca.cols;
+let yy=(y+dy+ca.rows)%ca.rows;
+n+=ca.grid[yy*ca.cols+xx];
+}}
+if(ca.grid[i]){
+if(n===2||n===3){newGrid[i]=1;ca.age[i]++;}
+}else{
+if(n===3){newGrid[i]=1;ca.age[i]=1;}
+}
+}
+ca.grid=newGrid;
+}
+
+function drawCA(){
+for(let y=0;y<ca.rows;y++)
+for(let x=0;x<ca.cols;x++){
+let i=y*ca.cols+x;
+if(ca.grid[i]){
+let t=1/(1+Math.exp(-0.1*ca.age[i]));
+let hue=(phase*360+t*180)%360;
+bctx.fillStyle=`hsl(${hue},100%,50%)`;
+bctx.fillRect(x*ca.size,y*ca.size,ca.size,ca.size);
+}
+}
+}
+
+/* ---------- Controls ---------- */
+window.addEventListener("keydown",e=>{
+if(e.code==="Space") randomize();
+});
+view.addEventListener("click",randomize);
+
+/* ---------- Main Loop ---------- */
+let last=performance.now();
+function loop(t){
+requestAnimationFrame(loop);
+let dt=t-last; last=t;
+
+phase+=0.003+noise.noise(t*0.0003,0)*0.002;
+rotation+=0.01;
+
+/* Fade buffer */
+bctx.save();
+bctx.globalCompositeOperation="destination-out";
+bctx.fillStyle="rgba(0,0,0,0.08)";
+bctx.fillRect(0,0,diag,diag);
+bctx.restore();
+
+stepCA();
+drawCA();
+
+/* Clear screen */
+vctx.fillStyle="#000";
+vctx.fillRect(0,0,W,H);
+
+/* Rotate large buffer into view */
+vctx.save();
+vctx.translate(W/2,H/2);
+vctx.rotate(rotation);
+vctx.drawImage(buffer,-diag/2,-diag/2);
+vctx.restore();
+}
+
+resize();
+randomize();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

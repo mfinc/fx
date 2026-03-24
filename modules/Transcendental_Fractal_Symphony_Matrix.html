@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="description" content="Transcendental Fractal Symphony Matrix — an endlessly evolving kaleidoscopic spectral gradient engine combining Mandelbrot/Julia sets, strange attractors, cellular automata, reaction-diffusion PDEs, and Coxeter reflection symmetry groups.">
+<title>Transcendental Fractal Symphony Matrix</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Courier New',monospace}
+  canvas{display:block;width:100vw;height:100vh}
+  #hud{position:fixed;top:0;left:0;width:100%;padding:10px 14px;display:none;
+    background:linear-gradient(180deg,rgba(0,0,0,.72)0%,transparent 100%);
+    color:rgba(255,255,220,.85);font-size:11px;line-height:1.6;pointer-events:none;z-index:10}
+  #hud b{color:#fff;font-size:12px}
+  #hint{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);
+    color:rgba(255,255,255,.38);font-size:10px;pointer-events:none;z-index:10;
+    white-space:nowrap;letter-spacing:.12em;text-transform:uppercase;
+    animation:fadeHint 6s ease forwards}
+  @keyframes fadeHint{0%{opacity:0}10%{opacity:1}70%{opacity:.38}100%{opacity:0}}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <b>✦ TRANSCENDENTAL FRACTAL SYMPHONY MATRIX</b><br>
+  <span id="hinfo"></span>
+</div>
+<div id="hint">SPACE / CLICK — regenerate &nbsp;·&nbsp; H — HUD &nbsp;·&nbsp; S — audio</div>
+<script>
+'use strict';
+// ─── Global State ───────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const gl = canvas.getContext('webgl', {antialias:false, powerPreference:'high-performance'}) ||
+           canvas.getContext('experimental-webgl');
+const hud = document.getElementById('hud');
+const hinfo = document.getElementById('hinfo');
+
+let W, H, t0 = Date.now(), frame = 0;
+let seed = {}, audioCtx = null, audioOn = false, hudOn = false;
+
+// ─── Seed Generation ─────────────────────────────────────────────────────────
+function rng(s){ s=Math.sin(s)*43758.5453123; return s-Math.floor(s); }
+function rand(a=0,b=1,s){ return a+(b-a)*(s!==undefined?rng(s):Math.random()); }
+function randInt(a,b){ return Math.floor(rand(a,b+1)); }
+
+function regenerate(){
+  const r = ()=>Math.random();
+  const k = r()*9999;
+  seed = {
+    // Fractal params
+    juliaR: rand(-0.9,0.9), juliaI: rand(-0.9,0.9),
+    mandelbrotScale: rand(0.3,2.2),
+    juliaBlend: r(),
+    fractalType: randInt(0,5),         // 0=mandelbrot 1=julia 2=burning ship 3=mandelbar 4=phoenix 5=hybrid
+    // IFS
+    ifsA: rand(-2,2), ifsB: rand(-2,2), ifsC: rand(-2,2), ifsD: rand(-2,2),
+    // Attractor
+    lorenzSigma: rand(8,16), lorenzRho: rand(24,36), lorenzBeta: rand(1.5,3.5),
+    henonA: rand(1.1,1.5), henonB: rand(0.2,0.4),
+    attractorBlend: r(),
+    // Logistic / cellular
+    logisticR: rand(3.5,4.0),
+    caRule: randInt(0,255),
+    // Reaction-diffusion
+    rdFeed: rand(0.012,0.06), rdKill: rand(0.04,0.065),
+    rdDiffA: rand(0.8,1.2), rdDiffB: rand(0.2,0.6),
+    // Kaleidoscope symmetry
+    kSym: [2,3,4,5,6,8,10,12][randInt(0,7)],
+    kRotSpeed: rand(-0.3,0.3),
+    kMirrorPhase: r()*Math.PI*2,
+    // Stereographic / SDF
+    sdfBlend: r(),
+    sdfType: randInt(0,3),
+    stereoW: rand(0.5,2.0),
+    // Color
+    hueBase: r()*360,
+    hueRange: rand(60,300),
+    hueSpeed: rand(0.05,0.4)*(r()<0.5?1:-1),
+    satBase: rand(0.6,1.0),
+    briBase: rand(0.5,0.95),
+    bandFreq: rand(1.5,8),
+    bandPhase: r()*Math.PI*2,
+    palOscA: rand(0.1,0.5),
+    palOscB: rand(0.5,2.0),
+    palOscC: rand(0.1,0.5),
+    palMode: randInt(0,4),
+    // PDE weights
+    heatW: r(), waveW: r(), rdW: r(),
+    // Time speeds
+    globalSpeed: rand(0.15,0.6),
+    // Modular arithmetic
+    modK: randInt(3,17),
+    modPow: rand(1.5,4.0),
+    // Gaussian RBF
+    rbfR: rand(0.3,1.2),
+    rbfBlend: r(),
+    // Higher-dim eigenspace
+    eigenAngle: r()*Math.PI*2,
+    eigenSpeed: rand(0.05,0.3),
+    eigenMix: rand(0.2,0.8),
+    // Coxeter group angles
+    coxA: [Math.PI/2, Math.PI/3, Math.PI/4, Math.PI/5, Math.PI/6][randInt(0,4)],
+    coxB: [Math.PI/2, Math.PI/3, Math.PI/4, Math.PI/5][randInt(0,3)],
+    // Wavelet harmonic (for audio)
+    waveletFreqs: Array.from({length:8},()=>rand(55,880)),
+    waveletAmps: Array.from({length:8},()=>rand(0.02,0.18)),
+  };
+  // Fourier palette coefficients
+  seed.palA=[]; seed.palB=[]; seed.palC=[]; seed.palD=[];
+  for(let i=0;i<3;i++){
+    seed.palA.push(rand(0.3,0.7)); seed.palB.push(rand(0.3,0.7));
+    seed.palC.push(rand(0.5,3.0)); seed.palD.push(r());
+  }
+  updateHUD();
+}
+
+function updateHUD(){
+  const ft=['Mandelbrot','Julia','Burning Ship','Mandelbar','Phoenix','Hybrid'];
+  const pm=['Fourier','Cosine','HSV Bands','Spectral','Phase Shift'];
+  hinfo.innerHTML=`
+    Fractal: <b>${ft[seed.fractalType]}</b> &nbsp;|&nbsp;
+    Julia: <b>(${seed.juliaR.toFixed(3)}, ${seed.juliaI.toFixed(3)})</b><br>
+    Symmetry: <b>k${seed.kSym}</b> &nbsp;|&nbsp;
+    Palette: <b>${pm[seed.palMode]}</b> &nbsp;|&nbsp;
+    RD: <b>F${seed.rdFeed.toFixed(3)} K${seed.rdKill.toFixed(3)}</b><br>
+    Lorenz: <b>σ${seed.lorenzSigma.toFixed(1)} ρ${seed.lorenzRho.toFixed(1)}</b> &nbsp;|&nbsp;
+    Mod: <b>${seed.modK}</b> &nbsp;|&nbsp;
+    Audio: <b>${audioOn?'ON':'OFF'}</b>
+  `.trim();
+}
+
+// ─── WebGL Setup ─────────────────────────────────────────────────────────────
+const VS=`
+attribute vec2 a;
+varying vec2 v;
+void main(){v=a*.5+.5;gl_Position=vec4(a,0,1);}
+`;
+
+// Giant fragment shader combining all systems
+const FS=`
+precision mediump float;
+varying vec2 v;
+uniform vec2 res;
+uniform float t;
+
+// Seed uniforms
+uniform float uJR, uJI, uJBlend, uFType, uMScale;
+uniform float uKSym, uKRot, uKMirr;
+uniform float uHueBase, uHueRange, uHueSpd, uBandFreq, uBandPhase;
+uniform float uSatB, uBriB, uPalMode;
+uniform float uPalA0,uPalA1,uPalA2, uPalB0,uPalB1,uPalB2;
+uniform float uPalC0,uPalC1,uPalC2, uPalD0,uPalD1,uPalD2;
+uniform float uPalOA, uPalOB, uPalOC;
+uniform float uHeatW, uWaveW, uRdW;
+uniform float uRdFeed, uRdKill, uRdDA, uRdDB;
+uniform float uEigA, uEigSpd, uEigMix;
+uniform float uSdfBlend, uSdfType, uStereoW;
+uniform float uRbfR, uRbfBlend;
+uniform float uModK, uModPow;
+uniform float uCoxA, uCoxB;
+uniform float uGlbSpd;
+uniform float uIfsA,uIfsB,uIfsC,uIfsD;
+uniform float uLorSig, uLorRho, uLorBeta;
+uniform float uHenonA, uHenonB, uAttrBlend;
+
+#define PI 3.14159265358979
+#define TAU 6.28318530717959
+#define MAX_IT 64
+
+// ─── Complex arithmetic ────────────────────────────────────────────────────
+vec2 cmul(vec2 a,vec2 b){return vec2(a.x*b.x-a.y*b.y,a.x*b.y+a.y*b.x);}
+vec2 cdiv(vec2 a,vec2 b){float d=dot(b,b)+1e-7;return vec2(dot(a,b),a.y*b.x-a.x*b.y)/d;}
+vec2 cpow(vec2 z,float n){float r=pow(length(z),n);float th=atan(z.y,z.x)*n;return r*vec2(cos(th),sin(th));}
+vec2 cexp(vec2 z){return exp(z.x)*vec2(cos(z.y),sin(z.y));}
+vec2 clog(vec2 z){return vec2(log(length(z)),atan(z.y,z.x));}
+float _cosh(float x){return (exp(x)+exp(-x))*.5;}
+float _sinh(float x){return (exp(x)-exp(-x))*.5;}
+vec2 csin(vec2 z){return vec2(sin(z.x)*_cosh(z.y),cos(z.x)*_sinh(z.y));}
+
+// ─── Fractal escape time ───────────────────────────────────────────────────
+float fractalEscape(vec2 c, vec2 z){
+  float n=0.;
+  for(int i=0;i<MAX_IT;i++){
+    int ft=int(uFType);
+    if(ft==0){// Mandelbrot
+      z=cmul(z,z)+c;
+    } else if(ft==1){// Julia
+      z=cmul(z,z)+vec2(uJR,uJI);
+    } else if(ft==2){// Burning Ship
+      z=vec2(abs(z.x),abs(z.y));
+      z=cmul(z,z)+c;
+    } else if(ft==3){// Mandelbar (tricorn)
+      z=cmul(vec2(z.x,-z.y),vec2(z.x,-z.y))+c;
+    } else if(ft==4){// Phoenix
+      vec2 zp=z;
+      z=cmul(z,z)+vec2(c.x,-0.5)+vec2(0.,.267)*zp;
+    } else {// Hybrid
+      z=cmul(z,z)+c;
+      if(dot(z,z)<4.) z=cmul(vec2(abs(z.x),-abs(z.y)),vec2(abs(z.x),-abs(z.y)))+c;
+    }
+    float d2=dot(z,z);
+    if(d2>256.) return float(i)+1.-log(log(d2)*0.5)/log(2.);
+    n=float(i);
+  }
+  return n;
+}
+
+// ─── IFS Barnsley-like ────────────────────────────────────────────────────
+vec2 ifs(vec2 p, float iter){
+  for(int i=0;i<6;i++){
+    float sel=fract(sin(float(i)*7.3+iter)*4531.)*3.;
+    if(sel<1.) p=vec2(uIfsA*p.x+uIfsB*p.y, uIfsC*p.x+uIfsD*p.y)+vec2(.0,.16*p.y-.16);
+    else if(sel<2.) p=vec2(.85*p.x+.04*p.y,-.04*p.x+.85*p.y)+vec2(0.,.16);
+    else p=vec2(.2*p.x-.26*p.y,.23*p.x+.22*p.y)+vec2(0.,.44);
+  }
+  return p;
+}
+
+// ─── Lorenz attractor sample ──────────────────────────────────────────────
+vec3 lorenzStep(vec3 p, float dt){
+  float dx=uLorSig*(p.y-p.x);
+  float dy=p.x*(uLorRho-p.z)-p.y;
+  float dz=p.x*p.y-uLorBeta*p.z;
+  return p+vec3(dx,dy,dz)*dt;
+}
+float lorenzDensity(vec2 uv){
+  vec3 p=vec3(uv.x*20.,uv.y*20.,25.);
+  float acc=0.;
+  for(int i=0;i<20;i++){
+    p=lorenzStep(p,0.005);
+    float d=length(uv-p.xy/25.);
+    acc+=exp(-d*d*200.);
+  }
+  return acc/20.;
+}
+
+// ─── Hénon map density ────────────────────────────────────────────────────
+float henonDensity(vec2 uv){
+  float x=uv.x*2., y=uv.y*2., acc=0.;
+  for(int i=0;i<30;i++){
+    float xn=1.-uHenonA*x*x+y;
+    float yn=uHenonB*x;
+    x=xn; y=yn;
+    float d=length(uv-vec2(x*.5,y*.5));
+    acc+=exp(-d*d*150.);
+  }
+  return acc/30.;
+}
+
+// ─── Logistic map ─────────────────────────────────────────────────────────
+float logistic(float x, float r){return r*x*(1.-x);}
+
+// ─── Reaction-diffusion approx ────────────────────────────────────────────
+float rdPattern(vec2 uv){
+  float a=sin(uv.x*12.+t*uRdFeed*200.)*sin(uv.y*12.+t*uRdKill*200.);
+  float b=cos(uv.x*7.3+uv.y*5.1+t*uRdDA)*sin(uv.x*4.1-uv.y*6.7+t*uRdDB);
+  float turing=sin(a*PI*uRdFeed*40.)*cos(b*PI*uRdKill*40.);
+  float gray=turing*.5+.5;
+  // Simulate Gray-Scott via multi-frequency interference
+  float f=uRdFeed*40., k=uRdKill*40.;
+  vec2 p=uv*6.;
+  float wave=0.;
+  for(int i=1;i<=4;i++){
+    float fi=float(i);
+    wave+=sin(p.x*fi*f*.1+t*.3*fi)*cos(p.y*fi*k*.1+t*.23*fi)/fi;
+  }
+  return gray*.4+wave*.6;
+}
+
+// ─── Heat equation approx ─────────────────────────────────────────────────
+float heatPattern(vec2 uv){
+  float h=0.;
+  for(int i=1;i<=5;i++){
+    float f=float(i)*PI;
+    h+=exp(-f*f*uHeatW*.01*(t+.1))*sin(f*uv.x)*sin(f*uv.y)/float(i);
+  }
+  return h*.5+.5;
+}
+
+// ─── Wave equation approx ─────────────────────────────────────────────────
+float wavePattern(vec2 uv){
+  float w=0.;
+  for(int i=1;i<=4;i++){
+    float f=float(i)*PI;
+    w+=sin(f*uv.x)*sin(f*uv.y)*cos(f*t*uWaveW*.5)/float(i);
+  }
+  return w*.5+.5;
+}
+
+// ─── Gaussian RBF blending ────────────────────────────────────────────────
+float rbfBlend(vec2 uv, float val1, float val2){
+  float d=length(uv)/(uRbfR+.001);
+  float w=exp(-d*d*2.);
+  return mix(val1,val2,w*uRbfBlend);
+}
+
+// ─── SDF primitives ───────────────────────────────────────────────────────
+float sdfCircle(vec2 p, float r){return length(p)-r;}
+float sdfBox(vec2 p, vec2 b){vec2 d=abs(p)-b;return length(max(d,0.))+min(max(d.x,d.y),0.);}
+float sdfStar(vec2 p, float r, float n){
+  float a=atan(p.y,p.x)/PI;
+  float s=r*cos(PI/n);
+  float q=mod(a*n,.5)-.25;
+  return length(vec2(length(p)-r,length(p)*sin(q)*2.*.866))-s*.2;
+}
+float sdfField(vec2 p){
+  int st=int(uSdfType);
+  float d;
+  if(st==0) d=sdfCircle(p,.5);
+  else if(st==1) d=sdfBox(p,vec2(.4,.4));
+  else d=sdfStar(p,.5,5.);
+  return smoothstep(-.05,.05,d);
+}
+
+// ─── Stereographic projection ─────────────────────────────────────────────
+vec2 stereo(vec2 uv){
+  float w=uStereoW;
+  vec3 p3=vec3(uv, w);
+  float d=1.-p3.z+.001;
+  return p3.xy/d;
+}
+
+// ─── Coxeter reflection ───────────────────────────────────────────────────
+vec2 coxeter(vec2 p){
+  // Fold by Coxeter group angles
+  float a=uCoxA, b=uCoxB;
+  for(int i=0;i<5;i++){
+    // Reflect across two mirrors at angles a, b
+    float ca=cos(a), sa=sin(a);
+    float dp=p.x*ca+p.y*sa;
+    if(dp<0.) p-=2.*dp*vec2(ca,sa);
+    float cb=cos(b), sb=sin(b);
+    dp=p.x*cb+p.y*sb;
+    if(dp<0.) p-=2.*dp*vec2(cb,sb);
+  }
+  return p;
+}
+
+// ─── Kaleidoscope ─────────────────────────────────────────────────────────
+vec2 kaleido(vec2 uv){
+  float angle=atan(uv.y,uv.x);
+  float r=length(uv);
+  float k=TAU/float(int(uKSym));
+  angle=mod(angle+uKRot*t+uKMirr, k);
+  if(angle>k*.5) angle=k-angle;
+  return r*vec2(cos(angle),sin(angle));
+}
+
+// ─── Higher-dim eigenspace rotation ───────────────────────────────────────
+vec2 eigenRotate(vec2 uv){
+  float a=uEigA+uEigSpd*t;
+  mat2 R=mat2(cos(a),-sin(a),sin(a),cos(a));
+  vec2 rotated=R*uv;
+  // Blend with 4D projection
+  float a2=a*1.618;
+  vec2 extra=vec2(cos(a2)*uv.x-sin(a2)*uv.y, sin(a2)*uv.x+cos(a2)*uv.y);
+  return mix(rotated,extra,uEigMix);
+}
+
+// ─── Color palettes ───────────────────────────────────────────────────────
+vec3 cosinePalette(float t2){
+  vec3 a=vec3(uPalA0,uPalA1,uPalA2);
+  vec3 b=vec3(uPalB0,uPalB1,uPalB2);
+  vec3 c=vec3(uPalC0,uPalC1,uPalC2);
+  vec3 d=vec3(uPalD0,uPalD1,uPalD2);
+  return clamp(a+b*cos(TAU*(c*t2+d)),0.,1.);
+}
+
+vec3 hsvToRgb(float h,float s,float vv){
+  h=mod(h,1.);
+  vec3 c=abs(mod(vec3(h*6.)+vec3(0.,4.,2.),6.)-3.)-1.;
+  return vv*mix(vec3(1.),clamp(c,0.,1.),s);
+}
+
+vec3 spectralColor(float t2){
+  // Map t to rainbow spectrum
+  float h=mod(uHueBase/360.+t2*uHueRange/360.+uHueSpd*t,1.);
+  float band=sin(t2*uBandFreq*PI+uBandPhase+t*uPalOB)*uPalOA+uSatB;
+  float bri=uBriB+uPalOC*cos(t2*uBandFreq*1.5*PI+t*.3);
+  return hsvToRgb(h,clamp(band,0.,1.),clamp(bri,0.,1.));
+}
+
+vec3 colorize(float val, float extra){
+  val=clamp(val,0.,1.);
+  int pm=int(uPalMode);
+  vec3 col;
+  if(pm==0){
+    col=cosinePalette(val+extra*.1+t*uHueSpd*.1);
+  } else if(pm==1){
+    col=spectralColor(val+extra*.05);
+  } else if(pm==2){
+    // Banded
+    float bands=sin(val*uBandFreq*PI+uBandPhase)*0.5+0.5;
+    col=cosinePalette(bands+t*uHueSpd*.05);
+    col=mix(col,spectralColor(val),0.4);
+  } else if(pm==3){
+    // Phase shift
+    float ph=val*TAU+t*uPalOB+extra;
+    col=vec3(
+      sin(ph+uPalD0*TAU)*.5+.5,
+      sin(ph+uPalD1*TAU+TAU/3.)*.5+.5,
+      sin(ph+uPalD2*TAU+2.*TAU/3.)*.5+.5
+    );
+    col=pow(col,vec3(1.+uSatB));
+  } else {
+    // Spectral eigen
+    float h=mod(uHueBase/360.+val*uHueRange/360.+extra*.1,1.);
+    col=hsvToRgb(h,uSatB,uBriB);
+    col=mix(col,cosinePalette(val+t*uHueSpd*.1),0.5);
+  }
+  return col;
+}
+
+// ─── Modular arithmetic mapping ───────────────────────────────────────────
+float modMap(vec2 uv){
+  float x=uv.x*uModK, y=uv.y*uModK;
+  float m=mod(pow(abs(x),uModPow)+pow(abs(y),uModPow), float(int(uModK)));
+  return m/float(int(uModK));
+}
+
+// ─── Main ─────────────────────────────────────────────────────────────────
+void main(){
+  vec2 uv=(v*2.-1.)*vec2(res.x/res.y,1.);
+  float tc=t*uGlbSpd;
+
+  // --- Eigen-rotate base coordinates
+  vec2 euv=eigenRotate(uv);
+
+  // --- Stereographic projection
+  vec2 suv=stereo(euv*.5);
+  suv=suv*.3;
+
+  // --- Kaleidoscope fold
+  vec2 kuv=kaleido(euv);
+
+  // --- Coxeter reflection
+  vec2 cuv=coxeter(kuv);
+
+  // --- Fractal computation
+  // Mandelbrot/Julia domain
+  vec2 z0=cuv*uMScale;
+  vec2 c0=vec2(uJR,uJI);
+  float fracBlend=uJBlend;
+  vec2 zFrac=mix(z0,vec2(0.),fracBlend);
+  vec2 cFrac=mix(c0,z0,fracBlend);
+  float esc=fractalEscape(cFrac, zFrac);
+  float fracVal=esc/float(MAX_IT);
+
+  // --- Attractor densities
+  float lorVal=lorenzDensity(euv);
+  float henVal=henonDensity(euv);
+  float attrVal=mix(lorVal,henVal,uAttrBlend);
+
+  // --- PDE patterns
+  vec2 pdeuv=suv*2.+.5;
+  float heat=heatPattern(pdeuv+tc*vec2(.02,.017));
+  float wave=wavePattern(pdeuv+tc*vec2(.015,.023));
+  float rd=rdPattern(pdeuv);
+
+  float pdeVal=(heat*uHeatW+wave*uWaveW+rd*uRdW)/(uHeatW+uWaveW+uRdW+.001);
+
+  // --- Modular arithmetic
+  float modVal=modMap(cuv);
+
+  // --- SDF field
+  vec2 suvN=suv*.8;
+  float sdfVal=sdfField(suvN*(1.+sin(tc*.3)*.3));
+
+  // --- IFS density approx
+  vec2 ifsP=ifs(cuv*.5, tc);
+  float ifsVal=exp(-length(ifsP-cuv*2.)*3.);
+
+  // --- Logistic map
+  float logX=fract(abs(cuv.x)*.7+.1);
+  for(int i=0;i<8;i++) logX=logistic(logX, 3.5+sin(tc*.1)*.499);
+  float logVal=logX;
+
+  // --- RBF blending of fields
+  float blended=rbfBlend(cuv, fracVal, pdeVal);
+  blended=mix(blended, attrVal*.8, 0.15);
+  blended=mix(blended, modVal, 0.12);
+  blended=mix(blended, sdfVal, uSdfBlend*.1);
+  blended=mix(blended, ifsVal, 0.1);
+  blended=mix(blended, logVal, 0.08);
+
+  // Smooth and clamp
+  blended=clamp(blended,0.,1.);
+
+  // --- Colorize
+  float extraOsc=sin(tc*uPalOB+length(cuv)*3.)*uPalOA;
+  vec3 col=colorize(blended, extraOsc+attrVal*.2+modVal*.1);
+
+  // --- Additive attractor glow
+  float glow=attrVal*0.3;
+  col+=glow*vec3(.4,.7,1.)*uBriB;
+
+  // --- SDF edge highlight
+  vec2 suvH=suvN*(1.+sin(tc*.5)*.2);
+  float sdfE=sdfField(suvH);
+  float edge=1.-abs(sdfE*2.-1.);
+  col+=edge*0.08*vec3(1.,.8,.4);
+
+  // --- Vignette
+  float vig=smoothstep(1.4,.3,length(uv));
+  col*=vig;
+
+  // --- Subtle grain
+  float grain=fract(sin(dot(v,vec2(127.1,311.7))+tc)*43758.5453)*0.03-.015;
+  col=clamp(col+grain,0.,1.);
+
+  // --- Gamma
+  col=pow(col,vec3(.42));
+
+  gl_FragColor=vec4(col,1.);
+}
+`;
+
+// ─── WebGL Utils ─────────────────────────────────────────────────────────────
+function compileShader(type, src){
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if(!gl.getShaderParameter(s, gl.COMPILE_STATUS)){
+    console.error(gl.getShaderInfoLog(s));
+    return null;
+  }
+  return s;
+}
+
+function createProgram(vs, fs){
+  const p = gl.createProgram();
+  const vsShader = compileShader(gl.VERTEX_SHADER, vs);
+  const fsShader = compileShader(gl.FRAGMENT_SHADER, fs);
+  if(!vsShader || !fsShader){ console.error('Shader compile failed'); return null; }
+  gl.attachShader(p, vsShader);
+  gl.attachShader(p, fsShader);
+  gl.linkProgram(p);
+  if(!gl.getProgramParameter(p, gl.LINK_STATUS)){
+    console.error('Program link failed:', gl.getProgramInfoLog(p));
+    return null;
+  }
+  return p;
+}
+
+const prog = createProgram(VS, FS);
+if(!prog) throw new Error('Failed to create WebGL program — check console for shader errors');
+gl.useProgram(prog);
+
+// Full-screen quad
+const buf = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,1,1]), gl.STATIC_DRAW);
+const aLoc = gl.getAttribLocation(prog, 'a');
+gl.enableVertexAttribArray(aLoc);
+gl.vertexAttribPointer(aLoc, 2, gl.FLOAT, false, 0, 0);
+
+// Cache uniform locations
+const U = {};
+const unifNames = [
+  'res','t',
+  'uJR','uJI','uJBlend','uFType','uMScale',
+  'uKSym','uKRot','uKMirr',
+  'uHueBase','uHueRange','uHueSpd','uBandFreq','uBandPhase',
+  'uSatB','uBriB','uPalMode',
+  'uPalA0','uPalA1','uPalA2','uPalB0','uPalB1','uPalB2',
+  'uPalC0','uPalC1','uPalC2','uPalD0','uPalD1','uPalD2',
+  'uPalOA','uPalOB','uPalOC',
+  'uHeatW','uWaveW','uRdW',
+  'uRdFeed','uRdKill','uRdDA','uRdDB',
+  'uEigA','uEigSpd','uEigMix',
+  'uSdfBlend','uSdfType','uStereoW',
+  'uRbfR','uRbfBlend',
+  'uModK','uModPow',
+  'uCoxA','uCoxB',
+  'uGlbSpd',
+  'uIfsA','uIfsB','uIfsC','uIfsD',
+  'uLorSig','uLorRho','uLorBeta',
+  'uHenonA','uHenonB','uAttrBlend',
+];
+unifNames.forEach(n => U[n] = gl.getUniformLocation(prog, n));
+
+// ─── Resize ──────────────────────────────────────────────────────────────────
+function resize(){
+  // On mobile, cap resolution for performance
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = Math.floor(window.innerWidth * dpr);
+  H = Math.floor(window.innerHeight * dpr);
+  canvas.width = W; canvas.height = H;
+  gl.viewport(0, 0, W, H);
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ─── Upload uniforms ──────────────────────────────────────────────────────────
+function uploadUniforms(elapsed){
+  gl.uniform2f(U.res, W, H);
+  gl.uniform1f(U.t, elapsed);
+  const s = seed;
+  gl.uniform1f(U.uJR, s.juliaR);
+  gl.uniform1f(U.uJI, s.juliaI);
+  gl.uniform1f(U.uJBlend, s.juliaBlend);
+  gl.uniform1f(U.uFType, s.fractalType);
+  gl.uniform1f(U.uMScale, s.mandelbrotScale);
+  gl.uniform1f(U.uKSym, s.kSym);
+  gl.uniform1f(U.uKRot, s.kRotSpeed);
+  gl.uniform1f(U.uKMirr, s.kMirrorPhase);
+  gl.uniform1f(U.uHueBase, s.hueBase);
+  gl.uniform1f(U.uHueRange, s.hueRange);
+  gl.uniform1f(U.uHueSpd, s.hueSpeed);
+  gl.uniform1f(U.uBandFreq, s.bandFreq);
+  gl.uniform1f(U.uBandPhase, s.bandPhase);
+  gl.uniform1f(U.uSatB, s.satBase);
+  gl.uniform1f(U.uBriB, s.briBase);
+  gl.uniform1f(U.uPalMode, s.palMode);
+  gl.uniform1f(U.uPalA0, s.palA[0]); gl.uniform1f(U.uPalA1, s.palA[1]); gl.uniform1f(U.uPalA2, s.palA[2]);
+  gl.uniform1f(U.uPalB0, s.palB[0]); gl.uniform1f(U.uPalB1, s.palB[1]); gl.uniform1f(U.uPalB2, s.palB[2]);
+  gl.uniform1f(U.uPalC0, s.palC[0]); gl.uniform1f(U.uPalC1, s.palC[1]); gl.uniform1f(U.uPalC2, s.palC[2]);
+  gl.uniform1f(U.uPalD0, s.palD[0]); gl.uniform1f(U.uPalD1, s.palD[1]); gl.uniform1f(U.uPalD2, s.palD[2]);
+  gl.uniform1f(U.uPalOA, s.palOscA);
+  gl.uniform1f(U.uPalOB, s.palOscB);
+  gl.uniform1f(U.uPalOC, s.palOscC);
+  gl.uniform1f(U.uHeatW, s.heatW);
+  gl.uniform1f(U.uWaveW, s.waveW);
+  gl.uniform1f(U.uRdW, s.rdW);
+  gl.uniform1f(U.uRdFeed, s.rdFeed);
+  gl.uniform1f(U.uRdKill, s.rdKill);
+  gl.uniform1f(U.uRdDA, s.rdDiffA);
+  gl.uniform1f(U.uRdDB, s.rdDiffB);
+  gl.uniform1f(U.uEigA, s.eigenAngle);
+  gl.uniform1f(U.uEigSpd, s.eigenSpeed);
+  gl.uniform1f(U.uEigMix, s.eigenMix);
+  gl.uniform1f(U.uSdfBlend, s.sdfBlend);
+  gl.uniform1f(U.uSdfType, s.sdfType);
+  gl.uniform1f(U.uStereoW, s.stereoW);
+  gl.uniform1f(U.uRbfR, s.rbfR);
+  gl.uniform1f(U.uRbfBlend, s.rbfBlend);
+  gl.uniform1f(U.uModK, s.modK);
+  gl.uniform1f(U.uModPow, s.modPow);
+  gl.uniform1f(U.uCoxA, s.coxA);
+  gl.uniform1f(U.uCoxB, s.coxB);
+  gl.uniform1f(U.uGlbSpd, s.globalSpeed);
+  gl.uniform1f(U.uIfsA, s.ifsA);
+  gl.uniform1f(U.uIfsB, s.ifsB);
+  gl.uniform1f(U.uIfsC, s.ifsC);
+  gl.uniform1f(U.uIfsD, s.ifsD);
+  gl.uniform1f(U.uLorSig, s.lorenzSigma);
+  gl.uniform1f(U.uLorRho, s.lorenzRho);
+  gl.uniform1f(U.uLorBeta, s.lorenzBeta);
+  gl.uniform1f(U.uHenonA, s.henonA);
+  gl.uniform1f(U.uHenonB, s.henonB);
+  gl.uniform1f(U.uAttrBlend, s.attractorBlend);
+}
+
+// ─── Audio Engine ─────────────────────────────────────────────────────────────
+let audioNodes = [];
+function startAudio(){
+  if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  stopAudio();
+  const master = audioCtx.createGain();
+  master.gain.value = 0.22;
+  const comp = audioCtx.createDynamicsCompressor();
+  master.connect(comp);
+  comp.connect(audioCtx.destination);
+
+  const freqs = seed.waveletFreqs;
+  const amps = seed.waveletAmps;
+  audioNodes = [];
+
+  freqs.forEach((f, i) => {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    const lfo = audioCtx.createOscillator();
+    const lfoGain = audioCtx.createGain();
+
+    // Wavelet-ish: AM oscillator
+    lfo.frequency.value = rand(0.05, 0.8);
+    lfoGain.gain.value = f * 0.04;
+    lfo.connect(lfoGain);
+    lfoGain.connect(osc.frequency);
+
+    osc.type = ['sine','sine','triangle','sawtooth'][i % 4];
+    osc.frequency.value = f;
+    gain.gain.value = amps[i];
+
+    osc.connect(gain);
+    gain.connect(master);
+    lfo.start();
+    osc.start();
+    audioNodes.push(osc, lfo, gain, lfoGain);
+  });
+
+  audioNodes.push(master, comp);
+}
+
+function stopAudio(){
+  audioNodes.forEach(n => { try{ n.stop && n.stop(); n.disconnect(); }catch(e){} });
+  audioNodes = [];
+}
+
+function toggleAudio(){
+  audioOn = !audioOn;
+  if(audioOn){
+    startAudio();
+  } else {
+    stopAudio();
+  }
+  updateHUD();
+}
+
+// ─── Render Loop ──────────────────────────────────────────────────────────────
+let raf;
+function render(){
+  raf = requestAnimationFrame(render);
+  const elapsed = (Date.now() - t0) * 0.001;
+  uploadUniforms(elapsed);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  frame++;
+}
+
+// ─── Input ───────────────────────────────────────────────────────────────────
+function triggerRegenerate(){
+  t0 = Date.now();
+  regenerate();
+  if(audioOn) startAudio(); // rebuild audio with new params
+}
+
+document.addEventListener('keydown', e => {
+  if(e.code === 'Space'){ e.preventDefault(); triggerRegenerate(); }
+  if(e.key.toLowerCase() === 'h'){
+    hudOn = !hudOn;
+    hud.style.display = hudOn ? 'block' : 'none';
+  }
+  if(e.key.toLowerCase() === 's') toggleAudio();
+});
+
+canvas.addEventListener('click', triggerRegenerate);
+canvas.addEventListener('touchend', e => { e.preventDefault(); triggerRegenerate(); }, {passive:false});
+
+// ─── Boot ─────────────────────────────────────────────────────────────────────
+regenerate();
+render();
+
+// Fade hint
+setTimeout(() => {
+  const h = document.getElementById('hint');
+  if(h) h.style.display = 'none';
+}, 7000);
+</script>
+</body>
+</html>

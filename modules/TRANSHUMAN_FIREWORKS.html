@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>TRANSHUMAN FIREWORKS — Mathematical Generative Psychedelia 2026</title>
+<meta name="description" content="Real-time generative psychedelic visuals: IFS Barnsley ferns, Möbius conformal warping, SDF metaballs, E8 Lie-group kaleidoscope, holographic FFT diffraction, Multibrot escape-time zooms, Lotka–Volterra tessellation morphs, FM/PM audio synthesis, granular clouds, vector-scope reactive art. Mathematical audio-reactive canvas masterpiece 2026.">
+<meta name="keywords" content="generative art, psychedelic visuals, mathematical art, audio reactive, IFS fractal, Mandelbrot, Möbius transformation, metaball, kaleidoscope, E8 root system, holographic, FM synthesis, granular synthesis, real-time canvas, WebGL, 2026">
+<meta property="og:title" content="TRANSHUMAN FIREWORKS — Generative Psychedelic Visuals 2026">
+<meta property="og:description" content="Mesmerizing real-time mathematical audio-reactive canvas: IFS, SDF metaballs, E8 reflections, FFT diffraction, Multibrot zooms, FM synthesis.">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000}
+  canvas{display:block;position:fixed;top:0;left:0;width:100%;height:100%;cursor:crosshair}
+  #hud{position:fixed;top:16px;left:16px;z-index:10;font-family:'Courier New',monospace;font-size:11px;color:rgba(255,255,255,0.7);pointer-events:none;text-shadow:0 0 8px currentColor;line-height:1.7;transition:opacity .5s}
+  #hud.hidden{opacity:0}
+  #hud span{display:block}
+  #hud .accent{color:#0ff}
+  #hud .accent2{color:#f0f}
+  #hud .accent3{color:#ff0}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud" class="hidden">
+  <span class="accent">TRANSHUMAN FIREWORKS 2026</span>
+  <span id="hmode">MODE: IFS·FERN</span>
+  <span id="hpal">PALETTE: SPECTRAL</span>
+  <span id="hfps">FPS: --</span>
+  <span class="accent2">SPACE/CLICK/TAP → RANDOMIZE</span>
+  <span class="accent3">H → HUD  S → SOUND</span>
+</div>
+<script>
+(()=>{
+'use strict';
+const canvas=document.getElementById('c');
+const ctx=canvas.getContext('2d');
+const hud=document.getElementById('hud');
+let W,H,cx,cy,dpr=Math.min(window.devicePixelRatio||1,2);
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let t=0,frame=0,seed=Math.random()*1e6;
+let hudVisible=false,soundEnabled=false;
+let mode=0; // 0=IFS 1=SDF 2=KALEIDO 3=FFT 4=MANDELBROT 5=LOTKA
+let modeTimer=0,modeDuration=420;
+let palIdx=0,palT=0;
+let audioCtx=null,masterGain=null;
+let fmOscs=[],delayNode=null,reverbNode=null;
+let fpsArr=[],fpsLast=performance.now();
+let imgData,pixels;
+
+// ── Resize ─────────────────────────────────────────────────────────────────────
+function resize(){
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  W=Math.floor(window.innerWidth*dpr);
+  H=Math.floor(window.innerHeight*dpr);
+  canvas.width=W; canvas.height=H;
+  canvas.style.width=window.innerWidth+'px';
+  canvas.style.height=window.innerHeight+'px';
+  cx=W/2; cy=H/2;
+  imgData=ctx.createImageData(W,H);
+  pixels=imgData.data;
+}
+window.addEventListener('resize',resize); resize();
+
+// ── Palettes ───────────────────────────────────────────────────────────────────
+const PAL_NAMES=['SPECTRAL','CANDY','VOLCANIC','NEUROTECH'];
+function hsl2rgb(h,s,l){
+  h=((h%1)+1)%1;
+  const c=(1-Math.abs(2*l-1))*s;
+  const x=c*(1-Math.abs((h*6)%2-1));
+  const m=l-c/2;
+  let r=0,g=0,b=0;
+  if(h<1/6){r=c;g=x}else if(h<2/6){r=x;g=c}else if(h<3/6){g=c;b=x}
+  else if(h<4/6){g=x;b=c}else if(h<5/6){r=x;b=c}else{r=c;b=x}
+  return[(r+m)*255,(g+m)*255,(b+m)*255];
+}
+function smoothstep(a,b,x){x=(x-a)/(b-a);x=Math.max(0,Math.min(1,x));return x*x*(3-2*x)}
+
+function palette(v,idx){
+  // v in [0,1], idx=0..3
+  v=((v%1)+1)%1;
+  if(idx===0){// spectral
+    const h=v*0.85+0.05;
+    return hsl2rgb(h,0.9,0.45+0.2*Math.sin(v*Math.PI));
+  } else if(idx===1){// candy
+    const t2=v*3;
+    const r=0.5+0.5*Math.sin(t2*6.28+0);
+    const g=0.5+0.5*Math.sin(t2*6.28+2.09);
+    const b=0.5+0.5*Math.sin(t2*6.28+4.19);
+    return[r*255,g*255,b*255];
+  } else if(idx===2){// volcanic
+    const r=Math.min(1,v*2);
+    const g=Math.max(0,v*3-1);
+    const b=Math.max(0,v*4-3);
+    return[
+      (0.1+0.9*r*r)*255,
+      (0.05+0.7*smoothstep(0.3,0.8,v)*g)*255,
+      (0.2*b+0.8*Math.max(0,(v-0.8)*5))*255
+    ];
+  } else {// neurotech
+    const h=v*0.3+0.55+0.15*Math.sin(v*12);
+    const s=0.7+0.3*Math.sin(v*7);
+    const l=0.3+0.4*v;
+    return hsl2rgb(h,s,l);
+  }
+}
+
+function blendPalette(v){
+  const a=palette(v,palIdx%4);
+  const b=palette(v,(palIdx+1)%4);
+  const f=smoothstep(0,1,palT);
+  return[
+    a[0]*(1-f)+b[0]*f,
+    a[1]*(1-f)+b[1]*f,
+    a[2]*(1-f)+b[2]*f
+  ];
+}
+
+// ── Math helpers ───────────────────────────────────────────────────────────────
+const PI=Math.PI, TAU=PI*2;
+const sin=Math.sin, cos=Math.cos, sqrt=Math.sqrt, abs=Math.abs, floor=Math.floor;
+const atan2=Math.atan2, pow=Math.pow, exp=Math.exp, log=Math.log;
+
+function fract(x){return x-floor(x)}
+function mix(a,b,t){return a*(1-t)+b*t}
+function clamp(x,a,b){return Math.max(a,Math.min(b,x))}
+function dot2(ax,ay,bx,by){return ax*bx+ay*by}
+function len2(x,y){return sqrt(x*x+y*y)}
+
+// Möbius transform: (az+b)/(cz+d) for complex z=(x,y)
+function mobius(x,y,ar,ai,br,bi,cr,ci,dr,di){
+  // numerator = (a+bi)(x+yi) + (b+bi)
+  const nr = ar*x-ai*y+br;
+  const ni = ar*y+ai*x+bi;
+  // denominator = (c+ci)(x+yi) + (d+di)
+  const dr2= cr*x-ci*y+dr;
+  const di2= cr*y+ci*x+di;
+  const denom=dr2*dr2+di2*di2+1e-9;
+  return[(nr*dr2+ni*di2)/denom,(ni*dr2-nr*di2)/denom];
+}
+
+// IFS Barnsley fern transforms
+const IFS=[
+  [0,0,0,0.16,0,0,0.01],
+  [0.85,0.04,-0.04,0.85,0,1.6,0.85],
+  [0.2,-0.26,0.23,0.22,0,1.6,0.07],
+  [-0.15,0.28,0.26,0.24,0,0.44,0.07]
+];
+
+// Prime sequence for modular arithmetic
+const PRIMES=[2,3,5,7,11,13,17,19,23,29,31,37,41,43,47];
+
+// Fibonacci ratios
+const PHI=1.6180339887;
+const FIB_FREQS=[1,PHI,PHI*PHI,PHI*PHI*PHI,2,3,5].map(x=>x*110);
+
+// ── Mode variables ─────────────────────────────────────────────────────────────
+let ifsPoints=[];
+let metaballs=[];
+let lotkaState={};
+let mbZoom=1,mbCx=0,mbCy=0,mbPow=2;
+let fftWave=new Float32Array(256);
+let symN=6,symA=0;
+let modePhase=0;
+
+// ── Initialize mode ────────────────────────────────────────────────────────────
+function rng(min=0,max=1){return min+(max-min)*Math.random()}
+function initIFS(){
+  ifsPoints=[];
+  let x=0,y=0;
+  // warm up
+  for(let i=0;i<100;i++){
+    const r=Math.random();
+    let c=IFS[0];
+    let acc=0;
+    for(let j=0;j<IFS.length;j++){acc+=IFS[j][6];if(r<acc){c=IFS[j];break;}}
+    const nx=c[0]*x+c[1]*y+c[4];
+    const ny=c[2]*x+c[3]*y+c[5];
+    x=nx;y=ny;
+  }
+  for(let i=0;i<6000;i++){
+    const r=Math.random();
+    let c=IFS[0];let acc=0;
+    for(let j=0;j<IFS.length;j++){acc+=IFS[j][6];if(r<acc){c=IFS[j];break;}}
+    const nx=c[0]*x+c[1]*y+c[4];
+    const ny=c[2]*x+c[3]*y+c[5];
+    x=nx;y=ny;
+    ifsPoints.push(x,y);
+  }
+}
+function initMeta(){
+  metaballs=[];
+  const n=6+floor(rng(0,6));
+  for(let i=0;i<n;i++){
+    const angle=rng(0,TAU);
+    const r=rng(0.1,0.35)*Math.min(W,H);
+    metaballs.push({
+      x:cx+cos(angle)*r,y:cy+sin(angle)*r,
+      vx:rng(-1,1)*0.8,vy:rng(-1,1)*0.8,
+      r:rng(40,120)*dpr,
+      px:cos(angle)*r,py:sin(angle)*r,
+      phase:rng(0,TAU),speed:rng(0.3,1.2)
+    });
+  }
+}
+function initLotka(){
+  lotkaState={
+    prey:rng(0.3,0.7),pred:rng(0.1,0.4),
+    a:rng(0.6,1.2),b:rng(0.3,0.8),
+    c:rng(0.5,1.1),d:rng(0.2,0.6),
+    pts:[],maxPts:800
+  };
+}
+function initMandel(){
+  mbPow=floor(rng(2,7));
+  mbZoom=0.3+rng(0,0.5);
+  mbCx=rng(-0.5,0.5);
+  mbCy=rng(-0.5,0.5);
+}
+function initKaleido(){
+  symN=floor(rng(3,12));
+  symA=rng(0,TAU);
+}
+function initFFT(){
+  for(let i=0;i<fftWave.length;i++) fftWave[i]=rng(-1,1);
+}
+
+function fullRandomize(){
+  seed=Math.random()*1e6;
+  mode=floor(rng(0,6));
+  modeTimer=0;
+  modeDuration=300+floor(rng(0,300));
+  palIdx=(palIdx+1)%4;
+  palT=0;
+  initIFS(); initMeta(); initLotka(); initMandel(); initKaleido(); initFFT();
+  document.getElementById('hmode').textContent='MODE: '+['IFS·FERN','SDF·META','KALEIDO','FFT·HOLO','MULTIBROT','LOTKA·VOLT'][mode];
+  document.getElementById('hpal').textContent='PALETTE: '+PAL_NAMES[(palIdx+1)%4];
+  if(soundEnabled) triggerSoundEvent();
+}
+
+// ── Rendering ──────────────────────────────────────────────────────────────────
+// Pixel write
+function setPixel(x,y,r,g,b,a){
+  x=floor(x); y=floor(y);
+  if(x<0||x>=W||y<0||y>=H) return;
+  const i=(y*W+x)*4;
+  pixels[i]=clamp(r,0,255);
+  pixels[i+1]=clamp(g,0,255);
+  pixels[i+2]=clamp(b,0,255);
+  pixels[i+3]=clamp(a,0,255);
+}
+
+function addPixel(x,y,r,g,b,a){
+  x=floor(x); y=floor(y);
+  if(x<0||x>=W||y<0||y>=H) return;
+  const i=(y*W+x)*4;
+  pixels[i]=clamp(pixels[i]+r,0,255);
+  pixels[i+1]=clamp(pixels[i+1]+g,0,255);
+  pixels[i+2]=clamp(pixels[i+2]+b,0,255);
+  pixels[i+3]=255;
+}
+
+// Fade frame
+function fadeFrame(amount){
+  const len=pixels.length;
+  for(let i=0;i<len;i+=4){
+    pixels[i]=pixels[i]*amount;
+    pixels[i+1]=pixels[i+1]*amount;
+    pixels[i+2]=pixels[i+2]*amount;
+    pixels[i+3]=255;
+  }
+}
+
+// ── Mode 0: IFS Fern + Möbius warp ────────────────────────────────────────────
+function renderIFS(){
+  const s=Math.min(W,H)*0.085;
+  const ox=cx-s*0.5, oy=cy+s*10;
+  // Möbius params animated
+  const mt=t*0.003;
+  const ar=cos(mt),ai=sin(mt)*0.3;
+  const br=0.1*sin(mt*1.3),bi=0.1*cos(mt*0.7);
+  const cr=0.05*cos(mt*2.1),ci=0.05*sin(mt*1.7);
+  const dr=1,di=0;
+
+  const len=ifsPoints.length/2;
+  for(let i=0;i<len;i++){
+    let px=ifsPoints[i*2], py=ifsPoints[i*2+1];
+    // apply Möbius
+    [px,py]=mobius(px*0.12,py*0.12,ar,ai,br,bi,cr,ci,dr,di);
+    px=px*s*8+ox; py=-py*s*8+oy;
+    // E8-like radial symmetry
+    const angle=atan2(py-cy,px-cx);
+    const dist=len2(px-cx,py-cy);
+    const kN=8, kAngle=(angle/TAU)*kN;
+    const kFold=kAngle-floor(kAngle);
+    const ka=(kFold<0.5?kFold:1-kFold)*TAU/kN;
+    const fx=cx+dist*cos(ka+floor(kAngle)*TAU/kN);
+    const fy=cy+dist*sin(ka+floor(kAngle)*TAU/kN);
+    const v=fract((i/len)+t*0.001);
+    const [r,g,b]=blendPalette(v);
+    addPixel(fx,fy,r*0.6,g*0.6,b*0.6,200);
+  }
+}
+
+// ── Mode 1: SDF Metaballs + Hamiltonian orbit ──────────────────────────────────
+function renderMeta(){
+  const step=dpr>1?2:1;
+  // Update metaball positions (Hamiltonian-like)
+  const dt=0.016;
+  for(let m of metaballs){
+    m.phase+=dt*m.speed;
+    // Hamiltonian circular orbit + drift
+    const baseAngle=m.phase;
+    const baseR=len2(m.px,m.py)||0.01;
+    const newAngle=atan2(m.py,m.px)+dt*m.speed*2/baseR;
+    const decay=0.9998;
+    m.px=m.px*decay+rng(-0.3,0.3);
+    m.py=m.py*decay+rng(-0.3,0.3);
+    const r2=len2(m.px,m.py);
+    if(r2>0.4*Math.min(W,H)){m.px*=0.95;m.py*=0.95;}
+    m.x=cx+m.px;
+    m.y=cy+m.py;
+    m.px+=(-m.py*0.01*m.speed);
+    m.py+=(m.px*0.01*m.speed);
+  }
+  for(let y=0;y<H;y+=step){
+    for(let x=0;x<W;x+=step){
+      let sum=0;
+      for(let m of metaballs){
+        const dx=x-m.x, dy=y-m.y;
+        const d2=dx*dx+dy*dy;
+        sum+=m.r*m.r/(d2+1);
+      }
+      if(sum>0.5){
+        const v=clamp((sum-0.5)*0.4,0,1);
+        const colorV=fract(sum*0.08+t*0.0005);
+        const [r,g,b]=blendPalette(colorV);
+        const bright=v*(0.7+0.3*sin(sum*5+t*0.02));
+        setPixel(x,y,r*bright,g*bright,b*bright,255);
+        if(step>1){setPixel(x+1,y,r*bright,g*bright,b*bright,255);
+        setPixel(x,y+1,r*bright,g*bright,b*bright,255);
+        setPixel(x+1,y+1,r*bright,g*bright,b*bright,255);}
+      }
+    }
+  }
+}
+
+// ── Mode 2: Kaleidoscope + E8 reflections ─────────────────────────────────────
+function renderKaleido(){
+  const step=dpr>1?2:1;
+  const maxR=Math.min(W,H)*0.5;
+  symA+=0.0003;
+  for(let y=0;y<H;y+=step){
+    for(let x=0;x<W;x+=step){
+      let ux=x-cx, uy=y-cy;
+      const dist=len2(ux,uy);
+      const angle=atan2(uy,ux)+symA;
+      // Kaleidoscopic fold
+      const sector=TAU/symN;
+      let a2=((angle%sector)+sector)%sector;
+      if(a2>sector/2) a2=sector-a2;
+      const fx=cos(a2)*dist;
+      const fy=sin(a2)*dist;
+      // E8 root system: 8-fold inner symmetry
+      const a3=atan2(fy,fx);
+      const sector2=PI/4;
+      let a4=((a3%sector2)+sector2)%sector2;
+      if(a4>sector2/2) a4=sector2-a4;
+      const gx=cos(a4)*len2(fx,fy);
+      const gy=sin(a4)*len2(fx,fy);
+      // Modular arithmetic pattern (prime-derived)
+      const pr=PRIMES[floor(dist/maxR*PRIMES.length)%PRIMES.length]||7;
+      const v=fract((gx*0.003+gy*0.003)*pr+t*0.0002+dist*0.001);
+      const [r,g,b]=blendPalette(v);
+      const bright=0.6+0.4*sin(dist*0.05+t*0.01)*sin(a4*8);
+      setPixel(x,y,r*bright,g*bright,b*bright,255);
+      if(step>1){setPixel(x+1,y,r*bright,g*bright,b*bright,255);
+      setPixel(x,y+1,r*bright,g*bright,b*bright,255);
+      setPixel(x+1,y+1,r*bright,g*bright,b*bright,255);}
+    }
+  }
+}
+
+// ── Mode 3: FFT holographic diffraction ───────────────────────────────────────
+function renderFFT(){
+  const step=dpr>1?2:1;
+  // Evolve wave
+  for(let i=0;i<fftWave.length;i++){
+    fftWave[i]+=rng(-0.02,0.02);
+    fftWave[i]*=0.995;
+  }
+  for(let y=0;y<H;y+=step){
+    for(let x=0;x<W;x+=step){
+      const ux=(x-cx)/Math.min(W,H);
+      const uy=(y-cy)/Math.min(W,H);
+      const dist=len2(ux,uy);
+      const angle=atan2(uy,ux);
+      // FFT-domain holographic: sum of sinusoids from prime harmonics
+      let sum=0;
+      for(let k=0;k<8;k++){
+        const p=PRIMES[k];
+        const fk=fftWave[k*3%fftWave.length]||0;
+        sum+=sin(dist*p*8+angle*p+t*0.01*k+fk*3)*fk;
+      }
+      // Interference rings
+      const ring=sin(dist*40+t*0.03)*sin(angle*7+t*0.007);
+      const v=fract(sum*0.3+ring*0.2+0.5);
+      const [r,g,b]=blendPalette(v);
+      const bright=clamp(0.3+abs(sum)*0.6+abs(ring)*0.3,0,1);
+      setPixel(x,y,r*bright,g*bright,b*bright,255);
+      if(step>1){setPixel(x+1,y,r*bright,g*bright,b*bright,255);
+      setPixel(x,y+1,r*bright,g*bright,b*bright,255);
+      setPixel(x+1,y+1,r*bright,g*bright,b*bright,255);}
+    }
+  }
+}
+
+// ── Mode 4: Multibrot escape time ────────────────────────────────────────────
+const MAX_ITER=128;
+function renderMandel(){
+  const step=dpr>1?3:2;
+  mbZoom*=1.002;
+  if(mbZoom>50){mbZoom=0.4;mbCx=rng(-0.8,0.8);mbCy=rng(-0.8,0.8);mbPow=floor(rng(2,8));}
+  const scale=2.5/mbZoom;
+  for(let y=0;y<H;y+=step){
+    for(let x=0;x<W;x+=step){
+      let cr2=(x-cx)/(Math.min(W,H)*0.5)*scale+mbCx;
+      let ci2=(y-cy)/(Math.min(W,H)*0.5)*scale+mbCy;
+      let zr=0,zi=0,n=0;
+      while(n<MAX_ITER && zr*zr+zi*zi<4){
+        // z = z^p + c (complex power)
+        const p=mbPow;
+        let zrn=zr,zin=zi;
+        for(let k=1;k<p;k++){
+          const nzr=zrn*zr-zin*zi;
+          const nzi=zrn*zi+zin*zr;
+          zrn=nzr;zin=nzi;
+        }
+        zr=zrn+cr2; zi=zin+ci2;
+        n++;
+      }
+      if(n<MAX_ITER){
+        const smooth=n+1-log(log(sqrt(zr*zr+zi*zi)))/log(mbPow);
+        const v=fract(smooth*0.04+t*0.0003);
+        const [r,g,b]=blendPalette(v);
+        const bright=0.5+0.5*sin(smooth*0.3);
+        for(let dy=0;dy<step;dy++)for(let dx=0;dx<step;dx++)
+          setPixel(x+dx,y+dy,r*bright,g*bright,b*bright,255);
+      } else {
+        for(let dy=0;dy<step;dy++)for(let dx=0;dx<step;dx++)
+          setPixel(x+dx,y+dy,0,0,0,255);
+      }
+    }
+  }
+}
+
+// ── Mode 5: Lotka–Volterra tessellation ───────────────────────────────────────
+function renderLotka(){
+  const {a,b,c,d}=lotkaState;
+  let {prey,pred}=lotkaState;
+  // Runge-Kutta step
+  const dt=0.01;
+  for(let i=0;i<3;i++){
+    const dprey=prey*(a-b*pred);
+    const dpred=pred*(c*prey-d);
+    prey=clamp(prey+dt*dprey,0.01,5);
+    pred=clamp(pred+dt*dpred,0.01,5);
+  }
+  lotkaState.prey=prey; lotkaState.pred=pred;
+  if(lotkaState.pts.length>lotkaState.maxPts*2) lotkaState.pts.splice(0,2);
+  lotkaState.pts.push(prey,pred);
+  const step=dpr>1?2:1;
+  for(let y=0;y<H;y+=step){
+    for(let x=0;x<W;x+=step){
+      const ux=(x-cx)/cx, uy=(y-cy)/cy;
+      // Voronoi-ish driven by LV oscillator
+      const angle=atan2(uy,ux);
+      const dist=len2(ux,uy);
+      const lv=sin(prey*angle*3+pred*dist*5+t*0.002);
+      const lv2=cos(pred*angle*2+prey*dist*4+t*0.003);
+      // Cell boundary sharpening
+      const cell=floor(atan2(sin(angle*prey*3+t*0.002),cos(angle*pred*3+t*0.002))*4/PI);
+      const v=fract(lv*0.3+lv2*0.2+cell*0.12+dist*0.3+t*0.0003);
+      const bright=0.4+0.6*abs(lv)*abs(lv2);
+      const [r,g,b]=blendPalette(v);
+      setPixel(x,y,r*bright,g*bright,b*bright,255);
+      if(step>1){setPixel(x+1,y,r*bright,g*bright,b*bright,255);
+      setPixel(x,y+1,r*bright,g*bright,b*bright,255);
+      setPixel(x+1,y+1,r*bright,g*bright,b*bright,255);}
+    }
+  }
+  // Draw LV phase portrait
+  const pts=lotkaState.pts;
+  const px2=4/5*W, py2=H*0.15, pw=W*0.12, ph=H*0.1;
+  for(let i=2;i<pts.length;i+=2){
+    const px3=px2+pts[i]*pw/5;
+    const py3=py2-pts[i+1]*ph/5;
+    const v=i/pts.length;
+    const [r,g,b]=blendPalette(v+0.5);
+    addPixel(px3,py3,r,g,b,200);
+  }
+}
+
+// ── Composite particle sparks (always) ────────────────────────────────────────
+let sparks=[];
+function initSparks(){
+  sparks=[];
+  for(let i=0;i<40;i++){
+    const angle=rng(0,TAU);
+    const speed=rng(1,4)*dpr;
+    sparks.push({
+      x:cx+rng(-cx*0.5,cx*0.5),
+      y:cy+rng(-cy*0.5,cy*0.5),
+      vx:cos(angle)*speed,vy:sin(angle)*speed,
+      life:1,decay:rng(0.005,0.02),
+      v:rng(0,1)
+    });
+  }
+}
+function updateSparks(){
+  for(let s of sparks){
+    s.x+=s.vx; s.y+=s.vy;
+    s.vy+=0.02*dpr;
+    s.life-=s.decay;
+    if(s.life<=0){
+      const angle=rng(0,TAU);
+      const speed=rng(1,4)*dpr;
+      s.x=cx+rng(-cx*0.5,cx*0.5);
+      s.y=cy+rng(-cy*0.5,cy*0.5);
+      s.vx=cos(angle)*speed; s.vy=sin(angle)*speed;
+      s.life=1; s.decay=rng(0.005,0.02);
+      s.v=rng(0,1);
+    }
+    const [r,g,b]=blendPalette(fract(s.v+t*0.0002));
+    const bright=s.life;
+    addPixel(s.x,s.y,r*bright*1.5,g*bright*1.5,b*bright*1.5,200);
+    addPixel(s.x+1,s.y,r*bright*0.5,g*bright*0.5,b*bright*0.5,200);
+    addPixel(s.x,s.y+1,r*bright*0.5,g*bright*0.5,b*bright*0.5,200);
+  }
+}
+
+// ── Audio ──────────────────────────────────────────────────────────────────────
+function initAudio(){
+  if(audioCtx) return;
+  audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+  masterGain=audioCtx.createGain();
+  masterGain.gain.value=0.15;
+  masterGain.connect(audioCtx.destination);
+  // Reverb (convolver with noise impulse)
+  const len2=audioCtx.sampleRate*1.5;
+  const ir=audioCtx.createBuffer(2,len2,audioCtx.sampleRate);
+  for(let c=0;c<2;c++){
+    const ch=ir.getChannelData(c);
+    for(let i=0;i<len2;i++) ch[i]=(rng(-1,1))*pow(1-i/len2,2.5);
+  }
+  reverbNode=audioCtx.createConvolver();
+  reverbNode.buffer=ir;
+  const rvGain=audioCtx.createGain(); rvGain.gain.value=0.35;
+  reverbNode.connect(rvGain); rvGain.connect(masterGain);
+  // Delay
+  delayNode=audioCtx.createDelay(0.5);
+  delayNode.delayTime.value=0.25;
+  const fbGain=audioCtx.createGain(); fbGain.gain.value=0.4;
+  delayNode.connect(fbGain); fbGain.connect(delayNode);
+  delayNode.connect(masterGain);
+  startFMBank();
+}
+
+function startFMBank(){
+  fmOscs.forEach(o=>{try{o.osc&&o.osc.stop();o.mod&&o.mod.stop();}catch(e){}});
+  fmOscs=[];
+  const n=5;
+  for(let i=0;i<n;i++){
+    const carrier=audioCtx.createOscillator();
+    const modulator=audioCtx.createOscillator();
+    const modGain=audioCtx.createGain();
+    const gainNode=audioCtx.createGain();
+    const freq=FIB_FREQS[i%FIB_FREQS.length]*(0.5+rng(0,0.5));
+    carrier.frequency.value=freq;
+    modulator.frequency.value=freq*PRIMES[i%PRIMES.length]*0.5;
+    modGain.gain.value=freq*rng(0.5,3);
+    gainNode.gain.value=0.04+rng(0,0.04);
+    modulator.connect(modGain);
+    modGain.connect(carrier.frequency);
+    carrier.connect(gainNode);
+    gainNode.connect(masterGain);
+    gainNode.connect(reverbNode);
+    gainNode.connect(delayNode);
+    // Chaotic LFO
+    const lfo=audioCtx.createOscillator();
+    const lfoGain=audioCtx.createGain();
+    lfo.frequency.value=rng(0.05,0.5);
+    lfoGain.gain.value=freq*rng(0.01,0.1);
+    lfo.connect(lfoGain); lfoGain.connect(carrier.frequency);
+    lfo.start(); carrier.start(); modulator.start();
+    fmOscs.push({osc:carrier,mod:modulator,gain:gainNode,freq});
+  }
+  // Granular cloud: random short tones
+  spawnGranular();
+}
+
+function spawnGranular(){
+  if(!audioCtx||!soundEnabled) return;
+  const src=audioCtx.createOscillator();
+  const env=audioCtx.createGain();
+  const freq=FIB_FREQS[floor(rng(0,FIB_FREQS.length))]*(0.25+rng(0,1));
+  src.frequency.value=freq;
+  src.type=['sine','triangle','sawtooth'][floor(rng(0,3))];
+  env.gain.setValueAtTime(0,audioCtx.currentTime);
+  env.gain.linearRampToValueAtTime(0.06,audioCtx.currentTime+0.02);
+  env.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+rng(0.05,0.4));
+  src.connect(env); env.connect(masterGain); env.connect(reverbNode);
+  src.start(); src.stop(audioCtx.currentTime+0.5);
+  setTimeout(spawnGranular, rng(60,400));
+}
+
+function triggerSoundEvent(){
+  if(!audioCtx||!soundEnabled) return;
+  // Re-tune FM bank on mode change
+  fmOscs.forEach((o,i)=>{
+    const freq=FIB_FREQS[i%FIB_FREQS.length]*(0.5+rng(0,1));
+    o.osc.frequency.setTargetAtTime(freq,audioCtx.currentTime,0.1);
+  });
+}
+
+function toggleSound(){
+  soundEnabled=!soundEnabled;
+  if(soundEnabled){
+    initAudio();
+    if(audioCtx.state==='suspended') audioCtx.resume();
+    masterGain.gain.setTargetAtTime(0.15,audioCtx.currentTime,0.3);
+  } else {
+    if(masterGain) masterGain.gain.setTargetAtTime(0,audioCtx.currentTime,0.3);
+  }
+}
+
+// ── Main loop ──────────────────────────────────────────────────────────────────
+let prevT=0;
+function render(now){
+  const dt=now-prevT; prevT=now;
+  // FPS
+  fpsArr.push(1000/dt);
+  if(fpsArr.length>30) fpsArr.shift();
+  if(frame%30===0){
+    const avg=fpsArr.reduce((a,b)=>a+b,0)/fpsArr.length;
+    document.getElementById('hfps').textContent='FPS: '+avg.toFixed(0);
+  }
+  t+=1;
+  frame++;
+  palT+=0.0015;
+  if(palT>=1){palT=0;palIdx=(palIdx+1)%4;document.getElementById('hpal').textContent='PALETTE: '+PAL_NAMES[palIdx];}
+  modeTimer++;
+  if(modeTimer>modeDuration){
+    mode=(mode+1)%6;
+    modeTimer=0;
+    modeDuration=300+floor(rng(0,300));
+    document.getElementById('hmode').textContent='MODE: '+['IFS·FERN','SDF·META','KALEIDO','FFT·HOLO','MULTIBROT','LOTKA·VOLT'][mode];
+    if(soundEnabled) triggerSoundEvent();
+  }
+  // Fade
+  const fadeAmt=[0.85,1,1,1,1,1][mode];
+  if(mode===0) fadeFrame(0.88);
+  else if(mode===3||mode===2||mode===4||mode===5){} // full clear done per-pixel
+  // Clear for full-coverage modes
+  if(mode===2||mode===3||mode===4||mode===5){
+    for(let i=0;i<pixels.length;i+=4){pixels[i]=0;pixels[i+1]=0;pixels[i+2]=0;pixels[i+3]=255;}
+  }
+  if(mode===1){
+    for(let i=0;i<pixels.length;i+=4){pixels[i]=0;pixels[i+1]=0;pixels[i+2]=0;pixels[i+3]=255;}
+  }
+
+  // Render mode
+  if(mode===0) renderIFS();
+  else if(mode===1) renderMeta();
+  else if(mode===2) renderKaleido();
+  else if(mode===3) renderFFT();
+  else if(mode===4) renderMandel();
+  else if(mode===5) renderLotka();
+
+  updateSparks();
+  ctx.putImageData(imgData,0,0);
+
+  // Overlay glow passes via ctx
+  // Animated title glow
+  if(hudVisible&&frame%2===0){
+    ctx.save();
+    const grd=ctx.createRadialGradient(cx,cy,0,cx,cy,Math.min(W,H)*0.5);
+    const [pr,pg,pb]=blendPalette(fract(t*0.001));
+    grd.addColorStop(0,`rgba(${pr|0},${pg|0},${pb|0},0.04)`);
+    grd.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle=grd;
+    ctx.fillRect(0,0,W,H);
+    ctx.restore();
+  }
+
+  requestAnimationFrame(render);
+}
+
+// ── Boot ───────────────────────────────────────────────────────────────────────
+initIFS(); initMeta(); initLotka(); initMandel(); initKaleido(); initFFT();
+initSparks();
+requestAnimationFrame(t=>{prevT=t;requestAnimationFrame(render);});
+
+// ── Events ────────────────────────────────────────────────────────────────────
+window.addEventListener('keydown',e=>{
+  if(e.code==='Space'){e.preventDefault();fullRandomize();}
+  if(e.key==='h'||e.key==='H'){hudVisible=!hudVisible;hud.classList.toggle('hidden');}
+  if(e.key==='s'||e.key==='S'){toggleSound();}
+});
+window.addEventListener('click',()=>fullRandomize());
+window.addEventListener('touchstart',e=>{e.preventDefault();fullRandomize();},{passive:false});
+
+})();
+</script>
+</body>
+</html>

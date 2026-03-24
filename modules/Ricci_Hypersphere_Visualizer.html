@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Ricci Hypersphere Visualizer</title>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no">
+<style>
+html,body{
+    margin:0;
+    padding:0;
+    overflow:hidden;
+    background:black;
+    touch-action:none;
+}
+canvas{
+    display:block;
+}
+#hud{
+    position:fixed;
+    top:10px;
+    left:10px;
+    color:#0ff;
+    font-family:monospace;
+    font-size:12px;
+    background:rgba(0,0,0,0.4);
+    padding:10px;
+    border-radius:8px;
+}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="hud"></div>
+
+<script>
+const canvas = document.getElementById("gl");
+const gl = canvas.getContext("webgl2");
+let hud = document.getElementById("hud");
+
+function resize(){
+    canvas.width = innerWidth;
+    canvas.height = innerHeight;
+    gl.viewport(0,0,canvas.width,canvas.height);
+}
+resize();
+addEventListener("resize",resize);
+
+const vs = `#version 300 es
+precision highp float;
+in vec2 position;
+void main(){
+    gl_Position = vec4(position,0.,1.);
+}
+`;
+
+const fs = `#version 300 es
+precision highp float;
+out vec4 fragColor;
+uniform float time;
+uniform vec2 res;
+uniform vec4 seed;
+uniform float audioAmp;
+uniform int kalei;
+
+#define MAX_STEPS 90
+#define MAX_DIST 40.
+#define SURF_DIST 0.001
+
+float hash(vec3 p){
+    return fract(sin(dot(p,vec3(127.1,311.7,74.7)))*43758.5453);
+}
+
+float noise(vec3 p){
+    vec3 i=floor(p);
+    vec3 f=fract(p);
+    f=f*f*(3.-2.*f);
+    float n=mix(mix(mix(hash(i+vec3(0,0,0)),hash(i+vec3(1,0,0)),f.x),
+                    mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),f.x),f.y),
+                mix(mix(hash(i+vec3(0,0,1)),hash(i+vec3(1,0,1)),f.x),
+                    mix(hash(i+vec3(0,1,1)),hash(i+vec3(1,1,1)),f.x),f.y),f.z);
+    return n;
+}
+
+float legendre(float x){
+    return 0.5*(3.*x*x-1.);
+}
+
+mat2 ricci(float t){
+    float a=sin(t*0.3+seed.x)*0.5;
+    float b=cos(t*0.2+seed.y)*0.5;
+    return mat2(1.+a,b,b,1.-a);
+}
+
+vec4 quatRot(vec4 q, vec4 p){
+    return vec4(
+        q.x*p.w + q.w*p.x + q.y*p.z - q.z*p.y,
+        q.y*p.w + q.w*p.y + q.z*p.x - q.x*p.z,
+        q.z*p.w + q.w*p.z + q.x*p.y - q.y*p.x,
+        q.w*p.w - dot(q.xyz,p.xyz)
+    );
+}
+
+vec3 stereographic(vec4 p){
+    return p.xyz/(1.-p.w);
+}
+
+float sdSphere(vec3 p,float r){
+    return length(p)-r;
+}
+
+float map(vec3 p){
+    float t=time*0.4;
+    mat2 g=ricci(t);
+    p.xy=g*p.xy;
+
+    float l=legendre(p.z);
+    float osc=sin(t*2.+l*4.)*0.2;
+
+    float fractal=0.;
+    vec2 z=p.xy;
+    for(int i=0;i<5;i++){
+        z=vec2(z.x*z.x - z.y*z.y,2.*z.x*z.y)+seed.xy*0.3;
+        fractal+=exp(-length(z));
+    }
+
+    float rd=noise(p*2.+t);
+    float plasma=sin(p.x*4.+rd*6.+t)*sin(p.y*3.-t);
+
+    float d=sdSphere(p,1.2+osc+fractal*0.2+plasma*0.1);
+    return d;
+}
+
+vec3 getNormal(vec3 p){
+    vec2 e=vec2(0.001,0);
+    return normalize(vec3(
+        map(p+e.xyy)-map(p-e.xyy),
+        map(p+e.yxy)-map(p-e.yxy),
+        map(p+e.yyx)-map(p-e.yyx)
+    ));
+}
+
+vec3 hsv2rgb(vec3 c){
+    vec3 p=abs(fract(c.xxx+vec3(0.,2./3.,1./3.))*6.-3.);
+    return c.z*mix(vec3(1.),clamp(p-1.,0.,1.),c.y);
+}
+
+float sigmoid(float x){
+    return 1./(1.+exp(-x));
+}
+
+void main(){
+    vec2 uv=(gl_FragCoord.xy*2.-res)/min(res.x,res.y);
+    vec3 ro=vec3(0,0,4);
+    vec3 rd=normalize(vec3(uv,-1.5));
+
+    float dO=0.;
+    float dS=0.;
+    for(int i=0;i<MAX_STEPS;i++){
+        vec3 p=ro+rd*dO;
+        dS=map(p);
+        dO+=dS;
+        if(dO>MAX_DIST||abs(dS)<SURF_DIST)break;
+    }
+
+    vec3 col=vec3(0);
+    if(dO<MAX_DIST){
+        vec3 p=ro+rd*dO;
+        vec3 n=getNormal(p);
+        float diff=dot(n,normalize(vec3(0.4,0.7,0.6)));
+        float spec=pow(max(dot(reflect(rd,n),vec3(0,0,-1)),0.),8.);
+        float h=fract(dO*0.15+time*0.05+seed.z);
+        float s=0.8;
+        float v=0.9;
+        vec3 hsv=vec3(h,s,v);
+        col=hsv2rgb(hsv);
+        col=mix(col,col.yzx,sigmoid(diff*3.));
+        col+=spec;
+    }
+
+    if(kalei==1){
+        uv=abs(uv);
+        col*=1.+sin(uv.x*6.+time)*0.2;
+    }
+
+    col*=1.+audioAmp*0.8;
+    fragColor=vec4(col,1);
+}
+`;
+
+function compile(type,src){
+    let s=gl.createShader(type);
+    gl.shaderSource(s,src);
+    gl.compileShader(s);
+    return s;
+}
+let program=gl.createProgram();
+gl.attachShader(program,compile(gl.VERTEX_SHADER,vs));
+gl.attachShader(program,compile(gl.FRAGMENT_SHADER,fs));
+gl.bindAttribLocation(program,0,"position");
+gl.linkProgram(program);
+
+let quad=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,quad);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([
+-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+
+gl.useProgram(program);
+gl.enableVertexAttribArray(0);
+gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
+
+let timeLoc=gl.getUniformLocation(program,"time");
+let resLoc=gl.getUniformLocation(program,"res");
+let seedLoc=gl.getUniformLocation(program,"seed");
+let audioLoc=gl.getUniformLocation(program,"audioAmp");
+let kaleiLoc=gl.getUniformLocation(program,"kalei");
+
+let seed=[Math.random(),Math.random(),Math.random(),Math.random()];
+let kalei=1;
+let showHUD=true;
+let soundOn=false;
+let audioCtx, analyser, data;
+
+function initAudio(){
+    audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+    let osc=audioCtx.createOscillator();
+    let gain=audioCtx.createGain();
+    analyser=audioCtx.createAnalyser();
+    analyser.fftSize=256;
+    data=new Uint8Array(analyser.frequencyBinCount);
+    osc.type="sine";
+    osc.frequency.value=220;
+    gain.gain.value=0.2;
+    osc.connect(gain).connect(analyser).connect(audioCtx.destination);
+    osc.start();
+}
+
+function randomize(){
+    seed=[Math.random(),Math.random(),Math.random(),Math.random()];
+    kalei=Math.random()>0.5?1:0;
+}
+
+addEventListener("keydown",e=>{
+    if(e.code==="Space")randomize();
+    if(e.key==="h"||e.key==="H")showHUD=!showHUD;
+    if(e.key==="s"||e.key==="S"){
+        soundOn=!soundOn;
+        if(soundOn&&!audioCtx)initAudio();
+        if(audioCtx){
+            if(soundOn)audioCtx.resume();
+            else audioCtx.suspend();
+        }
+    }
+});
+
+canvas.addEventListener("click",randomize);
+
+document.documentElement.requestFullscreen?.();
+
+let start=performance.now();
+function loop(){
+    let t=(performance.now()-start)/1000;
+    gl.uniform1f(timeLoc,t);
+    gl.uniform2f(resLoc,canvas.width,canvas.height);
+    gl.uniform4fv(seedLoc,seed);
+
+    let amp=0.;
+    if(soundOn && analyser){
+        analyser.getByteFrequencyData(data);
+        let sum=0;
+        for(let i=0;i<data.length;i++)sum+=data[i];
+        amp=sum/data.length/255.;
+    }
+    gl.uniform1f(audioLoc,amp);
+    gl.uniform1i(kaleiLoc,kalei);
+
+    gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+
+    if(showHUD){
+        hud.innerHTML=
+        "RICCI HYPERSPHERE\n"+
+        "SPACE/CLICK: Randomize\n"+
+        "H: Toggle HUD\n"+
+        "S: Toggle Sound\n"+
+        "Audio: "+(soundOn?"ON":"OFF");
+        hud.style.display="block";
+    } else hud.style.display="none";
+
+    requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>

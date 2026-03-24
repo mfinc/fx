@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Ricci Flow Dreamscape Oscillator</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Ricci Flow Dreamscape Oscillator — a real-time GPU kaleidoscopic audiovisual manifold simulation blending Ricci curvature approximations, spherical harmonics, Bessel radial modes, reaction–diffusion morphogenesis and harmonic spectral rotations.">
+<meta name="keywords" content="Ricci flow, Riemannian manifold, spherical harmonics, Bessel functions, kaleidoscope shader, reaction diffusion, procedural audio, eigenfrequency synthesis, WebGL">
+<style>
+html,body{margin:0;padding:0;background:#000;overflow:hidden;font-family:monospace}
+canvas{position:fixed;top:0;left:0;width:100%;height:100%}
+#hud{
+position:fixed;
+top:10px;
+left:10px;
+color:#0ff;
+font-size:12px;
+background:rgba(0,0,0,0.4);
+padding:8px;
+border-radius:6px;
+display:none;
+}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="hud">
+Ricci Flow Dreamscape Oscillator<br>
+SPACE / Click → Randomize<br>
+S → Toggle Audio<br>
+H → Toggle HUD
+</div>
+
+<script>
+const canvas=document.getElementById("gl");
+const gl=canvas.getContext("webgl",{antialias:false});
+let dpr=Math.min(window.devicePixelRatio||1,1.5);
+function resize(){
+canvas.width=innerWidth*dpr;
+canvas.height=innerHeight*dpr;
+gl.viewport(0,0,canvas.width,canvas.height);
+}
+resize();
+window.addEventListener("resize",resize);
+
+const vert=`
+attribute vec2 p;
+void main(){gl_Position=vec4(p,0.,1.);}
+`;
+
+const frag=`
+precision highp float;
+uniform vec2 r;
+uniform float t;
+uniform vec4 seed;
+
+float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453123);}
+
+float bessel(float x){
+return sin(x)/x;
+}
+
+vec3 spectral(float x){
+vec3 c=0.5+0.5*cos(6.28318*(vec3(0.,.33,.66)+x));
+return c;
+}
+
+float reaction(vec2 uv,float time){
+float a=sin(uv.x*seed.x+time*0.4);
+float b=cos(uv.y*seed.y-time*0.3);
+return sin(a*b*3.0+time*0.5);
+}
+
+float spherical(vec2 uv){
+float r=length(uv);
+float theta=atan(uv.y,uv.x);
+return sin(seed.z*r*4.0)*cos(theta*seed.w);
+}
+
+void main(){
+vec2 uv=(gl_FragCoord.xy/r-0.5)*2.0;
+float ang=atan(uv.y,uv.x);
+float rad=length(uv);
+float k=6.0+floor(seed.x*6.0);
+ang=mod(ang,6.28318/k);
+ang=abs(ang-3.14159/k);
+uv=vec2(cos(ang),sin(ang))*rad;
+
+float ricci=sin(rad*seed.x - t*0.6);
+ricci+=bessel(rad*seed.y*8.0);
+ricci+=spherical(uv);
+ricci+=reaction(uv,t);
+
+float curvature=sin(ricci*3.0+t*0.3);
+float hue=curvature*0.2+t*0.05;
+vec3 col=spectral(hue);
+
+col*=1.0-rad*0.6;
+gl_FragColor=vec4(col,1.0);
+}
+`;
+
+function compile(type,src){
+let s=gl.createShader(type);
+gl.shaderSource(s,src);
+gl.compileShader(s);
+return s;
+}
+const prog=gl.createProgram();
+gl.attachShader(prog,compile(gl.VERTEX_SHADER,vert));
+gl.attachShader(prog,compile(gl.FRAGMENT_SHADER,frag));
+gl.linkProgram(prog);
+gl.useProgram(prog);
+
+const buf=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([
+-1,-1,1,-1,-1,1,1,1
+]),gl.STATIC_DRAW);
+
+const loc=gl.getAttribLocation(prog,"p");
+gl.enableVertexAttribArray(loc);
+gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+
+const uR=gl.getUniformLocation(prog,"r");
+const uT=gl.getUniformLocation(prog,"t");
+const uSeed=gl.getUniformLocation(prog,"seed");
+
+let seedVals=[Math.random()*4,Math.random()*4,Math.random()*4,Math.random()*4];
+
+function randomize(){
+seedVals=[Math.random()*4,Math.random()*4,Math.random()*4,Math.random()*4];
+}
+window.addEventListener("click",randomize);
+window.addEventListener("keydown",e=>{
+if(e.code==="Space")randomize();
+if(e.key==="h"||e.key==="H"){
+hud.style.display=hud.style.display==="none"?"block":"none";
+}
+if(e.key==="s"||e.key==="S"){
+toggleAudio();
+}
+});
+
+let start=performance.now();
+function render(){
+let time=(performance.now()-start)/1000;
+gl.uniform2f(uR,canvas.width,canvas.height);
+gl.uniform1f(uT,time);
+gl.uniform4f(uSeed,seedVals[0],seedVals[1],seedVals[2],seedVals[3]);
+gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+requestAnimationFrame(render);
+}
+render();
+
+/* -------- Procedural Audio (Default OFF) -------- */
+let audioCtx=null;
+let masterGain=null;
+let osc=null;
+let analyser=null;
+let audioOn=false;
+
+function toggleAudio(){
+if(audioOn){
+audioCtx.close();
+audioCtx=null;
+audioOn=false;
+return;
+}
+audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+masterGain=audioCtx.createGain();
+masterGain.gain.value=0.2;
+masterGain.connect(audioCtx.destination);
+
+osc=audioCtx.createOscillator();
+let mod=audioCtx.createOscillator();
+let modGain=audioCtx.createGain();
+mod.frequency.value=120;
+modGain.gain.value=80;
+mod.connect(modGain);
+modGain.connect(osc.frequency);
+
+osc.type="sine";
+osc.frequency.value=220+seedVals[0]*110;
+
+let convolver=audioCtx.createConvolver();
+let ir=audioCtx.createBuffer(2,22050,audioCtx.sampleRate);
+for(let c=0;c<2;c++){
+let ch=ir.getChannelData(c);
+for(let i=0;i<22050;i++){
+ch[i]=(Math.random()*2-1)*(1-i/22050);
+}
+}
+convolver.buffer=ir;
+
+osc.connect(convolver);
+convolver.connect(masterGain);
+
+osc.start();
+mod.start();
+audioOn=true;
+}
+</script>
+</body>
+</html>

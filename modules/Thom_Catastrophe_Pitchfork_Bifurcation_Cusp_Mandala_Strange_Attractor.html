@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0">
+<title>Thom Catastrophe Pitchfork Bifurcation Cusp Mandala Strange Attractor</title>
+<meta name="description" content="Elementary catastrophe theory pitchfork bifurcation strange attractor visualization Thom cusp butterfly interactive generative art">
+<meta name="keywords" content="catastrophe theory,René Thom,pitchfork bifurcation,strange attractor,Rössler,Shilnikov,cusp catastrophe,butterfly catastrophe,swallowtail,umbilic,generative art,WebGL2,interactive mathematics,Lissajous,Lyapunov">
+<meta name="author" content="Thom Catastrophe Generative System">
+<meta name="robots" content="index,follow">
+<meta property="og:title" content="Thom Catastrophe Pitchfork Bifurcation Cusp Mandala Strange Attractor">
+<meta property="og:description" content="Elementary catastrophe theory pitchfork bifurcation strange attractor visualization Thom cusp butterfly interactive generative art">
+<meta property="og:type" content="website">
+<meta property="og:image" content="https://og.example.com/thom-catastrophe.png">
+<meta property="og:url" content="https://example.com/thom-catastrophe">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Thom Catastrophe Pitchfork Bifurcation Cusp Mandala Strange Attractor">
+<meta name="twitter:description" content="Elementary catastrophe theory pitchfork bifurcation strange attractor visualization Thom cusp butterfly interactive generative art">
+<meta name="twitter:image" content="https://og.example.com/thom-catastrophe.png">
+<meta name="twitter:creator" content="@ThomCatastrophe">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;background:#000;overflow:hidden;cursor:crosshair}
+canvas{display:block;width:100vw;height:100vh}
+#hud{
+  position:fixed;top:14px;left:14px;
+  color:#00ffd4;font:10.5px/1.75 'Courier New',Courier,monospace;
+  background:rgba(0,8,14,0.82);padding:12px 16px;
+  border:1px solid rgba(0,255,212,0.25);border-radius:2px;
+  pointer-events:none;display:none;
+  text-shadow:0 0 8px rgba(0,255,212,0.7);
+  backdrop-filter:blur(6px);letter-spacing:0.04em;
+  max-width:300px;
+}
+#hud b{color:#fff;letter-spacing:0.12em;font-size:11px}
+#hud hr{border:none;border-top:1px solid rgba(0,255,212,0.2);margin:4px 0}
+#hint{
+  position:fixed;bottom:16px;left:50%;transform:translateX(-50%);
+  color:rgba(255,255,255,0.22);font:9px/1 'Courier New',monospace;
+  letter-spacing:3px;pointer-events:none;text-transform:uppercase;
+  white-space:nowrap;
+}
+#catLabel{
+  position:fixed;top:14px;right:16px;
+  color:rgba(255,255,255,0.35);font:9px/1 'Courier New',monospace;
+  letter-spacing:4px;text-transform:uppercase;pointer-events:none;
+  text-align:right;
+}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<div id="hint">SPACE · CLICK : randomize &nbsp;·&nbsp; H : hud &nbsp;·&nbsp; S : audio</div>
+<div id="catLabel" id="catLabel"></div>
+<script>
+'use strict';
+// ═══════════════════════════════════════════════════════════════
+//  PCG-XSH-RR  (32-bit output, 64-bit state via two 32s)
+// ═══════════════════════════════════════════════════════════════
+class PCG {
+  constructor(seed) {
+    seed = (seed ?? Date.now()) >>> 0;
+    this.lo = (seed ^ 0x4d595df4) >>> 0;
+    this.hi = ((seed * 0x9e3779b9) ^ 0xa02bdbf7) >>> 0;
+    for (let i = 0; i < 16; i++) this._step();
+  }
+  _step() {
+    // LCG: state = state*mult + inc  (64-bit via two 32s)
+    const mult_lo = 0x4c957f2d, mult_hi = 0x5851f42d;
+    const inc_lo  = 0xac4aab07, inc_hi  = 0x14057b7e;
+    let lo = this.lo, hi = this.hi;
+    let p_lo = Math.imul(lo, mult_lo) >>> 0;
+    let p_hi = (Math.imul(lo, mult_hi) + Math.imul(hi, mult_lo) + (p_lo >>> 0 < 0 ? 1 : 0)) >>> 0;
+    p_lo = (p_lo + inc_lo) >>> 0;
+    p_hi = (p_hi + inc_hi + (p_lo < inc_lo ? 1 : 0)) >>> 0;
+    this.lo = p_lo; this.hi = p_hi;
+    // XSH-RR output from old state
+    const xorshifted = ((((hi ^ lo) >>> 0) ^ ((hi >>> 18 | lo << 14) >>> 0)) >>> 27) >>> 0;
+    const rot = hi >>> 27;
+    return ((xorshifted >>> rot) | (xorshifted << ((32 - rot) & 31))) >>> 0;
+  }
+  next()  { return this._step(); }
+  float() { return this.next() / 0x100000000; }
+  range(a, b) { return a + this.float() * (b - a); }
+  int(n)  { return Math.floor(this.float() * n); }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Global State
+// ═══════════════════════════════════════════════════════════════
+const CAT_NAMES  = ['Fold','Cusp','Swallowtail','Butterfly','Hyperbolic Umbilic','Elliptic Umbilic','Parabolic Umbilic'];
+const CAT_CODIMS = [1, 2, 3, 4, 3, 3, 4];
+
+let rng = new PCG(Date.now());
+let showHud = false, audioOn = false;
+let audioCtx = null, audioTimeoutId = null, masterGain = null;
+let markovMatrix = null, markovState = 0;
+let startTime = performance.now();
+let frame = 0;
+let P = {}; // All randomizable parameters
+
+const hudEl    = document.getElementById('hud');
+const catLbl   = document.getElementById('catLabel');
+
+// ═══════════════════════════════════════════════════════════════
+//  Canvas + WebGL2
+// ═══════════════════════════════════════════════════════════════
+const canvas = document.getElementById('c');
+canvas.width  = window.innerWidth;
+canvas.height = window.innerHeight;
+
+const gl = canvas.getContext('webgl2', { antialias: false, premultipliedAlpha: false });
+if (!gl) {
+  document.body.innerHTML = '<p style="color:#f44;padding:40px;font:16px monospace">WebGL2 is required. Use Chrome 56+, Firefox 51+, or Edge 79+.</p>';
+  throw new Error('No WebGL2');
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  GLSL — Background full-screen quad (all catastrophe math here)
+// ═══════════════════════════════════════════════════════════════
+const BG_VS = `#version 300 es
+in vec2 aPos;
+out vec2 vUv;
+void main() { vUv = aPos * 0.5 + 0.5; gl_Position = vec4(aPos, 0.0, 1.0); }`;
+
+const BG_FS = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 fragColor;
+
+uniform float uTime, uSpeed, uHue, uScale;
+uniform vec2  uRes;
+uniform float uCatIdx;
+uniform float uLfA, uLfB, uLfP;
+uniform float uFoldU, uCuspU, uCuspV, uSwU, uSwV, uBtU, uBtV;
+
+// ── Simplex Noise 2D (Gustavson) ──────────────────────────────
+vec3 _pm(vec3 x){return x-floor(x*(1./289.))*289.;}
+vec2 _pm(vec2 x){return x-floor(x*(1./289.))*289.;}
+vec3 _pp(vec3 x){return _pm(((x*34.)+10.)*x);}
+
+float snoise(vec2 v){
+  const vec4 C=vec4(.211324865,.366025404,-.577350269,.024390244);
+  vec2 i=floor(v+dot(v,C.yy)),x0=v-i+dot(i,C.xx);
+  vec2 i1=(x0.x>x0.y)?vec2(1,0):vec2(0,1);
+  vec4 x12=x0.xyxy+C.xxzz; x12.xy-=i1;
+  i=_pm(i);
+  vec3 p=_pp(_pp(i.y+vec3(0,i1.y,1))+i.x+vec3(0,i1.x,1));
+  vec3 m=max(.5-vec3(dot(x0,x0),dot(x12.xy,x12.xy),dot(x12.zw,x12.zw)),0.);
+  m=m*m*m*m;
+  vec3 gx=2.*fract(p*C.w)-1.,gh=abs(gx)-.5,ox=floor(gx+.5),a0=gx-ox;
+  m*=1.79284291-.85373472*(a0*a0+gh*gh);
+  vec3 g; g.x=a0.x*x0.x+gh.x*x0.y; g.yz=a0.yz*x12.xz+gh.yz*x12.yw;
+  return 130.*dot(m,g);
+}
+
+float fbm(vec2 p, int oct){
+  float v=0.,a=.5,f=1.,s=0.;
+  for(int i=0;i<6;i++){
+    if(i>=oct) break;
+    v+=snoise(p*f)*a; s+=a; a*=.5; f*=2.11;
+  }
+  return v/s;
+}
+
+// ── Spectral color via cubic Fourier (cosine) interpolation ───
+vec3 spec(float t){
+  t=fract(t+uHue);
+  vec3 a=vec3(.5,.5,.5),b=vec3(.5,.5,.5);
+  vec3 c2=vec3(1.,1.,1.),d=vec3(.0,.333,.667);
+  return clamp(a+b*cos(6.28318*(c2*t+d)),0.,1.);
+}
+
+// ── Seven Elementary Catastrophe Bifurcation Sets ────────────
+// Each returns a scalar: small → on bifurcation locus
+
+float foldBif(vec2 p){
+  // V=x³/3+ux  →  bif: u=0
+  float u=p.x+uFoldU*.35;
+  return abs(u)*2.5;
+}
+
+float cuspBif(vec2 p){
+  // V=x⁴+ux²+vx  →  discriminant: 8u³+27v²=0
+  float u=p.x+uCuspU*.22, v=p.y+uCuspV*.22;
+  return abs(8.*u*u*u+27.*v*v)/(0.4+u*u+v*v)*1.8;
+}
+
+float swallowtailBif(vec2 p){
+  // V=x⁵+ux³+vx²+wx  →  parametric cusp-within-cusp structure
+  float u=p.x*1.4+uSwU*.25, v=p.y*1.4+uSwV*.25;
+  float w=sin(uTime*uSpeed*.18)*2.;
+  // Outer fold locus: 3v²-4u³=0 (projection)
+  float outer=3.*v*v-4.*u*u*u;
+  // Inner swallowtail ridge (simplified discriminant slice)
+  float inner=u*u*u*u-6.*u*u*v+9.*v*v-4.*u*u*u*w*0.1;
+  return min(abs(outer),abs(inner)*0.4)/(0.3+length(p));
+}
+
+float butterflyBif(vec2 p){
+  // V=x⁶+tx⁴+ux³+vx²+wx  →  nested cusp sheets
+  float u=p.x*1.5+uBtU*.2, v=p.y*1.5+uBtV*.2;
+  float t2=sin(uTime*uSpeed*.13)*1.8;
+  float s2=cos(uTime*uSpeed*.09)*1.2;
+  float c1=8.*u*u*u+27.*v*v;
+  float c2=8.*(u+t2)*(u+t2)*(u+t2)+27.*v*v;
+  float c3=3.*v*v-4.*(u-s2)*(u-s2)*(u-s2);
+  return min(min(abs(c1),abs(c2)),abs(c3))/(0.3+length(p));
+}
+
+float ellipticUmbilicBif(vec2 p){
+  // V=x³-xy²+u(x²+y²)+vx+wy  →  D₄ symmetry, 3-cusp star
+  float r=length(p), a2=atan(p.y,p.x);
+  float v3=r*r*r*cos(3.*a2);                 // x³-xy² in polar
+  float u2=uCuspU*.35+sin(uTime*uSpeed*.22)*.5;
+  float disc=v3+r*r*u2;
+  return abs(disc)/(0.05+r*r+0.3);
+}
+
+float hyperbolicUmbilicBif(vec2 p){
+  // V=x³+y³+uxy+vx+wy  →  mixed cubic
+  float x=p.x, y=p.y;
+  float u2=sin(uTime*uSpeed*.19)*1.8;
+  // Discriminant: (xy+u²/3)³ related locus
+  float disc=(x*x)*(y*y)-(x+y)*(x*x*x+y*y*y)*0.1+u2*(x*y);
+  return abs(disc)/(0.05+x*x+y*y+0.2);
+}
+
+float parabolicUmbilicBif(vec2 p){
+  // V=x²y+y⁴+ux²+vy²+wx+ty  →  codim 4
+  float x=p.x, y=p.y;
+  float w=cos(uTime*uSpeed*.11)*1.3;
+  float t2=sin(uTime*uSpeed*.07)*0.8;
+  float val=x*x*y+y*y*y*y+w*x*x+t2*y*y;
+  return abs(val)/(0.05+x*x*x*x+y*y*y*y+0.5);
+}
+
+float getCat(vec2 p){
+  int i=int(uCatIdx);
+  if(i==0) return foldBif(p);
+  if(i==1) return cuspBif(p);
+  if(i==2) return swallowtailBif(p);
+  if(i==3) return butterflyBif(p);
+  if(i==4) return ellipticUmbilicBif(p);
+  if(i==5) return hyperbolicUmbilicBif(p);
+  return parabolicUmbilicBif(p);
+}
+
+// ── Gradient-flow dynamics for cusp hysteresis ───────────────
+float hysteresis(vec2 p){
+  // Cusp potential: ∂V/∂x = 4x³+2ux+v = 0
+  // Two stable branches approach √(−u/3) as v→0, u<0
+  float u=p.x*.8, v=p.y*.6;
+  float sq=sqrt(max(0.,-u/3.));
+  float r=2.*sq;
+  float d1=abs(v-r*.38), d2=abs(v+r*.38);
+  float mask=smoothstep(0.,.04,sq);
+  return (exp(-d1*16.)+exp(-d2*16.))*.55*mask;
+}
+
+// ── Pitchfork symmetry-breaking trajectories ─────────────────
+float pitchfork(vec2 p){
+  // ẋ = μx − x³ ,  Hopf-like phase portrait
+  float mu=sin(uTime*uSpeed*.32)*2.8;
+  float x=p.x, v=p.y;
+  float flow=mu*x-x*x*x;
+  float traj=exp(-abs(v-flow*.18)*13.)*.9;
+  // Fixed-point branches
+  float sq=sqrt(max(0.,mu));
+  float fp1=exp(-(abs(abs(x)-sq)+abs(v)*1.5)*9.)*.7*step(0.,mu);
+  float fp0=exp(-length(p)*14.)*.5;
+  return traj+fp1+fp0;
+}
+
+// ── Lissajous quasiperiodic (incommensurate ω) ───────────────
+float lissajous(vec2 p){
+  float best=0., tt=uTime*uSpeed;
+  for(int k=0;k<100;k++){
+    float tk=tt-float(k)*.035;
+    vec2 q=vec2(sin(uLfA*tk+uLfP), sin(uLfB*tk))*.82;
+    best=max(best, exp(-length(p-q)*28.));
+  }
+  return best;
+}
+
+// ── 7-fold Mandala (one petal per catastrophe) ───────────────
+vec3 mandala(vec2 p, float sc){
+  float r=length(p); if(r<.0015) return vec3(0);
+  float a2=atan(p.y,p.x);
+  const float sym=7.;
+  float as=mod(a2+3.14159265,6.28318531/sym);
+  if(as>3.14159265/sym) as=6.28318531/sym-as;
+  vec2 rp=vec2(cos(as),sin(as))*r;
+  float bif=getCat(rp*uScale*sc);
+  float ns=snoise(rp*2.4+vec2(uTime*.07,-uTime*.05));
+  float glow=exp(-abs(bif)*3.2+ns*.75)*1.4;
+  float cc=uCatIdx/7.;
+  vec3 col=spec(cc+r*.2+uTime*.022)*glow;
+  // Add radial gradient glow toward center
+  col+=spec(cc+.5)*exp(-r*4.)*0.3;
+  return col;
+}
+
+// ── Rössler heteroclinic tangle spirals ──────────────────────
+float tangles(vec2 p){
+  float r=length(p), a2=atan(p.y,p.x);
+  float sr=log(r+.01)*2.;
+  float tt=uTime*uSpeed*.4;
+  // Heteroclinic spiral arms (Shilnikov-like structure)
+  float spiral1=exp(-abs(sin(a2*3.-sr*5.+tt))*.6)*exp(-r*.35);
+  float spiral2=exp(-abs(sin(a2*5.-sr*3.-tt*.7))*.5)*exp(-r*.45);
+  return (spiral1+spiral2)*.2;
+}
+
+void main(){
+  float asp=uRes.x/uRes.y;
+  vec2 p=(vUv-.5)*vec2(asp,1.)*3.2;
+  float r2=length(p);
+  float t=uTime*uSpeed;
+
+  // ── Multi-octave FBM noise base ──────────────────────────
+  float n1=fbm(p*.36+vec2(t*.016, t*.011),5);
+  float n2=fbm(p*.78-vec2(t*.009, t*.021),4);
+  float n3=fbm(p*2.4+vec2(-t*.013,t*.008),3);
+
+  vec3 bg=spec(n1*.45)*.075
+         +spec(n2*.65+.42)*.045
+         +spec(n3*.28+.73)*.025;
+
+  // ── Catastrophe bifurcation set (main) ──────────────────
+  float bif=getCat(p*uScale);
+  float bifGlow=exp(-abs(bif)*3.0)*2.2;
+  // Second copy at finer scale for detail
+  float bif2=getCat(p*uScale*2.3+vec2(n1*.1,n2*.1));
+  float bif2g=exp(-abs(bif2)*4.5)*.8;
+  float cc=uCatIdx/7.;
+  vec3 bifCol=(spec(cc+n1*.1)*bifGlow+spec(cc+.12+n2*.08)*bif2g);
+
+  // ── 7-fold mandala layers ────────────────────────────────
+  vec3 man=mandala(p,1.9)*.9
+          +mandala(p*2.15,1.4)*.42
+          +mandala(p*.47,2.5)*.28
+          +mandala(p*4.2,0.9)*.18;
+
+  // ── Pitchfork bifurcation field ──────────────────────────
+  float pf=pitchfork(p*1.25);
+  vec3 pfCol=spec(.18+t*.017)*pf*.7;
+
+  // ── Cusp hysteresis loop (gradient flow) ─────────────────
+  float hys=hysteresis(p*1.35);
+  vec3 hysCol=spec(.73+n2*.1)*hys*.8;
+
+  // ── Lissajous quasiperiodic torus projection ─────────────
+  float li=lissajous(p/1.18);
+  vec3 liCol=spec(.52+t*.012)*li*1.1;
+
+  // ── Heteroclinic tangles from Shilnikov bifurcation ──────
+  float tang=tangles(p);
+  vec3 tanCol=spec(.38+r2*.12+t*.03)*tang;
+
+  // ── Radial standing-wave interference ────────────────────
+  float wr=cos(r2*7.-t*2.2+n1)*.5+.5;
+  float wa=cos(atan(p.y,p.x)*7.+t*.38)*.5+.5;
+  float wInt=wr*wa*exp(-r2*.42)*.2;
+  vec3 wCol=spec(r2*.22+t*.035)*wInt;
+
+  // ── Polar symmetry rings ──────────────────────────────────
+  float rings=exp(-abs(sin(r2*6.-t))*.5)*exp(-r2*.2)*.12;
+  vec3 ringCol=spec(.6+r2*.08)*rings;
+
+  // ── Compose all layers ───────────────────────────────────
+  vec3 col=bg+bifCol+man+pfCol+hysCol+liCol+tanCol+wCol+ringCol;
+
+  // ── Vignette ─────────────────────────────────────────────
+  col*=1.-smoothstep(.65,1.85,r2*.52);
+
+  // ── Chromatic aberration whisper ─────────────────────────
+  float ca=(r2*.012);
+  col.r*=1.+ca; col.b*=1.-ca;
+
+  // ── Reinhard tone-map + gamma ─────────────────────────────
+  col=col/(col+1.);
+  col=pow(max(col,vec3(0.)),vec3(1./2.2));
+
+  fragColor=vec4(col,1.);
+}`;
+
+// ═══════════════════════════════════════════════════════════════
+//  GLSL — Rössler Attractor Particle System (instanced points)
+// ═══════════════════════════════════════════════════════════════
+const PART_VS = `#version 300 es
+precision highp float;
+in vec3  aPos;
+in float aAge;
+uniform float uTime, uSpeed, uHue, uCatIdx;
+uniform vec2  uRes;
+out float vBright;
+out vec3  vColor;
+
+vec3 spec(float t, float h){
+  t=fract(t+h);
+  return clamp(vec3(.5)+vec3(.5)*cos(6.28318*(vec3(1)*t+vec3(.0,.333,.667))),0.,1.);
+}
+
+void main(){
+  float tt=uTime*uSpeed*.09;
+
+  // Slow tumble for 3D→2D projection (reveals attractor topology)
+  float cx=cos(tt*.64), sx=sin(tt*.64);
+  float cy=cos(tt*.47), sy=sin(tt*.47);
+  float cz=cos(tt*.29), sz=sin(tt*.29);
+
+  // Normalize Rössler extent to [−1,1]³ approx
+  vec3 p=(aPos-vec3(0.,0.,12.))/vec3(14.,14.,14.);
+
+  // Rotate X→Z
+  vec3 r0; r0.x=cx*p.x+sx*p.z; r0.y=p.y; r0.z=-sx*p.x+cx*p.z;
+  // Rotate Y→Z
+  vec3 r1; r1.x=r0.x; r1.y=cy*r0.y-sy*r0.z; r1.z=sy*r0.y+cy*r0.z;
+  // Rotate X→Y
+  vec3 r2; r2.x=cz*r1.x-sz*r1.y; r2.y=sz*r1.x+cz*r1.y; r2.z=r1.z;
+
+  float asp=uRes.x/uRes.y;
+  vec2 sc=r2.xy*vec2(1.,asp)*1.55;
+
+  float depth=r2.z*.5+.5;
+  vBright=pow(depth,.7)*.85+.15;
+
+  float ht=(aPos.z/26.);
+  float cc=uCatIdx/7.;
+  vColor=spec(cc+ht*.45+aAge*.15+uHue, 0.)*vBright;
+  vColor+=spec(uHue+.5, 0.)*exp(-ht*4.)*.15;
+
+  gl_Position=vec4(sc,0.,1.);
+  gl_PointSize=max(1.2, 2.8*(1.+r2.z*.25));
+}`;
+
+const PART_FS = `#version 300 es
+precision highp float;
+in float vBright;
+in vec3  vColor;
+out vec4 fragColor;
+void main(){
+  vec2 c2=gl_PointCoord-.5;
+  float d=length(c2);
+  if(d>.5) discard;
+  float alpha=(1.-d*2.)*.7*vBright;
+  // Soft glow kernel
+  float glow=exp(-d*6.)*.25;
+  fragColor=vec4(vColor+vec3(glow),alpha);
+}`;
+
+// ═══════════════════════════════════════════════════════════════
+//  WebGL2 Helpers
+// ═══════════════════════════════════════════════════════════════
+function mkShader(type, src){
+  const s=gl.createShader(type);
+  gl.shaderSource(s,src); gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){
+    console.error((type===gl.VERTEX_SHADER?'VS':'FS')+' Error:\n'+gl.getShaderInfoLog(s));
+    console.log(src);
+  }
+  return s;
+}
+function mkProg(vs,fs){
+  const p=gl.createProgram();
+  gl.attachShader(p,mkShader(gl.VERTEX_SHADER,vs));
+  gl.attachShader(p,mkShader(gl.FRAGMENT_SHADER,fs));
+  gl.linkProgram(p);
+  if(!gl.getProgramParameter(p,gl.LINK_STATUS))
+    console.error('Link Error:\n'+gl.getProgramInfoLog(p));
+  return p;
+}
+function uloc(prog,name){ return gl.getUniformLocation(prog,name); }
+function getUniforms(prog,names){
+  return Object.fromEntries(names.map(n=>[n,uloc(prog,n)]));
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Build Programs
+// ═══════════════════════════════════════════════════════════════
+const bgProg   = mkProg(BG_VS,   BG_FS);
+const partProg = mkProg(PART_VS, PART_FS);
+
+// Background quad VAO
+const bgVAO=gl.createVertexArray();
+gl.bindVertexArray(bgVAO);
+const bgBuf=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,bgBuf);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+const bgLoc=gl.getAttribLocation(bgProg,'aPos');
+gl.enableVertexAttribArray(bgLoc);
+gl.vertexAttribPointer(bgLoc,2,gl.FLOAT,false,0,0);
+
+// Particle (Rössler) VAO — instanced GPU point cloud
+const N_PART=10000;
+const posArr=new Float32Array(N_PART*3);
+const ageArr=new Float32Array(N_PART);
+
+const partVAO=gl.createVertexArray();
+gl.bindVertexArray(partVAO);
+
+const posBuf=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,posBuf);
+gl.bufferData(gl.ARRAY_BUFFER,posArr,gl.DYNAMIC_DRAW);
+const posLoc=gl.getAttribLocation(partProg,'aPos');
+gl.enableVertexAttribArray(posLoc);
+gl.vertexAttribPointer(posLoc,3,gl.FLOAT,false,0,0);
+
+const ageBuf=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,ageBuf);
+gl.bufferData(gl.ARRAY_BUFFER,ageArr,gl.DYNAMIC_DRAW);
+const ageLoc=gl.getAttribLocation(partProg,'aAge');
+gl.enableVertexAttribArray(ageLoc);
+gl.vertexAttribPointer(ageLoc,1,gl.FLOAT,false,0,0);
+
+gl.bindVertexArray(null);
+
+// Uniform caches
+const bgU   = getUniforms(bgProg,  ['uTime','uSpeed','uHue','uScale','uRes','uCatIdx','uLfA','uLfB','uLfP','uFoldU','uCuspU','uCuspV','uSwU','uSwV','uBtU','uBtV']);
+const partU = getUniforms(partProg, ['uTime','uSpeed','uHue','uCatIdx','uRes']);
+
+// ═══════════════════════════════════════════════════════════════
+//  Rössler Attractor ODE Integration  (Runge-Kutta 4)
+// ═══════════════════════════════════════════════════════════════
+function initAttractor(){
+  for(let i=0;i<N_PART;i++){
+    posArr[i*3]   = rng.range(-5,5);
+    posArr[i*3+1] = rng.range(-5,5);
+    posArr[i*3+2] = rng.range(0,6);
+    ageArr[i]     = rng.float();
+  }
+}
+
+const DT=0.007;
+function rosslerF(x,y,z,a,b,c){ return [-y-z, x+a*y, b+z*(x-c)]; }
+
+function stepRossler(steps){
+  const a=P.rosslerA, b=P.rosslerB, c=P.rosslerC;
+  for(let s=0;s<steps;s++){
+    for(let i=0;i<N_PART;i++){
+      let x=posArr[i*3],y=posArr[i*3+1],z=posArr[i*3+2];
+      // RK4
+      const [k1x,k1y,k1z]=rosslerF(x,y,z,a,b,c);
+      const [k2x,k2y,k2z]=rosslerF(x+k1x*DT*.5,y+k1y*DT*.5,z+k1z*DT*.5,a,b,c);
+      const [k3x,k3y,k3z]=rosslerF(x+k2x*DT*.5,y+k2y*DT*.5,z+k2z*DT*.5,a,b,c);
+      const [k4x,k4y,k4z]=rosslerF(x+k3x*DT,   y+k3y*DT,   z+k3z*DT,   a,b,c);
+      posArr[i*3]   += (k1x+2*k2x+2*k3x+k4x)*DT/6;
+      posArr[i*3+1] += (k1y+2*k2y+2*k3y+k4y)*DT/6;
+      posArr[i*3+2] += (k1z+2*k2z+2*k3z+k4z)*DT/6;
+      ageArr[i]=(ageArr[i]+DT*.04)%1;
+      const r2=x*x+y*y+z*z;
+      if(r2>4000||isNaN(r2)){
+        // Shilnikov homoclinic reset near saddle-focus
+        posArr[i*3]   = rng.range(-2,2);
+        posArr[i*3+1] = rng.range(-2,2);
+        posArr[i*3+2] = rng.range(0,3);
+        ageArr[i]=0;
+      }
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Markov Chain Audio Synthesis
+//  Transition matrix derived from catastrophe codimension graph
+// ═══════════════════════════════════════════════════════════════
+function buildMarkov(seed){
+  const r2=new PCG(seed);
+  const M=[];
+  for(let i=0;i<7;i++){
+    const row=new Array(7);
+    let sum=0;
+    for(let j=0;j<7;j++){
+      const codimDiff=Math.abs(CAT_CODIMS[i]-CAT_CODIMS[j]);
+      // Bifurcation diagram adjacency weights + noise
+      row[j]=Math.exp(-codimDiff*.9 + r2.float()*.6)*(i===j?.2:1.);
+      sum+=row[j];
+    }
+    for(let j=0;j<7;j++) row[j]/=sum;
+    M.push(row);
+  }
+  return M;
+}
+
+function markovNext(state){
+  const row=markovMatrix[state];
+  let r=rng.float(),cum=0;
+  for(let j=0;j<7;j++){
+    cum+=row[j];
+    if(r<cum) return j;
+  }
+  return 0;
+}
+
+// Catastrophe potential → frequency spectrum
+function catFreqSet(catIdx, t){
+  // Base pitches per catastrophe (just-intonation inspired)
+  const bases=[82.4,98.0,110.0,130.8,164.8,196.0,220.0];
+  const bk=bases[catIdx];
+  // Modulate by unfolding parameter dynamics
+  const u=Math.sin(t*.31+catIdx)*1.8;
+  const v=Math.cos(t*.19+catIdx*.7)*1.3;
+  // Rössler return-map amplitude modulation (simplified)
+  const rossAmp=Math.abs(Math.sin(t*.07+catIdx))*0.08+0.97;
+  const codim=CAT_CODIMS[catIdx];
+  // Harmonic series weighted by codimension (higher codim → richer spectrum)
+  const series=[];
+  for(let k=1;k<=codim+2;k++){
+    const f=bk*k*rossAmp*(1+v*.02+u*.015*Math.sin(k));
+    const amp=1.0/(k*.9+.5);
+    series.push({f,amp});
+  }
+  return series;
+}
+
+function startAudio(){
+  if(!audioCtx){
+    audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+  }
+  if(audioCtx.state==='suspended') audioCtx.resume();
+  masterGain=audioCtx.createGain();
+  masterGain.gain.value=0.18;
+  const comp=audioCtx.createDynamicsCompressor();
+  comp.threshold.value=-18; comp.knee.value=12;
+  comp.ratio.value=4; comp.release.value=.35;
+  masterGain.connect(comp); comp.connect(audioCtx.destination);
+
+  markovMatrix=buildMarkov(P.markovSeed);
+  markovState=P.catIdx;
+
+  const schedule=()=>{
+    if(!audioOn||!audioCtx) return;
+    markovState=markovNext(markovState);
+    const t=audioCtx.currentTime;
+    const dur=rng.range(.4,1.5);
+    const vel=rng.range(.15,.55);
+    const freqs=catFreqSet(markovState,t);
+
+    freqs.forEach(({f,amp},idx)=>{
+      const osc=audioCtx.createOscillator();
+      const g=audioCtx.createGain();
+      const filt=audioCtx.createBiquadFilter();
+      // Waveform variety per harmonic
+      osc.type=['sine','sine','triangle','sine','sawtooth','triangle','sine'][idx%7];
+      osc.frequency.value=f;
+      // Subtle frequency drift (attractor influence)
+      osc.frequency.linearRampToValueAtTime(f*(1+P.rosslerA*.04),t+dur*.6);
+      filt.type='bandpass'; filt.frequency.value=f; filt.Q.value=8+idx*1.5;
+      g.gain.setValueAtTime(0,t);
+      g.gain.linearRampToValueAtTime(vel*amp,t+dur*.04);
+      g.gain.setTargetAtTime(vel*amp*.6,t+dur*.1,.15);
+      g.gain.exponentialRampToValueAtTime(.0001,t+dur);
+      osc.connect(filt); filt.connect(g); g.connect(masterGain);
+      osc.start(t); osc.stop(t+dur+.15);
+    });
+    audioTimeoutId=setTimeout(schedule,(dur*780+rng.range(80,380)));
+  };
+  schedule();
+}
+
+function stopAudio(){
+  clearTimeout(audioTimeoutId);
+  audioTimeoutId=null;
+  if(masterGain){ masterGain.disconnect(); masterGain=null; }
+  if(audioCtx) audioCtx.suspend();
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Randomization
+// ═══════════════════════════════════════════════════════════════
+function randomize(){
+  rng=new PCG((Date.now()*1369)^(Math.random()*0x7FFFFFFF|0));
+  P={
+    rosslerA:   rng.range(.12,.38),
+    rosslerB:   rng.range(.12,.38),
+    rosslerC:   rng.range(3.8,11.5),
+    lissA:      rng.range(1.05,6.0)+rng.float()*.618034,  // golden ratio offset
+    lissB:      rng.range(1.05,6.0)+rng.float()*.618034,
+    lissPhase:  rng.float()*Math.PI*2,
+    catIdx:     rng.int(7),
+    scale:      rng.range(.45,1.9),
+    speed:      rng.range(.28,1.35),
+    hue:        rng.float(),
+    foldU:      rng.range(-2,2),
+    cuspU:      rng.range(-1.8,1.8),
+    cuspV:      rng.range(-1.8,1.8),
+    swU:        rng.range(-2,2),
+    swV:        rng.range(-2,2),
+    btU:        rng.range(-2,2),
+    btV:        rng.range(-2,2),
+    lyapExp:    rng.range(.04,.22),   // approximate Lyapunov exponent
+    markovSeed: rng.next(),
+  };
+  catLbl.textContent=CAT_NAMES[P.catIdx]+' (codim '+CAT_CODIMS[P.catIdx]+')';
+  initAttractor();
+  if(audioOn){ stopAudio(); startAudio(); }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  HUD
+// ═══════════════════════════════════════════════════════════════
+function updateHud(time){
+  if(!showHud){ hudEl.style.display='none'; return; }
+  hudEl.style.display='block';
+  const mu=Math.sin(time*P.lissA)*2;
+  const u_ctrl=(Math.sin(time*P.speed*P.lissA+P.lissPhase)*2).toFixed(3);
+  const v_ctrl=(Math.sin(time*P.speed*P.lissB)*2).toFixed(3);
+  hudEl.innerHTML=
+`<b>THOM CATASTROPHE SYSTEM</b><br>
+<hr>
+TYPE &nbsp;&nbsp;: ${CAT_NAMES[P.catIdx]}<br>
+CODIM &nbsp;: ${CAT_CODIMS[P.catIdx]}<br>
+CTRL u : ${u_ctrl}<br>
+CTRL v : ${v_ctrl}<br>
+LYAP λ : ${P.lyapExp.toFixed(4)}<br>
+MU &nbsp;&nbsp;&nbsp;: ${mu.toFixed(3)}<br>
+<hr>
+RÖSSLER a : ${P.rosslerA.toFixed(3)}<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; b : ${P.rosslerB.toFixed(3)}<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; c : ${P.rosslerC.toFixed(3)}<br>
+<hr>
+LISS ω₁ : ${P.lissA.toFixed(4)}<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ω₂ : ${P.lissB.toFixed(4)}<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;φ  : ${P.lissPhase.toFixed(4)}<br>
+<hr>
+AUDIO &nbsp;: ${audioOn?'ON ♩ Markov':'OFF'}<br>
+FRAME &nbsp;: ${frame}`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Render Loop
+// ═══════════════════════════════════════════════════════════════
+function render(ts){
+  requestAnimationFrame(render);
+  const time=(ts-startTime)*.001;
+  frame++;
+
+  // CPU Rössler integration (3 steps per frame)
+  stepRossler(3);
+
+  const W=canvas.width, H=canvas.height;
+  gl.viewport(0,0,W,H);
+  gl.disable(gl.BLEND);
+
+  // ── Background pass ──────────────────────────────────────
+  gl.useProgram(bgProg);
+  gl.uniform1f(bgU.uTime,  time);
+  gl.uniform1f(bgU.uSpeed, P.speed);
+  gl.uniform1f(bgU.uHue,   P.hue);
+  gl.uniform1f(bgU.uScale, P.scale);
+  gl.uniform2f(bgU.uRes,   W, H);
+  gl.uniform1f(bgU.uCatIdx,P.catIdx);
+  gl.uniform1f(bgU.uLfA,   P.lissA);
+  gl.uniform1f(bgU.uLfB,   P.lissB);
+  gl.uniform1f(bgU.uLfP,   P.lissPhase);
+  gl.uniform1f(bgU.uFoldU, P.foldU);
+  gl.uniform1f(bgU.uCuspU, P.cuspU);
+  gl.uniform1f(bgU.uCuspV, P.cuspV);
+  gl.uniform1f(bgU.uSwU,   P.swU);
+  gl.uniform1f(bgU.uSwV,   P.swV);
+  gl.uniform1f(bgU.uBtU,   P.btU);
+  gl.uniform1f(bgU.uBtV,   P.btV);
+  gl.bindVertexArray(bgVAO);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+
+  // ── Particle (attractor) pass ─────────────────────────────
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.SRC_ALPHA,gl.ONE);  // additive for glow
+
+  gl.bindBuffer(gl.ARRAY_BUFFER,posBuf);
+  gl.bufferSubData(gl.ARRAY_BUFFER,0,posArr);
+  gl.bindBuffer(gl.ARRAY_BUFFER,ageBuf);
+  gl.bufferSubData(gl.ARRAY_BUFFER,0,ageArr);
+
+  gl.useProgram(partProg);
+  gl.uniform1f(partU.uTime,  time);
+  gl.uniform1f(partU.uSpeed, P.speed);
+  gl.uniform1f(partU.uHue,   P.hue);
+  gl.uniform1f(partU.uCatIdx,P.catIdx);
+  gl.uniform2f(partU.uRes,   W, H);
+  gl.bindVertexArray(partVAO);
+  gl.drawArrays(gl.POINTS,0,N_PART);
+
+  gl.bindVertexArray(null);
+
+  updateHud(time);
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Events
+// ═══════════════════════════════════════════════════════════════
+window.addEventListener('keydown', e=>{
+  switch(e.code){
+    case 'Space': e.preventDefault(); randomize(); break;
+    case 'KeyH':  showHud=!showHud; break;
+    case 'KeyS':
+      audioOn=!audioOn;
+      audioOn ? startAudio() : stopAudio();
+      break;
+  }
+});
+
+canvas.addEventListener('click', ()=>randomize());
+
+window.addEventListener('resize',()=>{
+  canvas.width=window.innerWidth;
+  canvas.height=window.innerHeight;
+});
+
+// ═══════════════════════════════════════════════════════════════
+//  Bootstrap
+// ═══════════════════════════════════════════════════════════════
+randomize();
+requestAnimationFrame(render);
+</script>
+</body>
+</html>

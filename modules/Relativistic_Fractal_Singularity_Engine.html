@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Relativistic Fractal Singularity Engine</title>
+<meta name="description" content="An ultra-immersive generative art engine synthesizing black hole physics, Schwarzschild radius distortions, gravitational lensing, accretion disk simulations, Lorenz and Rössler attractors, Newton fractals, Burning Ship and Multibrot variants, hyperbolic geometry, Penrose quasi-periodic tilings, modular arithmetic, complex domain coloring with Cauchy-Riemann analytic continuation, and synchronized eigenvalue-spectrum audio."/>
+<meta name="keywords" content="fractal engine, black hole simulation, gravitational lensing, accretion disk, Lorenz attractor, Rossler attractor, Newton fractal, Burning Ship fractal, Multibrot, hyperbolic geometry, Penrose tiling, domain coloring, Cauchy-Riemann, Schwarzschild radius, generative art, WebGL, web audio, eigenvalue spectra, FFT, stochastic resonance, coupled oscillators, kaleidoscope, spectral gradient, complex plane, Julia set, Mandelbrot, modular arithmetic, Laplace equation, Poisson equation"/>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000}
+canvas{display:block;position:fixed;top:0;left:0;width:100vw;height:100vh}
+#hud{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;display:none;font-family:'Courier New',monospace;font-size:11px;color:rgba(0,255,200,0.7);z-index:10}
+#hud-inner{position:absolute;top:16px;left:16px;background:rgba(0,0,0,0.5);border:1px solid rgba(0,255,200,0.3);padding:12px 16px;border-radius:4px;line-height:1.8;letter-spacing:0.05em}
+#hud-inner span{display:block}
+#corner{position:fixed;bottom:14px;right:16px;font-family:'Courier New',monospace;font-size:10px;color:rgba(255,255,255,0.25);letter-spacing:0.08em;z-index:10;text-align:right}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"><div id="hud-inner">
+<span id="h-mode">MODE: —</span>
+<span id="h-iter">ITER: —</span>
+<span id="h-seed">SEED: —</span>
+<span id="h-pal">PALETTE: —</span>
+<span id="h-blend">BLEND: —</span>
+<span id="h-sound">SOUND: OFF</span>
+<span style="margin-top:6px;color:rgba(0,255,200,0.4)">SPACE/CLICK: RESEED · H: HUD · S: SOUND</span>
+</div></div>
+<div id="corner">RELATIVISTIC FRACTAL SINGULARITY ENGINE</div>
+<script>
+(function(){
+'use strict';
+
+// ─── Canvas setup ───────────────────────────────────────────────────────────
+const cv=document.getElementById('c');
+const gl=cv.getContext('webgl',{antialias:false,alpha:false,preserveDrawingBuffer:false,powerPreference:'high-performance'});
+if(!gl){document.body.innerHTML='<p style="color:#fff;padding:40px">WebGL required.</p>';return;}
+
+// ─── State ───────────────────────────────────────────────────────────────────
+const TAU=Math.PI*2;
+function fract(x){return x-Math.floor(x);}
+
+let W,H,seed=Math.random()*99999|0,t=0,frame=0;
+let hudVisible=false,soundEnabled=false;
+let modeIndex=0,paletteIndex=0,blendIndex=0;
+let evolveTimer=0,evolvePhase=0;
+let audioCtx=null,oscillators=[],analyserNode=null,gainMaster=null;
+let audioStarted=false;
+
+const MODES=['NEWTON·SCHWARZSCHILD','BURNING·SHIP·ACCRETION','MULTIBROT·LENSING','LORENZ·HYPERBOLIC','ROSSLER·PENROSE','JULIA·MODULAR','DOMAIN·POISSON','MULTIBROT·KALEIDOSCOPE'];
+const PALETTES=['SPECTRAL·FIRE','PLASMA·VOID','CYANOGEN·ABYSS','SOLAR·CHROMATIC','OPPONENT·PROCESS','EIGENVALUE·HUE','GAMMA·CASCADE','QUANTUM·FOAM'];
+const BLENDS=['CAUCHY·RIEMANN','GRAVITATIONAL·WARP','ATTRACTOR·FLOW','TILING·MODULAR','DOMAIN·COLOR','STOCHASTIC·PULSE','LENSING·MAP','HYPERBOLIC·FOLD'];
+
+// Random seeded helpers
+let rng=seed;
+function srand(s){rng=s>>>0;}
+function rand(){rng=((rng*1664525+1013904223)&0xffffffff)>>>0;return rng/4294967296;}
+function randRange(a,b){return a+(b-a)*rand();}
+function randInt(a,b){return (a+(rand()*(b-a+1))|0);}
+function pick(arr){return arr[randInt(0,arr.length-1)];}
+
+// ─── WebGL shader compile ────────────────────────────────────────────────────
+function mkShader(type,src){
+  const s=gl.createShader(type);
+  gl.shaderSource(s,src);
+  gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){console.error(gl.getShaderInfoLog(s));return null;}
+  return s;
+}
+function mkProg(vs,fs){
+  const p=gl.createProgram();
+  gl.attachShader(p,mkShader(gl.VERTEX_SHADER,vs));
+  gl.attachShader(p,mkShader(gl.FRAGMENT_SHADER,fs));
+  gl.linkProgram(p);
+  if(!gl.getProgramParameter(p,gl.LINK_STATUS)){console.error(gl.getProgramInfoLog(p));return null;}
+  return p;
+}
+
+// ─── Vertex shader ───────────────────────────────────────────────────────────
+const VS=`
+attribute vec2 pos;
+void main(){gl_Position=vec4(pos,0.0,1.0);}
+`;
+
+// ─── Fragment shader ─────────────────────────────────────────────────────────
+const FS=`
+precision highp float;
+uniform vec2 res;
+uniform float t;
+uniform int mode;
+uniform float seed;
+uniform float pal;
+uniform float blend;
+uniform float evolve;
+uniform float lensStrength;
+uniform float schwarzR;
+uniform float attractorAmp;
+uniform float kaleido;
+uniform float modPeriod;
+uniform float gamma;
+uniform float chromaShift;
+uniform float palRotate;
+uniform float blendAmt;
+uniform float lorenzA,lorenzB,lorenzC;
+uniform float rosslerA,rosslerB,rosslerC;
+uniform vec2 juliaC;
+uniform float multibrotPow;
+uniform float penroseK;
+uniform float hyperK;
+uniform float audioAmp;
+
+#define PI 3.14159265358979
+#define TAU 6.28318530717959
+#define MAX_ITER 96
+
+// ── Complex ops ──────────────────────────────────────────────────────────────
+vec2 cmul(vec2 a,vec2 b){return vec2(a.x*b.x-a.y*b.y,a.x*b.y+a.y*b.x);}
+vec2 cdiv(vec2 a,vec2 b){float d=dot(b,b);return vec2(dot(a,b),a.y*b.x-a.x*b.y)/d;}
+vec2 clog(vec2 z){return vec2(log(length(z)),atan(z.y,z.x));}
+vec2 cexp(vec2 z){return exp(z.x)*vec2(cos(z.y),sin(z.y));}
+vec2 cpow(vec2 z,float n){float r=length(z);if(r<1e-10)return vec2(0.);float a=atan(z.y,z.x);return pow(r,n)*vec2(cos(n*a),sin(n*a));}
+float _cosh(float x){return (exp(x)+exp(-x))*0.5;}
+float _sinh(float x){return (exp(x)-exp(-x))*0.5;}
+vec2 csin(vec2 z){return vec2(sin(z.x)*_cosh(z.y),cos(z.x)*_sinh(z.y));}
+vec2 ccos(vec2 z){return vec2(cos(z.x)*_cosh(z.y),-sin(z.x)*_sinh(z.y));}
+
+// ── Schwarzschild lensing ────────────────────────────────────────────────────
+vec2 schwarzschildLens(vec2 uv,float rs,float strength){
+  float r=length(uv);
+  if(r<0.001)return uv;
+  float factor=1.0-(rs*strength)/(r*r+rs*0.1);
+  return uv*max(factor,0.01);
+}
+
+// ── Gravitational field map ───────────────────────────────────────────────────
+float gravField(vec2 z,float rs){
+  float r=length(z);
+  return rs/(r*r+0.001);
+}
+
+// ── Newton fractal ───────────────────────────────────────────────────────────
+float newton(vec2 z,float n,out vec2 rootZ){
+  // roots of z^3-1=0 with parameter n for morphing
+  for(int i=0;i<48;i++){
+    vec2 zn1=cpow(z,n);
+    vec2 zn=cpow(z,n-1.0);
+    vec2 dz=cdiv(zn1-vec2(1.,0.),n*zn);
+    z=z-dz;
+    if(length(dz)<0.0005){rootZ=z;return float(i)/48.0;}
+  }
+  rootZ=z;
+  return 1.0;
+}
+
+// ── Burning Ship ─────────────────────────────────────────────────────────────
+float burningShip(vec2 c,float pw){
+  vec2 z=vec2(0.);
+  for(int i=0;i<MAX_ITER;i++){
+    z=vec2(abs(z.x),abs(z.y));
+    z=cpow(z,pw)+c;
+    if(dot(z,z)>16.0)return float(i)/float(MAX_ITER)+(1.0-log(log(length(z))/log(4.0))/log(2.0));
+  }
+  return 0.0;
+}
+
+// ── Multibrot ────────────────────────────────────────────────────────────────
+float multibrot(vec2 c,float pw){
+  vec2 z=vec2(0.);
+  for(int i=0;i<MAX_ITER;i++){
+    z=cpow(z,pw)+c;
+    if(dot(z,z)>64.0){float sl=float(i)-log2(log2(dot(z,z)))+4.0;return sl/float(MAX_ITER);}
+  }
+  return 0.0;
+}
+
+// ── Julia set ────────────────────────────────────────────────────────────────
+float julia(vec2 z,vec2 c,float pw){
+  for(int i=0;i<MAX_ITER;i++){
+    z=cpow(z,pw)+c;
+    if(dot(z,z)>64.0){float sl=float(i)-log2(log2(dot(z,z)))+4.0;return sl/float(MAX_ITER);}
+  }
+  return 0.0;
+}
+
+// ── Lorenz attractor distance field ──────────────────────────────────────────
+float lorenzField(vec2 uv,float a,float b,float c,float time){
+  vec3 p=vec3(uv*4.0,sin(time*0.3)*2.0);
+  float dt=0.005;float d=1e9;
+  for(int i=0;i<64;i++){
+    vec3 dp=vec3(a*(p.y-p.x),p.x*(b-p.z)-p.y,p.x*p.y-c*p.z)*dt;
+    p+=dp;
+    d=min(d,length(uv-p.xy*0.25));
+  }
+  return exp(-d*8.0);
+}
+
+// ── Rössler field ────────────────────────────────────────────────────────────
+float rosslerField(vec2 uv,float a,float b,float c,float time){
+  vec3 p=vec3(uv*3.0,cos(time*0.2)*2.0);
+  float dt=0.005;float d=1e9;
+  for(int i=0;i<64;i++){
+    vec3 dp=vec3(-p.y-p.z,p.x+a*p.y,b+p.z*(p.x-c))*dt;
+    p+=dp;
+    d=min(d,length(uv-p.xy*0.3));
+  }
+  return exp(-d*6.0);
+}
+
+// ── Hyperbolic tiling field ───────────────────────────────────────────────────
+float hyperbolicTile(vec2 z,float k){
+  float r=length(z);
+  if(r>=0.99)return 0.0;
+  // Poincaré disk Möbius transforms
+  float val=0.0;
+  vec2 zc=z;
+  for(int i=0;i<6;i++){
+    vec2 a=vec2(cos(float(i)*TAU/k),sin(float(i)*TAU/k))*0.7;
+    // inversion through circle
+    vec2 d=zc-a;
+    float rr=dot(a,a)-1.0;
+    zc=a+rr*d/dot(d,d);
+    zc=vec2(zc.x*cos(0.5)-zc.y*sin(0.5),zc.x*sin(0.5)+zc.y*cos(0.5));
+    val+=sin(length(zc)*k*PI)*0.16667;
+  }
+  return val*0.5+0.5;
+}
+
+// ── Penrose quasi-crystal field ───────────────────────────────────────────────
+float penrose(vec2 p,float k,float time){
+  float v=0.0;
+  for(int n=0;n<5;n++){
+    float a=TAU*float(n)/5.0+time*0.05;
+    vec2 dir=vec2(cos(a),sin(a));
+    v+=cos(dot(p*k,dir)+sin(time*0.1+float(n)));
+  }
+  return v/5.0*0.5+0.5;
+}
+
+// ── Domain coloring (Cauchy-Riemann) ──────────────────────────────────────────
+vec3 domainColor(vec2 z,float palV,float chromaS,float palRot,float gamV){
+  float r=length(z);
+  float a=atan(z.y,z.x);
+  // Phase and magnitude coloring
+  float hue=mod(a/TAU+palRot,1.0);
+  float mag=mod(log(r+1.0)*0.5,1.0);
+  // contour lines
+  float contour=abs(sin(log(r+0.001)*PI*3.0));
+  float phase=abs(sin(a*4.0));
+  hue=mod(hue+palV*0.3+chromaS*mag,1.0);
+  float sat=0.7+0.3*contour;
+  float val=0.5+0.5*phase*contour;
+  // HSV→RGB
+  float h6=hue*6.0;
+  float f=fract(h6);
+  int hi=int(h6);
+  float p2=val*(1.0-sat),q=val*(1.0-sat*f),tv=val*(1.0-sat*(1.0-f));
+  vec3 col;
+  if(hi==0)col=vec3(val,tv,p2);
+  else if(hi==1)col=vec3(q,val,p2);
+  else if(hi==2)col=vec3(p2,val,tv);
+  else if(hi==3)col=vec3(p2,q,val);
+  else if(hi==4)col=vec3(tv,p2,val);
+  else col=vec3(val,p2,q);
+  return pow(clamp(col,0.,1.),vec3(gamV));
+}
+
+// ── Palette mapping ───────────────────────────────────────────────────────────
+vec3 palette(float v,float palV,float palRot,float gamV,float chromaS){
+  v=mod(v+palRot,1.0);
+  float hue;
+  vec3 col;
+  if(palV<0.15){// spectral fire
+    hue=v*0.85;
+    float b=max(0.,1.-v*3.0);
+    col=domainColor(vec2(cos(hue*TAU)*v,sin(hue*TAU)*v),palV,chromaS,palRot,gamV);
+    col=mix(col,vec3(v*v*2.,v,b),0.4);
+  }else if(palV<0.30){// plasma void
+    col=vec3(sin(v*PI*2.0)*0.5+0.5,sin(v*PI*2.0+2.094)*0.5+0.5,sin(v*PI*2.0+4.189)*0.5+0.5);
+  }else if(palV<0.45){// cyanogen abyss
+    col=vec3(0.,v*v,v)*vec3(1.+sin(v*PI*4.+chromaS),1.,1.3-v*0.3);
+  }else if(palV<0.60){// solar chromatic
+    vec3 a=vec3(0.5,0.5,0.5),b2=vec3(0.5,0.5,0.5),cc=vec3(1.0,1.0,1.0),d=vec3(0.0,0.333,0.667);
+    col=a+b2*cos(TAU*(cc*v+d+chromaS));
+  }else if(palV<0.75){// opponent process
+    float rg=sin(v*PI*2.0+chromaS);
+    float by=cos(v*PI*2.0+1.57);
+    col=vec3(0.5+0.5*rg,0.5-0.25*rg+0.25*by,0.5+0.5*by);
+  }else if(palV<0.875){// eigenvalue hue
+    hue=mod(v*7.0+chromaS,1.0);
+    col=domainColor(vec2(cos(hue*TAU),sin(hue*TAU))*v,palV,chromaS,palRot,1.0);
+  }else{// quantum foam
+    col=vec3(sin(v*PI*8.+chromaS)*0.5+0.5,cos(v*PI*6.+chromaS*1.3)*0.5+0.5,sin(v*PI*4.+chromaS*0.7+PI)*0.5+0.5);
+  }
+  return pow(clamp(col,0.,1.),vec3(gamV));
+}
+
+// ── Kaleidoscope fold ─────────────────────────────────────────────────────────
+vec2 kaleidoFold(vec2 uv,float n,float t2){
+  float a=atan(uv.y,uv.x);
+  float seg=TAU/n;
+  a=mod(a+t2,seg);
+  a=abs(a-seg*0.5);
+  return length(uv)*vec2(cos(a),sin(a));
+}
+
+// ── Modular arithmetic grid ───────────────────────────────────────────────────
+float modGrid(vec2 p,float period,float time){
+  ivec2 g=ivec2(floor(p*period));
+  int v=int(mod(float(g.x*g.x+g.y*g.y+g.x*g.y),7.0));
+  return float(v)/7.0*0.5+sin(float(v)*time*0.3)*0.5;
+}
+
+// ── Laplace/Poisson approx (5-point stencil pattern) ─────────────────────────
+float laplaceField(vec2 p,float time){
+  float s=0.0;
+  float h=0.08;
+  // simulate solution via superposition of point sources
+  for(int i=0;i<6;i++){
+    float a=TAU*float(i)/6.0+time*0.1;
+    vec2 src=vec2(cos(a),sin(a))*0.5;
+    float r=length(p-src);
+    s-=log(r+0.05)*0.1667;
+  }
+  return mod(s,1.0);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+void main(){
+  vec2 fc=gl_FragCoord.xy;
+  vec2 uv=(fc-res*0.5)/min(res.x,res.y)*2.5;
+  
+  float time=t*0.3+seed*0.01;
+  float evolveAmt=evolve;
+  
+  // Schwarzschild lensing warp
+  float rs=schwarzR*(0.5+0.5*sin(time*0.17));
+  vec2 lensedUV=schwarzschildLens(uv,rs,lensStrength);
+  
+  // Attractor field modulation
+  float lorenzV=lorenzField(lensedUV,lorenzA,lorenzB,lorenzC,time);
+  float rosslerV=rosslerField(lensedUV,rosslerA,rosslerB,rosslerC,time);
+  float attractorField=mix(lorenzV,rosslerV,0.5+0.5*sin(time*0.11))*attractorAmp;
+  
+  // Gravitational field
+  float grav=gravField(lensedUV,rs);
+  
+  // Tiling fields
+  float hyperV=hyperbolicTile(lensedUV*0.95,hyperK);
+  float penroseV=penrose(lensedUV*3.0,penroseK,time);
+  float modV=modGrid(lensedUV,modPeriod,time);
+  float laplaceV=laplaceField(lensedUV,time);
+  
+  // Kaleidoscope
+  vec2 kUV=kaleidoFold(lensedUV,kaleido,time*0.05);
+  
+  // ── Main fractal computation based on mode ────────────────────────────────
+  float fracV=0.0;
+  vec2 rootZ=vec2(0.);
+  
+  if(mode==0){
+    // Newton + Schwarzschild
+    float nv=newton(kUV+vec2(sin(time*0.07),cos(time*0.09))*0.1,3.0+sin(time*0.05),rootZ);
+    float rootHue=atan(rootZ.y,rootZ.x)/TAU+0.5;
+    fracV=nv*0.7+rootHue*0.3;
+    fracV=mix(fracV,grav*0.5,0.2);
+  }else if(mode==1){
+    // Burning Ship + accretion disk
+    float bv=burningShip(lensedUV*1.5+vec2(-0.5,0.),multibrotPow);
+    float disk=exp(-abs(length(uv)-0.8)*6.0)*0.5;
+    float diskRotate=atan(uv.y,uv.x)/(PI*2.0)+time*0.1;
+    fracV=bv*0.8+disk*0.2+diskRotate*0.1;
+  }else if(mode==2){
+    // Multibrot + lensing
+    float mv=multibrot(lensedUV*1.2,multibrotPow);
+    fracV=mv+hyperV*0.15;
+  }else if(mode==3){
+    // Lorenz + hyperbolic
+    float jv=julia(kUV,juliaC,2.0);
+    fracV=jv*0.6+lorenzV*0.25+hyperV*0.15;
+  }else if(mode==4){
+    // Rössler + Penrose
+    float mv=multibrot(kUV*1.3,multibrotPow+0.5);
+    fracV=mv*0.55+rosslerV*0.25+penroseV*0.2;
+  }else if(mode==5){
+    // Julia + modular
+    float jv=julia(lensedUV,juliaC,multibrotPow);
+    fracV=jv*0.65+modV*0.25+laplaceV*0.1;
+  }else if(mode==6){
+    // Domain + Poisson
+    float bv=burningShip(kUV,2.0);
+    fracV=bv*0.4+laplaceV*0.3+penroseV*0.15+hyperV*0.15;
+  }else{
+    // Multibrot kaleidoscope
+    float mv1=multibrot(kUV*1.5,multibrotPow);
+    float mv2=multibrot(kUV*(-1.0)*1.2+vec2(0.3,0.1),multibrotPow+1.0);
+    fracV=(mv1+mv2)*0.5;
+    fracV=mix(fracV,modV,0.2);
+  }
+  
+  // ── Domain coloring layer ──────────────────────────────────────────────────
+  vec2 domZ=cmul(lensedUV,cpow(lensedUV+juliaC,multibrotPow-1.0));
+  vec3 domCol=domainColor(domZ+vec2(fracV),pal,chromaShift,palRotate,gamma);
+  
+  // ── Attractor overlay ──────────────────────────────────────────────────────
+  fracV=fract(fracV+attractorField*0.1);
+  
+  // ── Chromatic shift from audio ────────────────────────────────────────────
+  fracV=fract(fracV+audioAmp*0.05);
+  
+  // ── Base color from palette ───────────────────────────────────────────────
+  float palOffset=palRotate+evolveAmt*0.3+grav*0.02;
+  vec3 col=palette(fracV,pal,palOffset,gamma,chromaShift);
+  
+  // ── Blend domain coloring ─────────────────────────────────────────────────
+  col=mix(col,domCol,blendAmt*0.35);
+  
+  // ── Accretion disk ring (all modes) ───────────────────────────────────────
+  float diskR=length(uv);
+  float disk=smoothstep(0.65,0.7,diskR)*smoothstep(0.95,0.85,diskR);
+  float diskAngle=atan(uv.y,uv.x);
+  float diskBright=0.5+0.5*sin(diskAngle*8.0+time*2.0+diskR*20.0);
+  vec3 diskCol=palette(diskAngle/TAU+0.5+time*0.05,pal,palOffset+0.5,gamma,chromaShift);
+  col=mix(col,diskCol*diskBright*1.5,disk*0.4);
+  
+  // ── Schwarzschild shadow ───────────────────────────────────────────────────
+  float shadow=smoothstep(rs*0.4,rs*0.3,diskR)*0.8;
+  col=mix(col,vec3(0.),shadow);
+  
+  // ── Lensing ring brightening ───────────────────────────────────────────────
+  float photonRing=exp(-pow((diskR-rs*2.0)*8.0,2.0))*0.4;
+  col+=vec3(photonRing)*vec3(0.9,0.7,0.5);
+  
+  // ── Vignette ──────────────────────────────────────────────────────────────
+  float vig=1.0-smoothstep(0.8,1.4,length((fc/res-0.5)*vec2(res.x/res.y,1.0)*1.4));
+  col*=vig;
+  
+  // ── Gamma & opponent process final ────────────────────────────────────────
+  // Opponent process: luminance + R-G + B-Y channels
+  float lum=dot(col,vec3(0.299,0.587,0.114));
+  float rg=col.r-col.g;
+  float by=col.b-lum*0.5;
+  col=vec3(lum+rg*chromaShift,lum-rg*0.5+by*0.3,lum-by*chromaShift*0.7);
+  col=pow(clamp(col,0.,1.),vec3(1.0/gamma));
+  
+  gl_FragColor=vec4(col,1.0);
+}
+`;
+
+// ─── Program ─────────────────────────────────────────────────────────────────
+const prog=mkProg(VS,FS);
+gl.useProgram(prog);
+
+const buf=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+const posLoc=gl.getAttribLocation(prog,'pos');
+gl.enableVertexAttribArray(posLoc);
+gl.vertexAttribPointer(posLoc,2,gl.FLOAT,false,0,0);
+
+// Uniform locations
+const UL={};
+['res','t','mode','seed','pal','blend','evolve','lensStrength','schwarzR','attractorAmp',
+ 'kaleido','modPeriod','gamma','chromaShift','palRotate','blendAmt',
+ 'lorenzA','lorenzB','lorenzC','rosslerA','rosslerB','rosslerC',
+ 'juliaC','multibrotPow','penroseK','hyperK','audioAmp']
+.forEach(n=>UL[n]=gl.getUniformLocation(prog,n));
+
+// ─── Simulation params ────────────────────────────────────────────────────────
+let params={};
+
+function reseed(){
+  srand(seed);
+  modeIndex=randInt(0,7);
+  paletteIndex=randInt(0,7);
+  blendIndex=randInt(0,7);
+  params={
+    mode:modeIndex,
+    pal:paletteIndex/8,
+    blend:blendIndex/8,
+    lensStrength:randRange(0.3,1.2),
+    schwarzR:randRange(0.05,0.25),
+    attractorAmp:randRange(0.2,0.8),
+    kaleido:randInt(3,12),
+    modPeriod:randRange(3,12),
+    gamma:randRange(0.8,2.2),
+    chromaShift:randRange(0,0.8),
+    palRotate:rand(),
+    blendAmt:randRange(0.2,0.9),
+    lorenzA:randRange(8,12),
+    lorenzB:randRange(26,30),
+    lorenzC:randRange(2.5,3.5),
+    rosslerA:randRange(0.1,0.3),
+    rosslerB:randRange(0.1,0.3),
+    rosslerC:randRange(4,8),
+    juliaC:[randRange(-0.8,0.8),randRange(-0.8,0.8)],
+    multibrotPow:randRange(2,5),
+    penroseK:randRange(3,8),
+    hyperK:randRange(4,10),
+  };
+  evolveTimer=0;
+  evolvePhase=rand()*TAU;
+  updateHUD();
+}
+
+// ─── Evolve parameters over time ──────────────────────────────────────────────
+function evolveParams(dt){
+  evolveTimer+=dt;
+  const speed=0.0003;
+  params.palRotate=fract(params.palRotate+speed*dt);
+  params.chromaShift=0.4+0.4*Math.sin(evolveTimer*0.0007+evolvePhase);
+  params.gamma=1.3+0.5*Math.sin(evolveTimer*0.0004+evolvePhase*1.3);
+  params.juliaC[0]=params.juliaC[0]+Math.sin(evolveTimer*0.0002+evolvePhase)*0.0003*dt;
+  params.juliaC[1]=params.juliaC[1]+Math.cos(evolveTimer*0.00015+evolvePhase*1.7)*0.0003*dt;
+  params.lensStrength=0.6+0.5*Math.sin(evolveTimer*0.0003);
+  // full mode cycle every ~2 minutes
+  if(evolveTimer>120000){
+    seed=Math.random()*99999|0;
+    srand(seed);
+    reseed();
+  }
+}
+
+// ─── Audio system ─────────────────────────────────────────────────────────────
+let audioAmpVal=0;
+
+function initAudio(){
+  if(audioCtx)return;
+  audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+  gainMaster=audioCtx.createGain();
+  gainMaster.gain.value=0.18;
+  analyserNode=audioCtx.createAnalyser();
+  analyserNode.fftSize=64;
+  gainMaster.connect(analyserNode);
+  analyserNode.connect(audioCtx.destination);
+  createOscBank();
+}
+
+function createOscBank(){
+  oscillators.forEach(o=>{try{o.osc.stop();}catch(e){}});
+  oscillators=[];
+  // Eigenvalue-inspired frequencies: from coupled Laplacian eigenvalues
+  const freqs=[55,82.4,110,146.8,165,220,277.2,329.6,440,554.4,659.3];
+  srand(seed+1);
+  for(let i=0;i<6;i++){
+    const f=freqs[randInt(0,freqs.length-1)]*(0.5+rand()*1.5);
+    const osc=audioCtx.createOscillator();
+    const gn=audioCtx.createGain();
+    osc.type=['sine','triangle','sawtooth'][randInt(0,2)];
+    osc.frequency.value=f;
+    gn.gain.value=0.08+rand()*0.12;
+    osc.connect(gn);gn.connect(gainMaster);
+    osc.start();
+    oscillators.push({osc,gn,baseFreq:f,phase:rand()*TAU,speed:randRange(0.1,0.8)});
+  }
+}
+
+function updateAudio(time){
+  if(!audioCtx||!soundEnabled)return;
+  // Stochastic resonance: modulate frequencies with curvature-inspired noise
+  oscillators.forEach((o,i)=>{
+    const mod=1+0.3*Math.sin(time*o.speed+o.phase)*params.attractorAmp;
+    o.osc.frequency.value=o.baseFreq*mod;
+    o.gn.gain.value=(0.05+0.1*Math.abs(Math.sin(time*o.speed*0.7+o.phase)))*params.lensStrength;
+  });
+  // FFT readback for visual sync
+  if(analyserNode){
+    const data=new Uint8Array(analyserNode.frequencyBinCount);
+    analyserNode.getByteFrequencyData(data);
+    let sum=0;for(let i=0;i<data.length;i++)sum+=data[i];
+    audioAmpVal=(sum/data.length)/256;
+  }
+}
+
+function stopAudio(){
+  oscillators.forEach(o=>{try{o.gn.gain.value=0;}catch(e){}});
+  audioAmpVal=0;
+}
+
+// ─── HUD ─────────────────────────────────────────────────────────────────────
+function updateHUD(){
+  if(!hudVisible)return;
+  document.getElementById('h-mode').textContent='MODE: '+MODES[modeIndex];
+  document.getElementById('h-iter').textContent='ITER: '+MAX_ITER_JS;
+  document.getElementById('h-seed').textContent='SEED: '+seed;
+  document.getElementById('h-pal').textContent='PALETTE: '+PALETTES[paletteIndex];
+  document.getElementById('h-blend').textContent='BLEND: '+BLENDS[blendIndex];
+  document.getElementById('h-sound').textContent='SOUND: '+(soundEnabled?'ON':'OFF');
+}
+const MAX_ITER_JS=96;
+
+// ─── Resize ───────────────────────────────────────────────────────────────────
+function resize(){
+  W=cv.width=window.innerWidth;
+  H=cv.height=window.innerHeight;
+  gl.viewport(0,0,W,H);
+}
+window.addEventListener('resize',resize);
+resize();
+
+// ─── Input ───────────────────────────────────────────────────────────────────
+function triggerReseed(){
+  seed=Math.random()*99999|0;
+  srand(seed);
+  reseed();
+  if(soundEnabled&&audioCtx){createOscBank();}
+}
+
+document.addEventListener('keydown',e=>{
+  if(e.repeat)return;
+  const k=e.key.toUpperCase();
+  if(k===' '||k==='ENTER'){triggerReseed();}
+  else if(k==='H'){
+    hudVisible=!hudVisible;
+    document.getElementById('hud').style.display=hudVisible?'block':'none';
+    updateHUD();
+  }
+  else if(k==='S'){
+    soundEnabled=!soundEnabled;
+    if(soundEnabled){
+      initAudio();
+      if(audioCtx.state==='suspended')audioCtx.resume();
+    }else{stopAudio();}
+    updateHUD();
+  }
+});
+
+cv.addEventListener('click',triggerReseed);
+cv.addEventListener('touchstart',e=>{e.preventDefault();triggerReseed();},{passive:false});
+
+// ─── Render loop ──────────────────────────────────────────────────────────────
+let lastTime=performance.now();
+reseed();
+
+function render(now){
+  const dt=Math.min(now-lastTime,100);
+  lastTime=now;
+  t+=dt;
+  frame++;
+
+  evolveParams(dt);
+  if(soundEnabled)updateAudio(t*0.001);
+
+  // Set uniforms
+  gl.uniform2f(UL.res,W,H);
+  gl.uniform1f(UL.t,t*0.001);
+  gl.uniform1i(UL.mode,params.mode);
+  gl.uniform1f(UL.seed,seed*0.0001);
+  gl.uniform1f(UL.pal,params.pal);
+  gl.uniform1f(UL.blend,params.blend);
+  gl.uniform1f(UL.evolve,evolveTimer*0.00001);
+  gl.uniform1f(UL.lensStrength,params.lensStrength);
+  gl.uniform1f(UL.schwarzR,params.schwarzR);
+  gl.uniform1f(UL.attractorAmp,params.attractorAmp);
+  gl.uniform1f(UL.kaleido,params.kaleido);
+  gl.uniform1f(UL.modPeriod,params.modPeriod);
+  gl.uniform1f(UL.gamma,params.gamma);
+  gl.uniform1f(UL.chromaShift,params.chromaShift);
+  gl.uniform1f(UL.palRotate,params.palRotate);
+  gl.uniform1f(UL.blendAmt,params.blendAmt);
+  gl.uniform1f(UL.lorenzA,params.lorenzA);
+  gl.uniform1f(UL.lorenzB,params.lorenzB);
+  gl.uniform1f(UL.lorenzC,params.lorenzC);
+  gl.uniform1f(UL.rosslerA,params.rosslerA);
+  gl.uniform1f(UL.rosslerB,params.rosslerB);
+  gl.uniform1f(UL.rosslerC,params.rosslerC);
+  gl.uniform2f(UL.juliaC,params.juliaC[0],params.juliaC[1]);
+  gl.uniform1f(UL.multibrotPow,params.multibrotPow);
+  gl.uniform1f(UL.penroseK,params.penroseK);
+  gl.uniform1f(UL.hyperK,params.hyperK);
+  gl.uniform1f(UL.audioAmp,audioAmpVal);
+
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+  requestAnimationFrame(render);
+}
+
+requestAnimationFrame(render);
+
+
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Relativistic Kinetic Tesseract</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap');
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#000;overflow:hidden;font-family:'Share Tech Mono',monospace;color:#00ffcc}
+  canvas{display:block;width:100vw;height:100vh}
+  #hud{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;transition:opacity 0.4s}
+  #hud.hidden{opacity:0}
+  .hud-panel{position:absolute;background:rgba(0,8,20,0.72);border:1px solid rgba(0,255,200,0.25);backdrop-filter:blur(6px);padding:14px 18px;font-size:11px;line-height:1.9;letter-spacing:0.08em}
+  #panel-tl{top:18px;left:18px;min-width:210px;border-left:2px solid #00ffcc}
+  #panel-tr{top:18px;right:18px;text-align:right;min-width:190px;border-right:2px solid #ff00aa}
+  #panel-bl{bottom:18px;left:18px;min-width:260px;border-left:2px solid #ffcc00}
+  #panel-br{bottom:18px;right:18px;text-align:right;min-width:180px;border-right:2px solid #00aaff}
+  .label{color:rgba(0,255,200,0.45);text-transform:uppercase;font-size:9px;letter-spacing:0.15em}
+  .value{color:#e0fff8;font-family:'Orbitron',monospace;font-size:12px}
+  .accent{color:#ff00aa}
+  .accent2{color:#ffcc00}
+  .accent3{color:#00aaff}
+  #title-bar{position:absolute;top:18px;left:50%;transform:translateX(-50%);text-align:center;pointer-events:none}
+  #title-bar h1{font-family:'Orbitron',monospace;font-size:13px;font-weight:900;letter-spacing:0.3em;color:#00ffcc;text-shadow:0 0 20px #00ffcc88;text-transform:uppercase}
+  #title-bar p{font-size:9px;letter-spacing:0.2em;color:rgba(0,255,200,0.4);margin-top:3px}
+  #keybinds{position:absolute;bottom:18px;left:50%;transform:translateX(-50%);text-align:center;font-size:9px;letter-spacing:0.15em;color:rgba(0,255,200,0.3)}
+  #keybinds span{color:rgba(0,255,200,0.6);margin:0 8px}
+  #style-flash{position:fixed;top:0;left:0;width:100%;height:100%;background:#fff;opacity:0;pointer-events:none;transition:opacity 0.08s}
+  .bar{display:inline-block;height:6px;background:linear-gradient(90deg,#00ffcc,#ff00aa);border-radius:3px;vertical-align:middle}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="style-flash"></div>
+<div id="hud" class="hidden">
+  <div id="title-bar">
+    <h1>Relativistic Kinetic Tesseract</h1>
+    <p>Non-Euclidean · Minkowski · Coxeter Symmetry</p>
+  </div>
+  <div class="hud-panel" id="panel-tl">
+    <div class="label">Lorentz Factor γ</div>
+    <div class="value" id="v-gamma">1.0000</div>
+    <div class="label" style="margin-top:8px">Velocity β = v/c</div>
+    <div class="value"><span id="v-beta">0.0000</span> <span class="bar" id="bar-beta" style="width:40px"></span></div>
+    <div class="label" style="margin-top:8px">Time Dilation Δτ</div>
+    <div class="value accent" id="v-tau">0.000 ms</div>
+    <div class="label" style="margin-top:8px">4D Rotation Phase</div>
+    <div class="value accent2" id="v-phase">XW · YZ</div>
+  </div>
+  <div class="hud-panel" id="panel-tr">
+    <div class="label">Coxeter Group</div>
+    <div class="value accent3" id="v-coxeter">[3,3,3]</div>
+    <div class="label" style="margin-top:8px">Reflection Order</div>
+    <div class="value" id="v-reflect">24</div>
+    <div class="label" style="margin-top:8px">SDF Iterations</div>
+    <div class="value" id="v-iter">96</div>
+    <div class="label" style="margin-top:8px">Style Mode</div>
+    <div class="value accent" id="v-style">SPECTRAL</div>
+  </div>
+  <div class="hud-panel" id="panel-bl">
+    <div class="label">Granular Synthesis</div>
+    <div class="value" id="v-synth">ACTIVE — 8 grains</div>
+    <div class="label" style="margin-top:8px">Vertex Freq</div>
+    <div class="value accent2" id="v-freq">432.00 Hz</div>
+    <div class="label" style="margin-top:8px">Harmonic Series</div>
+    <div class="value accent3" id="v-harm">1 · 3/2 · 5/4 · 7/4</div>
+    <div class="label" style="margin-top:8px">Grain Density</div>
+    <div class="value" id="v-grain">0.00 g/ms</div>
+  </div>
+  <div class="hud-panel" id="panel-br">
+    <div class="label">Frame</div>
+    <div class="value" id="v-frame">00000</div>
+    <div class="label" style="margin-top:8px">Ray Steps</div>
+    <div class="value accent" id="v-rays">64</div>
+    <div class="label" style="margin-top:8px">Minkowski Metric</div>
+    <div class="value accent3">(−,+,+,+)</div>
+    <div class="label" style="margin-top:8px">Polytope</div>
+    <div class="value accent2" id="v-poly">5-CELL</div>
+  </div>
+  <div id="keybinds">
+    <span>[H]</span> Toggle HUD &nbsp;|&nbsp;
+    <span>[S]</span> Sound On/Off &nbsp;|&nbsp;
+    <span>[SPACE]</span> Style Swap
+  </div>
+</div>
+
+<script>
+// ─── CANVAS SETUP ─────────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+if(!gl){alert('WebGL not available');throw 0;}
+
+let W,H;
+function resize(){
+  W=canvas.width=window.innerWidth;
+  H=canvas.height=window.innerHeight;
+  gl.viewport(0,0,W,H);
+}
+window.addEventListener('resize',resize);
+resize();
+
+// ─── STATE ────────────────────────────────────────────────────────────────────
+let t=0, frame=0;
+let hudVisible=false, soundOn=false;
+let styleMode=0; // 0=SPECTRAL 1=VOID 2=EMBER 3=META-ABSTRACT
+const STYLE_NAMES=['SPECTRAL','VOID','EMBER','META-ABSTRACT'];
+const POLYTOPE_NAMES=['5-CELL','TESSERACT','16-CELL','24-CELL'];
+const COXETER_NAMES=['[3,3,3]','[4,3,3]','[3,3,4]','[3,4,3]'];
+let polyIdx=0;
+
+// ─── AUDIO ────────────────────────────────────────────────────────────────────
+let audioCtx=null, grainIntervalId=null;
+const HARMONICS=[1, 1.5, 1.25, 1.75, 2, 2.25, 0.5, 0.75];
+
+function initAudio(){
+  if(audioCtx) return;
+  audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+}
+
+function scheduleGrain(freq, detune, gainVal, duration){
+  if(!audioCtx||!soundOn) return;
+  const now = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  const filter = audioCtx.createBiquadFilter();
+
+  osc.type = ['sine','triangle','sawtooth'][Math.floor(Math.random()*3)];
+  osc.frequency.setValueAtTime(freq, now);
+  osc.detune.setValueAtTime(detune, now);
+  filter.type = 'bandpass';
+  filter.frequency.setValueAtTime(freq*2, now);
+  filter.Q.setValueAtTime(8, now);
+
+  gain.gain.setValueAtTime(0, now);
+  gain.gain.linearRampToValueAtTime(gainVal, now + duration*0.1);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+
+  osc.connect(filter);
+  filter.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.start(now);
+  osc.stop(now + duration + 0.05);
+}
+
+function startGranular(){
+  if(grainIntervalId) return;
+  grainIntervalId = setInterval(()=>{
+    if(!soundOn||!audioCtx) return;
+    const baseFreq = 432 * (1 + Math.sin(t*0.3)*0.15);
+    const numGrains = 8;
+    for(let i=0;i<numGrains;i++){
+      const h = HARMONICS[i % HARMONICS.length];
+      const f = baseFreq * h * (1 + Math.sin(t*0.7+i)*0.02);
+      const detune = (Math.random()-0.5)*40;
+      const gain = 0.03 + Math.random()*0.02;
+      const dur = 0.08 + Math.random()*0.12;
+      scheduleGrain(f, detune, gain, dur);
+    }
+    document.getElementById('v-freq').textContent = (baseFreq).toFixed(2)+' Hz';
+    document.getElementById('v-grain').textContent = (numGrains/100).toFixed(2)+' g/ms';
+  }, 80);
+}
+
+function stopGranular(){
+  if(grainIntervalId){clearInterval(grainIntervalId);grainIntervalId=null;}
+}
+
+// ─── SHADERS ──────────────────────────────────────────────────────────────────
+const VS = `#version 300 es
+in vec2 a_pos;
+void main(){gl_Position=vec4(a_pos,0,1);}`;
+
+const FS = `#version 300 es
+precision highp float;
+uniform vec2 u_res;
+uniform float u_time;
+uniform float u_style; // 0-3
+uniform float u_poly;  // 0-3
+out vec4 fragColor;
+
+#define PI 3.14159265358979
+#define TAU 6.28318530718
+
+// ── Math helpers ──────────────────────────────────────────────────────────────
+mat2 rot2(float a){float c=cos(a),s=sin(a);return mat2(c,-s,s,c);}
+
+mat4 rot4XY(float a){
+  mat4 m=mat4(1.);m[0][0]=cos(a);m[0][1]=-sin(a);m[1][0]=sin(a);m[1][1]=cos(a);return m;
+}
+mat4 rot4ZW(float a){
+  mat4 m=mat4(1.);m[2][2]=cos(a);m[2][3]=-sin(a);m[3][2]=sin(a);m[3][3]=cos(a);return m;
+}
+mat4 rot4XW(float a){
+  mat4 m=mat4(1.);m[0][0]=cos(a);m[0][3]=-sin(a);m[3][0]=sin(a);m[3][3]=cos(a);return m;
+}
+mat4 rot4YZ(float a){
+  mat4 m=mat4(1.);m[1][1]=cos(a);m[1][2]=-sin(a);m[2][1]=sin(a);m[2][2]=cos(a);return m;
+}
+
+// ── Lorentz transformation ─────────────────────────────────────────────────────
+// beta = v/c, gamma = 1/sqrt(1-beta^2)
+// Applied to distort space along viewing direction
+float lorentzGamma(float beta){return 1./sqrt(max(0.0001,1.-beta*beta));}
+
+vec3 lorentzBoost(vec3 p, float beta){
+  float gamma = lorentzGamma(beta);
+  // Boost along z
+  float z2 = gamma*(p.z - beta*(length(p)*0.5));
+  float t2 = gamma*(length(p)*0.5 - beta*p.z);
+  return vec3(p.x/gamma, p.y/gamma, z2);
+}
+
+// ── 4D project ────────────────────────────────────────────────────────────────
+vec3 proj4to3(vec4 p4, float w){
+  float dw = 2.5 - p4.w;
+  return vec3(p4.xyz/dw);
+}
+
+// ── Coxeter / kaleidoscopic reflections ───────────────────────────────────────
+vec3 kaleido(vec3 p, int iters){
+  for(int i=0;i<12;i++){
+    if(i>=iters) break;
+    p=abs(p);
+    if(p.x<p.y) p.xy=p.yx;
+    if(p.x<p.z) p.xz=p.zx;
+    if(p.y<p.z) p.yz=p.zy;
+    p.xy*=rot2(PI/float(3+i%3));
+  }
+  return p;
+}
+
+vec3 kaleido2(vec3 p, int iters){
+  for(int i=0;i<16;i++){
+    if(i>=iters) break;
+    p=abs(p);
+    if(p.x+p.y<0.) p.xy=-p.xy;
+    if(p.x+p.z<0.) p.xz=-p.xz;
+    if(p.y+p.z<0.) p.yz=-p.yz;
+    p.xz*=rot2(0.5236); // PI/6
+  }
+  return p;
+}
+
+// ── SDF primitives ────────────────────────────────────────────────────────────
+float sdSphere(vec3 p, float r){return length(p)-r;}
+
+float sdOctahedron(vec3 p, float s){
+  p=abs(p);
+  return (p.x+p.y+p.z-s)*0.57735027;
+}
+
+float sdBox(vec3 p, vec3 b){
+  vec3 q=abs(p)-b;
+  return length(max(q,0.))+min(max(q.x,max(q.y,q.z)),0.);
+}
+
+float sdCuboctahedron(vec3 p, float r){
+  p=abs(p);
+  float d1=sdBox(p,vec3(r*0.8));
+  float d2=sdOctahedron(p,r*1.2);
+  return max(d1,d2)*0.8;
+}
+
+float sdIcosahedron(vec3 p, float r){
+  // Approximated via 5-fold symmetry planes
+  float phi=1.6180339887;
+  vec3 n1=normalize(vec3(0,1,phi));
+  vec3 n2=normalize(vec3(phi,0,1));
+  vec3 n3=normalize(vec3(1,phi,0));
+  p=abs(p);
+  float d=dot(p,n1)-r;
+  d=max(d,dot(p,n2)-r);
+  d=max(d,dot(p,n3)-r);
+  d=max(d,dot(p,vec3(1))-r*1.4);
+  return d*0.7;
+}
+
+// ── Tesseract (4D hypercube) projected ────────────────────────────────────────
+float sdTesseract(vec3 p, float t4, float poly){
+  // 4D rotation
+  vec4 p4 = vec4(p,sin(t4*0.5)*0.8);
+  
+  // Animated 4D rotations
+  mat4 r1 = rot4XW(t4*0.31);
+  mat4 r2 = rot4YZ(t4*0.23);
+  mat4 r3 = rot4ZW(t4*0.17);
+  p4 = r3*r2*r1*p4;
+
+  // Project back to 3D
+  vec3 pp = proj4to3(p4, 2.5);
+
+  // Different polytope SDFs
+  float d;
+  if(poly<0.5){
+    // 5-cell / simplex-like
+    d=sdOctahedron(pp,0.9);
+    pp.xy*=rot2(0.523);
+    d=min(d,sdOctahedron(pp-vec3(0.5,0.3,0.1),0.55));
+    d=min(d,sdOctahedron(pp+vec3(0.5,0.3,0.1),0.55));
+  } else if(poly<1.5){
+    // Tesseract
+    d=sdBox(pp,vec3(0.7));
+    float d2=sdBox(pp,vec3(0.35));
+    d=min(d,d2);
+    d=max(d,-sdBox(pp,vec3(0.65)));
+  } else if(poly<2.5){
+    // 16-cell
+    d=sdOctahedron(pp,1.0);
+    d=min(d,sdOctahedron(pp*1.4,0.6));
+  } else {
+    // 24-cell via cuboctahedron
+    d=sdCuboctahedron(pp,0.85);
+  }
+  return d;
+}
+
+// ── Main SDF scene ────────────────────────────────────────────────────────────
+float sceneSDF(vec3 p, float time, float style, float poly){
+  float beta = 0.3+0.6*abs(sin(time*0.08));
+  float gamma = lorentzGamma(beta);
+
+  // Lorentz distortion
+  vec3 pb = lorentzBoost(p, beta*0.4);
+
+  // Kaleidoscopic reflections (Coxeter group)
+  int kIter = int(style)<2 ? 8 : 6;
+  vec3 pk = kaleido(pb, kIter);
+
+  // 4D polytope distance
+  float d = sdTesseract(pk, time, poly);
+
+  // Archimedean shell
+  vec3 pk2 = kaleido2(p, 5);
+  float dArch = sdCuboctahedron(pk2*0.7, 1.0)-0.03;
+
+  // Icosahedral halo
+  float dIco = sdIcosahedron(p, 1.55)-0.02;
+
+  // Combine with smooth union
+  float k=0.18;
+  float h=clamp(0.5+0.5*(dArch-d)/k,0.,1.);
+  float dBlend=mix(dArch,d,h)-k*h*(1.-h);
+
+  // Add fractal detail
+  vec3 pf=p;
+  float scale=1., dd=0.;
+  for(int i=0;i<5;i++){
+    pf=abs(pf)-vec3(0.6,0.5,0.7);
+    pf.xy*=rot2(time*0.05+float(i)*0.4);
+    scale*=1.4;
+    dd+=sdBox(pf,vec3(0.25+0.1*sin(time+float(i))))/scale;
+  }
+
+  float dFrac = dd*0.55;
+  float k2=0.12;
+  float hf=clamp(0.5+0.5*(dBlend-dFrac)/k2,0.,1.);
+  float dFinal=mix(dBlend,dFrac,hf)-k2*hf*(1.-hf);
+
+  // Outer icosahedral shell (subtle)
+  dFinal=min(dFinal, dIco);
+
+  return dFinal;
+}
+
+// ── Normal estimation ─────────────────────────────────────────────────────────
+vec3 calcNormal(vec3 p, float time, float style, float poly){
+  vec2 e=vec2(0.001,0.);
+  return normalize(vec3(
+    sceneSDF(p+e.xyy,time,style,poly)-sceneSDF(p-e.xyy,time,style,poly),
+    sceneSDF(p+e.yxy,time,style,poly)-sceneSDF(p-e.yxy,time,style,poly),
+    sceneSDF(p+e.yyx,time,style,poly)-sceneSDF(p-e.yyx,time,style,poly)
+  ));
+}
+
+// ── Palette ───────────────────────────────────────────────────────────────────
+vec3 palette(float t, vec3 a, vec3 b, vec3 c, vec3 d){
+  return a+b*cos(TAU*(c*t+d));
+}
+
+vec3 getColor(vec3 p, vec3 n, float dist, float rayDist, float time, float style){
+  vec3 col;
+  float s=style;
+  if(s<0.5){
+    // SPECTRAL
+    col=palette(dist*0.5+time*0.1,
+      vec3(0.5,0.5,0.5),vec3(0.5,0.5,0.5),
+      vec3(1.,1.,1.),vec3(0.,0.33,0.67));
+    vec3 spec=palette(dot(n,vec3(0.577))*0.5+0.5+time*0.07,
+      vec3(0.2,0.8,0.6),vec3(0.4,0.2,0.5),
+      vec3(2.,1.,1.),vec3(0.5,0.2,0.25));
+    col=mix(col,spec,0.6);
+    col*=vec3(0.7,1.2,1.1);
+  } else if(s<1.5){
+    // VOID
+    col=palette(dot(n,normalize(vec3(1,2,3)))*0.5+0.5+time*0.05,
+      vec3(0.02,0.02,0.08),vec3(0.5,0.1,0.5),
+      vec3(1.,2.,0.5),vec3(0.8,0.,0.3));
+    col=clamp(col,0.,1.);
+    col*=vec3(0.8,0.5,1.3);
+  } else if(s<2.5){
+    // EMBER
+    float h2=dist*0.4+rayDist*0.2+time*0.08;
+    col=palette(h2,
+      vec3(0.5,0.2,0.1),vec3(0.5,0.3,0.0),
+      vec3(1.,0.7,0.3),vec3(0.,0.15,0.5));
+    col*=vec3(1.5,0.8,0.4);
+  } else {
+    // META-ABSTRACT
+    vec3 a2=palette(dist+time*0.15,
+      vec3(0.5),vec3(0.5),vec3(1.,1.,0.5),vec3(0.,0.5,1.));
+    vec3 b2=palette(dot(n,vec3(0,1,0))*2.+time*0.1,
+      vec3(0.5),vec3(0.5),vec3(0.5,1.,1.),vec3(0.3,0.,0.7));
+    col=mix(a2,b2,sin(dist*3.+time)*0.5+0.5);
+    col=pow(col,vec3(0.7));
+  }
+  // Lighting
+  vec3 light1=normalize(vec3(1,2,1));
+  vec3 light2=normalize(vec3(-1,-1,2));
+  float diff=max(0.,dot(n,light1))*0.7+max(0.,dot(n,light2))*0.3;
+  float rim=pow(1.-abs(dot(n,normalize(p))),3.)*0.5;
+  col=col*(0.15+diff)+rim*vec3(0.2,0.8,1.0);
+  // Depth fog
+  col=mix(col,vec3(0.),clamp(rayDist*0.08,0.,0.95));
+  return col;
+}
+
+// ── AO ────────────────────────────────────────────────────────────────────────
+float calcAO(vec3 p, vec3 n, float time, float style, float poly){
+  float ao=0., sca=1.;
+  for(int i=0;i<5;i++){
+    float h=0.01+0.12*float(i)/4.;
+    float d=sceneSDF(p+n*h,time,style,poly);
+    ao+=(h-d)*sca;
+    sca*=0.95;
+  }
+  return clamp(1.-3.*ao,0.,1.);
+}
+
+// ── Ray march ─────────────────────────────────────────────────────────────────
+void main(){
+  vec2 uv=(gl_FragCoord.xy-u_res*0.5)/min(u_res.x,u_res.y);
+
+  // Camera orbit
+  float camAng = u_time*0.12;
+  float camElev= 0.3+0.2*sin(u_time*0.07);
+  vec3 ro=vec3(
+    3.2*cos(camAng)*cos(camElev),
+    3.2*sin(camElev),
+    3.2*sin(camAng)*cos(camElev)
+  );
+  vec3 target=vec3(0.);
+  vec3 fwd=normalize(target-ro);
+  vec3 rgt=normalize(cross(fwd,vec3(0,1,0)));
+  vec3 up=cross(rgt,fwd);
+
+  // Apply subtle Lorentz aberration to ray direction (visual effect)
+  float beta=0.3+0.5*abs(sin(u_time*0.08));
+  float gamma=lorentzGamma(beta);
+  vec2 uvL=uv*vec2(1./gamma,1.); // length contraction along x
+
+  vec3 rd=normalize(fwd + uvL.x*rgt + uvL.y*up);
+
+  // Ray march
+  float dTotal=0.;
+  float dMin=1e9;
+  vec3 p=ro;
+  bool hit=false;
+  float stepMult=1.0;
+
+  for(int i=0;i<96;i++){
+    float d=sceneSDF(p,u_time,u_style,u_poly);
+    dMin=min(dMin,d);
+    if(d<0.001){hit=true;break;}
+    if(dTotal>20.) break;
+    dTotal+=d*stepMult;
+    p=ro+rd*dTotal;
+  }
+
+  vec3 col=vec3(0.);
+
+  if(hit){
+    vec3 n=calcNormal(p,u_time,u_style,u_poly);
+    float ao=calcAO(p,n,u_time,u_style,u_poly);
+    col=getColor(p,n,dTotal,length(p-ro),u_time,u_style);
+    col*=ao;
+
+    // Specular highlight
+    vec3 ldir=normalize(vec3(1,2,1.5));
+    vec3 h2=normalize(ldir-rd);
+    float spec=pow(max(0.,dot(n,h2)),64.);
+    col+=spec*0.4*vec3(1,0.9,0.8);
+  } else {
+    // Background: deep space with energy traces
+    float bg=pow(clamp(1.-dMin*0.5,0.,1.),4.)*0.4;
+    // Starfield
+    vec2 st=uv*40.;
+    vec2 si=floor(st); vec2 sf=fract(st)-0.5;
+    float star=smoothstep(0.45,0.5,0.5-length(sf))*step(fract(sin(dot(si,vec2(127.1,311.7)))*43758.5),0.03);
+    col=vec3(0.01,0.02,0.05)+vec3(bg)*vec3(0.2,0.5,0.8)+star*0.8;
+
+    // Energy lines from miss distance
+    if(u_style>2.5){
+      float lines=sin(dMin*20.-u_time)*0.5+0.5;
+      col+=lines*0.08*vec3(1,0.3,0.8);
+    }
+  }
+
+  // Time dilation color shift (chromatic aberration)
+  float tau=1./gamma;
+  col.r*=1.+0.08*(1.-tau);
+  col.b*=1.-0.06*(1.-tau);
+
+  // Vignette
+  float vig=1.-0.5*dot(uv,uv);
+  col*=vig;
+
+  // Gamma
+  col=pow(max(col,0.),vec3(0.4545));
+
+  // Scan lines (subtle)
+  col*=0.97+0.03*sin(gl_FragCoord.y*3.14*2.);
+
+  fragColor=vec4(col,1.);
+}`;
+
+// ─── GL SETUP ─────────────────────────────────────────────────────────────────
+function makeShader(type, src){
+  const s=gl.createShader(type);
+  gl.shaderSource(s,src);
+  gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){
+    console.error(gl.getShaderInfoLog(s));
+    return null;
+  }
+  return s;
+}
+
+const vs=makeShader(gl.VERTEX_SHADER,VS);
+const fs=makeShader(gl.FRAGMENT_SHADER,FS);
+const prog=gl.createProgram();
+gl.attachShader(prog,vs);
+gl.attachShader(prog,fs);
+gl.linkProgram(prog);
+gl.useProgram(prog);
+
+// Full-screen quad
+const buf=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]),gl.STATIC_DRAW);
+const aPos=gl.getAttribLocation(prog,'a_pos');
+gl.enableVertexAttribArray(aPos);
+gl.vertexAttribPointer(aPos,2,gl.FLOAT,false,0,0);
+
+const uRes=gl.getUniformLocation(prog,'u_res');
+const uTime=gl.getUniformLocation(prog,'u_time');
+const uStyle=gl.getUniformLocation(prog,'u_style');
+const uPoly=gl.getUniformLocation(prog,'u_poly');
+
+// ─── HUD UPDATE ───────────────────────────────────────────────────────────────
+function updateHUD(time){
+  const beta = 0.3+0.5*Math.abs(Math.sin(time*0.08));
+  const gamma = 1/Math.sqrt(1-beta*beta);
+  const tau = 1/gamma;
+  const freq = 432*(1+Math.sin(time*0.3)*0.15);
+
+  document.getElementById('v-gamma').textContent = gamma.toFixed(4);
+  document.getElementById('v-beta').textContent = beta.toFixed(4);
+  document.getElementById('bar-beta').style.width = (beta*80)+'px';
+  document.getElementById('v-tau').textContent = (tau*1000).toFixed(3)+' ms';
+
+  const phases=['XW · YZ','XY · ZW','YW · XZ','XZ · YW'];
+  document.getElementById('v-phase').textContent = phases[Math.floor(time*0.2)%4];
+
+  document.getElementById('v-coxeter').textContent = COXETER_NAMES[polyIdx];
+  document.getElementById('v-reflect').textContent = [24,48,16,96][polyIdx];
+  document.getElementById('v-iter').textContent = [96,96,96,96][styleMode];
+  document.getElementById('v-style').textContent = STYLE_NAMES[styleMode];
+  document.getElementById('v-synth').textContent = soundOn ? 'ACTIVE — 8 grains' : 'MUTED';
+  document.getElementById('v-freq').textContent = freq.toFixed(2)+' Hz';
+  document.getElementById('v-frame').textContent = String(frame).padStart(5,'0');
+  document.getElementById('v-rays').textContent = '96';
+  document.getElementById('v-poly').textContent = POLYTOPE_NAMES[polyIdx];
+}
+
+// ─── RENDER LOOP ──────────────────────────────────────────────────────────────
+let lastTime=0;
+function render(ts){
+  const dt=(ts-lastTime)/1000;
+  lastTime=ts;
+  t+=dt;
+  frame++;
+
+  gl.uniform2f(uRes,W,H);
+  gl.uniform1f(uTime,t);
+  gl.uniform1f(uStyle,styleMode);
+  gl.uniform1f(uPoly,polyIdx);
+  gl.drawArrays(gl.TRIANGLES,0,6);
+
+  if(frame%2===0) updateHUD(t);
+
+  requestAnimationFrame(render);
+}
+requestAnimationFrame(render);
+
+// ─── INPUT ────────────────────────────────────────────────────────────────────
+const flash=document.getElementById('style-flash');
+
+window.addEventListener('keydown',e=>{
+  const k=e.key.toUpperCase();
+  if(k==='H'){
+    hudVisible=!hudVisible;
+    document.getElementById('hud').classList.toggle('hidden',!hudVisible);
+  }
+  if(k==='S'){
+    initAudio();
+    soundOn=!soundOn;
+    if(soundOn){ startGranular(); } else { stopGranular(); }
+  }
+  if(e.code==='Space'){
+    e.preventDefault();
+    styleMode=(styleMode+1)%4;
+    polyIdx=(polyIdx+1)%4;
+    // Flash
+    flash.style.opacity='0.3';
+    setTimeout(()=>{flash.style.opacity='0';},80);
+  }
+});
+</script>
+</body>
+</html>

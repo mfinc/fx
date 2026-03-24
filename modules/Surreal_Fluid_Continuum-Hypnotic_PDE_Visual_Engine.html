@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Surreal Fluid Continuum — Hypnotic PDE Visual Engine</title>
+<meta name="description" content="A browser-based generative art engine coupling wave equations, Gray-Scott reaction-diffusion, Navier-Stokes fluid simulation, Voronoi-Delaunay tessellations, signed distance fields, spline parametric flows, and rotating kaleidoscopic symmetry groups into a wildly morphing visual continuum.">
+<meta name="keywords" content="generative art, fluid simulation, PDE, reaction diffusion, Gray-Scott, Navier-Stokes, Voronoi, kaleidoscope, wave equation, signed distance field, ray marching, stereographic projection, procedural art">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;background:#000;overflow:hidden}
+#c{position:fixed;inset:0;width:100%;height:100%;cursor:crosshair;filter:brightness(1.07) saturate(1.15) contrast(1.05)}
+#hud{display:none;position:fixed;top:16px;left:16px;color:rgba(200,255,230,.85);font:11px/1.9 'Courier New',monospace;background:rgba(0,0,0,.6);padding:12px 16px;border:1px solid rgba(80,255,180,.22);border-radius:2px;pointer-events:none;z-index:20;white-space:pre;text-shadow:0 0 9px rgba(80,255,180,.45)}
+#hint{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,.28);font:10px/1 'Courier New',monospace;letter-spacing:.15em;pointer-events:none;transition:opacity 3s ease;z-index:20;text-transform:uppercase}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<div id="hint">SPACE · CLICK = RANDOMIZE &nbsp;&nbsp; H = HUD &nbsp;&nbsp; S = SOUND</div>
+<script>
+(function(){
+'use strict';
+// ── Simulation grid ──────────────────────────────────────────────
+const SW=192,SH=192,SN=SW*SH;
+const canvas=document.getElementById('c');
+const ctx=canvas.getContext('2d',{alpha:false});
+const hudEl=document.getElementById('hud');
+const hintEl=document.getElementById('hint');
+const simC=document.createElement('canvas');
+simC.width=SW;simC.height=SH;
+const simCtx=simC.getContext('2d');
+let imgData=simCtx.createImageData(SW,SH);
+let W=0,H=0;
+function resize(){W=canvas.width=window.innerWidth;H=canvas.height=window.innerHeight;}
+resize();
+window.addEventListener('resize',resize);
+
+// ── Neighbor index tables (wrap-around, precomputed) ─────────────
+const IDX_L=new Int32Array(SN),IDX_R=new Int32Array(SN),IDX_U=new Int32Array(SN),IDX_D=new Int32Array(SN);
+for(let iy=0;iy<SH;iy++)for(let ix=0;ix<SW;ix++){
+  const i=iy*SW+ix;
+  IDX_L[i]=iy*SW+((ix-1+SW)%SW);
+  IDX_R[i]=iy*SW+((ix+1)%SW);
+  IDX_U[i]=((iy-1+SH)%SH)*SW+ix;
+  IDX_D[i]=((iy+1)%SH)*SW+ix;
+}
+function lap(a,i){return a[IDX_L[i]]+a[IDX_R[i]]+a[IDX_U[i]]+a[IDX_D[i]]-4*a[i];}
+
+// ── PDE buffers ──────────────────────────────────────────────────
+let wU=new Float32Array(SN),wP=new Float32Array(SN),wT=new Float32Array(SN);
+let hV=new Float32Array(SN),hT=new Float32Array(SN);
+let gsA=new Float32Array(SN),gsAn=new Float32Array(SN);
+let gsB=new Float32Array(SN),gsBn=new Float32Array(SN);
+let vx=new Float32Array(SN),vy=new Float32Array(SN);
+let seeds=[];
+let time=0,gRot=0,symCur=6,symTgt=6;
+let hudOn=false,sndOn=false,audioCtx=null,aNodes={};
+let frameCount=0;
+
+// ── Spectral palettes (cosine-basis, 8 distinctly different) ─────
+const PALS=[
+  {f:[1.00,0.70,1.30],ph:[0.00,2.094,4.189]},// prismatic
+  {f:[1.60,0.45,0.90],ph:[0.00,1.000,2.000]},// amber-violet
+  {f:[0.45,1.20,2.10],ph:[1.00,3.141,1.570]},// electric ocean
+  {f:[1.30,1.80,0.50],ph:[0.00,1.570,3.141]},// acid-gold
+  {f:[0.65,1.55,0.85],ph:[2.00,0.500,1.000]},// aqua-magenta
+  {f:[2.10,0.25,0.75],ph:[0.00,0.700,2.100]},// neon pulse
+  {f:[0.55,1.95,0.40],ph:[1.00,2.500,0.300]},// toxic lime
+  {f:[1.15,0.75,1.90],ph:[0.50,4.000,1.800]},// ultraviolet
+];
+function spal(t,pi){
+  const pl=PALS[pi%PALS.length];
+  const TAU=6.28318;
+  return[
+    (0.5+0.5*Math.sin(t*TAU*pl.f[0]+pl.ph[0]))*255|0,
+    (0.5+0.5*Math.sin(t*TAU*pl.f[1]+pl.ph[1]))*255|0,
+    (0.5+0.5*Math.sin(t*TAU*pl.f[2]+pl.ph[2]))*255|0,
+  ];
+}
+
+// ── Parameters ───────────────────────────────────────────────────
+let p={};
+function randomize(){
+  symTgt=3+Math.floor(Math.random()*9);
+  p={
+    sym:symTgt,
+    wC2:.045+Math.random()*.34,
+    hAlpha:.035+Math.random()*.22,
+    gsDa:.14+Math.random()*.23,
+    gsDb:.04+Math.random()*.09,
+    gsF:.010+Math.random()*.060,
+    gsK:.036+Math.random()*.032,
+    rot:(Math.random()-.5)*.015,
+    pal0:Math.floor(Math.random()*PALS.length),
+    pal1:Math.floor(Math.random()*PALS.length),
+    pal2:Math.floor(Math.random()*PALS.length),
+    pOff0:Math.random(),pOff1:Math.random(),pOff2:Math.random(),
+    coup:Math.random(),
+    vort:.5+Math.random()*2.2,
+    wForce:.2+Math.random()*.9,
+    stereo:.10+Math.random()*.60,
+    ribbons:3+Math.floor(Math.random()*8),
+    cntT:.15+Math.random()*.26,
+    bFreq:2+Math.floor(Math.random()*9),
+    bAmp:.20+Math.random()*.60,
+    nSplines:3+Math.floor(Math.random()*5),
+  };
+  time=0;gRot=Math.random()*Math.PI*2;symCur=symTgt;
+  initState();
+}
+
+// ── Noise & math ─────────────────────────────────────────────────
+function hash2(x,y){
+  let h=(x*1234567+y*7654321)|0;
+  h=Math.imul(h^(h>>>16),0x45d9f3b);
+  h=Math.imul(h^(h>>>16),0x45d9f3b);
+  return((h^(h>>>16))>>>0)/4294967295;
+}
+function blerp(x,y){
+  const xi=Math.floor(x)|0,yi=Math.floor(y)|0;
+  const xf=x-xi,yf=y-yi;
+  const ux=xf*xf*(3-2*xf),uy=yf*yf*(3-2*yf);
+  return hash2(xi,yi)*(1-ux)*(1-uy)+hash2(xi+1,yi)*ux*(1-uy)+hash2(xi,yi+1)*(1-ux)*uy+hash2(xi+1,yi+1)*ux*uy;
+}
+// Curl noise → divergence-free velocity (NS-flavored)
+function curlNoise(x,y,t){
+  const e=.45;
+  const f=(a,b)=>blerp(a*2.8+t*.15,b*2.8+t*.11)+.28*Math.sin(a*2.9+t*.08+b*1.3);
+  const g=(a,b)=>blerp(a*2.8-t*.12,b*2.8+t*.17)+.28*Math.cos(b*2.6+t*.07+a*1.5);
+  return{x:(f(x,y+e)-f(x,y-e))/(2*e),y:-(g(x+e,y)-g(x-e,y))/(2*e)};
+}
+
+// ── Init state ───────────────────────────────────────────────────
+function initState(){
+  for(let iy=0;iy<SH;iy++)for(let ix=0;ix<SW;ix++){
+    const i=iy*SW+ix;
+    const nx=(ix/SW-.5),ny=(iy/SH-.5);
+    const r=Math.sqrt(nx*nx+ny*ny),a=Math.atan2(ny,nx);
+    wU[i]=(Math.sin(r*26+a*p.sym)+Math.sin(r*13-a*3)+Math.sin(r*8+a*5))*.18+(Math.random()-.5)*.05;
+    wP[i]=wU[i];
+    hV[i]=Math.sin(nx*14+Math.random()*2.5)*Math.cos(ny*11)*.42+.5;
+    gsA[i]=1.0;gsB[i]=0.0;
+  }
+  // Seed Gray-Scott blobs
+  for(let b=0;b<6+Math.floor(Math.random()*9);b++){
+    const cx=8+Math.floor(Math.random()*(SW-16));
+    const cy=8+Math.floor(Math.random()*(SH-16));
+    const rad=2+Math.floor(Math.random()*8);
+    for(let dy=-rad;dy<=rad;dy++)for(let dx=-rad;dx<=rad;dx++){
+      if(dx*dx+dy*dy>rad*rad)continue;
+      const ii=((cy+dy+SH)%SH)*SW+((cx+dx+SW)%SW);
+      gsB[ii]=.42+Math.random()*.52;
+      gsA[ii]=.55-gsB[ii]*.28;
+    }
+  }
+  // Moving Voronoi seeds
+  seeds=Array.from({length:22},()=>({x:Math.random()*SW,y:Math.random()*SH,vx:(Math.random()-.5)*.5,vy:(Math.random()-.5)*.5,hue:Math.random()}));
+  vx.fill(0);vy.fill(0);
+}
+
+// ── PDE STEP: Wave  u_tt = c² ∇²u ───────────────────────────────
+function stepWave(){
+  for(let i=0;i<SN;i++)wT[i]=(2*wU[i]-wP[i]+p.wC2*lap(wU,i))*.9990;
+  let t=wP;wP=wU;wU=wT;wT=t;
+}
+
+// ── PDE STEP: Heat  v_t = α ∇²v (+ wave coupling) ───────────────
+function stepHeat(){
+  for(let i=0;i<SN;i++){
+    let v=hV[i]+p.hAlpha*.09*lap(hV,i)+wU[i]*.008*p.coup;
+    v*=.9997;hT[i]=v>2?2:v<-2?-2:v;
+  }
+  let t=hV;hV=hT;hT=t;
+}
+
+// ── PDE STEP: Gray-Scott reaction-diffusion ──────────────────────
+function stepGS(){
+  const Da=p.gsDa,Db=p.gsDb,F=p.gsF,K=p.gsK;
+  for(let i=0;i<SN;i++){
+    const a=gsA[i],b=gsB[i],abb=a*b*b;
+    let an=a+(Da*lap(gsA,i)-abb+F*(1-a))*.55;
+    let bn=b+(Db*lap(gsB,i)+abb-(F+K)*b+wU[i]*.0025*p.wForce)*.55;
+    gsAn[i]=an<0?0:an>1?1:an;
+    gsBn[i]=bn<0?0:bn>1?1:bn;
+  }
+  let ta=gsA;gsA=gsAn;gsAn=ta;
+  let tb=gsB;gsB=gsBn;gsBn=tb;
+}
+
+// ── Velocity field update (curl noise + GS body force) ───────────
+function stepVelocity(){
+  const t=time*.00042;
+  for(let iy=0;iy<SH;iy++)for(let ix=0;ix<SW;ix++){
+    const i=iy*SW+ix;
+    const c=curlNoise(ix/SW*4.8,iy/SH*4.8,t);
+    const gx=gsB[IDX_R[i]]-gsB[IDX_L[i]];
+    const gy=gsB[IDX_D[i]]-gsB[IDX_U[i]];
+    vx[i]=vx[i]*.91+(c.x+gx*.15)*.38*p.vort;
+    vy[i]=vy[i]*.91+(c.y+gy*.15)*.38*p.vort;
+    const sp=Math.sqrt(vx[i]*vx[i]+vy[i]*vy[i]);
+    if(sp>3.2){vx[i]*=3.2/sp;vy[i]*=3.2/sp;}
+  }
+}
+
+// ── Voronoi seed advection ────────────────────────────────────────
+function stepSeeds(){
+  for(const s of seeds){
+    const fx=((Math.floor(s.x)%SW)+SW)%SW;
+    const fy=((Math.floor(s.y)%SH)+SH)%SH;
+    const i=fy*SW+fx;
+    s.vx=s.vx*.84+vx[i]*.72;
+    s.vy=s.vy*.84+vy[i]*.72;
+    const sp=Math.sqrt(s.vx*s.vx+s.vy*s.vy);
+    if(sp>4.5){s.vx*=4.5/sp;s.vy*=4.5/sp;}
+    s.x=(s.x+s.vx+SW*2)%SW;
+    s.y=(s.y+s.vy+SH*2)%SH;
+    s.hue=(s.hue+.00075)%1;
+  }
+}
+
+// ── Pixel renderer: PDE fields → spectral color ──────────────────
+function renderPixels(){
+  const d=imgData.data;
+  const tp=time*.0000220;
+  const la=time*.0018;
+  for(let i=0;i<SN;i++){
+    const idx=i<<2;
+    const u=wU[i],v=hV[i]*.5,a=gsA[i],b=gsB[i];
+    // SDF surface normal shading (GS gradient as proxy normal)
+    const gxB=gsB[IDX_R[i]]-gsB[IDX_L[i]];
+    const gyB=gsB[IDX_D[i]]-gsB[IDX_U[i]];
+    const gn=Math.sqrt(gxB*gxB+gyB*gyB)+.001;
+    const diff=Math.max(0,(gxB/gn)*Math.cos(la)+(gyB/gn)*Math.sin(la))*.55+.45;
+    // Contour glow (exponential SDF)
+    const sdf=Math.abs(b-p.cntT);
+    const cglo=Math.exp(-sdf*18)*1.5;
+    // Spectral banding
+    const ix=i%SW,iy=(i/SW)|0;
+    const band=Math.sin((ix*1.0+iy*.73)/SW*Math.PI*p.bFreq+time*.0032)*.5+.5;
+    const band2=Math.sin((ix*.61+iy*1.21)/SH*Math.PI*(p.bFreq*1.4)+time*.0019+1.2)*.5+.5;
+    const bc=band*.65+band2*.35;
+    // Stereographic radial warp for color coord
+    const nx=(ix/SW-.5)*2,ny=(iy/SH-.5)*2;
+    const srw=1+p.stereo*Math.sqrt(nx*nx+ny*ny)*.22;
+    // Three independent spectral color coords
+    const t1=((u*.38+b*.52+bc*p.bAmp*.32+p.pOff0+tp)%1+1)%1;
+    const t2=((v*.40+a*.28+diff*.22+p.pOff1+tp*1.42*srw)%1+1)%1;
+    const t3=((b*.58+bc*p.bAmp*.26+Math.abs(u)*.22+p.pOff2+tp*.68)%1+1)%1;
+    const c1=spal(t1,p.pal0),c2=spal(t2,p.pal1),c3=spal(t3,p.pal2);
+    const w1=.32+b*.58,w2=.28+Math.abs(v)*.32,w3=.24+Math.abs(u)*.22;
+    const iw=1/(w1+w2+w3);
+    const df=.52+diff*.72;
+    let r=(c1[0]*w1+c2[0]*w2+c3[0]*w3)*iw*df+cglo*80;
+    let g=(c1[1]*w1+c2[1]*w2+c3[1]*w3)*iw*df+cglo*78;
+    let bl=(c1[2]*w1+c2[2]*w2+c3[2]*w3)*iw*df+cglo*82;
+    d[idx  ]=r>255?255:r|0;
+    d[idx+1]=g>255?255:g|0;
+    d[idx+2]=bl>255?255:bl|0;
+    d[idx+3]=255;
+  }
+  simCtx.putImageData(imgData,0,0);
+}
+
+// ── Spline parametric flows ───────────────────────────────────────
+function drawSplines(){
+  simCtx.save();
+  simCtx.globalCompositeOperation='screen';
+  simCtx.globalAlpha=.20;
+  const PHI=1.6180339887;
+  for(let s=0;s<p.nSplines;s++){
+    const phase=s/p.nSplines*Math.PI*2+time*.00022;
+    const pts=[];
+    for(let k=0;k<=24;k++){
+      const tp=k/24;
+      const rx=SW*(.5+.43*Math.sin(tp*Math.PI*2+phase));
+      const ry=SH*(.5+.43*Math.cos(tp*Math.PI*2*PHI+phase*.72));
+      const fx=((Math.floor(rx)%SW)+SW)%SW;
+      const fy=((Math.floor(ry)%SH)+SH)%SH;
+      const ii=fy*SW+fx;
+      pts.push([rx+wU[ii]*8,ry+hV[ii]*6]);
+    }
+    const hue=((s/p.nSplines+time*.000018)%1)*360;
+    simCtx.strokeStyle=`hsl(${hue},100%,72%)`;
+    simCtx.lineWidth=1.1+s*.14;
+    simCtx.beginPath();simCtx.moveTo(pts[0][0],pts[0][1]);
+    for(let k=1;k<pts.length-1;k++){
+      const mx=(pts[k][0]+pts[k+1][0])*.5,my=(pts[k][1]+pts[k+1][1])*.5;
+      simCtx.quadraticCurveTo(pts[k][0],pts[k][1],mx,my);
+    }
+    simCtx.closePath();simCtx.stroke();
+  }
+  simCtx.globalCompositeOperation='source-over';simCtx.globalAlpha=1;simCtx.restore();
+}
+
+// ── Streamline ribbons (velocity field integration) ───────────────
+function drawStreamlines(){
+  simCtx.save();
+  simCtx.globalCompositeOperation='screen';
+  simCtx.globalAlpha=.22;
+  const toff=time*.000036;
+  for(let r=0;r<p.ribbons;r++){
+    let rx=(Math.sin(r*1.6180+time*.00055)*.40+.5)*SW;
+    let ry=(Math.cos(r*2.6180+time*.00077)*.40+.5)*SH;
+    const hue=((r/p.ribbons+toff)%1)*360;
+    const ii0=((Math.floor(ry)+SH)%SH)*SW+((Math.floor(rx)+SW)%SW);
+    simCtx.lineWidth=.6+gsB[ii0]*1.8;
+    simCtx.strokeStyle=`hsla(${hue},100%,76%,1)`;
+    simCtx.beginPath();simCtx.moveTo(rx,ry);
+    for(let st=0;st<95;st++){
+      const fx=((Math.floor(rx)%SW)+SW)%SW;
+      const fy=((Math.floor(ry)%SH)+SH)%SH;
+      const ii=fy*SW+fx;
+      rx=((rx+vx[ii]*.68)%SW+SW)%SW;
+      ry=((ry+vy[ii]*.68)%SH+SH)%SH;
+      simCtx.lineTo(rx,ry);
+    }
+    simCtx.stroke();
+  }
+  simCtx.globalCompositeOperation='source-over';simCtx.globalAlpha=1;simCtx.restore();
+}
+
+// ── Voronoi/Delaunay tessellation overlay ────────────────────────
+function drawTessellation(){
+  simCtx.save();
+  simCtx.globalCompositeOperation='screen';
+  simCtx.globalAlpha=.26;
+  const maxD=SW*.36;
+  simCtx.lineWidth=.5;
+  for(let i=0;i<seeds.length;i++){
+    const si=seeds[i];
+    for(let j=i+1;j<seeds.length;j++){
+      const sj=seeds[j];
+      const dist=Math.hypot(si.x-sj.x,si.y-sj.y);
+      if(dist>maxD)continue;
+      const alpha=(1-dist/maxD).toFixed(2);
+      simCtx.strokeStyle=`hsla(${si.hue*360},80%,72%,${alpha})`;
+      simCtx.beginPath();simCtx.moveTo(si.x,si.y);simCtx.lineTo(sj.x,sj.y);simCtx.stroke();
+    }
+  }
+  for(const s of seeds){
+    const g=simCtx.createRadialGradient(s.x,s.y,0,s.x,s.y,7);
+    g.addColorStop(0,`hsla(${s.hue*360},100%,92%,1)`);
+    g.addColorStop(1,'rgba(0,0,0,0)');
+    simCtx.fillStyle=g;
+    simCtx.beginPath();simCtx.arc(s.x,s.y,7,0,Math.PI*2);simCtx.fill();
+  }
+  simCtx.globalCompositeOperation='source-over';simCtx.globalAlpha=1;simCtx.restore();
+}
+
+// ── Kaleidoscope renderer (N-fold with mirror+stereographic) ─────
+function drawKaleidoscope(){
+  const cx=W*.5,cy=H*.5;
+  const diag=Math.sqrt(W*W+H*H)*.5;
+  const s=diag/Math.min(SW,SH)*.90;
+  const sym=Math.max(3,Math.round(symCur));
+  const segA=Math.PI*2/sym;
+  const bigR=Math.max(W,H)*1.6;
+  ctx.fillStyle='#000';ctx.fillRect(0,0,W,H);
+  ctx.save();ctx.translate(cx,cy);
+  for(let k=0;k<sym;k++){
+    ctx.save();ctx.rotate(gRot+k*segA);
+    ctx.beginPath();ctx.moveTo(0,0);
+    ctx.arc(0,0,bigR,-segA*.5,segA*.5);
+    ctx.closePath();ctx.clip();
+    if(k&1)ctx.scale(1,-1);
+    const sf=1+(k%3===0?p.stereo*.18:k%3===1?p.stereo*.07:0);
+    if(sf!==1)ctx.scale(sf,sf);
+    ctx.imageSmoothingEnabled=true;
+    ctx.imageSmoothingQuality='high';
+    ctx.drawImage(simC,-SW*s*.5,-SH*s*.5,SW*s,SH*s);
+    ctx.restore();
+  }
+  ctx.restore();
+  // Vignette
+  const vg=ctx.createRadialGradient(cx,cy,diag*.36,cx,cy,diag*.92);
+  vg.addColorStop(0,'rgba(0,0,0,0)');
+  vg.addColorStop(1,'rgba(0,0,0,.88)');
+  ctx.fillStyle=vg;ctx.fillRect(0,0,W,H);
+}
+
+// ── Audio engine ─────────────────────────────────────────────────
+function initAudio(){
+  if(audioCtx)return;
+  audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+  const aC=audioCtx;
+  const mg=aC.createGain();mg.gain.value=.18;mg.connect(aC.destination);
+
+  const o1=aC.createOscillator();o1.type='sawtooth';o1.frequency.value=36;
+  const f1=aC.createBiquadFilter();f1.type='lowpass';f1.frequency.value=220;f1.Q.value=14;
+  o1.connect(f1);f1.connect(mg);o1.start();
+
+  const o2=aC.createOscillator();o2.type='triangle';o2.frequency.value=54;
+  const f2=aC.createBiquadFilter();f2.type='bandpass';f2.frequency.value=160;f2.Q.value=8;
+  const g2=aC.createGain();g2.gain.value=.8;
+  o2.connect(f2);f2.connect(g2);g2.connect(mg);o2.start();
+
+  const o3=aC.createOscillator();o3.type='sine';o3.frequency.value=270;
+  const g3=aC.createGain();g3.gain.value=.055;
+  o3.connect(g3);g3.connect(mg);o3.start();
+
+  const o4=aC.createOscillator();o4.type='sawtooth';o4.frequency.value=37.4;
+  const g4=aC.createGain();g4.gain.value=.04;
+  const f4=aC.createBiquadFilter();f4.type='highpass';f4.frequency.value=80;
+  o4.connect(f4);f4.connect(g4);g4.connect(mg);o4.start();
+
+  // Granular noise
+  const buf=aC.createBuffer(1,aC.sampleRate*5,aC.sampleRate);
+  const nd=buf.getChannelData(0);
+  for(let k=0;k<nd.length;k++){const r=Math.random()*2-1;nd[k]=Math.tanh(r*2.5)*.5+r*.15;}
+  const ns=aC.createBufferSource();ns.buffer=buf;ns.loop=true;
+  const nf=aC.createBiquadFilter();nf.type='bandpass';nf.frequency.value=480;nf.Q.value=20;
+  const nf2=aC.createBiquadFilter();nf2.type='peaking';nf2.frequency.value=1200;nf2.Q.value=4;nf2.gain.value=8;
+  const ng=aC.createGain();ng.gain.value=.048;
+  ns.connect(nf);nf.connect(nf2);nf2.connect(ng);ng.connect(mg);ns.start();
+
+  // LFOs
+  const lfo1=aC.createOscillator();lfo1.frequency.value=.065;
+  const lfoG1=aC.createGain();lfoG1.gain.value=135;
+  lfo1.connect(lfoG1);lfoG1.connect(f1.frequency);lfo1.start();
+
+  const lfo2=aC.createOscillator();lfo2.frequency.value=.028;
+  const lfoG2=aC.createGain();lfoG2.gain.value=14;
+  lfo2.connect(lfoG2);lfoG2.connect(o1.detune);lfo2.start();
+
+  const lfo3=aC.createOscillator();lfo3.type='triangle';lfo3.frequency.value=.19;
+  const lfoG3=aC.createGain();lfoG3.gain.value=320;
+  lfo3.connect(lfoG3);lfoG3.connect(nf.frequency);lfo3.start();
+
+  const lfo4=aC.createOscillator();lfo4.frequency.value=.055;
+  const lfoG4=aC.createGain();lfoG4.gain.value=22;
+  lfo4.connect(lfoG4);lfoG4.connect(o3.frequency);lfo4.start();
+
+  aNodes={mg,o1,o2,o3,o4,f1,f2,f4,nf,ng,lfo1,lfo2,lfo3,lfo4};
+}
+
+// Update audio params from visual field state
+function syncAudio(){
+  if(!audioCtx||!sndOn)return;
+  // Sample vorticity (curl of velocity) at center region
+  let vort=0,energy=0;
+  const step=Math.floor(SN/64);
+  for(let i=0;i<SN;i+=step){
+    const dvydx=vy[IDX_R[i]]-vy[IDX_L[i]];
+    const dvxdy=vx[IDX_D[i]]-vx[IDX_U[i]];
+    vort+=Math.abs(dvydx-dvxdy);
+    energy+=gsB[i];
+  }
+  vort=vort/64;energy=energy/64;
+  const aC=audioCtx,now=aC.currentTime;
+  aNodes.mg.gain.setTargetAtTime(.06+vort*.12,now,.5);
+  aNodes.o2.frequency.setTargetAtTime(48+energy*28,now,.8);
+  aNodes.nf.frequency.setTargetAtTime(200+vort*600,now,.4);
+}
+
+// ── HUD ──────────────────────────────────────────────────────────
+function updateHUD(){
+  if(!hudOn)return;
+  // Sample average B (GS activation)
+  let bMean=0,vMag=0;
+  const ss=Math.floor(SN/256);
+  for(let i=0;i<SN;i+=ss){bMean+=gsB[i];vMag+=Math.sqrt(vx[i]*vx[i]+vy[i]*vy[i]);}
+  bMean/=256;vMag/=256;
+  hudEl.textContent=[
+    `FRAME   ${frameCount}`,
+    `TIME    ${(time*.001).toFixed(2)}s`,
+    `SYM     ${Math.round(symCur)}-fold`,
+    `GS-B    ${bMean.toFixed(4)}`,
+    `VORT    ${vMag.toFixed(3)}`,
+    `F/K     ${p.gsF.toFixed(4)} / ${p.gsK.toFixed(4)}`,
+    `WAVE-c² ${p.wC2.toFixed(3)}`,
+    `HEAT-α  ${p.hAlpha.toFixed(3)}`,
+    `PAL     ${p.pal0}·${p.pal1}·${p.pal2}`,
+    `RIBBONS ${p.ribbons}`,
+    `SOUND   ${sndOn?'ON':'OFF'}`,
+  ].join('\n');
+}
+
+// ── Main loop ────────────────────────────────────────────────────
+let velUpdate=0;
+function loop(){
+  requestAnimationFrame(loop);
+  frameCount++;time++;
+  // Symmetry smooth interpolation
+  symCur+=(symTgt-symCur)*.025;
+  // Kaleidoscope rotation
+  gRot+=p.rot;
+
+  // PDE steps
+  stepWave();
+  stepHeat();
+  stepGS();
+
+  // Velocity field: update every 3 frames for perf
+  if(++velUpdate>=3){velUpdate=0;stepVelocity();}
+  stepSeeds();
+
+  // Render
+  renderPixels();
+  drawSplines();
+  drawStreamlines();
+  drawTessellation();
+  drawKaleidoscope();
+
+  // Audio sync (every 8 frames)
+  if(frameCount%8===0)syncAudio();
+  updateHUD();
+}
+
+// ── Events ───────────────────────────────────────────────────────
+window.addEventListener('keydown',e=>{
+  const k=e.key.toLowerCase();
+  if(k===' '||k==='enter'){e.preventDefault();randomize();}
+  else if(k==='h'){
+    hudOn=!hudOn;
+    hudEl.style.display=hudOn?'block':'none';
+  }
+  else if(k==='s'){
+    if(!sndOn){
+      initAudio();
+      if(audioCtx.state==='suspended')audioCtx.resume();
+      sndOn=true;
+    } else {
+      sndOn=false;
+      if(audioCtx)audioCtx.suspend();
+    }
+  }
+});
+
+canvas.addEventListener('click',()=>{randomize();});
+
+// Hide hint after 6 s
+setTimeout(()=>{hintEl.style.opacity='0';},6000);
+
+// ── Boot ─────────────────────────────────────────────────────────
+randomize();
+loop();
+})();
+</script>
+</body>
+</html>

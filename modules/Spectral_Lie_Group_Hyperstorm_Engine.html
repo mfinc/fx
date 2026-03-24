@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Spectral Lie Group Hyperstorm Engine</title>
+<meta name="description" content="A high-performance browser visual synthesizer fusing SO(n), SU(n), quaternion rotation fields, tensor transformations, spherical harmonics, Bessel functions, Chebyshev polynomials, Feigenbaum bifurcation cascades, and Möbius-warped Voronoi tessellations into kaleidoscopic spectral hyperstorms.">
+<meta property="og:title" content="Spectral Lie Group Hyperstorm Engine">
+<meta property="og:description" content="Ultra-complex mathematical visual synthesizer with procedural audio synthesis and adaptive GPU performance.">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Courier New',monospace}
+canvas{display:block;width:100vw;height:100vh}
+#hud{position:fixed;top:0;left:0;width:100%;padding:14px 18px;display:none;pointer-events:none;z-index:10;
+  background:linear-gradient(180deg,rgba(0,0,0,.72) 0%,transparent 100%)}
+#hud.on{display:block}
+#hud-inner{display:flex;gap:32px;flex-wrap:wrap;align-items:flex-start}
+.hud-block{color:rgba(255,255,255,.82);font-size:10px;letter-spacing:.08em;line-height:1.7}
+.hud-block b{color:#0ff;font-size:9px;letter-spacing:.18em;text-transform:uppercase;display:block;margin-bottom:2px}
+#toast{position:fixed;bottom:32px;left:50%;transform:translateX(-50%);
+  background:rgba(0,255,255,.12);border:1px solid rgba(0,255,255,.35);
+  color:#0ff;font-size:11px;letter-spacing:.12em;padding:8px 22px;
+  border-radius:2px;pointer-events:none;opacity:0;transition:opacity .3s;z-index:20;text-transform:uppercase}
+#toast.show{opacity:1}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"><div id="hud-inner"></div></div>
+<div id="toast" id="toast"></div>
+<script>
+'use strict';
+// ─── CANVAS SETUP ───────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const gl = canvas.getContext('webgl2', {antialias:false,powerPreference:'high-performance'}) ||
+           canvas.getContext('webgl', {antialias:false,powerPreference:'high-performance'});
+if(!gl){document.body.innerHTML='<p style="color:#f00;margin:20px">WebGL not supported</p>';throw 0;}
+
+const hud = document.getElementById('hud');
+const toast = document.getElementById('toast');
+
+let W, H, dpr;
+let hudOn = false, soundOn = false;
+let frame = 0, t = 0;
+let lastTime = 0;
+let audioCtx = null, masterGain = null;
+let animId;
+
+// ─── STATE / PARAMS ──────────────────────────────────────────────────────────
+let P = {};
+function rand(a,b){return a + Math.random()*(b-a);}
+function randInt(a,b){return Math.floor(rand(a,b+1));}
+function pick(arr){return arr[Math.floor(Math.random()*arr.length)];}
+
+function randomize(){
+  P = {
+    seed: Math.random()*99999,
+    // Symmetry / group theory
+    symmetryN: randInt(3,12),          // SO(n) / SU(n) order
+    quatW: rand(.1,1.5),               // quaternion w component scale
+    lieSpeed: rand(.3,2.5),            // Lie group rotation speed
+    // Tensor / manifold
+    tensorA: rand(.5,3.0), tensorB: rand(.5,3.0), tensorC: rand(.5,3.0),
+    matExpScale: rand(.4,2.2),
+    // Spherical harmonics
+    shL: randInt(1,6), shM: randInt(-3,3),
+    shSpeed: rand(.2,1.8),
+    // Bessel order
+    besselN: randInt(0,5),
+    besselScale: rand(1.0,4.0),
+    // Chebyshev order
+    chebOrder: randInt(3,12),
+    chebMix: rand(.2,.9),
+    // Feigenbaum
+    feigR: rand(3.5,3.99),
+    feigMix: rand(.05,.4),
+    // Möbius transform
+    mobiusA: {r:rand(-1.5,1.5), i:rand(-1.5,1.5)},
+    mobiusB: {r:rand(-1.0,1.0), i:rand(-1.0,1.0)},
+    mobiusC: {r:rand(-.8,.8),  i:rand(-.8,.8)},
+    mobiusD: {r:rand(.5,1.5),  i:rand(-.5,.5)},
+    mobiusMix: rand(.1,.7),
+    // Voronoi
+    voronoiN: randInt(4,16),
+    voronoiSeeds: Array.from({length:16},()=>({x:Math.random(),y:Math.random(),vx:rand(-.3,.3),vy:rand(-.3,.3)})),
+    // Complex analytic / domain coloring
+    complexPow: rand(1.5,5.0),
+    complexPhase: rand(0,Math.PI*2),
+    complexFunc: randInt(0,5),         // which analytic function
+    eulerMix: rand(.3,.9),
+    // Perlin / fBm
+    noiseOctaves: randInt(2,6),
+    noiseLac: rand(1.8,2.5),
+    noiseGain: rand(.4,.6),
+    noiseScale: rand(1.5,6.0),
+    noiseSpeed: rand(.1,.6),
+    // Color
+    colorAlgo: randInt(0,4),
+    cosA: [rand(.3,.8),rand(.3,.8),rand(.3,.8)],
+    cosB: [rand(.1,.5),rand(.1,.5),rand(.1,.5)],
+    cosC: [rand(.5,2.5),rand(.5,2.5),rand(.5,2.5)],
+    cosD: [Math.random(),Math.random(),Math.random()],
+    lumiExp: rand(.4,1.2),
+    colorSpeed: rand(.1,.6),
+    colorRotSpeed: rand(.05,.4),
+    // Kaleidoscope
+    kaleido: randInt(2,8),
+    kaleidoSpin: rand(.1,.8),
+    // Attractor (sound & visual)
+    lorenzSigma: rand(8,14), lorenzRho: rand(24,32), lorenzBeta: rand(2.0,3.5),
+    // General
+    zoom: rand(.6,2.0),
+    globalSpin: rand(-.5,.5),
+    warpStrength: rand(.2,1.2),
+    bands: randInt(4,14),
+    renderScale: Math.min(1.0, (window.innerWidth*window.innerHeight > 800000) ? 0.65 : 0.85),
+  };
+  // clamp shM to [-shL,shL]
+  P.shM = Math.max(-P.shL, Math.min(P.shL, P.shM));
+}
+
+// ─── LORENZ ATTRACTOR (CPU, drives audio) ───────────────────────────────────
+let lx=.1,ly=0,lz=0;
+function stepLorenz(){
+  const dt=.005, s=P.lorenzSigma, r=P.lorenzRho, b=P.lorenzBeta;
+  const dx=s*(ly-lx), dy=lx*(r-lz)-ly, dz=lx*ly-b*lz;
+  lx+=dx*dt; ly+=dy*dt; lz+=dz*dt;
+}
+
+// ─── WEBGL SHADER ────────────────────────────────────────────────────────────
+const VS = `#version 300 es
+in vec2 a;
+out vec2 vUv;
+void main(){vUv=a*.5+.5;gl_Position=vec4(a,0,1);}`;
+
+const FS = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 fragColor;
+
+// ── Uniforms ──────────────────────────────────────────────
+uniform float uTime;
+uniform vec2  uRes;
+uniform float uSeed;
+
+// Group / manifold
+uniform float uSymN;
+uniform float uLieSpeed;
+uniform float uQuatW;
+uniform float uTensorA, uTensorB, uTensorC, uMatExpScale;
+
+// Harmonics
+uniform float uShL, uShM, uShSpeed;
+uniform float uBesselN, uBesselScale;
+uniform float uChebOrder, uChebMix;
+
+// Feigenbaum
+uniform float uFeigR, uFeigMix;
+
+// Möbius
+uniform vec2 uMobA, uMobB, uMobC, uMobD;
+uniform float uMobiusMix;
+
+// Voronoi
+uniform vec3 uVoro[16];  // xy=pos, z=unused
+uniform float uVoroN;
+
+// Complex / Euler
+uniform float uComplexPow, uComplexPhase;
+uniform int uComplexFunc;
+uniform float uEulerMix;
+
+// Perlin / fBm
+uniform float uNoiseOctaves, uNoiseLac, uNoiseGain, uNoiseScale, uNoiseSpeed;
+
+// Color
+uniform int uColorAlgo;
+uniform vec3 uCosA, uCosB, uCosC, uCosD;
+uniform float uLumiExp, uColorSpeed, uColorRotSpeed;
+
+// Kaleido
+uniform float uKaleido, uKaleidoSpin;
+
+// Attractor
+uniform vec3 uAttractor; // lorenz xyz normalized
+
+// General
+uniform float uZoom, uGlobalSpin, uWarpStrength, uBands;
+
+// ── Complex math helpers ──────────────────────────────────
+vec2 cmul(vec2 a,vec2 b){return vec2(a.x*b.x-a.y*b.y,a.x*b.y+a.y*b.x);}
+vec2 cdiv(vec2 a,vec2 b){float d=dot(b,b)+1e-9;return vec2(dot(a,b),a.y*b.x-a.x*b.y)/d;}
+vec2 cexp(vec2 z){return exp(z.x)*vec2(cos(z.y),sin(z.y));}
+vec2 clog(vec2 z){return vec2(log(length(z)+1e-9),atan(z.y,z.x));}
+vec2 cpow(vec2 z,float n){float r=pow(length(z)+1e-9,n);float a=atan(z.y,z.x)*n;return r*vec2(cos(a),sin(a));}
+vec2 csin(vec2 z){return vec2(sin(z.x)*cosh(z.y),cos(z.x)*sinh(z.y));}
+vec2 ccos(vec2 z){return vec2(cos(z.x)*cosh(z.y),-sin(z.x)*sinh(z.y));}
+vec2 mobius(vec2 z,vec2 a,vec2 b,vec2 c,vec2 d){
+  return cdiv(cmul(a,z)+b, cmul(c,z)+d);
+}
+
+// ── Noise helpers ─────────────────────────────────────────
+vec3 hash3(vec2 p){
+  p=vec2(dot(p,vec2(127.1,311.7)),dot(p,vec2(269.5,183.3)));
+  return fract(sin(p.xyx+p.yxx)*vec3(43758.5453,22578.1459,19642.3490));
+}
+float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+
+float smoothNoise(vec2 p){
+  vec2 i=floor(p), f=fract(p);
+  vec2 u=f*f*(3.-2.*f);
+  float a=hash(i), b=hash(i+vec2(1,0)), c=hash(i+vec2(0,1)), d=hash(i+vec2(1,1));
+  return mix(mix(a,b,u.x),mix(c,d,u.x),u.y);
+}
+
+float fbm(vec2 p, float oct, float lac, float gain){
+  float v=0.,amp=.5,freq=1.;
+  for(int i=0;i<8;i++){
+    if(float(i)>=oct)break;
+    v+=amp*smoothNoise(p*freq);
+    freq*=lac; amp*=gain;
+  }
+  return v;
+}
+
+// ── Bessel J0 approximation ───────────────────────────────
+float besselJ0(float x){
+  float ax=abs(x);
+  if(ax<8.0){
+    float y=x*x;
+    return (57568490574.0+y*(-13362590354.0+y*(651619640.7+y*(-11214424.18+y*(77392.33017+y*(-184.9052456))))))/
+           (57568490411.0+y*(1029532985.0+y*(9494680.718+y*(59272.64853+y*(267.8532712+y)))));
+  } else {
+    float z=8./ax, y=z*z, xx=ax-.785398164;
+    float p1=1.+y*(-.1098628627e-2+y*(.2734510407e-4+y*(-.2073370639e-5+y*.2093887211e-6)));
+    float q1=-.1562499995e-1+y*(.1430488765e-3+y*(-.6911147651e-5+y*(.7621095161e-6-y*.934945152e-7)));
+    return sqrt(.636619772/ax)*(cos(xx)*p1-z*sin(xx)*q1);
+  }
+}
+
+// ── Chebyshev polynomial T_n(x) ──────────────────────────
+float chebyshevT(float n, float x){
+  if(x>1.||x<-1.)return cos(n*acos(clamp(x,-1.,1.)));
+  return cos(n*acos(x));
+}
+
+// ── Associated Legendre P_l^m(cos theta) – simple approx ─
+float sphericalHarmonicR(float l, float m, vec2 dir){
+  float theta=acos(clamp(dir.y,-1.,1.));
+  float phi=atan(dir.x,length(dir)+1e-9);
+  // Real part approximation
+  float cosT=cos(theta);
+  float P=1.;
+  for(float i=0.;i<6.;i++){if(i>=l)break; P*=cosT;}
+  return P*cos(m*phi+uTime*uShSpeed);
+}
+
+// ── Voronoi ───────────────────────────────────────────────
+float voronoi(vec2 p, float n){
+  float d1=1e9,d2=1e9;
+  for(int i=0;i<16;i++){
+    if(float(i)>=n)break;
+    float d=distance(p, uVoro[i].xy);
+    if(d<d1){d2=d1;d1=d;}
+    else if(d<d2){d2=d;}
+  }
+  return d2-d1;
+}
+
+// ── Feigenbaum orbit value ────────────────────────────────
+float feigenbaum(float x0, float r, float iter){
+  float x=x0;
+  for(int i=0;i<32;i++){if(float(i)>=iter)break; x=r*x*(1.-x);}
+  return x;
+}
+
+// ── Cosine palette ────────────────────────────────────────
+vec3 cosPalette(float t){
+  return uCosA + uCosB*cos(6.2831853*(uCosC*t+uCosD));
+}
+
+// ── Domain coloring ───────────────────────────────────────
+vec3 domainColor(vec2 z){
+  float arg=atan(z.y,z.x)/(2.*3.14159265)+.5;
+  float mag=log(length(z)+1e-6);
+  float bands=fract(mag*uBands*.3183);
+  return cosPalette(arg+bands*uColorSpeed+uTime*uColorRotSpeed);
+}
+
+// ── Main ──────────────────────────────────────────────────
+void main(){
+  vec2 uv = (vUv*2.-1.)*vec2(uRes.x/uRes.y,1.);
+  
+  // Zoom + global spin
+  float gs=uGlobalSpin*uTime;
+  float cs=cos(gs), ss=sin(gs);
+  uv=(vec2(cs*uv.x-ss*uv.y, ss*uv.x+cs*uv.y))/uZoom;
+
+  // Kaleidoscope
+  float kAngle=3.14159265/uKaleido;
+  float a=atan(uv.y,uv.x)+uKaleidoSpin*uTime;
+  float r=length(uv);
+  a=mod(a, 2.*kAngle);
+  if(a>kAngle)a=2.*kAngle-a;
+  vec2 kUv=r*vec2(cos(a),sin(a));
+
+  // fBm warp
+  float noiseT=uTime*uNoiseSpeed;
+  vec2 warpOff=vec2(
+    fbm(kUv*uNoiseScale+vec2(uSeed,0.)+noiseT, uNoiseOctaves, uNoiseLac, uNoiseGain),
+    fbm(kUv*uNoiseScale+vec2(0.,uSeed)+noiseT+4.2, uNoiseOctaves, uNoiseLac, uNoiseGain)
+  )-.5;
+  vec2 wUv=kUv+warpOff*uWarpStrength;
+
+  // Möbius transform
+  vec2 mz=mobius(wUv, uMobA, uMobB, uMobC, uMobD);
+  wUv=mix(wUv, mz*.5, uMobiusMix);
+
+  // Complex analytic function
+  vec2 cz=wUv;
+  vec2 fz;
+  if(uComplexFunc==0)      fz=cpow(cz, uComplexPow);
+  else if(uComplexFunc==1) fz=csin(cz*uComplexPow);
+  else if(uComplexFunc==2) fz=ccos(cz*uComplexPow);
+  else if(uComplexFunc==3) fz=cexp(cz)*cmul(cz,cz);
+  else if(uComplexFunc==4) fz=clog(cz+vec2(1.2,0.))*uComplexPow;
+  else                     fz=cdiv(cpow(cz,uComplexPow), cz+vec2(uAttractor.x*.5,uAttractor.y*.5));
+
+  // Euler mapping: e^(i*f(z))
+  vec2 eulerZ=cexp(vec2(0.,length(fz)*uMatExpScale+uComplexPhase));
+  vec2 finalZ=mix(fz, eulerZ, uEulerMix);
+
+  // Lie group / SO(n) phase: apply n-fold rotation in complex plane
+  float lieAngle=uTime*uLieSpeed;
+  float liePhas=uSymN*atan(finalZ.y, finalZ.x+1e-9)/uSymN+lieAngle;
+  vec2 lieZ=length(finalZ)*vec2(cos(liePhas),sin(liePhas));
+
+  // Tensor product: outer product + matrix exponential approximation
+  float tensorVal=sin(lieZ.x*uTensorA+uTime)*cos(lieZ.y*uTensorB+uTime)*uTensorC;
+  tensorVal+=uAttractor.z*.2;
+
+  // Spherical harmonic value
+  float shVal=sphericalHarmonicR(uShL, uShM, normalize(lieZ+.001));
+
+  // Bessel function
+  float bArg=length(lieZ)*uBesselScale;
+  float bVal=besselJ0(bArg);
+
+  // Chebyshev polynomial
+  float chebX=clamp(sin(lieZ.x+lieZ.y),-1.,1.);
+  float chebVal=chebyshevT(uChebOrder, chebX);
+
+  // Feigenbaum
+  float feigX=fract(length(lieZ)*.3+.1);
+  float feigVal=feigenbaum(feigX, uFeigR, 16.)*2.-1.;
+
+  // Voronoi (Möbius-warped seeds)
+  float voro=voronoi(wUv*.5+.5, uVoroN);
+
+  // Combine into master signal
+  float sig = tensorVal*.4 + shVal*.3 + bVal*.2 + chebVal*uChebMix*.25
+             + feigVal*uFeigMix + voro*.3;
+  sig = sig*.5+.5; // normalize
+
+  // Gradient band chambers
+  float bandVal=fract(sig*uBands+uTime*uColorSpeed*.2);
+
+  // Color synthesis
+  vec3 col;
+  float colorT=sig+bandVal*.4+uTime*uColorRotSpeed;
+  if(uColorAlgo==0){
+    col=cosPalette(colorT);
+  } else if(uColorAlgo==1){
+    // Domain coloring of finalZ
+    col=domainColor(finalZ+lieZ*.3);
+  } else if(uColorAlgo==2){
+    // Spectral split
+    col=vec3(
+      cosPalette(colorT).r,
+      cosPalette(colorT+.333).g,
+      cosPalette(colorT+.667).b
+    );
+  } else if(uColorAlgo==3){
+    // HSV-style from arg/mag
+    float h=atan(finalZ.y,finalZ.x)/6.2831853+.5+uTime*uColorRotSpeed;
+    float s=clamp(length(finalZ)*.4,0.,1.);
+    float v=clamp(sig,0.,1.);
+    // HSV to RGB
+    vec3 hc=clamp(abs(mod(h*6.+vec3(0,4,2),6.)-3.)-1.,0.,1.);
+    col=v*mix(vec3(1.),hc,s);
+  } else {
+    // Bifurcation palette
+    float bf=feigVal*.5+.5;
+    col=cosPalette(bf+colorT*.5)*cosPalette(colorT+.5);
+  }
+
+  // Logarithmic power-law luminance
+  float lumi=pow(clamp(dot(col,vec3(.299,.587,.114)),0.,1.), uLumiExp);
+  col*=lumi/max(dot(col,vec3(.299,.587,.114)),1e-4)*lumi;
+  col=clamp(col,0.,1.);
+
+  // Edge vignette
+  float vig=1.-smoothstep(.6,1.4,length(vUv*2.-1.));
+  col*=vig;
+
+  fragColor=vec4(col,1.);
+}`;
+
+// ─── COMPILE SHADER ──────────────────────────────────────────────────────────
+function compileShader(type, src){
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if(!gl.getShaderParameter(s, gl.COMPILE_STATUS)){
+    console.error(gl.getShaderInfoLog(s));
+    return null;
+  }
+  return s;
+}
+
+// Detect WebGL version and adjust shader
+const isGL2 = !!canvas.getContext('webgl2');
+let vsSrc = VS, fsSrc = FS;
+if(!isGL2){
+  // fallback WebGL1
+  vsSrc = vsSrc.replace('#version 300 es\n','').replace(/\bin\b/g,'attribute').replace(/\bout\b/g,'varying');
+  fsSrc = fsSrc.replace('#version 300 es\n','')
+               .replace('out vec4 fragColor;','')
+               .replace(/fragColor/g,'gl_FragColor')
+               .replace(/\bin\b/g,'varying')
+               .replace('precision highp float;','precision highp float;')
+               .replace('uniform int uComplexFunc;','uniform float uComplexFunc;')
+               .replace('uniform int uColorAlgo;','uniform float uColorAlgo;')
+               .replace(/if\(uComplexFunc==/g,'if(int(uComplexFunc)==')
+               .replace(/if\(uColorAlgo==/g,'if(int(uColorAlgo)==')
+               .replace(/else if\(uColorAlgo==/g,'else if(int(uColorAlgo)==')
+               .replace(/else if\(uComplexFunc==/g,'else if(int(uComplexFunc)==');
+}
+
+const prog = gl.createProgram();
+const vs = compileShader(gl.VERTEX_SHADER, vsSrc);
+const fs = compileShader(gl.FRAGMENT_SHADER, fsSrc);
+gl.attachShader(prog, vs);
+gl.attachShader(prog, fs);
+gl.linkProgram(prog);
+if(!gl.getProgramParameter(prog, gl.LINK_STATUS)) console.error(gl.getProgramInfoLog(prog));
+gl.useProgram(prog);
+
+// Full-screen quad
+const buf = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,1,1]), gl.STATIC_DRAW);
+const aLoc = gl.getAttribLocation(prog, 'a');
+gl.enableVertexAttribArray(aLoc);
+gl.vertexAttribPointer(aLoc, 2, gl.FLOAT, false, 0, 0);
+
+// Uniform locations (cached)
+const U = {};
+['uTime','uRes','uSeed','uSymN','uLieSpeed','uQuatW','uTensorA','uTensorB','uTensorC','uMatExpScale',
+ 'uShL','uShM','uShSpeed','uBesselN','uBesselScale','uChebOrder','uChebMix',
+ 'uFeigR','uFeigMix','uMobA','uMobB','uMobC','uMobD','uMobiusMix',
+ 'uVoroN','uComplexPow','uComplexPhase','uComplexFunc','uEulerMix',
+ 'uNoiseOctaves','uNoiseLac','uNoiseGain','uNoiseScale','uNoiseSpeed',
+ 'uColorAlgo','uCosA','uCosB','uCosC','uCosD','uLumiExp','uColorSpeed','uColorRotSpeed',
+ 'uKaleido','uKaleidoSpin','uAttractor','uZoom','uGlobalSpin','uWarpStrength','uBands','uVoro'
+].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
+
+// ─── RESIZE ──────────────────────────────────────────────────────────────────
+function resize(){
+  dpr = Math.min(window.devicePixelRatio||1, 2);
+  W = Math.floor(window.innerWidth * dpr * (P.renderScale||0.75));
+  H = Math.floor(window.innerHeight * dpr * (P.renderScale||0.75));
+  canvas.width = W; canvas.height = H;
+  canvas.style.width = window.innerWidth+'px';
+  canvas.style.height = window.innerHeight+'px';
+  gl.viewport(0,0,W,H);
+}
+
+// ─── VORONOI SEED ANIMATION ──────────────────────────────────────────────────
+function updateVoronoiSeeds(dt){
+  P.voronoiSeeds.forEach(s=>{
+    s.x+=s.vx*dt; s.y+=s.vy*dt;
+    if(s.x<0||s.x>1)s.vx*=-1;
+    if(s.y<0||s.y>1)s.vy*=-1;
+    s.x=Math.max(0,Math.min(1,s.x));
+    s.y=Math.max(0,Math.min(1,s.y));
+  });
+}
+
+// ─── UNIFORM UPLOAD ──────────────────────────────────────────────────────────
+function uploadUniforms(){
+  gl.uniform1f(U.uTime, t);
+  gl.uniform2f(U.uRes, W, H);
+  gl.uniform1f(U.uSeed, P.seed);
+  gl.uniform1f(U.uSymN, P.symmetryN);
+  gl.uniform1f(U.uLieSpeed, P.lieSpeed);
+  gl.uniform1f(U.uQuatW, P.quatW);
+  gl.uniform1f(U.uTensorA, P.tensorA);
+  gl.uniform1f(U.uTensorB, P.tensorB);
+  gl.uniform1f(U.uTensorC, P.tensorC);
+  gl.uniform1f(U.uMatExpScale, P.matExpScale);
+  gl.uniform1f(U.uShL, P.shL);
+  gl.uniform1f(U.uShM, P.shM);
+  gl.uniform1f(U.uShSpeed, P.shSpeed);
+  gl.uniform1f(U.uBesselN, P.besselN);
+  gl.uniform1f(U.uBesselScale, P.besselScale);
+  gl.uniform1f(U.uChebOrder, P.chebOrder);
+  gl.uniform1f(U.uChebMix, P.chebMix);
+  gl.uniform1f(U.uFeigR, P.feigR);
+  gl.uniform1f(U.uFeigMix, P.feigMix);
+  gl.uniform2f(U.uMobA, P.mobiusA.r, P.mobiusA.i);
+  gl.uniform2f(U.uMobB, P.mobiusB.r, P.mobiusB.i);
+  gl.uniform2f(U.uMobC, P.mobiusC.r, P.mobiusC.i);
+  gl.uniform2f(U.uMobD, P.mobiusD.r, P.mobiusD.i);
+  gl.uniform1f(U.uMobiusMix, P.mobiusMix);
+  gl.uniform1f(U.uVoroN, P.voronoiN);
+  gl.uniform1f(U.uComplexPow, P.complexPow);
+  gl.uniform1f(U.uComplexPhase, P.complexPhase);
+  if(isGL2) gl.uniform1i(U.uComplexFunc, P.complexFunc);
+  else gl.uniform1f(U.uComplexFunc, P.complexFunc);
+  gl.uniform1f(U.uEulerMix, P.eulerMix);
+  gl.uniform1f(U.uNoiseOctaves, P.noiseOctaves);
+  gl.uniform1f(U.uNoiseLac, P.noiseLac);
+  gl.uniform1f(U.uNoiseGain, P.noiseGain);
+  gl.uniform1f(U.uNoiseScale, P.noiseScale);
+  gl.uniform1f(U.uNoiseSpeed, P.noiseSpeed);
+  if(isGL2) gl.uniform1i(U.uColorAlgo, P.colorAlgo);
+  else gl.uniform1f(U.uColorAlgo, P.colorAlgo);
+  gl.uniform3fv(U.uCosA, P.cosA);
+  gl.uniform3fv(U.uCosB, P.cosB);
+  gl.uniform3fv(U.uCosC, P.cosC);
+  gl.uniform3fv(U.uCosD, P.cosD);
+  gl.uniform1f(U.uLumiExp, P.lumiExp);
+  gl.uniform1f(U.uColorSpeed, P.colorSpeed);
+  gl.uniform1f(U.uColorRotSpeed, P.colorRotSpeed);
+  gl.uniform1f(U.uKaleido, P.kaleido);
+  gl.uniform1f(U.uKaleidoSpin, P.kaleidoSpin);
+  // Lorenz attractor normalized
+  const lmax=Math.max(Math.abs(lx),Math.abs(ly),Math.abs(lz),1);
+  gl.uniform3f(U.uAttractor, lx/lmax, ly/lmax, lz/40);
+  gl.uniform1f(U.uZoom, P.zoom);
+  gl.uniform1f(U.uGlobalSpin, P.globalSpin);
+  gl.uniform1f(U.uWarpStrength, P.warpStrength);
+  gl.uniform1f(U.uBands, P.bands);
+  // Voronoi seeds as vec3 array
+  const vd = new Float32Array(16*3);
+  for(let i=0;i<16;i++){
+    vd[i*3]  =(P.voronoiSeeds[i]||{x:.5}).x*2-1;
+    vd[i*3+1]=(P.voronoiSeeds[i]||{y:.5}).y*2-1;
+    vd[i*3+2]=0;
+  }
+  gl.uniform3fv(U.uVoro, vd);
+}
+
+// ─── AUDIO ───────────────────────────────────────────────────────────────────
+let audioNodes = [];
+function startAudio(){
+  if(audioCtx) return;
+  audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+  masterGain = audioCtx.createGain();
+  masterGain.gain.value = 0.18;
+  masterGain.connect(audioCtx.destination);
+  // Procedural drone: multiple oscillators modulated by lorenz
+  const oscCount = 5;
+  for(let i=0;i<oscCount;i++){
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    const lfo = audioCtx.createOscillator();
+    const lfoGain = audioCtx.createGain();
+    osc.type = ['sine','sawtooth','triangle','square','sine'][i];
+    osc.frequency.value = 55 * Math.pow(2, i*0.5 + P.lorenzSigma/14);
+    gain.gain.value = 0.12/oscCount;
+    lfo.frequency.value = 0.1 + i*0.07 + P.lorenzRho/300;
+    lfoGain.gain.value = osc.frequency.value * 0.1;
+    lfo.connect(lfoGain);
+    lfoGain.connect(osc.frequency);
+    osc.connect(gain);
+    gain.connect(masterGain);
+    lfo.start();
+    osc.start();
+    audioNodes.push({osc,gain,lfo,lfoGain,base:osc.frequency.value,i});
+  }
+}
+
+function stopAudio(){
+  audioNodes.forEach(n=>{try{n.osc.stop();n.lfo.stop();}catch(e){}});
+  audioNodes=[];
+  if(audioCtx){audioCtx.close();audioCtx=null;masterGain=null;}
+}
+
+function updateAudio(){
+  if(!audioCtx||!soundOn) return;
+  const lmax=Math.max(Math.abs(lx),Math.abs(ly),Math.abs(lz),1);
+  audioNodes.forEach((n,i)=>{
+    const mod = (lx/lmax)*0.3 + (ly/lmax)*0.15;
+    n.osc.frequency.value = n.base*(1+mod*0.2);
+    n.gain.gain.value = 0.08/audioNodes.length * (0.6 + Math.abs(lz/40)*0.4);
+  });
+}
+
+// ─── HUD ─────────────────────────────────────────────────────────────────────
+function updateHUD(fps){
+  if(!hudOn) return;
+  document.getElementById('hud-inner').innerHTML = `
+    <div class="hud-block"><b>Performance</b>${fps.toFixed(0)} FPS | ${W}×${H} px</div>
+    <div class="hud-block"><b>Lie Group</b>SO/SU(${P.symmetryN}) | speed ${P.lieSpeed.toFixed(2)}</div>
+    <div class="hud-block"><b>Harmonics</b>Y<sub>${P.shL}</sub><sup>${P.shM}</sup> | Bessel J<sub>${P.besselN}</sub></div>
+    <div class="hud-block"><b>Chebyshev</b>T<sub>${P.chebOrder}</sub> | Feig r=${P.feigR.toFixed(3)}</div>
+    <div class="hud-block"><b>Complex</b>f<sub>${P.complexFunc}</sub> z^${P.complexPow.toFixed(2)}</div>
+    <div class="hud-block"><b>Kaleido</b>${P.kaleido}× | fBm oct ${P.noiseOctaves}</div>
+    <div class="hud-block"><b>Color Algo</b>${['cosine','domain','spectral','HSV','bifurc'][P.colorAlgo]}</div>
+    <div class="hud-block"><b>Audio</b>${soundOn?'ON':'OFF'} | Lorenz σ=${P.lorenzSigma.toFixed(1)}</div>
+    <div class="hud-block"><b>Keys</b>SPACE/CLICK: randomize | H: HUD | S: sound</div>
+  `;
+}
+
+// ─── TOAST ───────────────────────────────────────────────────────────────────
+let toastTimer;
+function showToast(msg){
+  toast.textContent=msg; toast.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>toast.classList.remove('show'),1800);
+}
+
+// ─── RENDER LOOP ─────────────────────────────────────────────────────────────
+let fps=60, fpsAlpha=0.05;
+function loop(ts){
+  const dt = Math.min((ts-lastTime)/1000, 0.05);
+  lastTime = ts;
+  t += dt;
+  frame++;
+
+  // FPS
+  fps = fps*(1-fpsAlpha) + (1/Math.max(dt,.001))*fpsAlpha;
+
+  // Adaptive resolution
+  if(frame%120===0){
+    const targetFPS=45;
+    if(fps<targetFPS && P.renderScale>0.4){
+      P.renderScale=Math.max(0.4, P.renderScale-0.05);
+      resize();
+    } else if(fps>58 && P.renderScale<1.0){
+      P.renderScale=Math.min(1.0, P.renderScale+0.02);
+      resize();
+    }
+  }
+
+  // Lorenz step (4 steps/frame for smoother attractor)
+  for(let i=0;i<4;i++) stepLorenz();
+  updateVoronoiSeeds(dt);
+  updateAudio();
+
+  uploadUniforms();
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+  if(hudOn && frame%6===0) updateHUD(fps);
+
+  animId = requestAnimationFrame(loop);
+}
+
+// ─── INIT ────────────────────────────────────────────────────────────────────
+randomize();
+resize();
+window.addEventListener('resize', resize);
+
+requestAnimationFrame(ts=>{lastTime=ts; animId=requestAnimationFrame(loop);});
+
+// ─── INPUT ───────────────────────────────────────────────────────────────────
+function doRandomize(){
+  randomize();
+  lx=rand(-1,1); ly=rand(-1,1); lz=rand(10,30);
+  resize();
+  showToast('↯ hyperstorm reseeded');
+}
+
+window.addEventListener('keydown',e=>{
+  if(e.key===' '||e.code==='Space'){e.preventDefault();doRandomize();}
+  if(e.key==='h'||e.key==='H'){
+    hudOn=!hudOn;
+    hud.classList.toggle('on',hudOn);
+    showToast('HUD '+(hudOn?'ON':'OFF'));
+  }
+  if(e.key==='s'||e.key==='S'){
+    soundOn=!soundOn;
+    if(soundOn){startAudio();showToast('♪ sound ON');}
+    else{stopAudio();showToast('♪ sound OFF');}
+  }
+});
+canvas.addEventListener('click', doRandomize);
+canvas.addEventListener('touchend',e=>{e.preventDefault();doRandomize();},{passive:false});
+</script>
+</body>
+</html>

@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>Trifusion Genesis · CA × IFS × Lissajous</title>
+<meta name="description" content="A hypnotic real-time generative art installation fusing three simultaneous visual systems: outer-totalistic cellular automata, iterated function system fractals, and Lissajous-Bowditch curve fields unified by a spectral color engine driven by Perlin noise.">
+<meta name="keywords" content="generative art,cellular automata,Conway Game of Life,Brian's Brain,IFS fractal,Barnsley fern,Sierpinski,Lissajous,Bowditch,creative coding,WebAudio,canvas,procedural art,real-time,visual synthesis">
+<meta name="author" content="Trifusion Genesis">
+<meta name="robots" content="index,follow">
+<meta name="theme-color" content="#000000">
+<meta property="og:title" content="Trifusion Genesis · Real-Time Generative Art">
+<meta property="og:description" content="Three simultaneous generative systems fused in spectral harmony: cellular automata, IFS fractals, and Lissajous-Bowditch curve fields.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="https://example.com/trifusion-preview.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:locale" content="en_US">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Trifusion Genesis">
+<meta name="twitter:description" content="Real-time generative art: CA × IFS × Lissajous in unified spectral color space.">
+<meta name="twitter:image" content="https://example.com/trifusion-preview.jpg">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "CreativeWork",
+  "name": "Trifusion Genesis",
+  "description": "Real-time generative art installation fusing three simultaneous visual systems: outer-totalistic cellular automata with randomized B/S rules, iterated function system fractals from Barnsley/Sierpinski families, and Lissajous-Bowditch curve fields with Fibonacci frequency ratios.",
+  "creator": { "@type": "Organization", "name": "Trifusion Genesis" },
+  "keywords": "generative art, cellular automata, IFS fractal, Lissajous, Bowditch, creative coding, WebAudio",
+  "genre": "Generative Art",
+  "isAccessibleForFree": true,
+  "learningResourceType": "InteractiveResource",
+  "educationalUse": "Visual Exploration",
+  "audience": { "@type": "Audience", "audienceType": "General Public" }
+}
+</script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:monospace}
+#c{position:fixed;top:0;left:0;width:100%;height:100%;cursor:crosshair}
+#hud{
+  position:fixed;top:14px;left:14px;display:none;
+  color:#0ff;font:11px/2 'Courier New',monospace;letter-spacing:.04em;
+  background:rgba(0,5,10,0.82);padding:10px 16px;
+  border:1px solid rgba(0,255,255,0.18);border-radius:3px;
+  pointer-events:none;text-shadow:0 0 10px rgba(0,255,255,.6);
+  white-space:pre;backdrop-filter:blur(4px);
+  box-shadow:0 0 20px rgba(0,255,255,0.08) inset
+}
+#hint{
+  position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
+  color:rgba(255,255,255,0.32);font:10px/1 monospace;letter-spacing:.12em;
+  pointer-events:none;text-transform:uppercase;
+  transition:opacity 2.5s ease
+}
+#snd{
+  position:fixed;bottom:20px;right:20px;
+  color:rgba(255,255,255,0.22);font:10px/1 monospace;letter-spacing:.1em;
+  pointer-events:none;text-transform:uppercase;
+  transition:color .4s
+}
+#snd.on{color:rgba(0,255,200,0.7);text-shadow:0 0 8px rgba(0,255,200,.5)}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<div id="hint">Space / Click: Randomize &nbsp;·&nbsp; H: HUD &nbsp;·&nbsp; S: Sound</div>
+<div id="snd">♪ OFF</div>
+
+<script>
+(function(){
+'use strict';
+
+// ═══════════════════════════════════════════════════════════════════
+// CANVAS & GLOBAL SETUP
+// ═══════════════════════════════════════════════════════════════════
+const C   = document.getElementById('c');
+const mc  = C.getContext('2d', {alpha: false});
+
+// Off-screen canvases for IFS and Lissajous layers
+const IFC = document.createElement('canvas');
+const LIC = document.createElement('canvas');
+const ic  = IFC.getContext('2d');
+const lc  = LIC.getContext('2d');
+
+let W=0, H=0, MOB=false, CSZ=3, CW=0, CH=0;
+let WMS=4, WMSX=0, WMSY=0; // Warp map sample stride and dimensions
+
+// ═══════════════════════════════════════════════════════════════════
+// GLOBAL STATE
+// ═══════════════════════════════════════════════════════════════════
+let masterPh = 0;   // master phase accumulator [0,1)
+let perlinT  = 0;   // perlin time
+let cShift   = 0;   // color hue shift
+let fps = 60, fN = 0, fT = 0;
+let hudOn = false, sndOn = false;
+
+// ═══════════════════════════════════════════════════════════════════
+// PERLIN NOISE  (seedable gradient noise)
+// ═══════════════════════════════════════════════════════════════════
+const PERM = new Uint8Array(512);
+const GX   = new Float32Array(256);
+const GY   = new Float32Array(256);
+
+function seedPerlin(seed) {
+  let s = (seed | 0) >>> 0;
+  const rnd = () => { s = Math.imul(s, 1664525) + 1013904223 >>> 0; return s / 0x100000000; };
+  for (let i = 0; i < 256; i++) {
+    PERM[i] = i;
+    const a = rnd() * 6.2832;
+    GX[i] = Math.cos(a); GY[i] = Math.sin(a);
+  }
+  for (let i = 255; i > 0; i--) {
+    const j = rnd() * (i + 1) | 0;
+    const t = PERM[i]; PERM[i] = PERM[j]; PERM[j] = t;
+  }
+  for (let i = 0; i < 256; i++) PERM[i + 256] = PERM[i];
+}
+
+function n2(x, y) {
+  const xi = Math.floor(x) & 255, yi = Math.floor(y) & 255;
+  const xf = x - Math.floor(x), yf = y - Math.floor(y);
+  const f = t => t * t * t * (t * (t * 6 - 15) + 10);
+  const u = f(xf), v = f(yf);
+  const aa = PERM[PERM[xi] + yi],   ab = PERM[PERM[xi] + yi + 1];
+  const ba = PERM[PERM[xi+1] + yi], bb = PERM[PERM[xi+1] + yi + 1];
+  const d  = (g, dx, dy) => GX[g] * dx + GY[g] * dy;
+  const lp = (a, b, t) => a + t * (b - a);
+  return lp(lp(d(aa,xf,yf), d(ba,xf-1,yf), u), lp(d(ab,xf,yf-1), d(bb,xf-1,yf-1), u), v);
+}
+
+function fbm(x, y, oct) {
+  let v = 0, a = 0.5, fr = 1, mx = 0;
+  for (let i = 0; i < oct; i++) { v += n2(x*fr, y*fr)*a; mx += a; a *= 0.5; fr *= 2; }
+  return v / mx;
+}
+
+// Precomputed spatial warp map (sampled at 1/WMS resolution)
+let WMAP = null;
+
+function updateWarpMap() {
+  const sc = WMS * 0.028;
+  for (let j = 0; j < WMSY; j++)
+    for (let i = 0; i < WMSX; i++)
+      WMAP[j * WMSX + i] = n2(i * sc + perlinT * 0.04, j * sc + perlinT * 0.025) * 55;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// COLOR ENGINE  (HSL → RGB, shared sigmoid, master phase)
+// ═══════════════════════════════════════════════════════════════════
+let _r = 0, _g = 0, _b = 0; // pre-allocated colour temps
+
+function _hc(p, q, t) {
+  t = (t % 1 + 1) % 1;
+  if (t < 0.1667) return p + (q - p) * 6 * t;
+  if (t < 0.5)    return q;
+  if (t < 0.6667) return p + (q - p) * (0.6667 - t) * 6;
+  return p;
+}
+
+function hsl2rgb(h, s, l) {
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q;
+  _r = (_hc(p, q, h + 0.3333) * 255) | 0;
+  _g = (_hc(p, q, h)          * 255) | 0;
+  _b = (_hc(p, q, h - 0.3333) * 255) | 0;
+}
+
+// Logistic sigmoid: maps cell age → [0,1] with vivid spectral spread
+function ageSigmoid(age) {
+  return 1 / (1 + Math.exp(-0.08 * (age - 38)));
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CELLULAR AUTOMATON
+// ═══════════════════════════════════════════════════════════════════
+let GRID, NEXT, AGE;
+let RULE = {};
+let BIRTHS = 0;
+let caCheckTimer = 0;
+
+function makeRule() {
+  const rn  = () => Math.random();
+  const types = ['life','life','life','life','brian','gen'];
+  const t   = types[rn() * types.length | 0];
+
+  const PRESETS = [
+    {B:[3],    S:[2,3],         nm:"Conway"},
+    {B:[2],    S:[],            nm:"Seeds"},
+    {B:[3,6],  S:[2,3],         nm:"HighLife"},
+    {B:[1,3,5,7], S:[1,3,5,7], nm:"Replicator"},
+    {B:[3,6,7,8], S:[3,4,6,7,8],nm:"Day&Night"},
+    {B:[2,3],  S:[1,3,4,5],    nm:"Morley"},
+    {B:[3,5,7],S:[2,3,4],      nm:"Amoeba"},
+    {B:[3,4],  S:[2,3,4],      nm:"34 Life"},
+    {B:[3,4,5],S:[4,5,6,7],    nm:"Coral"},
+    {B:[2,4,6,8],S:[2,4,6,8], nm:"Pedestrian"},
+    {B:[3,6],  S:[1,2,4,5,6], nm:"Morley-X"},
+    {B:[3,4,5,8],S:[5,6,7,8], nm:"Blob"},
+    {B:[3,6,8],S:[2,4,6],     nm:"Novel-A"},
+    {B:[2,5,6],S:[1,4,5,6],   nm:"Novel-B"},
+  ];
+
+  if (t === 'life') {
+    if (rn() < 0.5) {
+      const p = PRESETS[rn() * PRESETS.length | 0];
+      return { type: 'life', B: p.B, S: p.S, name: p.nm, states: 2 };
+    }
+    const B = [], S = [];
+    for (let i = 0; i <= 8; i++) { if (rn() < 0.22) B.push(i); }
+    for (let i = 0; i <= 8; i++) { if (rn() < 0.42) S.push(i); }
+    return { type: 'life', B, S, name: `B${B.join('')}/S${S.join('')}`, states: 2 };
+  }
+  if (t === 'brian') return { type: 'brian', name: "Brian's Brain", states: 3 };
+
+  // Generation automaton
+  const st = 3 + (rn() * 5 | 0);
+  const gB = [], gS = [];
+  for (let i = 1; i <= 8; i++) { if (rn() < 0.4) gB.push(i); }
+  for (let i = 1; i <= 8; i++) { if (rn() < 0.5) gS.push(i); }
+  if (!gB.length) gB.push(3);
+  if (!gS.length) gS.push(2, 3);
+  return { type: 'gen', B: gB, S: gS, states: st, name: `Gen(${st}) B${gB}/S${gS}` };
+}
+
+function initCA() {
+  GRID = new Uint8Array(CW * CH);
+  NEXT = new Uint8Array(CW * CH);
+  AGE  = new Uint16Array(CW * CH);
+  RULE = makeRule();
+  const d = 0.25 + Math.random() * 0.2;
+  for (let i = 0; i < GRID.length; i++) GRID[i] = Math.random() < d ? 1 : 0;
+  caCheckTimer = 0;
+}
+
+function stepCA() {
+  const w = CW, h = CH, g = GRID, nx = NEXT, a = AGE;
+  const {type, B, S, states} = RULE;
+  let born = 0;
+
+  if (type === 'life') {
+    for (let y = 0; y < h; y++) {
+      const ym = ((y-1+h)%h)*w, yp = ((y+1)%h)*w, yw = y*w;
+      for (let x = 0; x < w; x++) {
+        const xm=(x-1+w)%w, xp=(x+1)%w;
+        const nb = g[ym+xm]+g[ym+x]+g[ym+xp]+g[yw+xm]+g[yw+xp]+g[yp+xm]+g[yp+x]+g[yp+xp];
+        const cur = g[yw+x];
+        let nv = cur ? (S.indexOf(nb)>=0 ? 1 : 0) : (B.indexOf(nb)>=0 ? 1 : 0);
+        if (nv && !cur) born++;
+        nx[yw+x] = nv;
+        a[yw+x]  = nv ? a[yw+x]+1 : 0;
+      }
+    }
+  } else if (type === 'brian') {
+    for (let y = 0; y < h; y++) {
+      const ym = ((y-1+h)%h)*w, yp = ((y+1)%h)*w, yw = y*w;
+      for (let x = 0; x < w; x++) {
+        const xm=(x-1+w)%w, xp=(x+1)%w;
+        const cur = g[yw+x];
+        let nv = 0;
+        if (cur === 1) { nv = 2; }
+        else if (cur === 2) { nv = 0; }
+        else {
+          const nb = (g[ym+xm]===1)+(g[ym+x]===1)+(g[ym+xp]===1)+
+                     (g[yw+xm]===1)+(g[yw+xp]===1)+
+                     (g[yp+xm]===1)+(g[yp+x]===1)+(g[yp+xp]===1);
+          if (nb === 2) { nv = 1; born++; }
+        }
+        nx[yw+x] = nv;
+        a[yw+x]  = nv===1 ? a[yw+x]+1 : 0;
+      }
+    }
+  } else { // gen
+    for (let y = 0; y < h; y++) {
+      const ym = ((y-1+h)%h)*w, yp = ((y+1)%h)*w, yw = y*w;
+      for (let x = 0; x < w; x++) {
+        const xm=(x-1+w)%w, xp=(x+1)%w;
+        const cur = g[yw+x];
+        const nb = (g[ym+xm]===1)+(g[ym+x]===1)+(g[ym+xp]===1)+
+                   (g[yw+xm]===1)+(g[yw+xp]===1)+
+                   (g[yp+xm]===1)+(g[yp+x]===1)+(g[yp+xp]===1);
+        let nv;
+        if (cur === 0)      nv = B.indexOf(nb) >= 0 ? 1 : 0;
+        else if (cur === 1) nv = S.indexOf(nb) >= 0 ? 1 : 2;
+        else                nv = cur + 1 >= states ? 0 : cur + 1;
+        if (nv === 1 && cur === 0) born++;
+        nx[yw+x] = nv;
+        a[yw+x]  = nv===1 ? a[yw+x]+1 : 0;
+      }
+    }
+  }
+
+  // Swap buffers
+  const tmp = GRID; GRID = NEXT; NEXT = tmp;
+  BIRTHS = born;
+
+  // Auto-reseed if population collapses
+  caCheckTimer++;
+  if (caCheckTimer > 80) {
+    caCheckTimer = 0;
+    let alive = 0;
+    for (let i = 0; i < GRID.length; i++) if (GRID[i] === 1) alive++;
+    if (alive < GRID.length * 0.004) initCA();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// IFS FRACTAL SYSTEM
+// ═══════════════════════════════════════════════════════════════════
+let IFTF = [], IFSC = [];
+let ifsX = 0, ifsY = 0;
+let ifsSX = 1, ifsSY = 1, ifsOX = 0, ifsOY = 0;
+
+function initIFS() {
+  const rn  = Math.random;
+  const rns = (lo, hi) => lo + rn() * (hi - lo);
+
+  const FAMS = ['barnsley','sierpinski','dragon','thelypteris','levy','random','random'];
+  const fam  = FAMS[rn() * FAMS.length | 0];
+  let T = [];
+
+  switch (fam) {
+    case 'barnsley':
+      T = [
+        {a:0.00,  b:0.00,  c:0.00,  d:0.16, e:0,     f:0.00,  p:0.01},
+        {a:0.85,  b:0.04,  c:-0.04, d:0.85, e:0,     f:1.60,  p:0.85},
+        {a:0.20,  b:-0.26, c:0.23,  d:0.22, e:0,     f:1.60,  p:0.07},
+        {a:-0.15, b:0.28,  c:0.26,  d:0.24, e:0,     f:0.44,  p:0.07},
+      ]; break;
+    case 'thelypteris':
+      T = [
+        {a:0.00,  b:0.00,   c:0.00,   d:0.25, e:0,      f:-0.40, p:0.02},
+        {a:0.95,  b:0.005,  c:-0.005, d:0.93, e:-0.002, f:0.50,  p:0.84},
+        {a:0.035, b:-0.20,  c:0.16,   d:0.04, e:-0.09,  f:0.02,  p:0.07},
+        {a:-0.04, b:0.20,   c:0.16,   d:0.04, e:0.083,  f:0.12,  p:0.07},
+      ]; break;
+    case 'sierpinski':
+      T = [
+        {a:0.5, b:0,   c:0,   d:0.5, e:0,    f:0,   p:0.34},
+        {a:0.5, b:0,   c:0,   d:0.5, e:0.5,  f:0,   p:0.33},
+        {a:0.5, b:0,   c:0,   d:0.5, e:0.25, f:0.5, p:0.33},
+      ]; break;
+    case 'dragon':
+      T = [
+        {a:0.824, b:0.281,  c:-0.212, d:0.864,  e:-0.144, f:0.172, p:0.5},
+        {a:0.088, b:0.520,  c:-0.457, d:-0.332, e:0.800,  f:0.551, p:0.5},
+      ]; break;
+    case 'levy':
+      T = [
+        {a:0.5, b:-0.5, c:0.5, d:0.5, e:0, f:0,   p:0.5},
+        {a:0.5, b:0.5,  c:-0.5,d:0.5, e:1, f:0,   p:0.5},
+      ]; break;
+    default: { // random contractive IFS
+      const n = 4 + (rn() * 5 | 0);
+      for (let i = 0; i < n; i++) {
+        const th1 = rns(0, 6.283), th2 = rns(0, 6.283);
+        const sc  = rns(0.25, 0.55);
+        T.push({
+          a: sc*Math.cos(th1), b: sc*Math.sin(th1),
+          c:-sc*Math.sin(th2), d: sc*Math.cos(th2),
+          e: rns(-1.2, 1.2),   f: rns(-1.2, 1.2),
+          p: 1 / n
+        });
+      }
+    }
+  }
+
+  // Normalize probabilities and compute cumulative distribution
+  let tot = T.reduce((s,t) => s+t.p, 0), cum = 0;
+  IFTF = T.map(t => { cum += t.p/tot; return {...t, cum}; });
+
+  // Complementary color harmony by transform index
+  const baseHue = rn() * 360;
+  IFSC = IFTF.map((_, i) => ({
+    h: (baseHue + i * (360 / IFTF.length)) % 360,
+    s: 80 + rn()*15,
+    l: 50 + rn()*15
+  }));
+
+  // Warm-up run to find attractor bounds
+  let x = 0, y = 0;
+  let mnx=Infinity, mny=Infinity, mxx=-Infinity, mxy=-Infinity;
+  for (let k = 0; k < 10000; k++) {
+    const r = Math.random(); let ti = IFTF.length - 1;
+    for (let i = 0; i < IFTF.length; i++) { if (r <= IFTF[i].cum) { ti = i; break; } }
+    const t = IFTF[ti];
+    const nx2 = t.a*x + t.b*y + t.e, ny2 = t.c*x + t.d*y + t.f;
+    x = nx2; y = ny2;
+    if (k > 300) {
+      if (x < mnx) mnx=x; if (x > mxx) mxx=x;
+      if (y < mny) mny=y; if (y > mxy) mxy=y;
+    }
+  }
+
+  // Add padding and compute scale/offset
+  const pad = 0.12;
+  const rw = mxx - mnx, rh2 = mxy - mny;
+  mnx -= rw*pad;  mxx += rw*pad;
+  mny -= rh2*pad; mxy += rh2*pad;
+  ifsSX = W / (mxx - mnx);
+  ifsSY = H / (mxy - mny);
+  ifsOX = -mnx * ifsSX;
+  ifsOY = H + mny * ifsSY; // py = ifsOY - y*ifsSY  (Y-flip)
+
+  ifsX = x; ifsY = y;
+  ic.clearRect(0, 0, W, H);
+}
+
+function stepIFS() {
+  const ITERS = MOB ? 8000 : 22000;
+  const nT = IFTF.length;
+
+  // Collect points batched by transform for efficient batch rendering
+  const pts = [];
+  for (let i = 0; i < nT; i++) pts.push([]);
+
+  for (let k = 0; k < ITERS; k++) {
+    const r = Math.random(); let ti = nT - 1;
+    for (let i = 0; i < nT; i++) { if (r <= IFTF[i].cum) { ti = i; break; } }
+    const t = IFTF[ti];
+    const nx2 = t.a*ifsX + t.b*ifsY + t.e;
+    const ny2 = t.c*ifsX + t.d*ifsY + t.f;
+    ifsX = nx2; ifsY = ny2;
+    const px = (ifsX * ifsSX + ifsOX) | 0;
+    const py = (ifsOY - ifsY * ifsSY)  | 0;
+    if (px >= 0 && px < W && py >= 0 && py < H) {
+      pts[ti].push(px, py);
+    }
+  }
+
+  // Fade existing IFS layer
+  ic.globalCompositeOperation = 'source-over';
+  ic.fillStyle = 'rgba(0,0,0,0.045)';
+  ic.fillRect(0, 0, W, H);
+
+  // Draw new points with additive blending, coloured by transform
+  ic.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < nT; i++) {
+    if (!pts[i].length) continue;
+    const col = IFSC[i];
+    const h = (col.h + masterPh * 210) % 360;
+    ic.fillStyle = `hsla(${h|0},${col.s|0}%,${col.l|0}%,0.2)`;
+    const p = pts[i];
+    for (let j = 0; j < p.length; j += 2) ic.fillRect(p[j], p[j+1], 1, 1);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// LISSAJOUS-BOWDITCH FIELD
+// ═══════════════════════════════════════════════════════════════════
+const FIB = [1,1,2,3,5,8,13,21,34,55];
+let LCVS  = [];
+
+// Coupled harmonic oscillator state for phase drift
+function initLissajous() {
+  const rn  = Math.random;
+  const N   = MOB ? 75 : 220;
+  LCVS = [];
+  for (let i = 0; i < N; i++) {
+    const fi = rn() * FIB.length | 0;
+    const fj = rn() * FIB.length | 0;
+    // Coupled oscillator phase drift velocities
+    const dpx = (rn() - 0.5) * 0.006;
+    const dpy = (rn() - 0.5) * 0.006;
+    LCVS.push({
+      fx:  FIB[fi],
+      fy:  FIB[fj],
+      px:  rn() * 6.2832,
+      py:  rn() * 6.2832,
+      dpx, dpy,
+      // Coupling coefficient pulls phases toward slow oscillation
+      kx:  0.0001 + rn() * 0.0002,
+      ky:  0.0001 + rn() * 0.0002,
+      amp: 0.18 + rn() * 0.38,
+      ho:  rn() * 360,  // hue offset
+      al:  0.018 + rn() * 0.038,
+      lw:  0.4 + rn() * 1.8,
+    });
+  }
+  lc.clearRect(0, 0, W, H);
+}
+
+function stepLissajous() {
+  // Fade trails with semi-transparent black
+  lc.globalCompositeOperation = 'source-over';
+  lc.fillStyle = 'rgba(0,0,0,0.11)';
+  lc.fillRect(0, 0, W, H);
+
+  const cx = W * 0.5, cy = H * 0.5;
+  const rx = W * 0.44, ry = H * 0.44;
+  const STEPS = MOB ? 90 : 175;
+
+  lc.globalCompositeOperation = 'screen';
+
+  for (const cv of LCVS) {
+    // Drift phases via coupled harmonic oscillators
+    cv.dpx += -cv.kx * cv.px;
+    cv.dpy += -cv.ky * cv.py;
+    cv.px  += cv.dpx;
+    cv.py  += cv.dpy;
+
+    const h   = ((masterPh * 360 + cv.ho + cShift) % 360 + 360) % 360;
+    const sat = 95 + fbm(cv.px * 0.05 + perlinT * 0.02, cv.py * 0.05, 2) * 10;
+    const lit = 62 + fbm(cv.px * 0.03, cv.py * 0.03 + perlinT * 0.03, 2) * 12;
+
+    lc.beginPath();
+    for (let s = 0; s <= STEPS; s++) {
+      const t2 = (s / STEPS) * 6.2832;
+      const x  = cx + Math.cos(cv.fx * t2 + cv.px) * rx * cv.amp;
+      const y  = cy + Math.sin(cv.fy * t2 + cv.py) * ry * cv.amp;
+      s ? lc.lineTo(x, y) : lc.moveTo(x, y);
+    }
+    lc.strokeStyle = `hsla(${h|0},${sat|0}%,${lit|0}%,${cv.al})`;
+    lc.lineWidth   = cv.lw;
+    lc.stroke();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// WEB AUDIO SYNTHESIS ENGINE
+// ═══════════════════════════════════════════════════════════════════
+let AC, SAWNODE, FILTBANK = [], REVBUF, MSTR_G;
+const FRAT = 1.6180339887; // Golden ratio ≈ Fibonacci ratio
+
+function initAudio() {
+  if (AC) return;
+  AC     = new (window.AudioContext || window.webkitAudioContext)();
+  MSTR_G = AC.createGain();
+  MSTR_G.gain.value = 0;
+  MSTR_G.connect(AC.destination);
+
+  // Band-limited sawtooth
+  SAWNODE = AC.createOscillator();
+  SAWNODE.type = 'sawtooth';
+  SAWNODE.frequency.value = 55;
+  SAWNODE.start();
+
+  // Resonant filter bank at Fibonacci-ratio intervals
+  const baseF = 110;
+  for (let i = 0; i < 6; i++) {
+    const filt = AC.createBiquadFilter();
+    filt.type = 'bandpass';
+    filt.frequency.value = baseF * Math.pow(FRAT, i);
+    filt.Q.value = 10 + i * 2;
+
+    const gain = AC.createGain();
+    gain.gain.value = 0.15;
+
+    SAWNODE.connect(filt);
+    filt.connect(gain);
+    gain.connect(MSTR_G);
+    FILTBANK.push({ f: filt, g: gain, baseFreq: filt.frequency.value });
+  }
+
+  // Reverb via synthesized impulse response (decay modulated by IFS dimension proxy)
+  const revNode  = AC.createConvolver();
+  const revLen   = (AC.sampleRate * 2.8) | 0;
+  REVBUF         = AC.createBuffer(2, revLen, AC.sampleRate);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = REVBUF.getChannelData(ch);
+    for (let i = 0; i < revLen; i++)
+      d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / revLen, 1.8);
+  }
+  revNode.buffer = REVBUF;
+
+  const wetG = AC.createGain(); wetG.gain.value = 0.28;
+  SAWNODE.connect(revNode);
+  revNode.connect(wetG);
+  wetG.connect(MSTR_G);
+}
+
+function tickAudio() {
+  if (!AC || !sndOn) return;
+  const t = AC.currentTime;
+
+  // Birth count drives oscillator pitch (CA → audio)
+  const normB = Math.min(1, BIRTHS / Math.max(1, CW * CH * 0.04));
+  const freq  = 44 + normB * 280 + Math.sin(masterPh * 6.28) * 18;
+  SAWNODE.frequency.setTargetAtTime(freq, t, 0.12);
+
+  // Sweep filter gains with Perlin-modulated phase
+  for (let i = 0; i < FILTBANK.length; i++) {
+    const ph  = masterPh * 6.28 * 1.5 + i * 1.047 + perlinT * 0.3;
+    const amp = 0.04 + 0.22 * Math.abs(Math.sin(ph + fbm(perlinT * 0.1, i * 0.4, 2) * 2));
+    // Also modulate cutoff frequency slowly
+    const fc = FILTBANK[i].baseFreq * (1 + 0.15 * Math.sin(masterPh * 3.14 + i));
+    FILTBANK[i].f.frequency.setTargetAtTime(fc, t, 0.08);
+    FILTBANK[i].g.gain.setTargetAtTime(amp, t, 0.05);
+  }
+}
+
+function toggleSound() {
+  sndOn = !sndOn;
+  initAudio();
+  if (AC.state === 'suspended') AC.resume();
+  MSTR_G.gain.setTargetAtTime(sndOn ? 0.14 : 0, AC.currentTime, 0.35);
+  document.getElementById('snd').textContent = sndOn ? '♪ ON' : '♪ OFF';
+  document.getElementById('snd').className   = sndOn ? 'on' : '';
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MAIN RENDER PIPELINE
+// ═══════════════════════════════════════════════════════════════════
+let imgD, PIX;
+
+function initPixels() {
+  imgD = mc.createImageData(W, H);
+  PIX  = imgD.data;
+  // Pre-fill alpha channel
+  for (let i = 3; i < PIX.length; i += 4) PIX[i] = 255;
+}
+
+function drawCA() {
+  updateWarpMap();
+
+  const pix = PIX, w = CW, h = CH, cs = CSZ;
+
+  for (let cy = 0; cy < h; cy++) {
+    const wj = Math.min(cy >> 2, WMSY - 1);
+
+    for (let cx2 = 0; cx2 < w; cx2++) {
+      const s = GRID[cy * w + cx2];
+      let rr = 0, gg = 0, bb = 0;
+
+      if (s > 0) {
+        const age = AGE[cy * w + cx2];
+        const wi  = Math.min(cx2 >> 2, WMSX - 1);
+        const sw  = WMAP[wj * WMSX + wi];
+
+        // Logistic sigmoid maps age → vivid spectral gradient
+        const sig = ageSigmoid(age);
+        // Master phase + sigmoid age + perlin warp + global shift → hue
+        const hue = ((masterPh * 360 + sig * 320 + sw + cShift) % 360 + 360) % 360;
+
+        let sat = 88, lit = 52;
+        if (RULE.type === 'brian') {
+          if (s === 1) { sat = 100; lit = 80; }
+          else         { sat = 55;  lit = 30; } // refractory dim glow
+        } else if (RULE.type === 'gen' && s > 1) {
+          // Dying states: shift hue and dim progressively
+          sat = 70; lit = 16 + (s / RULE.states) * 40;
+        }
+
+        hsl2rgb(hue / 360, sat / 100, lit / 100);
+        rr = _r; gg = _g; bb = _b;
+      }
+
+      // Fill pixel block (cellSize × cellSize)
+      const px0 = cx2 * cs, py0 = cy * cs;
+      for (let dy = 0; dy < cs; dy++) {
+        const row = (py0 + dy) * W;
+        if (py0 + dy >= H) break;
+        for (let dx = 0; dx < cs; dx++) {
+          if (px0 + dx >= W) break;
+          const idx = (row + px0 + dx) << 2;
+          pix[idx]   = rr;
+          pix[idx+1] = gg;
+          pix[idx+2] = bb;
+        }
+      }
+    }
+  }
+  mc.putImageData(imgD, 0, 0);
+}
+
+function drawHUD() {
+  const pairs = LCVS.slice(0, 5).map(c => `${c.fx}:${c.fy}`).join(' ');
+  document.getElementById('hud').textContent =
+    `┌─ TRIFUSION GENESIS ─────────────────\n` +
+    `│ CA Rule  : ${RULE.name}\n` +
+    `│ CA Type  : ${RULE.type.padEnd(6)} States: ${RULE.states || 2}\n` +
+    `│ CA Grid  : ${CW}×${CH}  Births: ${BIRTHS}\n` +
+    `│ IFS      : ${IFTF.length} transforms (${['barnsley','sierpinski','dragon','thelypteris','levy','random'][0] ?? 'IFS'})\n` +
+    `│ Lissajous: ${LCVS.length} curves\n` +
+    `│ L-Pairs  : ${pairs}…\n` +
+    `│ FPS      : ${fps}\n` +
+    `│ Phase    : ${(masterPh * 360 | 0).toString().padStart(3)}°\n` +
+    `└─────────────────────────────────────`;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ANIMATION LOOP
+// ═══════════════════════════════════════════════════════════════════
+function tick(ts) {
+  fN++;
+  if (ts - fT > 600) { fps = (fN * 1000 / (ts - fT)) | 0; fN = 0; fT = ts; }
+
+  // Advance master phase and Perlin time
+  masterPh = (masterPh + 0.00055) % 1;
+  perlinT  += 0.009;
+  cShift    = (cShift + 0.022) % 360;
+
+  // Step and render all three layers
+  stepCA();
+  drawCA();
+
+  stepIFS();
+  mc.globalCompositeOperation = 'screen';
+  mc.drawImage(IFC, 0, 0);
+
+  mc.globalCompositeOperation = 'source-over';
+
+  if (sndOn) tickAudio();
+  if (hudOn) drawHUD();
+
+  requestAnimationFrame(tick);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// INITIALIZATION & EVENTS
+// ═══════════════════════════════════════════════════════════════════
+function init() {
+  seedPerlin(Math.random() * 0xFFFFFF | 0);
+  cShift = Math.random() * 360;
+  initCA();
+  initIFS();
+  initPixels();
+  if (WMAP === null || WMAP.length !== WMSX * WMSY) WMAP = new Float32Array(WMSX * WMSY);
+}
+
+function randomizeAll() {
+  seedPerlin(Math.random() * 0xFFFFFF | 0);
+  cShift = Math.random() * 360;
+  initCA();
+  initIFS();
+  initPixels();
+  if (WMAP === null || WMAP.length !== WMSX * WMSY) WMAP = new Float32Array(WMSX * WMSY);
+  // Subtle flash
+  mc.fillStyle = 'rgba(255,255,255,0.06)';
+  mc.fillRect(0, 0, W, H);
+}
+
+function resize() {
+  MOB = window.innerWidth < 700 || navigator.maxTouchPoints > 2;
+  W   = window.innerWidth  | 0;
+  H   = window.innerHeight | 0;
+  C.width = IFC.width = LIC.width  = W;
+  C.height= IFC.height= LIC.height = H;
+
+  // Adaptive cell size: smaller on mobile, slightly larger on desktop for perf
+  CSZ  = MOB ? 4 : 3;
+  CW   = (W / CSZ) | 0;
+  CH   = (H / CSZ) | 0;
+
+  // Warp map at 1/4 of CA grid resolution
+  WMS  = 4;
+  WMSX = Math.ceil(CW / WMS);
+  WMSY = Math.ceil(CH / WMS);
+  WMAP = new Float32Array(WMSX * WMSY);
+
+  init();
+}
+
+// Keyboard controls
+window.addEventListener('keydown', e => {
+  if (e.code === 'Space') { e.preventDefault(); randomizeAll(); }
+  if (e.code === 'KeyH') {
+    hudOn = !hudOn;
+    document.getElementById('hud').style.display = hudOn ? 'block' : 'none';
+  }
+  if (e.code === 'KeyS') toggleSound();
+});
+
+// Click/tap to randomize
+C.addEventListener('click', randomizeAll);
+
+// Double-tap on mobile
+let lastTap = 0;
+C.addEventListener('touchend', e => {
+  e.preventDefault();
+  const now = Date.now();
+  if (now - lastTap < 320) randomizeAll();
+  lastTap = now;
+}, {passive: false});
+
+// Debounced resize
+let rTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(rTimer);
+  rTimer = setTimeout(resize, 300);
+});
+
+// Fade hint text after 6s
+setTimeout(() => {
+  const h = document.getElementById('hint');
+  if (h) h.style.opacity = '0';
+}, 6000);
+
+// Boot
+resize();
+requestAnimationFrame(tick);
+
+})();
+</script>
+</body>
+</html>
+

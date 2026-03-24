@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Rotating Spectral Cellular Vortex | Generative Art Visualization</title>
+<meta name="author" content="Generative Visualization Engine">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+html, body {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    background: black;
+}
+canvas {
+    display: block;
+}
+</style>
+</head>
+
+<body>
+<canvas id="glcanvas"></canvas>
+
+<script>
+const canvas = document.getElementById("glcanvas");
+const gl = canvas.getContext("webgl");
+
+function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
+}
+window.addEventListener("resize", resize);
+resize();
+
+const vertexShaderSource = `
+attribute vec2 position;
+void main() {
+    gl_Position = vec4(position, 0.0, 1.0);
+}
+`;
+
+const fragmentShaderSource = `
+precision highp float;
+
+uniform float time;
+uniform vec2 resolution;
+uniform vec4 seed;
+
+float random(vec2 p){
+    return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453);
+}
+
+vec3 palette(float t){
+    return 0.5 + 0.5*cos(6.28318*(t+vec3(0.0,0.33,0.67)));
+}
+
+void main(){
+    vec2 uv = (gl_FragCoord.xy - 0.5*resolution.xy) / resolution.y;
+
+    // rotate entire scene
+    float angle = time * 1.2;  // faster rotation
+    mat2 rot = mat2(cos(angle), -sin(angle),
+                    sin(angle), cos(angle));
+    uv = rot * uv;
+
+    // scale outward so no black corners
+    uv *= 1.5;
+
+    // cellular automata style pattern
+    vec2 gv = fract(uv * (5.0 + seed.x*10.0)) - 0.5;
+    vec2 id = floor(uv * (5.0 + seed.x*10.0));
+
+    float d = 10.0;
+    for(int y=-1;y<=1;y++){
+        for(int x=-1;x<=1;x++){
+            vec2 offset = vec2(float(x),float(y));
+            vec2 p = random(id+offset+seed.xy) * vec2(1.0);
+            vec2 r = offset + p - gv;
+            d = min(d, dot(r,r));
+        }
+    }
+
+    float pattern = sqrt(d);
+
+    float colorShift = time*0.5 + seed.z*10.0;
+    vec3 col = palette(pattern + colorShift);
+
+    gl_FragColor = vec4(col,1.0);
+}
+`;
+
+function compileShader(type, source){
+    const shader = gl.createShader(type);
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+    return shader;
+}
+
+const vertexShader = compileShader(gl.VERTEX_SHADER, vertexShaderSource);
+const fragmentShader = compileShader(gl.FRAGMENT_SHADER, fragmentShaderSource);
+
+const program = gl.createProgram();
+gl.attachShader(program, vertexShader);
+gl.attachShader(program, fragmentShader);
+gl.linkProgram(program);
+gl.useProgram(program);
+
+const positionLocation = gl.getAttribLocation(program, "position");
+const buffer = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+    -1,-1,
+     1,-1,
+    -1, 1,
+    -1, 1,
+     1,-1,
+     1, 1
+]), gl.STATIC_DRAW);
+
+gl.enableVertexAttribArray(positionLocation);
+gl.vertexAttribPointer(positionLocation,2,gl.FLOAT,false,0,0);
+
+const timeLocation = gl.getUniformLocation(program,"time");
+const resolutionLocation = gl.getUniformLocation(program,"resolution");
+const seedLocation = gl.getUniformLocation(program,"seed");
+
+let startTime = performance.now();
+let seed = [Math.random(),Math.random(),Math.random(),Math.random()];
+
+function regenerate(){
+    seed = [Math.random(),Math.random(),Math.random(),Math.random()];
+    startTime = performance.now();
+}
+
+window.addEventListener("keydown", e=>{
+    if(e.code === "Space") regenerate();
+});
+window.addEventListener("click", regenerate);
+
+function render(){
+    const currentTime = (performance.now() - startTime) * 0.001;
+    gl.uniform1f(timeLocation,currentTime);
+    gl.uniform2f(resolutionLocation,canvas.width,canvas.height);
+    gl.uniform4f(seedLocation,seed[0],seed[1],seed[2],seed[3]);
+
+    gl.drawArrays(gl.TRIANGLES,0,6);
+    requestAnimationFrame(render);
+}
+
+render();
+</script>
+
+</body>
+</html>

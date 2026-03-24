@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Rotating 3D Molecular Chemistry Visualization</title>
+
+<meta name="description" content="Beautiful full color interactive 3D molecular model rendered in real-time WebGL. Rotating chemistry visualization with randomized atoms, bonds, lighting, rendering styles and colors. Press SPACE or click to regenerate a new molecular structure.">
+
+<meta name="keywords" content="3D molecular model, WebGL chemistry visualization, interactive molecule, rotating atom model, fullscreen WebGL demo, procedural molecule generator, real-time 3D atoms, scientific visualization, browser 3D graphics, chemistry animation">
+
+<style>
+html, body {
+    margin:0;
+    padding:0;
+    overflow:hidden;
+    background:black;
+}
+canvas {
+    display:block;
+}
+#info {
+    position:fixed;
+    bottom:10px;
+    left:50%;
+    transform:translateX(-50%);
+    color:white;
+    font-family:Arial, sans-serif;
+    font-size:14px;
+    opacity:0.7;
+    pointer-events:none;
+}
+</style>
+</head>
+<body>
+<canvas id="glcanvas"></canvas>
+<div id="info">SPACE or Click to Randomize Molecule</div>
+
+<script>
+const canvas = document.getElementById("glcanvas");
+const gl = canvas.getContext("webgl");
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+
+window.addEventListener("resize", () => {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    gl.viewport(0,0,canvas.width,canvas.height);
+});
+
+gl.viewport(0,0,canvas.width,canvas.height);
+gl.enable(gl.DEPTH_TEST);
+
+function createShader(type, source){
+    const shader = gl.createShader(type);
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+    return shader;
+}
+
+const vertexShaderSource = `
+attribute vec3 position;
+attribute vec3 normal;
+uniform mat4 projection;
+uniform mat4 view;
+uniform mat4 model;
+varying vec3 vNormal;
+varying vec3 vPosition;
+void main(){
+    vNormal = normal;
+    vec4 worldPos = model * vec4(position,1.0);
+    vPosition = worldPos.xyz;
+    gl_Position = projection * view * worldPos;
+}
+`;
+
+const fragmentShaderSource = `
+precision mediump float;
+varying vec3 vNormal;
+varying vec3 vPosition;
+uniform vec3 color;
+uniform vec3 lightPos;
+uniform float style;
+
+void main(){
+    vec3 N = normalize(vNormal);
+    vec3 L = normalize(lightPos - vPosition);
+    float diff = max(dot(N,L),0.0);
+    float ambient = 0.2;
+    vec3 base = color;
+
+    if(style < 1.0){
+        base *= diff + ambient;
+    } else if(style < 2.0){
+        float spec = pow(max(dot(reflect(-L,N), normalize(-vPosition)),0.0), 32.0);
+        base = base * diff + vec3(spec);
+    } else if(style < 3.0){
+        base = vec3(diff*1.5) * color;
+    } else {
+        base = mix(color, vec3(diff), 0.5);
+    }
+
+    gl_FragColor = vec4(base,1.0);
+}
+`;
+
+const program = gl.createProgram();
+gl.attachShader(program, createShader(gl.VERTEX_SHADER, vertexShaderSource));
+gl.attachShader(program, createShader(gl.FRAGMENT_SHADER, fragmentShaderSource));
+gl.linkProgram(program);
+gl.useProgram(program);
+
+function createSphere(latBands=24,longBands=24){
+    let positions=[], normals=[], indices=[];
+    for(let lat=0;lat<=latBands;lat++){
+        let theta = lat*Math.PI/latBands;
+        for(let lon=0;lon<=longBands;lon++){
+            let phi = lon*2*Math.PI/longBands;
+            let x=Math.sin(theta)*Math.cos(phi);
+            let y=Math.cos(theta);
+            let z=Math.sin(theta)*Math.sin(phi);
+            positions.push(x,y,z);
+            normals.push(x,y,z);
+        }
+    }
+    for(let lat=0;lat<latBands;lat++){
+        for(let lon=0;lon<longBands;lon++){
+            let first = lat*(longBands+1)+lon;
+            let second = first+longBands+1;
+            indices.push(first,second,first+1);
+            indices.push(second,second+1,first+1);
+        }
+    }
+    return {positions,newPositions:positions,normals,indices};
+}
+
+const sphere = createSphere();
+
+function bufferData(data, type){
+    const buffer = gl.createBuffer();
+    gl.bindBuffer(type, buffer);
+    gl.bufferData(type, new Float32Array(data), gl.STATIC_DRAW);
+    return buffer;
+}
+
+const posBuffer = bufferData(sphere.positions, gl.ARRAY_BUFFER);
+const normBuffer = bufferData(sphere.normals, gl.ARRAY_BUFFER);
+
+const indexBuffer = gl.createBuffer();
+gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,indexBuffer);
+gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint16Array(sphere.indices),gl.STATIC_DRAW);
+
+const positionLoc = gl.getAttribLocation(program,"position");
+const normalLoc = gl.getAttribLocation(program,"normal");
+gl.enableVertexAttribArray(positionLoc);
+gl.enableVertexAttribArray(normalLoc);
+
+gl.bindBuffer(gl.ARRAY_BUFFER,posBuffer);
+gl.vertexAttribPointer(positionLoc,3,gl.FLOAT,false,0,0);
+gl.bindBuffer(gl.ARRAY_BUFFER,normBuffer);
+gl.vertexAttribPointer(normalLoc,3,gl.FLOAT,false,0,0);
+
+function perspective(fovy, aspect, near, far){
+    let f=1/Math.tan(fovy/2);
+    return [
+        f/aspect,0,0,0,
+        0,f,0,0,
+        0,0,(far+near)/(near-far),-1,
+        0,0,(2*far*near)/(near-far),0
+    ];
+}
+
+function identity(){
+    return [1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1];
+}
+
+function translate(m,x,y,z){
+    m[12]+=x;m[13]+=y;m[14]+=z;
+    return m;
+}
+
+function scale(m,s){
+    m[0]*=s;m[5]*=s;m[10]*=s;
+    return m;
+}
+
+let atoms=[];
+let speed=0.01;
+let style=0;
+
+function randomize(){
+    atoms=[];
+    let count = Math.floor(Math.random()*60)+20;
+    speed = Math.random()*0.02+0.002;
+    style = Math.random()*4;
+    for(let i=0;i<count;i++){
+        atoms.push({
+            x:(Math.random()-0.5)*6,
+            y:(Math.random()-0.5)*6,
+            z:(Math.random()-0.5)*6,
+            size:Math.random()*0.4+0.1,
+            color:[Math.random(),Math.random(),Math.random()]
+        });
+    }
+}
+randomize();
+
+window.addEventListener("keydown",e=>{ if(e.code==="Space") randomize();});
+window.addEventListener("click",randomize);
+
+function render(time){
+    time*=speed;
+    gl.clearColor(0,0,0,1);
+    gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+
+    let projection = perspective(Math.PI/4, canvas.width/canvas.height,0.1,100);
+    let view = identity();
+    view[14] = -12;
+
+    gl.uniformMatrix4fv(gl.getUniformLocation(program,"projection"),false,new Float32Array(projection));
+    gl.uniformMatrix4fv(gl.getUniformLocation(program,"view"),false,new Float32Array(view));
+    gl.uniform3f(gl.getUniformLocation(program,"lightPos"),5,5,5);
+    gl.uniform1f(gl.getUniformLocation(program,"style"),style);
+
+    atoms.forEach(atom=>{
+        let model = identity();
+        model = translate(model,
+            atom.x*Math.cos(time)-atom.z*Math.sin(time),
+            atom.y,
+            atom.x*Math.sin(time)+atom.z*Math.cos(time)
+        );
+        model = scale(model, atom.size);
+
+        gl.uniformMatrix4fv(gl.getUniformLocation(program,"model"),false,new Float32Array(model));
+        gl.uniform3fv(gl.getUniformLocation(program,"color"),atom.color);
+        gl.drawElements(gl.TRIANGLES,sphere.indices.length,gl.UNSIGNED_SHORT,0);
+    });
+
+    requestAnimationFrame(render);
+}
+requestAnimationFrame(render);
+</script>
+</body>
+</html>

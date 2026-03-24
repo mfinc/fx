@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Strange Attractor & Fractal Bifurcation Tapestry | Non-Linear Dynamic Visual Arts</title>
+<meta name="description" content="An immersive real-time visualization engine rendering Lorenz, Hénon, and Rössler strange attractors with fractal Brownian motion textures, domain coloring, complex logarithms, Lyapunov fractal overlays, and chaotic FM audio synthesis. Experience the beauty of non-linear dynamical systems.">
+<meta name="keywords" content="strange attractor, Lorenz attractor, Hénon map, Rössler attractor, fractal bifurcation, chaos theory, non-linear dynamics, domain coloring, Lyapunov fractal, fractal Brownian motion, complex logarithm, WebGL visualization, generative art, chaotic systems, dynamical systems art, FM synthesis chaos, spectral ribbons, kaleidoscopic animation, mathematical art, chaos visualization, attractor art, fractal art, computational art, algorithmic art">
+<meta name="author" content="Non-Linear Dynamic Visual Arts Engine">
+<meta name="robots" content="index, follow">
+<meta property="og:title" content="Strange Attractor & Fractal Bifurcation Tapestry">
+<meta property="og:description" content="Real-time chaos: Lorenz, Hénon, Rössler attractors with Lyapunov overlays, fBm textures, domain coloring, and FM audio synthesis driven by attractor coordinates.">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Strange Attractor & Fractal Bifurcation Tapestry">
+<meta name="twitter:description" content="Immersive non-linear dynamics: Lorenz, Hénon, Rössler attractors visualized with domain coloring, fBm, Lyapunov fractals, and chaotic FM synthesis.">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%; overflow: hidden;
+    background: #000;
+    font-family: 'Courier New', monospace;
+    cursor: crosshair;
+  }
+  canvas {
+    display: block;
+    position: fixed; top: 0; left: 0;
+    width: 100% !important; height: 100% !important;
+  }
+  #hud {
+    display: none;
+    position: fixed; top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    z-index: 10;
+  }
+  #hud.visible { display: block; }
+  .hud-panel {
+    position: absolute;
+    background: rgba(0,0,0,0.72);
+    border: 1px solid rgba(255,255,255,0.13);
+    border-radius: 4px;
+    padding: 14px 18px;
+    font-size: 11px;
+    line-height: 1.8;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.7);
+    backdrop-filter: blur(8px);
+  }
+  .hud-panel span { color: #fff; }
+  .hud-panel .accent { color: #ff6ef0; }
+  .hud-panel .val { color: #7effd4; }
+  #hud-tl { top: 18px; left: 18px; min-width: 220px; }
+  #hud-tr { top: 18px; right: 18px; text-align: right; }
+  #hud-bl { bottom: 18px; left: 18px; }
+  #hud-br { bottom: 18px; right: 18px; text-align: right; }
+  #keys {
+    position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+    font-size: 10px; letter-spacing: 0.15em; text-transform: uppercase;
+    color: rgba(255,255,255,0.28); pointer-events: none; z-index: 5;
+    transition: opacity 0.5s;
+  }
+  #keys kbd {
+    display: inline-block;
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 3px;
+    padding: 1px 5px;
+    margin: 0 2px;
+    color: rgba(255,255,255,0.45);
+    font-family: inherit;
+    font-size: 10px;
+  }
+  #flash {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: white; opacity: 0; pointer-events: none; z-index: 20;
+    transition: opacity 0.08s;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div class="hud-panel" id="hud-tl">
+    <div><span class="accent">ATTRACTOR ENGINE</span></div>
+    <div>System <span id="h-sys" class="val">—</span></div>
+    <div>σ/ρ/β <span id="h-params" class="val">—</span></div>
+    <div>Lyapunov <span id="h-lyap" class="val">—</span></div>
+    <div>Particles <span id="h-pts" class="val">—</span></div>
+    <div>Frame <span id="h-frame" class="val">—</span></div>
+  </div>
+  <div class="hud-panel" id="hud-tr">
+    <div><span class="accent">COORDINATES</span></div>
+    <div>X <span id="h-x" class="val">—</span></div>
+    <div>Y <span id="h-y" class="val">—</span></div>
+    <div>Z <span id="h-z" class="val">—</span></div>
+    <div>Rotation <span id="h-rot" class="val">—</span></div>
+    <div>Zoom <span id="h-zoom" class="val">—</span></div>
+  </div>
+  <div class="hud-panel" id="hud-bl">
+    <div><span class="accent">AUDIO</span></div>
+    <div>FM Carrier <span id="h-fc" class="val">—</span></div>
+    <div>FM Mod <span id="h-fm" class="val">—</span></div>
+    <div>Sound <span id="h-snd" class="val">OFF</span></div>
+  </div>
+  <div class="hud-panel" id="hud-br">
+    <div><span class="accent">RENDER</span></div>
+    <div>fBm Octaves <span id="h-oct" class="val">—</span></div>
+    <div>Color Mode <span id="h-col" class="val">—</span></div>
+    <div>Kaleido <span id="h-kal" class="val">—</span></div>
+    <div>Alpha <span id="h-alpha" class="val">—</span></div>
+  </div>
+</div>
+<div id="keys">
+  <kbd>SPACE</kbd> or <kbd>CLICK</kbd> regenerate &nbsp;|&nbsp; <kbd>H</kbd> hud &nbsp;|&nbsp; <kbd>S</kbd> sound
+</div>
+<div id="flash"></div>
+
+<script>
+(function(){
+'use strict';
+
+// ─── CANVAS SETUP ─────────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H, cx, cy;
+
+function resize(){
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  cx = W/2; cy = H/2;
+}
+window.addEventListener('resize', () => { resize(); regen(); });
+resize();
+
+// ─── STATE ─────────────────────────────────────────────────────────────────────
+let P = {}; // all randomized parameters
+let frameCount = 0;
+let hudVisible = false;
+let soundOn = false;
+let audioCtx = null, fmNodes = {};
+let animId = null;
+let trails = [];
+let henon = {x:0,y:0};
+let rossler = {x:0.1,y:0,z:0};
+let lorenz  = {x:0.1,y:0,z:0};
+let t = 0;
+
+// ─── RANDOM HELPERS ────────────────────────────────────────────────────────────
+const rand = (a,b) => a + Math.random()*(b-a);
+const randi = (a,b) => Math.floor(rand(a,b+1));
+const pick = arr => arr[Math.floor(Math.random()*arr.length)];
+const hsl = (h,s,l,a=1) => `hsla(${h|0},${s|0}%,${l|0}%,${a})`;
+
+// ─── PARAMETER GENERATION ──────────────────────────────────────────────────────
+function randomize(){
+  P = {
+    // Lorenz
+    sigma: rand(6,16), rho: rand(24,32), beta: rand(1.5,3.2),
+    // Rössler
+    ra: rand(0.1,0.3), rb: rand(0.1,0.3), rc: rand(3,7),
+    // Hénon
+    ha: rand(1.1,1.5), hb: rand(0.2,0.4),
+    // Render
+    trailLen: randi(1200,3600),
+    nParticles: randi(4,10),
+    dt: rand(0.004,0.009),
+    zoom: rand(0.04,0.12),
+    rotSpeed: rand(0,0.0008) * (Math.random()<0.5?1:-1),
+    kaleido: Math.random()<0.45,
+    kMirrors: pick([4,6,8,12]),
+    fBmOctaves: randi(4,8),
+    fBmAmp: rand(0.3,1.2),
+    fBmFreq: rand(0.003,0.018),
+    colorMode: pick(['domain','spectral','neon','ember','arctic','poison']),
+    hueShift: rand(0,360),
+    hueSpeed: rand(0.04,0.25),
+    saturation: rand(70,100),
+    lyapunov: Math.random()<0.55,
+    lyapAlpha: rand(0.06,0.22),
+    lyapScale: rand(0.6,2.0),
+    trailAlpha: rand(0.55,0.9),
+    bgFade: rand(0.018,0.05),
+    ribbonWidth: rand(0.5,2.8),
+    primarySystem: pick(['lorenz','lorenz','lorenz','rossler','henon']),
+    // FM
+    fmBase: rand(55,220),
+    fmModDepth: rand(1,8),
+    fmModFreq: rand(0.5,4),
+    // Lyapunov
+    lyapFreqA: rand(2,8)|0,
+    lyapFreqB: rand(2,8)|0,
+    // rotation
+    globalAngle: rand(0, Math.PI*2),
+    // complex log coloring
+    complexLogScale: rand(0.4,1.8),
+    // trail gradient stops
+    gradStops: Math.floor(rand(3,8)),
+  };
+}
+
+// ─── MATH UTILS ────────────────────────────────────────────────────────────────
+function complexLog(x, y){
+  const r = Math.sqrt(x*x+y*y);
+  const theta = Math.atan2(y,x);
+  return [Math.log(r+1e-9), theta];
+}
+
+function fBm(x, y, octaves, amp, freq){
+  let v = 0, a = 1, f = freq;
+  for(let i=0;i<octaves;i++){
+    v += a * noise2(x*f, y*f);
+    a *= 0.5; f *= 2.1;
+  }
+  return v * amp;
+}
+
+// Simplex-like hash noise
+function noise2(x, y){
+  const ix=Math.floor(x), iy=Math.floor(y);
+  const fx=x-ix, fy=y-iy;
+  const ux=fx*fx*(3-2*fx), uy=fy*fy*(3-2*fy);
+  const h00=hash(ix,iy), h10=hash(ix+1,iy);
+  const h01=hash(ix,iy+1), h11=hash(ix+1,iy+1);
+  return (h00*(1-ux)+h10*ux)*(1-uy)+(h01*(1-ux)+h11*ux)*uy;
+}
+function hash(x,y){
+  let n = Math.sin(x*127.1+y*311.7)*43758.5453;
+  return n - Math.floor(n);
+}
+
+// ─── COLOR SYSTEMS ─────────────────────────────────────────────────────────────
+function domainColor(re, im, hueShift, sat){
+  const [logR, theta] = complexLog(re, im);
+  const hue = ((theta / (Math.PI*2) * 360) + hueShift) % 360;
+  const bright = 40 + 40 * (0.5 + 0.5*Math.sin(logR * P.complexLogScale * 3));
+  return [hue, sat, bright];
+}
+
+function spectralColor(t, hueShift){
+  const hue = (t*360 + hueShift) % 360;
+  return [hue, 100, 60];
+}
+
+function neonColor(t, hueShift){
+  const hue = ((t*120 + hueShift) % 360);
+  return [hue, 100, 68];
+}
+
+function emberColor(t, hueShift){
+  const hue = (t*60 + hueShift) % 360;
+  return [hue, 95, 55+t*20];
+}
+
+function arcticColor(t, hueShift){
+  const hue = (180 + t*60 + hueShift) % 360;
+  return [hue, 70+t*30, 65+t*20];
+}
+
+function poisonColor(t, hueShift){
+  const hue = (80 + t*180 + hueShift) % 360;
+  return [hue, 100, 50+t*25];
+}
+
+function getColor(x, y, z, tNorm, hue, alpha){
+  let h,s,l;
+  const mode = P.colorMode;
+  if(mode==='domain'){
+    [h,s,l] = domainColor(x, y, hue, P.saturation);
+  } else if(mode==='spectral'){
+    [h,s,l] = spectralColor(tNorm, hue);
+  } else if(mode==='neon'){
+    [h,s,l] = neonColor(tNorm, hue);
+  } else if(mode==='ember'){
+    [h,s,l] = emberColor(tNorm, hue);
+  } else if(mode==='arctic'){
+    [h,s,l] = arcticColor(tNorm, hue);
+  } else {
+    [h,s,l] = poisonColor(tNorm, hue);
+  }
+  return `hsla(${h|0},${s|0}%,${l|0}%,${alpha})`;
+}
+
+// ─── ATTRACTOR STEPPERS ────────────────────────────────────────────────────────
+function stepLorenz(s, dt, sigma, rho, beta){
+  const dx = sigma*(s.y-s.x);
+  const dy = s.x*(rho-s.z)-s.y;
+  const dz = s.x*s.y - beta*s.z;
+  return {x:s.x+dx*dt, y:s.y+dy*dt, z:s.z+dz*dt};
+}
+
+function stepRossler(s, dt, a, b, c){
+  const dx = -s.y - s.z;
+  const dy = s.x + a*s.y;
+  const dz = b + s.z*(s.x-c);
+  return {x:s.x+dx*dt, y:s.y+dy*dt, z:s.z+dz*dt};
+}
+
+function stepHenon(s, a, b){
+  const nx = 1 - a*s.x*s.x + s.y;
+  const ny = b*s.x;
+  return {x:nx, y:ny};
+}
+
+// ─── LYAPUNOV FRACTAL OVERLAY ──────────────────────────────────────────────────
+function lyapunovValue(cx, cy, freqA, freqB, iters=60){
+  let x = 0.5, lyap = 0;
+  const seq = freqA + freqB;
+  for(let i=0;i<iters;i++){
+    const r = i%seq < freqA ? cx : cy;
+    x = r * x * (1-x);
+    const d = Math.abs(r*(1-2*x));
+    lyap += Math.log(d + 1e-10);
+  }
+  return lyap / iters;
+}
+
+// ─── TRAILS ───────────────────────────────────────────────────────────────────
+function initTrails(){
+  trails = [];
+  lorenz  = {x:rand(-1,1)*0.1, y:rand(-1,1)*0.1, z:rand(20,30)};
+  rossler = {x:rand(-2,2),     y:rand(-2,2),     z:rand(0,2)};
+  henon   = {x:rand(-0.5,0.5), y:rand(-0.5,0.5)};
+
+  const n = P.nParticles;
+  for(let i=0;i<n;i++){
+    trails.push({
+      points: [],
+      offset: rand(0, Math.PI*2),
+      lorenz:  {x:lorenz.x+rand(-0.01,0.01), y:lorenz.y+rand(-0.01,0.01), z:lorenz.z+rand(-0.01,0.01)},
+      rossler: {x:rossler.x+rand(-0.01,0.01), y:rossler.y+rand(-0.01,0.01), z:rossler.z},
+      henon:   {x:henon.x+rand(-0.01,0.01), y:henon.y+rand(-0.01,0.01)},
+      hueOff: rand(0, 60) * (i%2===0?1:-1),
+    });
+  }
+}
+
+// ─── AUDIO ─────────────────────────────────────────────────────────────────────
+function initAudio(){
+  if(audioCtx) return;
+  audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+  const master = audioCtx.createGain();
+  master.gain.value = 0.12;
+  master.connect(audioCtx.destination);
+
+  // Two FM pairs
+  const pairs = [];
+  for(let i=0;i<2;i++){
+    const mod = audioCtx.createOscillator();
+    const modGain = audioCtx.createGain();
+    const car = audioCtx.createOscillator();
+    const carGain = audioCtx.createGain();
+    const filt = audioCtx.createBiquadFilter();
+    filt.type = 'bandpass';
+    filt.Q.value = 4;
+
+    mod.type = 'sine';
+    mod.frequency.value = P.fmBase * (i===0?1:1.618);
+    mod.connect(modGain);
+    modGain.gain.value = P.fmBase * P.fmModDepth;
+    modGain.connect(car.frequency);
+
+    car.type = i===0?'sine':'triangle';
+    car.frequency.value = P.fmBase * (i===0?1:2.414);
+    car.connect(filt);
+    filt.frequency.value = P.fmBase * 4;
+    filt.connect(carGain);
+    carGain.gain.value = 0;
+    carGain.connect(master);
+
+    mod.start(); car.start();
+    pairs.push({mod, modGain, car, carGain, filt});
+  }
+  fmNodes = {pairs, master};
+}
+
+function updateAudio(lx, ly, lz){
+  if(!audioCtx || !soundOn) return;
+  const t = audioCtx.currentTime;
+  const p = fmNodes.pairs;
+
+  const freq0 = P.fmBase + Math.abs(lx) * 3;
+  const freq1 = P.fmBase * 1.5 + Math.abs(ly) * 2;
+  const modAmt = P.fmBase * P.fmModDepth * (0.5 + 0.5 * Math.abs(lz/30));
+
+  p[0].car.frequency.setTargetAtTime(freq0, t, 0.05);
+  p[0].modGain.gain.setTargetAtTime(modAmt, t, 0.05);
+  p[0].carGain.gain.setTargetAtTime(0.4, t, 0.05);
+  p[0].filt.frequency.setTargetAtTime(freq0*3+Math.abs(lz)*10, t, 0.08);
+
+  p[1].car.frequency.setTargetAtTime(freq1, t, 0.08);
+  p[1].modGain.gain.setTargetAtTime(modAmt*0.6, t, 0.08);
+  p[1].carGain.gain.setTargetAtTime(0.25, t, 0.08);
+}
+
+function stopAudio(){
+  if(!fmNodes.pairs) return;
+  const t = audioCtx.currentTime;
+  fmNodes.pairs.forEach(p => p.carGain.gain.setTargetAtTime(0, t, 0.1));
+}
+
+// ─── LYAPUNOV LAYER (drawn on bg) ─────────────────────────────────────────────
+function drawLyapunovLayer(){
+  if(!P.lyapunov) return;
+  const step = 6;
+  const idata = ctx.createImageData(W, H);
+  const d = idata.data;
+
+  const lxr = P.lyapFreqA, lyr = P.lyapFreqB;
+  const hue = (P.hueShift + t * P.hueSpeed * 40) % 360;
+
+  for(let py=0;py<H;py+=step){
+    for(let px=0;px<W;px+=step){
+      const fx = 2.0 + (px/W)*2.5;
+      const fy = 2.0 + (py/H)*2.5;
+      const lv = lyapunovValue(fx * P.lyapScale, fy * P.lyapScale, lxr, lyr);
+      const norm = Math.max(-1, Math.min(1, lv));
+
+      let r,g,b;
+      if(norm < 0){
+        // chaos — warm
+        const v = -norm;
+        const h2 = (hue + 30) % 360;
+        [r,g,b] = hslToRgb(h2/360, 1, 0.3+v*0.35);
+      } else {
+        // order — cool
+        const h2 = (hue + 200) % 360;
+        [r,g,b] = hslToRgb(h2/360, 0.7, 0.08+norm*0.2);
+      }
+      const alpha = (Math.abs(norm)*200*P.lyapAlpha)|0;
+
+      for(let sy=0;sy<step&&py+sy<H;sy++){
+        for(let sx=0;sx<step&&px+sx<W;sx++){
+          const idx=((py+sy)*W+(px+sx))*4;
+          d[idx]=r; d[idx+1]=g; d[idx+2]=b; d[idx+3]=alpha;
+        }
+      }
+    }
+  }
+  ctx.putImageData(idata,0,0);
+}
+
+function hslToRgb(h,s,l){
+  let r,g,b;
+  if(s===0){r=g=b=l;}
+  else{
+    const q=l<0.5?l*(1+s):l+s-l*s, p=2*l-q;
+    r=hue2rgb(p,q,h+1/3); g=hue2rgb(p,q,h); b=hue2rgb(p,q,h-1/3);
+  }
+  return [r*255|0, g*255|0, b*255|0];
+}
+function hue2rgb(p,q,t){
+  if(t<0)t+=1; if(t>1)t-=1;
+  if(t<1/6)return p+(q-p)*6*t;
+  if(t<1/2)return q;
+  if(t<2/3)return p+(q-p)*(2/3-t)*6;
+  return p;
+}
+
+// ─── PROJECT ATTRACTOR POINT ──────────────────────────────────────────────────
+function project(sx, sy, sz, angle, zoom){
+  const cos = Math.cos(angle), sin = Math.sin(angle);
+  const rx = sx*cos - sy*sin;
+  const ry = sx*sin + sy*cos;
+  const persp = 1/(1 + sz*0.01);
+  return [cx + rx*zoom*W*persp, cy + ry*zoom*H*persp, sz];
+}
+
+function projectRossler(sx, sy, sz, angle, zoom){
+  const cos = Math.cos(angle), sin = Math.sin(angle);
+  const rx = sx*cos - sz*sin;
+  const ry = sy;
+  return [cx + rx*zoom*W*0.6, cy - ry*zoom*H*0.6];
+}
+
+function projectHenon(sx, sy, angle, zoom){
+  return [cx + sx*zoom*W*3, cy + sy*zoom*H*3];
+}
+
+// ─── KALEIDO HELPER ───────────────────────────────────────────────────────────
+function kaleido(drawFn){
+  if(!P.kaleido){ drawFn(0); return; }
+  const m = P.kMirrors;
+  for(let i=0;i<m;i++){
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(i * Math.PI*2/m);
+    ctx.translate(-cx, -cy);
+    if(i%2===1){ ctx.transform(-1,0,0,1,W,0); }
+    drawFn(i);
+    ctx.restore();
+  }
+}
+
+// ─── DRAW FRAME ───────────────────────────────────────────────────────────────
+let lyapFrameCounter = 0;
+
+function draw(){
+  frameCount++;
+  t += P.dt;
+  P.globalAngle += P.rotSpeed;
+
+  // Background fade
+  ctx.fillStyle = `rgba(0,0,0,${P.bgFade})`;
+  ctx.fillRect(0,0,W,H);
+
+  // Lyapunov overlay (every N frames)
+  lyapFrameCounter++;
+  if(P.lyapunov && lyapFrameCounter % 180 === 0){
+    drawLyapunovLayer();
+  }
+
+  const hue = (P.hueShift + t * P.hueSpeed * 180) % 360;
+  const angle = P.globalAngle;
+  const zoom = P.zoom;
+
+  // Step and draw each trail
+  kaleido(() => {
+    trails.forEach((trail, ti) => {
+      // Step attractors
+      trail.lorenz  = stepLorenz(trail.lorenz,  P.dt, P.sigma, P.rho, P.beta);
+      trail.rossler = stepRossler(trail.rossler, P.dt*2, P.ra, P.rb, P.rc);
+      trail.henon   = stepHenon(trail.henon, P.ha, P.hb);
+
+      // Choose primary coordinate source
+      let px3d, py3d, pz3d;
+      if(P.primarySystem==='lorenz'){
+        px3d = trail.lorenz.x; py3d = trail.lorenz.y; pz3d = trail.lorenz.z;
+      } else if(P.primarySystem==='rossler'){
+        px3d = trail.rossler.x; py3d = trail.rossler.y; pz3d = trail.rossler.z;
+      } else {
+        px3d = trail.henon.x*10; py3d = trail.henon.y*10; pz3d = trail.rossler.z;
+      }
+
+      // fBm displacement
+      const fbmX = fBm(px3d*P.fBmFreq*10, t*0.3+ti, P.fBmOctaves, P.fBmAmp, P.fBmFreq);
+      const fbmY = fBm(py3d*P.fBmFreq*10+99, t*0.3+ti, P.fBmOctaves, P.fBmAmp, P.fBmFreq);
+
+      const [screenX, screenY] = project(
+        px3d + fbmX*8,
+        py3d + fbmY*8,
+        pz3d,
+        angle + ti * 0.15 + trail.offset,
+        zoom
+      );
+
+      trail.points.push({x:screenX, y:screenY, px:px3d, py:py3d, pz:pz3d});
+      if(trail.points.length > P.trailLen) trail.points.shift();
+
+      // Draw ribbon
+      const pts = trail.points;
+      if(pts.length < 3) return;
+
+      for(let i=1; i<pts.length; i++){
+        const tNorm = i / pts.length;
+        const alpha = tNorm * P.trailAlpha;
+        const w = P.ribbonWidth * tNorm;
+        const col = getColor(pts[i].px, pts[i].py, pts[i].pz, tNorm, hue + trail.hueOff, alpha);
+
+        ctx.beginPath();
+        ctx.moveTo(pts[i-1].x, pts[i-1].y);
+        ctx.lineTo(pts[i].x, pts[i].y);
+        ctx.strokeStyle = col;
+        ctx.lineWidth = w;
+        ctx.lineCap = 'round';
+        ctx.stroke();
+      }
+
+      // Glow dot at head
+      if(pts.length > 0){
+        const head = pts[pts.length-1];
+        const gCol = getColor(head.px, head.py, head.pz, 1, hue + trail.hueOff, 0.9);
+        const grd = ctx.createRadialGradient(head.x,head.y,0, head.x,head.y,6+P.ribbonWidth*2);
+        grd.addColorStop(0, gCol);
+        grd.addColorStop(1, 'transparent');
+        ctx.beginPath();
+        ctx.arc(head.x, head.y, 6+P.ribbonWidth*2, 0, Math.PI*2);
+        ctx.fillStyle = grd;
+        ctx.fill();
+      }
+    });
+
+    // Secondary Rössler orbits (thin)
+    trails.forEach((trail, ti) => {
+      const [rx,ry] = projectRossler(trail.rossler.x, trail.rossler.y, trail.rossler.z, angle, zoom);
+      ctx.beginPath();
+      ctx.arc(rx, ry, P.ribbonWidth*0.6, 0, Math.PI*2);
+      const alpha2 = 0.35;
+      ctx.fillStyle = hsl((hue + 120 + ti*30) % 360, 100, 65, alpha2);
+      ctx.fill();
+    });
+  });
+
+  // Update audio with primary lorenz coords
+  if(soundOn && trails.length > 0){
+    updateAudio(trails[0].lorenz.x, trails[0].lorenz.y, trails[0].lorenz.z);
+  }
+
+  // Update HUD
+  if(hudVisible && frameCount % 4 === 0) updateHUD();
+
+  animId = requestAnimationFrame(draw);
+}
+
+// ─── HUD UPDATE ───────────────────────────────────────────────────────────────
+function updateHUD(){
+  const l = trails.length > 0 ? trails[0].lorenz : lorenz;
+  document.getElementById('h-sys').textContent = P.primarySystem.toUpperCase();
+  document.getElementById('h-params').textContent = `${P.sigma.toFixed(1)} / ${P.rho.toFixed(1)} / ${P.beta.toFixed(2)}`;
+  document.getElementById('h-lyap').textContent = P.lyapunov ? `ON (${P.lyapFreqA}/${P.lyapFreqB})` : 'OFF';
+  document.getElementById('h-pts').textContent = P.nParticles + ' × ' + P.trailLen;
+  document.getElementById('h-frame').textContent = frameCount;
+  document.getElementById('h-x').textContent = l.x.toFixed(3);
+  document.getElementById('h-y').textContent = l.y.toFixed(3);
+  document.getElementById('h-z').textContent = l.z.toFixed(3);
+  document.getElementById('h-rot').textContent = (P.globalAngle % (Math.PI*2)).toFixed(3) + ' rad';
+  document.getElementById('h-zoom').textContent = P.zoom.toFixed(4);
+  document.getElementById('h-fc').textContent = P.fmBase.toFixed(1) + ' Hz';
+  document.getElementById('h-fm').textContent = P.fmModDepth.toFixed(2) + 'x';
+  document.getElementById('h-snd').textContent = soundOn ? 'ON' : 'OFF';
+  document.getElementById('h-oct').textContent = P.fBmOctaves;
+  document.getElementById('h-col').textContent = P.colorMode.toUpperCase();
+  document.getElementById('h-kal').textContent = P.kaleido ? P.kMirrors + '-fold' : 'OFF';
+  document.getElementById('h-alpha').textContent = P.trailAlpha.toFixed(2);
+}
+
+// ─── REGEN ─────────────────────────────────────────────────────────────────────
+function regen(){
+  if(animId){ cancelAnimationFrame(animId); animId=null; }
+  randomize();
+  frameCount = 0; t = 0; lyapFrameCounter = 0;
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle='#000';
+  ctx.fillRect(0,0,W,H);
+  initTrails();
+  // Initial Lyapunov bg
+  setTimeout(drawLyapunovLayer, 50);
+  animId = requestAnimationFrame(draw);
+  flash();
+}
+
+function flash(){
+  const el = document.getElementById('flash');
+  el.style.opacity='0.18';
+  setTimeout(()=>{el.style.opacity='0';},80);
+}
+
+// ─── INPUT ─────────────────────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  const k = e.key.toUpperCase();
+  if(k===' '||k==='ENTER'){ e.preventDefault(); regen(); }
+  else if(k==='H'){
+    hudVisible = !hudVisible;
+    document.getElementById('hud').classList.toggle('visible', hudVisible);
+    if(hudVisible) updateHUD();
+  }
+  else if(k==='S'){
+    soundOn = !soundOn;
+    if(soundOn){
+      initAudio();
+      if(audioCtx && audioCtx.state==='suspended') audioCtx.resume();
+    } else {
+      stopAudio();
+    }
+  }
+});
+
+canvas.addEventListener('click', () => regen());
+canvas.addEventListener('touchend', e => { e.preventDefault(); regen(); }, {passive:false});
+
+// Hide key hints after 6s
+setTimeout(()=>{
+  const k = document.getElementById('keys');
+  k.style.opacity = '0';
+}, 6000);
+
+// ─── BOOT ──────────────────────────────────────────────────────────────────────
+regen();
+
+})();
+</script>
+</body>
+</html>

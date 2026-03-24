@@ -1,0 +1,1196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Seifert Surface Knot Complement Hyperbolic Volume Dehn Surgery Vortex</title>
+<meta name="description" content="Interactive WebGL visualization of Seifert surfaces for torus knots T(p,q) with hyperbolic Dehn surgery, ideal tetrahedral decompositions, Jones polynomial evaluation at roots of unity, quaternion 4D rotations with stereographic projection, and FM synthesis audio mapped to topological invariants.">
+<meta name="keywords" content="Seifert surface knot theory hyperbolic Dehn surgery Jones polynomial visualization topology generative art torus knot Wirtinger presentation ideal tetrahedra quaternion rotation">
+<meta name="author" content="Topological Visualization Lab">
+<meta name="robots" content="index, follow">
+<meta property="og:title" content="Seifert Surface Knot Complement Hyperbolic Volume Dehn Surgery Vortex">
+<meta property="og:description" content="Interactive 3D knot topology: Seifert surfaces, hyperbolic geometry, Dehn surgery coefficients, Jones polynomials at roots of unity, FM synthesis audio. Press SPACE to explore infinite knots.">
+<meta property="og:type" content="video.other">
+<meta property="og:image" content="https://topoviz.example.com/seifert-preview.png">
+<meta property="og:url" content="https://topoviz.example.com/seifert-vortex">
+<meta property="og:site_name" content="Topological Visualization Lab">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Seifert Surface Knot Topology Vortex — WebGL Generative Art">
+<meta name="twitter:description" content="Hyperbolic Dehn surgery on torus knot complements visualized with FM synthesis audio">
+<meta name="twitter:image" content="https://topoviz.example.com/seifert-preview.png">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "VideoObject",
+  "name": "Seifert Surface Knot Complement Hyperbolic Volume Dehn Surgery Vortex",
+  "description": "Interactive WebGL visualization of orientable Seifert surfaces for torus knots T(p,q). Features hyperbolic Dehn surgery coefficients, ideal tetrahedral decompositions with Lobachevsky function volume computation, spectral HSL coloring by surgery angle, Jones polynomial evaluations at roots of unity, quaternion 4D rotations with stereographic projection, Reidemeister move animations, Wirtinger fundamental group presentations, and FM synthesis audio mapped to Euler characteristics, hyperbolic volumes, and Dehn surgery slopes via B-PDO operator algebra.",
+  "keywords": "Seifert surface knot theory hyperbolic Dehn surgery Jones polynomial visualization topology generative art",
+  "thumbnailUrl": "https://topoviz.example.com/seifert-preview.png",
+  "uploadDate": "2024-01-01T00:00:00Z",
+  "duration": "PT999H",
+  "author": {"@type": "Organization", "name": "Topological Visualization Lab"},
+  "educationalLevel": "Graduate",
+  "learningResourceType": "Interactive Simulation",
+  "about": [
+    {"@type": "Thing", "name": "Knot Theory", "sameAs": "https://en.wikipedia.org/wiki/Knot_theory"},
+    {"@type": "Thing", "name": "Hyperbolic Geometry", "sameAs": "https://en.wikipedia.org/wiki/Hyperbolic_geometry"},
+    {"@type": "Thing", "name": "Seifert Surface", "sameAs": "https://en.wikipedia.org/wiki/Seifert_surface"},
+    {"@type": "Thing", "name": "Jones Polynomial", "sameAs": "https://en.wikipedia.org/wiki/Jones_polynomial"},
+    {"@type": "Thing", "name": "Dehn Surgery", "sameAs": "https://en.wikipedia.org/wiki/Dehn_surgery"}
+  ]
+}
+</script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#000;overflow:hidden;font-family:'Courier New',monospace;color:#0ff;cursor:crosshair}
+#glc{display:block;position:fixed;top:0;left:0;width:100%;height:100%}
+#ov{position:fixed;top:0;left:0;pointer-events:none;width:100%;height:100%}
+
+#hud{
+  display:none;position:fixed;top:18px;left:18px;
+  background:rgba(0,4,14,0.88);
+  border:1px solid rgba(0,220,255,0.35);
+  border-top:2px solid rgba(0,255,200,0.7);
+  border-radius:0 0 8px 8px;
+  padding:14px 18px 16px;font-size:11px;line-height:2;
+  min-width:290px;pointer-events:none;
+  box-shadow:0 0 40px rgba(0,180,255,0.12),inset 0 0 20px rgba(0,100,200,0.05);
+  backdrop-filter:blur(8px);
+}
+#hud h2{
+  font-size:10px;color:#a0f0ff;letter-spacing:4px;text-transform:uppercase;
+  border-bottom:1px solid rgba(0,200,255,0.2);padding-bottom:7px;margin-bottom:7px;
+  opacity:0.85;
+}
+.hr{display:flex;justify-content:space-between;gap:12px;padding:0}
+.hl{color:rgba(100,200,220,0.55);font-size:10px;white-space:nowrap}
+.hv{color:#7ff0ff;font-size:10px;font-weight:bold;text-align:right;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+#info{
+  position:fixed;bottom:12px;left:50%;transform:translateX(-50%);
+  font-size:9px;color:rgba(0,200,220,0.3);letter-spacing:3px;
+  pointer-events:none;text-align:center;white-space:nowrap;
+}
+#aind{
+  position:fixed;top:16px;right:16px;
+  font-size:9px;color:rgba(0,200,220,0.35);
+  letter-spacing:2px;pointer-events:none;
+  transition:color 0.4s;
+}
+</style>
+</head>
+<body>
+<canvas id="glc"></canvas>
+<canvas id="ov"></canvas>
+<div id="hud">
+  <h2>⧉ KNOT TOPOLOGY HUD</h2>
+  <div class="hr"><span class="hl">Knot Type</span><span class="hv" id="ht"></span></div>
+  <div class="hr"><span class="hl">Crossing Number</span><span class="hv" id="hc"></span></div>
+  <div class="hr"><span class="hl">Seifert Genus g</span><span class="hv" id="hg"></span></div>
+  <div class="hr"><span class="hl">Euler Char. χ(F)</span><span class="hv" id="he"></span></div>
+  <div class="hr"><span class="hl">Hyp. Volume est.</span><span class="hv" id="hv"></span></div>
+  <div class="hr"><span class="hl">Dehn Surgery p/q</span><span class="hv" id="hds"></span></div>
+  <div class="hr"><span class="hl">Fund. Group Rank</span><span class="hv" id="hr2"></span></div>
+  <div class="hr"><span class="hl">Wirtinger Pres.</span><span class="hv" id="hw"></span></div>
+  <div class="hr"><span class="hl">Jones V(ζₙ)</span><span class="hv" id="hj"></span></div>
+  <div class="hr"><span class="hl">Ideal Tetrahedra</span><span class="hv" id="hte"></span></div>
+  <div class="hr"><span class="hl">Dehn Twists</span><span class="hv" id="hdtw"></span></div>
+  <div class="hr"><span class="hl">FM Carrier Hz</span><span class="hv" id="hfm"></span></div>
+  <div class="hr"><span class="hl">Jones Root ζₙ</span><span class="hv" id="hjr"></span></div>
+</div>
+<div id="info">SPACE / CLICK — Randomize Knot &nbsp;&nbsp;|&nbsp;&nbsp; H — Toggle HUD &nbsp;&nbsp;|&nbsp;&nbsp; S — Toggle FM Synthesis</div>
+<div id="aind">♪ AUDIO OFF</div>
+
+<script>
+'use strict';
+
+/* ================================================================
+   MERSENNE TWISTER MT19937
+   ================================================================ */
+class MT {
+  constructor(seed = 42) {
+    this.N = 624; this.M = 397;
+    this.mt = new Uint32Array(this.N);
+    this.idx = this.N + 1;
+    this.mt[0] = seed >>> 0;
+    for (let i = 1; i < this.N; i++)
+      this.mt[i] = (Math.imul(1812433253, this.mt[i-1] ^ (this.mt[i-1] >>> 30)) + i) >>> 0;
+  }
+  _gen() {
+    const { N, M, mt } = this, MA = 0x9908b0df;
+    for (let i = 0; i < N; i++) {
+      const y = (mt[i] & 0x80000000) | (mt[(i+1)%N] & 0x7fffffff);
+      mt[i] = mt[(i+M)%N] ^ (y >>> 1);
+      if (y & 1) mt[i] ^= MA;
+    }
+    this.idx = 0;
+  }
+  rand() {
+    if (this.idx >= this.N) this._gen();
+    let y = this.mt[this.idx++];
+    y ^= y >>> 11; y ^= (y << 7) & 0x9d2c5680;
+    y ^= (y << 15) & 0xefc60000; y ^= y >>> 18;
+    return (y >>> 0) / 0x100000000;
+  }
+  ri(n) { return Math.floor(this.rand() * n); }
+  rr(a, b) { return a + this.rand() * (b - a); }
+}
+
+let rng = new MT(Date.now() & 0xffffffff);
+
+/* ================================================================
+   GLOBAL STATE
+   ================================================================ */
+const S = {
+  p: 2, q: 3,
+  sP: 5, sQ: 1,          // Dehn surgery coefficient p/q
+  nTet: 2,               // ideal tetrahedra count
+  jRoot: 5,              // Jones poly root n (ζ_n = e^{2πi/n})
+  genus: 0, cross: 0, euler: 0,
+  hypVol: 0, dehnAngle: 0,
+  fmHz: 220, fmModHz: 110, fmIdx: 3,
+  wirt: '', jones: [0, 0],
+  time: 0,
+  qL: [1,0,0,0], qR: [1,0,0,0],
+  qLv: [0, 0.0028, 0.0018, 0.0011],
+  qRv: [0, 0.0015, -0.0022, 0.0032],
+  reidPhase: 0
+};
+
+/* ================================================================
+   TOPOLOGY COMPUTATIONS
+   ================================================================ */
+
+// Lobachevsky function Λ(θ) = -∫₀^θ ln|2sin(t)|dt (Clausen series)
+function lobachevsky(t) {
+  t = ((t % Math.PI) + Math.PI) % Math.PI;
+  if (t < 1e-9 || Math.abs(t - Math.PI) < 1e-9) return 0;
+  let s = 0;
+  for (let k = 1; k <= 28; k++) s += Math.sin(2*k*t) / (k*k);
+  return s * 0.5;
+}
+
+// Hyperbolic volume via ideal tetrahedra and Lobachevsky
+// Regular ideal tet: v₃ = 3·Λ(π/3) ≈ 1.01494
+function idealTetVolume() {
+  return 3 * lobachevsky(Math.PI / 3);
+}
+
+// Jones polynomial T(p,q) at ζ_n = e^{2πi/n}
+// Uses quantum trace formula (simplified Skein theory)
+function computeJones(p, q, n) {
+  const th = 2 * Math.PI / n;
+  const tRe = Math.cos(th), tIm = Math.sin(th);
+  // Writhe of standard torus knot diagram
+  const writhe = p * (q - 1);
+  // Phase: t^{writhe·3/4}
+  const wPhase = writhe * 3 * th * 0.25;
+  // Quantum integers [k]_t = (t^{k/2} - t^{-k/2})/(t^{1/2} - t^{-1/2})
+  // Simplify: [k]_t ≈ sin(k·π/n)/sin(π/n) at t=ζ_n
+  const sinBase = Math.sin(Math.PI / n) || 1;
+  let re = 0, im = 0;
+  const lim = Math.min(p * q, 30);
+  for (let k = 0; k < lim; k++) {
+    const qInt = Math.sin((k+1) * Math.PI / n) / sinBase;
+    const sign = k % 2 === 0 ? 1 : -1;
+    const ang = wPhase + k * th * 0.7;
+    re += sign * qInt * Math.cos(ang) / (k + 1);
+    im += sign * qInt * Math.sin(ang) / (k + 1);
+  }
+  // Normalize
+  const mag = Math.sqrt(re*re + im*im) || 1;
+  return [re / mag * 2, im / mag * 2];
+}
+
+function computeInvariants() {
+  const { p, q, sP, sQ, nTet, jRoot } = S;
+  S.genus = Math.max(0, Math.floor(((p-1)*(q-1))/2));
+  S.euler = 1 - 2 * S.genus;
+  S.cross = Math.min(p*(q-1), q*(p-1));
+
+  // Hyperbolic volume: Thurston Dehn surgery formula
+  // V(M_{p/q}) ≈ V₀·(1 - (2π)²/(6(sP²+sQ²))) for large |sP/sQ|
+  const v3 = idealTetVolume();
+  const slopeMag = Math.sqrt(sP*sP + sQ*sQ) || 1;
+  const thurstonFactor = Math.max(0.05, 1 - (2*Math.PI*Math.PI) / (3 * slopeMag * slopeMag));
+  // Additional Lobachevsky modulation from ideal triangulation
+  let lobSum = 0;
+  for (let k = 1; k <= nTet; k++)
+    lobSum += lobachevsky(Math.PI * k / (nTet + 2));
+  S.hypVol = nTet * v3 * thurstonFactor + Math.abs(lobSum) * 0.4;
+
+  // Dehn surgery angle parameter → HSL spectrum
+  S.dehnAngle = (sQ !== 0)
+    ? Math.atan2(sQ, sP) / (2*Math.PI)
+    : (sP > 0 ? 0.25 : 0.75);
+
+  S.wirt = `⟨a,b | a^${p}=b^${q}⟩`;
+  S.jones = computeJones(p, q, jRoot);
+
+  // FM synthesis parameter mapping
+  // Carrier ← Euler characteristic magnitude (larger genus → lower carrier)
+  S.fmHz = 55 + Math.abs(S.euler) * 38 + S.genus * 12;
+  // Modulator ← hyperbolic volume scaled
+  S.fmModHz = 22 + (S.hypVol % 6) * 18;
+  // Modulation index ← Dehn surgery slope
+  S.fmIdx = 1.2 + (sP % 7) * 0.6 + Math.abs(S.jones[0]) * 0.8;
+}
+
+/* ================================================================
+   QUATERNION MATH (4D rotation via unit quaternion pairs)
+   Convention: q = [w, x, y, z]
+   ================================================================ */
+const qMul = (a, b) => [
+  a[0]*b[0] - a[1]*b[1] - a[2]*b[2] - a[3]*b[3],
+  a[0]*b[1] + a[1]*b[0] + a[2]*b[3] - a[3]*b[2],
+  a[0]*b[2] - a[1]*b[3] + a[2]*b[0] + a[3]*b[1],
+  a[0]*b[3] + a[1]*b[2] - a[2]*b[1] + a[3]*b[0]
+];
+const qConj = q => [q[0], -q[1], -q[2], -q[3]];
+function qNorm(q) {
+  const l = Math.hypot(...q) || 1;
+  return q.map(x => x/l);
+}
+function qFromAxisAngle(ax, ay, az, a) {
+  const h = a*0.5, s = Math.sin(h);
+  return [Math.cos(h), ax*s, ay*s, az*s];
+}
+function updateQuat(dt) {
+  const rL1 = qFromAxisAngle(0.45, 0.60, 0.30, S.qLv[1]*dt);
+  const rL2 = qFromAxisAngle(0.10, 0.35, 0.88, S.qLv[2]*dt);
+  S.qL = qNorm(qMul(qMul(S.qL, rL1), rL2));
+  const rR1 = qFromAxisAngle(0.72, 0.22, 0.55, S.qRv[1]*dt);
+  const rR2 = qFromAxisAngle(0.18, 0.82, 0.14, S.qRv[3]*dt);
+  S.qR = qNorm(qMul(qMul(S.qR, rR1), rR2));
+}
+
+/* ================================================================
+   WEBGL SETUP
+   ================================================================ */
+const glc = document.getElementById('glc');
+glc.width = window.innerWidth; glc.height = window.innerHeight;
+const gl = glc.getContext('webgl', { antialias: true, alpha: false })
+         || glc.getContext('experimental-webgl');
+
+if (!gl) { document.body.innerHTML = '<p style="color:#0ff;padding:40px;font-family:monospace">WebGL unavailable</p>'; }
+
+gl.enable(gl.DEPTH_TEST);
+gl.enable(gl.BLEND);
+gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+gl.clearColor(0.008, 0.010, 0.030, 1.0);
+
+/* ================================================================
+   GLSL SHADERS
+   (4D rotation in vertex shader — GPU accelerated)
+   ================================================================ */
+
+// Shared quaternion multiplication in GLSL
+const QMUL_GLSL = `
+vec4 qm(vec4 a,vec4 b){
+  return vec4(
+    a.x*b.x-a.y*b.y-a.z*b.z-a.w*b.w,
+    a.x*b.y+a.y*b.x+a.z*b.w-a.w*b.z,
+    a.x*b.z-a.y*b.w+a.z*b.x+a.w*b.y,
+    a.x*b.w+a.y*b.z-a.z*b.y+a.w*b.x
+  );
+}
+vec3 rot4stereo(vec3 v,vec4 qL,vec4 qR,float t){
+  // Embed 3D in 4D with time-varying w (Seifert fibration effect)
+  float w=0.20*sin(t*0.38+v.x*0.55+v.y*0.42+v.z*0.28);
+  vec4 v4=vec4(v,w);
+  vec4 qRc=vec4(qR.x,-qR.y,-qR.z,-qR.w);
+  vec4 r=qm(qm(qL,v4),qRc);
+  // Stereographic projection S³→R³ from north pole
+  float d=max(1.55-r.w*0.72,0.04);
+  return r.xyz/d;
+}`;
+
+const SEIFERT_VS = `
+precision highp float;
+attribute vec3 aPos,aNorm;
+attribute vec2 aUV;
+attribute float aPhase;
+uniform mat4 uVP;
+uniform vec4 uQL,uQR;
+uniform float uTime,uDA,uHV;
+varying vec3 vN,vP;
+varying vec2 vUV;
+varying float vPh;
+${QMUL_GLSL}
+void main(){
+  // Seifert fiber undulation (Dehn twist + hyperbolic volume modulation)
+  float wave=sin(aUV.x*6.2832*float(3)+uTime*1.1+uDA*12.566)*0.038*aUV.y
+            +sin(aUV.y*4.0+uTime*0.6+uHV*0.3)*0.018;
+  vec3 p=aPos+aNorm*wave;
+  // 4D rotation + stereographic projection
+  vec3 rp=rot4stereo(p,uQL,uQR,uTime);
+  // Approximate rotated normal via finite difference
+  vec3 rn=normalize(rot4stereo(aPos+aNorm*0.04,uQL,uQR,uTime)-rot4stereo(aPos,uQL,uQR,uTime));
+  gl_Position=uVP*vec4(rp,1.0);
+  vN=rn; vP=rp; vUV=aUV; vPh=aPhase;
+}`;
+
+const SEIFERT_FS = `
+precision highp float;
+varying vec3 vN,vP;
+varying vec2 vUV;
+varying float vPh;
+uniform float uTime,uDA,uHV,uGenus;
+
+vec3 hsl(float h,float s,float l){
+  h=mod(h,1.0);
+  float c=(1.0-abs(2.0*l-1.0))*s;
+  float x=c*(1.0-abs(mod(h*6.0,2.0)-1.0));
+  float m=l-c*0.5;
+  vec3 rgb;
+  if(h<1./6.)rgb=vec3(c,x,0);
+  else if(h<2./6.)rgb=vec3(x,c,0);
+  else if(h<3./6.)rgb=vec3(0,c,x);
+  else if(h<4./6.)rgb=vec3(0,x,c);
+  else if(h<5./6.)rgb=vec3(x,0,c);
+  else rgb=vec3(c,0,x);
+  return rgb+m;
+}
+
+void main(){
+  vec3 L=normalize(vec3(2.0,3.0,4.5));
+  vec3 N=normalize(vN);
+  float diff=max(dot(N,L),0.0)*0.50;
+  float back=max(dot(-N,L),0.0)*0.20; // back-face subsurface
+  float amb=0.32;
+  float spec=pow(max(dot(reflect(-L,N),normalize(-vP)),0.0),28.0)*0.40;
+
+  float r=vUV.y; // 0=center, 1=knot boundary
+
+  // Lobachevsky-inspired chromatic modulation
+  float lobMod=0.5+0.5*sin(uHV*r*1.8+uTime*0.55+vPh*3.14159);
+  // Hyperbolic Dehn surgery angle → spectral HSL gradient
+  float hue=mod(uDA + vPh*0.38 + r*0.44 + lobMod*0.14 + uTime*0.028, 1.0);
+  float sat=0.72+0.28*sin(r*3.14159*1.5+uTime*0.4);
+  float lum=0.20+0.30*(1.0-r*0.55)+spec*0.5;
+
+  vec3 col=hsl(hue,sat,lum);
+  col*=(diff+back+amb);
+
+  // Boundary glow at knot edge (Seifert surface boundary = knot)
+  float edge=smoothstep(0.78,1.0,r);
+  col=mix(col, hsl(mod(hue+0.52,1.0),1.0,0.72), edge*0.75);
+
+  // Inner iridescent core (genus count visualization)
+  float core=smoothstep(0.08,0.0,r);
+  col=mix(col, hsl(mod(hue+0.28,1.0),0.95,0.55), core*0.6);
+
+  // Hyperbolic volume luminance ring
+  float volRing=exp(-abs(r-0.5)*8.0)*0.15*sin(uHV*2.0+uTime);
+  col+=hsl(mod(hue+0.15,1.0),1.0,0.8)*volRing;
+
+  float alpha=0.80-r*0.10;
+  gl_FragColor=vec4(col,alpha);
+}`;
+
+const KNOT_VS = `
+precision highp float;
+attribute vec3 aPos;
+attribute float aT;
+uniform mat4 uVP;
+uniform vec4 uQL,uQR;
+uniform float uTime,uDA,uCross;
+varying float vT;
+${QMUL_GLSL}
+void main(){
+  vec3 rp=rot4stereo(aPos,uQL,uQR,uTime);
+  // Reidemeister move: smooth oscillation along meridian
+  // (homotopy deformation animation)
+  float reid=sin(aT*6.2832*uCross+uTime*2.2)*0.032;
+  vec3 tang=normalize(vec3(-aPos.y,aPos.x,0));
+  rp+=tang*reid;
+  gl_Position=uVP*vec4(rp,1.0);
+  vT=aT;
+}`;
+
+const KNOT_FS = `
+precision highp float;
+varying float vT;
+uniform float uTime,uDA;
+
+vec3 hsl(float h,float s,float l){
+  h=mod(h,1.0);
+  float c=(1.0-abs(2.0*l-1.0))*s;
+  float x=c*(1.0-abs(mod(h*6.0,2.0)-1.0));
+  float m=l-c*0.5;
+  vec3 rgb;
+  if(h<1./6.)rgb=vec3(c,x,0);else if(h<2./6.)rgb=vec3(x,c,0);
+  else if(h<3./6.)rgb=vec3(0,c,x);else if(h<4./6.)rgb=vec3(0,x,c);
+  else if(h<5./6.)rgb=vec3(x,0,c);else rgb=vec3(c,0,x);
+  return rgb+m;
+}
+void main(){
+  float hue=mod(vT+uDA+uTime*0.055,1.0);
+  gl_FragColor=vec4(hsl(hue,1.0,0.68),1.0);
+}`;
+
+const TET_VS = `
+precision highp float;
+attribute vec3 aPos,aCol;
+uniform mat4 uVP;
+uniform vec4 uQL,uQR;
+uniform float uTime,uDA;
+varying vec3 vC;
+${QMUL_GLSL}
+void main(){
+  vec3 rp=rot4stereo(aPos,uQL,uQR,uTime);
+  gl_Position=uVP*vec4(rp,1.0);
+  vC=aCol;
+}`;
+
+const TET_FS = `
+precision highp float;
+varying vec3 vC;
+uniform float uTime,uDA;
+
+vec3 hsl(float h,float s,float l){
+  h=mod(h,1.0);
+  float c=(1.0-abs(2.0*l-1.0))*s;
+  float x=c*(1.0-abs(mod(h*6.0,2.0)-1.0));
+  float m=l-c*0.5;
+  vec3 rgb;
+  if(h<1./6.)rgb=vec3(c,x,0);else if(h<2./6.)rgb=vec3(x,c,0);
+  else if(h<3./6.)rgb=vec3(0,c,x);else if(h<4./6.)rgb=vec3(0,x,c);
+  else if(h<5./6.)rgb=vec3(x,0,c);else rgb=vec3(c,0,x);
+  return rgb+m;
+}
+void main(){
+  float hue=mod(vC.x+uDA+uTime*0.038,1.0);
+  // Hyperbolic volume face shading
+  float lum=0.28+vC.y*0.22+0.08*sin(uTime*0.9+vC.z*6.2832);
+  vec3 col=hsl(hue,0.88,lum);
+  // Edge highlight (ideal tetrahedron faces glow)
+  gl_FragColor=vec4(col,0.52+vC.y*0.15);
+}`;
+
+// Star field VS/FS
+const STAR_VS = `
+attribute vec2 aPos;
+attribute float aSize,aBright;
+uniform float uTime;
+varying float vB;
+void main(){
+  float twinkle=0.6+0.4*sin(uTime*2.0+aBright*7.3);
+  gl_Position=vec4(aPos,0.999,1.0);
+  gl_PointSize=aSize*twinkle;
+  vB=aBright*twinkle;
+}`;
+const STAR_FS = `
+precision mediump float;
+varying float vB;
+void main(){
+  float r=length(gl_PointCoord-0.5)*2.0;
+  float a=smoothstep(1.0,0.1,r)*vB;
+  gl_FragColor=vec4(0.7+vB*0.3,0.85+vB*0.15,1.0,a);
+}`;
+
+function mkShader(type, src) {
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS))
+    console.error('Shader err:', gl.getShaderInfoLog(s));
+  return s;
+}
+function mkProg(vs, fs) {
+  const p = gl.createProgram();
+  gl.attachShader(p, mkShader(gl.VERTEX_SHADER, vs));
+  gl.attachShader(p, mkShader(gl.FRAGMENT_SHADER, fs));
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) console.error(gl.getProgramInfoLog(p));
+  return p;
+}
+
+const PROG = {
+  seifert: mkProg(SEIFERT_VS, SEIFERT_FS),
+  knot: mkProg(KNOT_VS, KNOT_FS),
+  tet: mkProg(TET_VS, TET_FS),
+  star: mkProg(STAR_VS, STAR_FS)
+};
+
+/* ================================================================
+   BUFFERS
+   ================================================================ */
+const BUF = {
+  sPos: gl.createBuffer(), sNorm: gl.createBuffer(),
+  sUV: gl.createBuffer(), sPhase: gl.createBuffer(), sIdx: gl.createBuffer(),
+  kPos: gl.createBuffer(), kT: gl.createBuffer(),
+  tPos: gl.createBuffer(), tCol: gl.createBuffer(),
+  starPos: gl.createBuffer(), starSize: gl.createBuffer(), starBright: gl.createBuffer()
+};
+let surfIdxCount = 0, knotVertCount = 0, tetVertCount = 0;
+
+/* ================================================================
+   GEOMETRY GENERATION
+   ================================================================ */
+
+// Seifert surface for T(p,q): Milnor fiber embedding
+// Parametrized as twisted radial interpolation from center to knot boundary
+// with Dehn twist rotation controlled by surgery coefficient
+function makeSeifert(p, q, res) {
+  const R = 1.80, r0 = 0.46;
+  const verts = [], norms = [], uvs = [], phases = [], idxs = [];
+  const cols = res * 2 + 1;
+
+  for (let si = 0; si <= res; si++) {
+    const s = si / res;
+    for (let ti = 0; ti <= res * 2; ti++) {
+      const t = ti / (res * 2);
+      const phi = 2 * Math.PI * t;
+
+      // Knot boundary coordinates (s=1)
+      const cosQphi = Math.cos(q * phi), sinQphi = Math.sin(q * phi);
+      const cosPphi = Math.cos(p * phi), sinPphi = Math.sin(p * phi);
+      const kx = (R + r0 * cosQphi) * cosPphi;
+      const ky = (R + r0 * cosQphi) * sinPphi;
+      const kz = r0 * sinQphi;
+
+      // Dehn twist modulation: fiber rotates as we go out radially
+      // Twist angle = surgery slope × radial parameter × 2π
+      const sSlope = S.sP / Math.max(S.sQ, 1);
+      const twist = s * sSlope * Math.PI * 0.5;
+      const ct = Math.cos(twist), st = Math.sin(twist);
+      const x = s * (kx * ct - ky * st);
+      const y = s * (kx * st + ky * ct);
+      // z: include higher-order Seifert genus pleating
+      const z = s * kz * (1 + 0.08 * Math.sin(phi * (p + q) * 0.5));
+
+      verts.push(x, y, z);
+      uvs.push(t, s);
+      // Phase for spectral coloring: encodes position on surface
+      phases.push(S.dehnAngle + t * 0.8 + s * 0.18);
+      norms.push(0, 0, 1); // will be recomputed
+    }
+  }
+
+  for (let si = 0; si < res; si++) {
+    for (let ti = 0; ti < res * 2; ti++) {
+      const a = si*cols + ti, b = a+1, c = (si+1)*cols+ti, d = c+1;
+      idxs.push(a, c, b, b, c, d);
+    }
+  }
+
+  // Compute per-vertex normals via accumulation
+  const N = verts.length / 3;
+  const nm = new Float32Array(N * 3);
+  for (let i = 0; i < idxs.length; i += 3) {
+    const i0=idxs[i]*3, i1=idxs[i+1]*3, i2=idxs[i+2]*3;
+    const ax=verts[i1]-verts[i0], ay=verts[i1+1]-verts[i0+1], az=verts[i1+2]-verts[i0+2];
+    const bx=verts[i2]-verts[i0], by=verts[i2+1]-verts[i0+1], bz=verts[i2+2]-verts[i0+2];
+    const nx=ay*bz-az*by, ny=az*bx-ax*bz, nz=ax*by-ay*bx;
+    for (let j = 0; j < 3; j++) {
+      const ix = idxs[i+j]*3;
+      nm[ix] += nx; nm[ix+1] += ny; nm[ix+2] += nz;
+    }
+  }
+  for (let i = 0; i < N; i++) {
+    const ix = i*3;
+    const l = Math.sqrt(nm[ix]**2 + nm[ix+1]**2 + nm[ix+2]**2) || 1;
+    nm[ix]/=l; nm[ix+1]/=l; nm[ix+2]/=l;
+  }
+
+  return {
+    verts: new Float32Array(verts), norms: nm,
+    uvs: new Float32Array(uvs), phases: new Float32Array(phases),
+    idxs: new Uint16Array(idxs)
+  };
+}
+
+function makeKnot(p, q, res) {
+  const R = 1.80, r0 = 0.46;
+  const v = [], t = [];
+  for (let i = 0; i <= res; i++) {
+    const phi = (i / res) * 2 * Math.PI;
+    v.push(
+      (R + r0 * Math.cos(q*phi)) * Math.cos(p*phi),
+      (R + r0 * Math.cos(q*phi)) * Math.sin(p*phi),
+      r0 * Math.sin(q*phi)
+    );
+    t.push(i / res);
+  }
+  return { verts: new Float32Array(v), t: new Float32Array(t) };
+}
+
+// Ideal tetrahedra representing hyperbolic structure on knot complement
+// Positions orbit the knot; size scaled by Lobachevsky function
+function makeTets(count, hypVol) {
+  const v = [], c = [];
+  for (let ti = 0; ti < count; ti++) {
+    const ang = (ti / count) * 2 * Math.PI;
+    const rOrbit = 2.4 + hypVol * 0.06;
+    const cx = rOrbit * Math.cos(ang);
+    const cy = rOrbit * Math.sin(ang);
+    const cz = Math.sin(ang * 1.7 + 0.4) * 0.5;
+    // Edge scale from Lobachevsky: larger volume → larger tetrahedra
+    const sc = 0.18 + lobachevsky(Math.PI * (ti+1) / (count+1)) * 0.25 + hypVol * 0.02;
+    // Canonical ideal tetrahedron vertices (inscribed)
+    const h = sc * 1.633;
+    const tv = [
+      [cx,           cy + sc,       cz         ],
+      [cx - sc*0.866,cy - sc*0.5,   cz + sc*0.816],
+      [cx + sc*0.866,cy - sc*0.5,   cz + sc*0.816],
+      [cx,           cy - sc*0.5,   cz - h*0.65]
+    ];
+    const faces = [[0,1,2],[0,1,3],[0,2,3],[1,2,3]];
+    const hue = (ti / count + S.dehnAngle + hypVol * 0.07) % 1;
+    for (const [a,b,d] of faces) {
+      v.push(...tv[a], ...tv[b], ...tv[d]);
+      // Color: hue, brightness-modulation, phase
+      for (let k = 0; k < 3; k++)
+        c.push(hue, (ti+k*0.33) / count, ang/(2*Math.PI));
+    }
+  }
+  return { v: new Float32Array(v), c: new Float32Array(c), count: v.length/3 };
+}
+
+// Star field background
+function makeStars(n) {
+  const pos = [], sz = [], br = [];
+  const tempRng = new MT(0xdeadbeef);
+  for (let i = 0; i < n; i++) {
+    pos.push(tempRng.rr(-1, 1), tempRng.rr(-1, 1));
+    sz.push(tempRng.rr(0.5, 2.0));
+    br.push(tempRng.rr(0.2, 1.0));
+  }
+  gl.bindBuffer(gl.ARRAY_BUFFER, BUF.starPos);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(pos), gl.STATIC_DRAW);
+  gl.bindBuffer(gl.ARRAY_BUFFER, BUF.starSize);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(sz), gl.STATIC_DRAW);
+  gl.bindBuffer(gl.ARRAY_BUFFER, BUF.starBright);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(br), gl.STATIC_DRAW);
+  return n;
+}
+const STAR_COUNT = makeStars(280);
+
+function uploadAll() {
+  computeInvariants();
+  // Adaptive tessellation: higher resolution for higher genus (more complex topology)
+  const seifRes = Math.max(24, Math.min(56, 26 + S.genus * 4));
+
+  const surf = makeSeifert(S.p, S.q, seifRes);
+  gl.bindBuffer(gl.ARRAY_BUFFER, BUF.sPos);
+  gl.bufferData(gl.ARRAY_BUFFER, surf.verts, gl.STATIC_DRAW);
+  gl.bindBuffer(gl.ARRAY_BUFFER, BUF.sNorm);
+  gl.bufferData(gl.ARRAY_BUFFER, surf.norms, gl.STATIC_DRAW);
+  gl.bindBuffer(gl.ARRAY_BUFFER, BUF.sUV);
+  gl.bufferData(gl.ARRAY_BUFFER, surf.uvs, gl.STATIC_DRAW);
+  gl.bindBuffer(gl.ARRAY_BUFFER, BUF.sPhase);
+  gl.bufferData(gl.ARRAY_BUFFER, surf.phases, gl.STATIC_DRAW);
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, BUF.sIdx);
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, surf.idxs, gl.STATIC_DRAW);
+  surfIdxCount = surf.idxs.length;
+
+  const knotRes = Math.min(200 + S.cross * 10, 700);
+  const kn = makeKnot(S.p, S.q, knotRes);
+  gl.bindBuffer(gl.ARRAY_BUFFER, BUF.kPos);
+  gl.bufferData(gl.ARRAY_BUFFER, kn.verts, gl.STATIC_DRAW);
+  gl.bindBuffer(gl.ARRAY_BUFFER, BUF.kT);
+  gl.bufferData(gl.ARRAY_BUFFER, kn.t, gl.STATIC_DRAW);
+  knotVertCount = kn.t.length;
+
+  const tets = makeTets(S.nTet, S.hypVol);
+  gl.bindBuffer(gl.ARRAY_BUFFER, BUF.tPos);
+  gl.bufferData(gl.ARRAY_BUFFER, tets.v, gl.STATIC_DRAW);
+  gl.bindBuffer(gl.ARRAY_BUFFER, BUF.tCol);
+  gl.bufferData(gl.ARRAY_BUFFER, tets.c, gl.STATIC_DRAW);
+  tetVertCount = tets.count;
+
+  updateHUD();
+  updateAudioParams();
+}
+
+/* ================================================================
+   MATRIX UTILITIES
+   ================================================================ */
+function perspective(fov, asp, near, far) {
+  const f = 1 / Math.tan(fov/2);
+  return new Float32Array([
+    f/asp, 0, 0, 0,
+    0, f, 0, 0,
+    0, 0, (far+near)/(near-far), -1,
+    0, 0, 2*far*near/(near-far), 0
+  ]);
+}
+
+function lookAt(ex,ey,ez) {
+  const il = 1/(Math.hypot(ex,ey,ez)||1);
+  const Zx=ex*il, Zy=ey*il, Zz=ez*il;
+  let Xx=Zy*0-Zz*1, Xy=Zz*0-Zx*0, Xz=Zx*1-Zy*0; // cross(up=[0,0,1], Z)
+  // Actually cross([0,0,1], Z) = [Zy, -Zx, 0]... let me fix
+  // up = [0,1,0] works better
+  const upx=0,upy=1,upz=0;
+  Xx = upy*Zz-upz*Zy; Xy = upz*Zx-upx*Zz; Xz = upx*Zy-upy*Zx;
+  const xl = Math.hypot(Xx,Xy,Xz)||1;
+  Xx/=xl; Xy/=xl; Xz/=xl;
+  const Yx=Zy*Xz-Zz*Xy, Yy=Zz*Xx-Zx*Xz, Yz=Zx*Xy-Zy*Xx;
+  return new Float32Array([
+    Xx,Yx,Zx,0, Xy,Yy,Zy,0, Xz,Yz,Zz,0,
+    -(Xx*ex+Xy*ey+Xz*ez),-(Yx*ex+Yy*ey+Yz*ez),-(Zx*ex+Zy*ey+Zz*ez),1
+  ]);
+}
+
+function mat4Mul(a, b) {
+  const c = new Float32Array(16);
+  for (let i=0;i<4;i++) for (let j=0;j<4;j++) for (let k=0;k<4;k++)
+    c[j*4+i] += a[k*4+i] * b[j*4+k];
+  return c;
+}
+
+function setU(prog, name, type, val) {
+  const loc = gl.getUniformLocation(prog, name);
+  if (loc == null) return;
+  if (type === '1f') gl.uniform1f(loc, val);
+  else if (type === '4f') gl.uniform4f(loc, val[0],val[1],val[2],val[3]);
+  else if (type === 'm4') gl.uniformMatrix4fv(loc, false, val);
+}
+function bindBuf(prog, buf, name, size) {
+  const loc = gl.getAttribLocation(prog, name);
+  if (loc < 0) return;
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.enableVertexAttribArray(loc);
+  gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 0, 0);
+}
+
+/* ================================================================
+   RENDER LOOP
+   ================================================================ */
+function render(now) {
+  S.time = now * 0.001;
+  updateQuat(16.67);
+  S.reidPhase = (S.reidPhase + 0.0038) % (Math.PI * 2);
+
+  const W = glc.width, H = glc.height;
+  gl.viewport(0, 0, W, H);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+  const asp = W / H;
+  const proj = perspective(0.82, asp, 0.1, 120);
+
+  // Slowly orbiting camera
+  const t = S.time;
+  const cR = 8.5;
+  const cTheta = t * 0.10;
+  const cPhi = 1.02 + Math.sin(t * 0.067) * 0.30;
+  const ex = cR * Math.sin(cPhi) * Math.cos(cTheta);
+  const ey = cR * Math.sin(cPhi) * Math.sin(cTheta);
+  const ez = cR * Math.cos(cPhi);
+  const view = lookAt(ex, ey, ez);
+  const VP = mat4Mul(proj, view);
+
+  const QL = S.qL, QR = S.qR;
+
+  // Draw stars (no depth test, pure background)
+  gl.disable(gl.DEPTH_TEST);
+  gl.useProgram(PROG.star);
+  setU(PROG.star, 'uTime', '1f', t);
+  bindBuf(PROG.star, BUF.starPos, 'aPos', 2);
+  bindBuf(PROG.star, BUF.starSize, 'aSize', 1);
+  bindBuf(PROG.star, BUF.starBright, 'aBright', 1);
+  gl.drawArrays(gl.POINTS, 0, STAR_COUNT);
+  gl.enable(gl.DEPTH_TEST);
+
+  // Draw ideal tetrahedra (hyperbolic structure visualization)
+  if (tetVertCount > 0) {
+    gl.useProgram(PROG.tet);
+    setU(PROG.tet, 'uVP', 'm4', VP);
+    setU(PROG.tet, 'uQL', '4f', QL);
+    setU(PROG.tet, 'uQR', '4f', QR);
+    setU(PROG.tet, 'uTime', '1f', t);
+    setU(PROG.tet, 'uDA', '1f', S.dehnAngle);
+    bindBuf(PROG.tet, BUF.tPos, 'aPos', 3);
+    bindBuf(PROG.tet, BUF.tCol, 'aCol', 3);
+    gl.drawArrays(gl.TRIANGLES, 0, tetVertCount);
+  }
+
+  // Draw Seifert surface (double-sided, semi-transparent)
+  if (surfIdxCount > 0) {
+    gl.useProgram(PROG.seifert);
+    setU(PROG.seifert, 'uVP', 'm4', VP);
+    setU(PROG.seifert, 'uQL', '4f', QL);
+    setU(PROG.seifert, 'uQR', '4f', QR);
+    setU(PROG.seifert, 'uTime', '1f', t);
+    setU(PROG.seifert, 'uDA', '1f', S.dehnAngle);
+    setU(PROG.seifert, 'uHV', '1f', S.hypVol);
+    setU(PROG.seifert, 'uGenus', '1f', S.genus);
+    bindBuf(PROG.seifert, BUF.sPos, 'aPos', 3);
+    bindBuf(PROG.seifert, BUF.sNorm, 'aNorm', 3);
+    bindBuf(PROG.seifert, BUF.sUV, 'aUV', 2);
+    bindBuf(PROG.seifert, BUF.sPhase, 'aPhase', 1);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, BUF.sIdx);
+    gl.disable(gl.CULL_FACE);
+    gl.drawElements(gl.TRIANGLES, surfIdxCount, gl.UNSIGNED_SHORT, 0);
+  }
+
+  // Draw torus knot (bright luminous line on top)
+  if (knotVertCount > 0) {
+    gl.useProgram(PROG.knot);
+    setU(PROG.knot, 'uVP', 'm4', VP);
+    setU(PROG.knot, 'uQL', '4f', QL);
+    setU(PROG.knot, 'uQR', '4f', QR);
+    setU(PROG.knot, 'uTime', '1f', t);
+    setU(PROG.knot, 'uDA', '1f', S.dehnAngle);
+    setU(PROG.knot, 'uCross', '1f', S.cross);
+    bindBuf(PROG.knot, BUF.kPos, 'aPos', 3);
+    bindBuf(PROG.knot, BUF.kT, 'aT', 1);
+    try { gl.lineWidth(2.0); } catch(e) {}
+    gl.drawArrays(gl.LINE_STRIP, 0, knotVertCount);
+  }
+
+  // 2D canvas overlay
+  draw2D();
+
+  requestAnimationFrame(render);
+}
+
+/* ================================================================
+   2D CANVAS OVERLAY
+   (Reidemeister moves, planar knot diagram, Wirtinger label)
+   ================================================================ */
+const ov = document.getElementById('ov');
+ov.width = window.innerWidth; ov.height = window.innerHeight;
+const ctx = ov.getContext('2d');
+
+function hsl(h, s, l) { return `hsl(${((h%1+1)%1*360)|0},${(s*100)|0}%,${(l*100)|0}%)`; }
+
+function draw2D() {
+  const W = ov.width, H = ov.height;
+  ctx.clearRect(0, 0, W, H);
+
+  const ph = S.reidPhase;
+  const da = S.dehnAngle;
+  const hue0 = (da * 360) | 0;
+  const hue1 = (hue0 + 120) % 360;
+  const hue2 = (hue0 + 240) % 360;
+
+  // ---- Reidemeister Move Animations (bottom-left) ----
+  const BX = 70, BY = H - 90, RS = 34;
+  ctx.save();
+  ctx.globalAlpha = 0.72;
+
+  // Type I: loop growing/shrinking (isotopy of a curl)
+  ctx.save();
+  ctx.translate(BX, BY);
+  const loopR = RS * (0.22 + 0.65 * Math.abs(Math.sin(ph * 0.65)));
+  ctx.strokeStyle = `hsl(${hue0},90%,65%)`;
+  ctx.lineWidth = 1.8;
+  ctx.shadowColor = `hsl(${hue0},100%,70%)`; ctx.shadowBlur = 8;
+  ctx.beginPath();
+  ctx.arc(-RS*0.15, 0, loopR, 0, Math.PI*2);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(-RS, 0); ctx.lineTo(-RS*0.15 + loopR + 2, 0);
+  ctx.stroke();
+  ctx.fillStyle = `hsl(${hue0},70%,65%)`; ctx.font = '9px Courier New';
+  ctx.fillText('Ω₁', RS*0.3, RS*0.75);
+  ctx.restore();
+
+  // Type II: two strands isotopy through each other
+  ctx.save();
+  ctx.translate(BX + RS*2.6, BY);
+  const sep2 = Math.sin(ph * 0.85) * RS * 0.42;
+  ctx.strokeStyle = `hsl(${hue1},90%,65%)`;
+  ctx.shadowColor = `hsl(${hue1},100%,70%)`; ctx.shadowBlur = 7;
+  ctx.lineWidth = 1.8;
+  ctx.beginPath();
+  ctx.moveTo(-RS, sep2);
+  ctx.bezierCurveTo(-RS*0.3, -sep2*2, RS*0.3, sep2*2, RS, -sep2);
+  ctx.stroke();
+  // Second strand with break at crossing
+  ctx.strokeStyle = `hsl(${hue1},70%,55%)`;
+  ctx.shadowBlur = 0;
+  ctx.beginPath(); ctx.moveTo(-RS, -sep2);
+  ctx.bezierCurveTo(-RS*0.5, sep2, -RS*0.2, 0, -RS*0.06, -sep2*0.2);
+  ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(RS*0.12, sep2*0.25);
+  ctx.bezierCurveTo(RS*0.4, sep2*1.5, RS*0.7, sep2, RS, sep2);
+  ctx.stroke();
+  ctx.fillStyle = `hsl(${hue1},80%,65%)`; ctx.font = '9px Courier New';
+  ctx.fillText('Ω₂', RS*0.6, RS*0.75);
+  ctx.restore();
+
+  // Type III: three strands sliding past a crossing
+  ctx.save();
+  ctx.translate(BX + RS*5.5, BY);
+  const sh3 = Math.sin(ph * 1.05) * RS * 0.28;
+  const strands = [
+    { y1: RS*0.5+sh3, y2: -RS*0.5+sh3, col: hue2 },
+    { y1: 0, y2: 0, col: hue0 },
+    { y1: -RS*0.5-sh3, y2: RS*0.5-sh3, col: hue1 }
+  ];
+  strands.forEach(({ y1, y2, col }, i) => {
+    ctx.strokeStyle = `hsl(${col},85%,65%)`;
+    ctx.shadowColor = `hsl(${col},100%,70%)`; ctx.shadowBlur = 6;
+    ctx.lineWidth = 1.8;
+    ctx.beginPath(); ctx.moveTo(-RS, y1); ctx.lineTo(RS, y2); ctx.stroke();
+  });
+  ctx.fillStyle = `hsl(${hue2},80%,65%)`; ctx.font = '9px Courier New';
+  ctx.fillText('Ω₃', RS*0.55, RS*0.85);
+  ctx.restore();
+
+  ctx.restore();
+
+  // ---- Planar Knot Diagram (bottom-right panel) ----
+  const PW = 165, PH = 120, PX = W - PW - 14, PY = H - PH - 34;
+  ctx.save();
+  ctx.globalAlpha = 0.68;
+
+  // Panel background
+  ctx.fillStyle = 'rgba(0,4,18,0.72)';
+  ctx.strokeStyle = `hsla(${hue0},50%,45%,0.45)`;
+  ctx.lineWidth = 1;
+  rrect(ctx, PX, PY, PW, PH, 5); ctx.fill(); ctx.stroke();
+
+  // Project torus knot to 2D (orthographic)
+  const nPts = 140;
+  const R2 = 1.80, r02 = 0.46;
+  const pts2 = [], zv = [];
+  for (let i = 0; i <= nPts; i++) {
+    const phi = (i / nPts) * 2 * Math.PI;
+    pts2.push([
+      (R2 + r02*Math.cos(S.q*phi)) * Math.cos(S.p*phi),
+      (R2 + r02*Math.cos(S.q*phi)) * Math.sin(S.p*phi)
+    ]);
+    zv.push(r02 * Math.sin(S.q*phi));
+  }
+  let mnX=Infinity,mxX=-Infinity,mnY=Infinity,mxY=-Infinity;
+  pts2.forEach(([x,y]) => { mnX=Math.min(mnX,x);mxX=Math.max(mxX,x);mnY=Math.min(mnY,y);mxY=Math.max(mxY,y); });
+  const sc2 = Math.min((PW-14)/(mxX-mnX+0.01),(PH-22)/(mxY-mnY+0.01)) * 0.9;
+  const ox2 = PX + PW/2 - (mnX+mxX)/2*sc2;
+  const oy2 = PY + PH/2 - (mnY+mxY)/2*sc2 - 4;
+
+  // Draw with over/under crossings encoded by brightness
+  ctx.save();
+  ctx.lineWidth = 1.6;
+  for (let i = 0; i < nPts; i++) {
+    const depth = (zv[i]+zv[i+1])*0.5;
+    const bright = 0.42 + 0.38*(depth + r02)/(2*r02);
+    const hueI = (hue0 + i/nPts*120) % 360;
+    ctx.strokeStyle = `hsl(${hueI|0},90%,${(bright*100)|0}%)`;
+    ctx.lineWidth = depth > 0 ? 2.0 : 1.2;
+    const [x1,y1] = pts2[i], [x2,y2] = pts2[(i+1)%pts2.length];
+    ctx.beginPath();
+    ctx.moveTo(ox2+x1*sc2, oy2+y1*sc2);
+    ctx.lineTo(ox2+x2*sc2, oy2+y2*sc2);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  ctx.fillStyle = `hsl(${hue0},75%,65%)`;
+  ctx.font = 'bold 9px Courier New';
+  ctx.fillText(`T(${S.p},${S.q})  c=${S.cross}  g=${S.genus}`, PX+5, PY+PH-7);
+
+  ctx.restore();
+
+  // ---- Wirtinger Presentation fragment (bottom edge) ----
+  ctx.save();
+  ctx.globalAlpha = 0.22;
+  ctx.fillStyle = `hsl(${hue0},60%,60%)`;
+  ctx.font = '9px Courier New';
+  ctx.fillText(`π₁(S³∖K) = ${S.wirt}`, 10, H - 5);
+  ctx.restore();
+
+  // ---- Thin ambient scanlines for depth (mathematical grid feel) ----
+  ctx.save();
+  ctx.globalAlpha = 0.025;
+  ctx.strokeStyle = `hsl(${hue0},40%,40%)`;
+  ctx.lineWidth = 1;
+  for (let y = 0; y < H; y += 28) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function rrect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y); ctx.arc(x+w-r,y+r,r,-Math.PI/2,0);
+  ctx.lineTo(x+w,y+h-r); ctx.arc(x+w-r,y+h-r,r,0,Math.PI/2);
+  ctx.lineTo(x+r,y+h); ctx.arc(x+r,y+h-r,r,Math.PI/2,Math.PI);
+  ctx.lineTo(x,y+r); ctx.arc(x+r,y+r,r,Math.PI,-Math.PI/2);
+  ctx.closePath();
+}
+
+/* ================================================================
+   FM SYNTHESIS AUDIO ENGINE
+   B-PDO operator algebra: carrier/modulator pairs
+   Invariants mapped: Euler char→carrier, hypVol→modulator, surgery→index
+   ================================================================ */
+let actx = null, masterGain = null, audioOn = false;
+const fmOps = []; // [{mod, modG, car, carG}]
+
+function initAudio() {
+  if (actx) return;
+  actx = new (window.AudioContext || window.webkitAudioContext)();
+  masterGain = actx.createGain();
+  masterGain.gain.value = 0;
+  masterGain.connect(actx.destination);
+
+  // 3 FM operator pairs (B-PDO: bounded pseudodifferential operators)
+  // Op1: Seifert surface Euler characteristic → carrier
+  // Op2: Hyperbolic volume → harmonic carrier
+  // Op3: Dehn surgery slope → sub-harmonic (topology→sound)
+  const types = ['sine', 'triangle', 'sine'];
+  for (let i = 0; i < 3; i++) {
+    const mod = actx.createOscillator();
+    const modG = actx.createGain();
+    const car = actx.createOscillator();
+    const carG = actx.createGain();
+    mod.type = 'sine';
+    car.type = types[i];
+    mod.connect(modG);
+    modG.connect(car.frequency);
+    car.connect(carG);
+    // Note: carG is connected to masterGain only when audio is ON
+    mod.start(); car.start();
+    fmOps.push({ mod, modG, car, carG });
+  }
+}
+
+function updateAudioParams() {
+  if (!actx || !audioOn) return;
+  const t = actx.currentTime, ramp = 0.45;
+
+  // Operator 1: |χ| controls pitch, genus controls mod depth
+  const f1 = S.fmHz;
+  const m1 = S.fmModHz;
+  const i1 = S.fmIdx * m1 * 1.4;
+
+  // Operator 2: hyperbolic volume → harmonic overtone
+  // (genus+1)-th harmonic of carrier — Seifert surface complexity
+  const f2 = f1 * (S.genus + 2);
+  const m2 = m1 * 1.618033; // golden ratio = inharmonic spectral richness
+  const i2 = (S.hypVol % 4 + 1) * m2 * 0.8;
+
+  // Operator 3: Dehn surgery p/q slope → sub-bass modulation
+  // Crossing number scales modulation index (Jones polynomial evaluation)
+  const slope = S.sP / Math.max(S.sQ, 1);
+  const f3 = f1 * 0.48;
+  const m3 = m1 * (slope % 3 + 0.4);
+  const i3 = S.cross * 0.35 * m3 * 0.6;
+
+  // Jones polynomial real part → FM waveform morphing (detune in cents)
+  const jDetune = S.jones[0] * 6.5;
+
+  [[f1+jDetune, m1, i1, 0.30], [f2, m2, i2, 0.14], [f3, m3, i3, 0.20]]
+    .forEach(([f, m, idx, amp], i) => {
+      if (!fmOps[i]) return;
+      fmOps[i].car.frequency.setTargetAtTime(Math.max(20, f), t, ramp);
+      fmOps[i].mod.frequency.setTargetAtTime(Math.max(0.1, m), t, ramp);
+      fmOps[i].modG.gain.setTargetAtTime(idx, t, ramp);
+      fmOps[i].carG.gain.setTargetAtTime(amp, t, ramp);
+    });
+}
+
+function toggleAudio() {
+  audioOn = !audioOn;
+  const ind = document.getElementById('aind');
+  if (audioOn) {
+    initAudio();
+    if (actx.state === 'suspended') actx.resume();
+    // Connect operators (B-PDO connect)
+    fmOps.forEach(op => { try { op.carG.connect(masterGain); } catch(e){} });
+    masterGain.gain.setTargetAtTime(0.42, actx.currentTime, 0.35);
+    updateAudioParams();
+    ind.textContent = '♪ FM ON';
+    ind.style.color = 'rgba(80,255,160,0.80)';
+  } else {
+    // Disconnect all operators (as specified: disconnect() API calls when muted)
+    fmOps.forEach(op => { try { op.carG.disconnect(); } catch(e){} });
+    if (masterGain) masterGain.gain.setTargetAtTime(0, actx.currentTime, 0.3);
+    ind.textContent = '♪ AUDIO OFF';
+    ind.style.color = 'rgba(0,200,220,0.35)';
+  }
+}
+
+/* ================================================================
+   HUD
+   ================================================================ */
+function updateHUD() {
+  const set = (id, v) => { const el=document.getElementById(id); if(el) el.textContent=v; };
+  set('ht',  `T(${S.p},${S.q}) torus knot`);
+  set('hc',  S.cross);
+  set('hg',  `g = ${S.genus}`);
+  set('he',  `χ = ${S.euler} = 1 - 2g`);
+  set('hv',  S.hypVol.toFixed(5) + ' (Thurston est.)');
+  set('hds', `${S.sP}/${S.sQ || '∞'} Dehn surgery`);
+  set('hr2', `rank 2 — ⟨meridian, longitude⟩`);
+  set('hw',  S.wirt);
+  set('hj',  `${S.jones[0].toFixed(3)} + ${S.jones[1].toFixed(3)}i  (ζ_${S.jRoot})`);
+  set('hte', `${S.nTet} ideal tet. (v₃≈1.0149)`);
+  set('hdtw',`${S.cross} (= min(p(q-1),q(p-1)))`);
+  set('hfm', `${S.fmHz.toFixed(1)} Hz carrier`);
+  set('hjr', `e^{2πi/${S.jRoot}} — root of unity`);
+}
+
+let hudOn = false;
+function toggleHUD() {
+  hudOn = !hudOn;
+  document.getElementById('hud').style.display = hudOn ? 'block' : 'none';
+}
+
+/* ================================================================
+   RANDOMIZE WITH MERSENNE TWISTER
+   ================================================================ */
+const PAIRS = [
+  [2,3],[2,5],[2,7],[2,9],[2,11],[2,13],
+  [3,4],[3,5],[3,7],[3,8],[3,10],
+  [4,5],[4,7],[4,9],
+  [5,6],[5,7],[5,8],[5,9],[5,11],
+  [6,7],[7,8],[7,9]
+];
+
+function randomize() {
+  rng = new MT(Date.now() & 0xffffffff);
+  const pr = PAIRS[rng.ri(PAIRS.length)];
+  S.p = pr[0]; S.q = pr[1];
+  S.sP = rng.ri(15) + 1;
+  S.sQ = rng.ri(12);
+  S.nTet = rng.ri(10) + 2;
+  S.jRoot = [3, 4, 5, 6, 7, 8, 10, 12][rng.ri(8)];
+  // Randomize 4D rotation velocities
+  S.qLv = [0, rng.rr(0.001,0.008), rng.rr(-0.006,0.006), rng.rr(0.001,0.005)];
+  S.qRv = [0, rng.rr(0.001,0.007), rng.rr(-0.005,0.005), rng.rr(0.001,0.007)];
+  // Reset quaternions for fresh rotation
+  S.qL = [1,0,0,0]; S.qR = [1,0,0,0];
+
+  uploadAll();
+}
+
+/* ================================================================
+   EVENTS & RESIZE
+   ================================================================ */
+window.addEventListener('keydown', e => {
+  switch (e.code) {
+    case 'Space': e.preventDefault(); randomize(); break;
+    case 'KeyH': toggleHUD(); break;
+    case 'KeyS': toggleAudio(); break;
+  }
+});
+glc.addEventListener('click', randomize);
+
+window.addEventListener('resize', () => {
+  glc.width = window.innerWidth; glc.height = window.innerHeight;
+  ov.width = window.innerWidth; ov.height = window.innerHeight;
+  gl.viewport(0, 0, glc.width, glc.height);
+});
+
+/* ================================================================
+   INIT
+   ================================================================ */
+uploadAll();
+requestAnimationFrame(render);
+
+console.log(
+  '%c⧉ SEIFERT SURFACE KNOT VORTEX',
+  'color:#0ff;font-size:16px;font-weight:bold;background:#001428;padding:4px 8px'
+);
+console.log('%cSPACE/Click: Randomize Knot | H: HUD | S: FM Audio',
+  'color:#888;font-size:11px');
+console.log('%cT(2,3) trefoil · g=1 · χ=-1 · Wirtinger: ⟨a,b|a²=b³⟩',
+  'color:#0a8;font-size:11px');
+</script>
+</body>
+</html>

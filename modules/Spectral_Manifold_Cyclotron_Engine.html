@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Spectral Manifold Cyclotron Engine</title>
+
+<meta name="viewport" content="width=device-width, height=device-height, initial-scale=1.0, user-scalable=no">
+<meta name="description" content="Spectral Manifold Cyclotron Engine – a full-screen psychedelic kaleidoscopic spectral math visualization engine featuring fractal manifolds, tensor rotations, Fibonacci ratios, complex exponentials, Lie group symmetries, and harmonic audiovisual synthesis.">
+<meta name="keywords" content="psychedelic visualization, kaleidoscope engine, spectral gradients, fractal manifolds, tensor math, Fibonacci, Euler, De Moivre, Riemannian curvature, Minkowski space, generative art, math visualization, WebGL canvas">
+
+<style>
+html, body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: black;
+  width: 100%;
+  height: 100%;
+}
+canvas {
+  display: block;
+}
+#hud {
+  position: fixed;
+  left: 10px;
+  top: 10px;
+  font-family: monospace;
+  font-size: 12px;
+  color: #9ff;
+  background: rgba(0,0,0,0.4);
+  padding: 8px;
+  border-radius: 6px;
+  pointer-events: none;
+  display: none;
+}
+</style>
+</head>
+
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+
+<script>
+(() => {
+'use strict';
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d', { alpha: false });
+const hud = document.getElementById('hud');
+
+let W, H, cx, cy;
+let seed = 0;
+let showHUD = false;
+let soundOn = false;
+
+let audioCtx = null;
+let oscillators = [];
+
+let frame = 0;
+let lastTime = performance.now();
+let fps = 0;
+
+const PHI = (1 + Math.sqrt(5)) / 2;
+
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  cx = W * 0.5;
+  cy = H * 0.5;
+}
+window.addEventListener('resize', resize);
+resize();
+
+function rand() {
+  seed ^= seed << 13;
+  seed ^= seed >> 17;
+  seed ^= seed << 5;
+  return (seed >>> 0) / 4294967296;
+}
+
+let params = {};
+
+function regenerate() {
+  seed = (Math.random() * 1e9) | 0;
+
+  params = {
+    rotA: rand() * Math.PI * 2,
+    rotB: rand() * Math.PI * 2,
+    warp: rand() * 2 + 0.5,
+    fibScale: PHI ** (rand() * 2 - 1),
+    lattice: rand() * 3 + 2,
+    curvature: rand() * 0.6 + 0.2,
+    bands: Math.floor(rand() * 6) + 5,
+    hueBase: rand() * 360,
+    hueDrift: rand() * 40 + 20
+  };
+
+  if (soundOn) rebuildAudio();
+}
+
+function rebuildAudio() {
+  stopAudio();
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+  for (let i = 0; i < 4; i++) {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value =
+      110 * PHI ** (i + rand());
+    gain.gain.value = 0.03;
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start();
+    oscillators.push({ osc, gain });
+  }
+}
+
+function stopAudio() {
+  oscillators.forEach(o => {
+    try { o.osc.stop(); } catch {}
+  });
+  oscillators = [];
+  if (audioCtx) {
+    audioCtx.close();
+    audioCtx = null;
+  }
+}
+
+function toggleSound() {
+  soundOn = !soundOn;
+  if (soundOn) rebuildAudio();
+  else stopAudio();
+}
+
+function toggleHUD() {
+  showHUD = !showHUD;
+  hud.style.display = showHUD ? 'block' : 'none';
+}
+
+window.addEventListener('keydown', e => {
+  if (e.code === 'Space') regenerate();
+  if (e.key === 'h' || e.key === 'H') toggleHUD();
+  if (e.key === 's' || e.key === 'S') toggleSound();
+});
+
+window.addEventListener('mousedown', regenerate);
+window.addEventListener('touchstart', regenerate, { passive: true });
+
+function draw(t) {
+  frame++;
+  const now = performance.now();
+  if (now - lastTime > 500) {
+    fps = Math.round(frame * 1000 / (now - lastTime));
+    frame = 0;
+    lastTime = now;
+  }
+
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.fillStyle = 'black';
+  ctx.fillRect(0,0,W,H);
+  ctx.translate(cx, cy);
+
+  const time = t * 0.00015;
+
+  for (let i = 0; i < params.bands; i++) {
+    const angle =
+      time * params.lattice +
+      i * Math.PI / params.bands;
+
+    const ca = Math.cos(angle + params.rotA);
+    const sa = Math.sin(angle + params.rotB);
+
+    ctx.save();
+    ctx.rotate(angle * params.curvature);
+
+    const grad = ctx.createLinearGradient(
+      -W, 0, W, 0
+    );
+
+    const hue =
+      (params.hueBase +
+       time * params.hueDrift +
+       i * 360 / params.bands) % 360;
+
+    grad.addColorStop(0, `hsla(${hue},100%,40%,0.0)`);
+    grad.addColorStop(0.5, `hsla(${hue},100%,60%,0.8)`);
+    grad.addColorStop(1, `hsla(${hue},100%,40%,0.0)`);
+
+    ctx.fillStyle = grad;
+
+    const w =
+      W * (0.2 + 0.6 * Math.abs(Math.sin(time + i)));
+    const h =
+      H * (0.05 + 0.1 * params.fibScale);
+
+    ctx.transform(
+      ca, sa,
+      -sa, ca,
+      0, 0
+    );
+
+    ctx.fillRect(-w/2, -h/2, w, h);
+    ctx.restore();
+  }
+
+  if (soundOn && oscillators.length) {
+    oscillators.forEach((o, i) => {
+      o.gain.gain.value =
+        0.02 + 0.01 *
+        Math.sin(time * PHI + i);
+    });
+  }
+
+  if (showHUD) {
+    hud.innerHTML =
+      `FPS: ${fps}<br>` +
+      `Seed: ${seed}<br>` +
+      `Bands: ${params.bands}<br>` +
+      `Curvature: ${params.curvature.toFixed(2)}<br>` +
+      `Fib Scale: ${params.fibScale.toFixed(3)}<br>` +
+      `Sound: ${soundOn ? 'ON' : 'OFF'}`;
+  }
+
+  requestAnimationFrame(draw);
+}
+
+regenerate();
+requestAnimationFrame(draw);
+
+})();
+</script>
+</body>
+</html>

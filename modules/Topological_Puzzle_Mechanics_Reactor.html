@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Topological Puzzle-Mechanics Reactor</title>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1,user-scalable=no">
+<meta name="description" content="Generative topological puzzle mechanics universe combining Mobius mazes, Klein bottle labyrinths, polyomino tilings, Tower of Hanoi structures, robotic linkages and particle physics with reactive audiovisual synthesis.">
+<meta name="keywords" content="generative art, topology, mobius strip maze, klein bottle, puzzle simulation, physics art, procedural audiovisual, polyomino, pendulum chaos">
+<style>
+html,body{
+margin:0;
+padding:0;
+overflow:hidden;
+background:black;
+}
+canvas{
+display:block;
+}
+#hud{
+position:fixed;
+top:10px;
+left:10px;
+color:white;
+font-family:monospace;
+font-size:12px;
+pointer-events:none;
+opacity:.8;
+display:none;
+}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+
+<script>
+const canvas=document.getElementById("c");
+const ctx=canvas.getContext("2d");
+const hud=document.getElementById("hud");
+
+let W,H;
+function resize(){
+W=canvas.width=window.innerWidth;
+H=canvas.height=window.innerHeight;
+}
+window.addEventListener("resize",resize);
+resize();
+
+let t=0;
+let world;
+let showHUD=false;
+let sound=false;
+
+let audioCtx;
+let masterGain;
+
+function rand(a=1,b=0){return Math.random()*(a-b)+b;}
+
+function regenerate(){
+
+world={
+style:Math.floor(rand(6)),
+topology:Math.floor(rand(4)),
+puzzles:[],
+particles:[],
+links:[],
+pendulums:[],
+springs:[]
+};
+
+initParticles();
+initPendulums();
+initSpringLattice();
+initPolyomino();
+initSlidingBlocks();
+initHanoi();
+
+updateHUD();
+
+if(sound)buildAudio();
+}
+
+function initParticles(){
+for(let i=0;i<140;i++){
+world.particles.push({
+x:rand(W),
+y:rand(H),
+vx:rand(-1,1),
+vy:rand(-1,1),
+px:0,py:0
+});
+}
+}
+
+function initPendulums(){
+let baseX=W/2;
+let baseY=H/4;
+let prev={x:baseX,y:baseY};
+
+for(let i=0;i<8;i++){
+let p={
+x:baseX,
+y:baseY+40*i,
+vx:0,
+vy:0,
+len:40
+};
+world.pendulums.push(p);
+world.links.push({a:prev,b:p,len:40});
+prev=p;
+}
+}
+
+function initSpringLattice(){
+let cols=10,rows=6;
+let spacing=50;
+let ox=W/2-cols*spacing/2;
+let oy=H/2;
+
+let grid=[];
+
+for(let y=0;y<rows;y++){
+for(let x=0;x<cols;x++){
+
+let p={
+x:ox+x*spacing,
+y:oy+y*spacing,
+vx:0,
+vy:0
+};
+
+grid.push(p);
+world.particles.push(p);
+
+if(x>0)world.springs.push({a:p,b:grid[grid.length-2],len:spacing});
+if(y>0)world.springs.push({a:p,b:grid[(y-1)*cols+x],len:spacing});
+}
+}
+}
+
+function initPolyomino(){
+for(let i=0;i<25;i++){
+world.puzzles.push({
+type:"poly",
+x:rand(W),
+y:rand(H),
+rot:rand(Math.PI),
+size:rand(10,30)
+});
+}
+}
+
+function initSlidingBlocks(){
+for(let i=0;i<15;i++){
+world.puzzles.push({
+type:"slide",
+x:rand(W),
+y:rand(H),
+w:rand(20,60),
+h:rand(20,60)
+});
+}
+}
+
+function initHanoi(){
+for(let i=0;i<3;i++){
+world.puzzles.push({
+type:"hanoi",
+x:W*(.25+i*.25),
+y:H*.8
+});
+}
+}
+
+function stepParticles(){
+
+for(let p of world.particles){
+
+let vx=p.x-p.px;
+let vy=p.y-p.py;
+
+p.px=p.x;
+p.py=p.y;
+
+p.x+=vx;
+p.y+=vy+.1;
+
+if(p.x<0||p.x>W)p.x=rand(W);
+if(p.y>H)p.y=rand(H);
+}
+}
+
+function solveConstraints(){
+
+for(let k=0;k<3;k++){
+
+for(let s of world.springs){
+let dx=s.b.x-s.a.x;
+let dy=s.b.y-s.a.y;
+let d=Math.hypot(dx,dy)||.0001;
+let diff=(d-s.len)/d*.5;
+
+let ox=dx*diff;
+let oy=dy*diff;
+
+s.a.x+=ox;
+s.a.y+=oy;
+s.b.x-=ox;
+s.b.y-=oy;
+}
+
+for(let l of world.links){
+
+let dx=l.b.x-l.a.x;
+let dy=l.b.y-l.a.y;
+let d=Math.hypot(dx,dy)||.0001;
+let diff=(d-l.len)/d;
+
+l.b.x-=dx*diff;
+l.b.y-=dy*diff;
+}
+}
+}
+
+function drawTopology(){
+
+let s=world.topology;
+
+ctx.save();
+
+ctx.translate(W/2,H/2);
+
+for(let i=0;i<120;i++){
+
+let a=i*.1+t*.01;
+let r=i*4;
+
+let x=r*Math.cos(a);
+let y=r*Math.sin(a);
+
+if(s===1)y*=Math.sin(a*.5);
+if(s===2)x*=Math.cos(a*.3);
+
+ctx.strokeStyle=color(i*.02);
+ctx.beginPath();
+ctx.arc(x,y,2,0,Math.PI*2);
+ctx.stroke();
+}
+
+ctx.restore();
+}
+
+function drawPuzzles(){
+
+for(let p of world.puzzles){
+
+if(p.type==="poly"){
+ctx.save();
+ctx.translate(p.x,p.y);
+ctx.rotate(p.rot+t*.01);
+ctx.strokeStyle=color(p.x*.001);
+ctx.strokeRect(-p.size,-p.size,p.size*2,p.size*2);
+ctx.restore();
+}
+
+if(p.type==="slide"){
+ctx.strokeStyle=color(p.y*.001);
+ctx.strokeRect(p.x,p.y,p.w,p.h);
+}
+
+if(p.type==="hanoi"){
+for(let j=0;j<5;j++){
+ctx.strokeStyle=color(j*.1);
+ctx.beginPath();
+ctx.moveTo(p.x-40+j*4,p.y-j*6);
+ctx.lineTo(p.x+40-j*4,p.y-j*6);
+ctx.stroke();
+}
+}
+}
+}
+
+function drawSprings(){
+
+ctx.strokeStyle=color(t*.01);
+
+for(let s of world.springs){
+ctx.beginPath();
+ctx.moveTo(s.a.x,s.a.y);
+ctx.lineTo(s.b.x,s.b.y);
+ctx.stroke();
+}
+}
+
+function drawParticles(){
+
+for(let p of world.particles){
+
+ctx.fillStyle=color(p.x*.002+p.y*.002);
+
+ctx.beginPath();
+ctx.arc(p.x,p.y,2,0,Math.PI*2);
+ctx.fill();
+}
+}
+
+function color(v){
+
+let h=(v*120+t*.5)%360;
+
+switch(world.style){
+
+case 0:return `hsl(${h},80%,60%)`;
+case 1:return `hsl(${h*2%360},90%,50%)`;
+case 2:return `hsl(${(h+120)%360},70%,70%)`;
+case 3:return `hsl(${(h+240)%360},85%,60%)`;
+case 4:return `hsl(${h},100%,50%)`;
+default:return `hsl(${(h*3)%360},90%,60%)`;
+}
+}
+
+function updateHUD(){
+
+hud.innerHTML=
+`Topology: ${["Mobius","Torus","Klein","Hypercube"][world.topology]}<br>
+Style: ${world.style}<br>
+Particles: ${world.particles.length}<br>
+SPACE/TAP regenerate<br>
+H toggle HUD<br>
+S toggle sound`;
+}
+
+function buildAudio(){
+
+if(!sound)return;
+
+audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+
+masterGain=audioCtx.createGain();
+masterGain.gain.value=.2;
+masterGain.connect(audioCtx.destination);
+
+let osc=audioCtx.createOscillator();
+let filt=audioCtx.createBiquadFilter();
+
+osc.type="sine";
+osc.frequency.value=120+rand(200);
+
+filt.type="lowpass";
+filt.frequency.value=800;
+
+osc.connect(filt);
+filt.connect(masterGain);
+
+osc.start();
+
+world.audio={osc,filt};
+}
+
+function stopAudio(){
+
+if(world.audio){
+world.audio.osc.stop();
+}
+}
+
+function toggleSound(){
+
+sound=!sound;
+
+if(sound)buildAudio();
+else stopAudio();
+}
+
+function animate(){
+
+requestAnimationFrame(animate);
+
+t++;
+
+ctx.fillStyle="rgba(0,0,0,.15)";
+ctx.fillRect(0,0,W,H);
+
+stepParticles();
+solveConstraints();
+
+drawTopology();
+drawSprings();
+drawParticles();
+drawPuzzles();
+
+if(sound&&world.audio){
+world.audio.osc.frequency.value=120+Math.sin(t*.01)*80;
+}
+
+}
+
+window.addEventListener("keydown",e=>{
+
+if(e.code==="Space")regenerate();
+
+if(e.key==="h"||e.key==="H"){
+showHUD=!showHUD;
+hud.style.display=showHUD?"block":"none";
+}
+
+if(e.key==="s"||e.key==="S")toggleSound();
+});
+
+canvas.addEventListener("pointerdown",regenerate);
+
+regenerate();
+animate();
+</script>
+</body>
+</html>

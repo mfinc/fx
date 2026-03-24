@@ -1,0 +1,821 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Topological Polytope KaleidoFusion</title>
+<meta name="description" content="Real-time rotating projections of Archimedean, Platonic and Johnson solids blended with higher-dimensional polytopes via stereographic transforms, Delaunay/Voronoi tessellations, signed distance field ray marching, fractal Brownian displacements, conformal Möbius mappings, E8 lattice overlays and spectral audio synthesis.">
+<meta name="keywords" content="polytope, archimedean solids, platonic solids, johnson solids, tesseract, 4D projection, voronoi, delaunay, SDF ray marching, E8 lattice, fractal, kaleidoscope, WebGL, generative art, geometry">
+<meta property="og:title" content="Topological Polytope KaleidoFusion">
+<meta property="og:description" content="Spectacularly complex kaleidoscopic geometric marvel with real-time 4D polytope projections, E8 lattice overlays, and eigenfrequency audio synthesis.">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="robots" content="index, follow">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+  canvas { display: block; position: fixed; top: 0; left: 0; cursor: crosshair; }
+  #hud {
+    position: fixed; top: 16px; left: 16px;
+    font-family: 'Courier New', monospace;
+    font-size: 11px; color: rgba(255,255,255,0.55);
+    pointer-events: none; display: none;
+    text-shadow: 0 0 8px rgba(100,200,255,0.6);
+    line-height: 1.7;
+  }
+  #hud.visible { display: block; }
+  #hint {
+    position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+    font-family: 'Courier New', monospace; font-size: 10px;
+    color: rgba(255,255,255,0.3); pointer-events: none;
+    text-align: center; letter-spacing: 0.12em;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<div id="hint">SPACE / CLICK · RESEED &nbsp;|&nbsp; H · HUD &nbsp;|&nbsp; S · SOUND</div>
+<script>
+(function(){
+'use strict';
+
+// ── GLOBALS ─────────────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d', {alpha:false});
+const hud = document.getElementById('hud');
+
+let W, H, cx, cy, seed, rng;
+let soundOn = false, hudOn = false;
+let audioCtx, masterGain, oscPool=[], analyser, fftData;
+let t = 0, dt = 0, lastTime = 0;
+let palette = [], spectral = [];
+let frameCount = 0;
+let polytopes = [], voronoiSites = [], delaunayTris = [];
+let mobius = {a:0,b:0,c:0,d:0};
+let e8Angles = [];
+let activeMode = 0;
+let colorPhase = 0, colorCycleSpeed = 0.0003;
+
+// ── SEEDED RNG ───────────────────────────────────────────────────────────────
+function mkRng(s){
+  let x = s >>> 0;
+  return ()=>{
+    x ^= x << 13; x ^= x >> 17; x ^= x << 5;
+    return ((x >>> 0) / 0xFFFFFFFF);
+  };
+}
+
+// ── RESIZE ───────────────────────────────────────────────────────────────────
+function resize(){
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  cx = W/2; cy = H/2;
+}
+window.addEventListener('resize', ()=>{ resize(); });
+resize();
+
+// ── MATH HELPERS ─────────────────────────────────────────────────────────────
+const TAU = Math.PI*2;
+const v3=(x,y,z)=>({x,y,z});
+const v4=(x,y,z,w)=>({x,y,z,w});
+function dot3(a,b){return a.x*b.x+a.y*b.y+a.z*b.z;}
+function len3(a){return Math.sqrt(dot3(a,a));}
+function norm3(a){const l=len3(a)||1;return v3(a.x/l,a.y/l,a.z/l);}
+function cross3(a,b){return v3(a.y*b.z-a.z*b.y,a.z*b.x-a.x*b.z,a.x*b.y-a.y*b.x);}
+
+// Rotation matrices 3D
+function rotX(th){const c=Math.cos(th),s=Math.sin(th);return[1,0,0,0,c,-s,0,s,c];}
+function rotY(th){const c=Math.cos(th),s=Math.sin(th);return[c,0,s,0,1,0,-s,0,c];}
+function rotZ(th){const c=Math.cos(th),s=Math.sin(th);return[c,-s,0,s,c,0,0,0,1];}
+function mulM3(m,v){
+  return v3(m[0]*v.x+m[1]*v.y+m[2]*v.z,m[3]*v.x+m[4]*v.y+m[5]*v.z,m[6]*v.x+m[7]*v.y+m[8]*v.z);
+}
+function mulMM3(a,b){
+  const r=new Array(9);
+  for(let i=0;i<3;i++)for(let j=0;j<3;j++){
+    r[i*3+j]=0;for(let k=0;k<3;k++)r[i*3+j]+=a[i*3+k]*b[k*3+j];
+  }return r;
+}
+
+// 4D rotation (XW plane)
+function rot4xw(th){const c=Math.cos(th),s=Math.sin(th);
+  return (v)=>v4(c*v.x-s*v.w,v.y,v.z,s*v.x+c*v.w);}
+function rot4yw(th){const c=Math.cos(th),s=Math.sin(th);
+  return (v)=>v4(v.x,c*v.y-s*v.w,v.z,s*v.y+c*v.w);}
+function rot4zw(th){const c=Math.cos(th),s=Math.sin(th);
+  return (v)=>v4(v.x,v.y,c*v.z-s*v.w,s*v.z+c*v.w);}
+
+// Perspective project 4D→3D
+function proj4to3(v, d4=2.5){const w=d4/(d4-v.w);return v3(v.x*w,v.y*w,v.z*w);}
+
+// Stereographic project 3D→2D
+function stereo3to2(v, scale){
+  const d = 3/(3-v.z);
+  return {x: cx + v.x*d*scale, y: cy + v.y*d*scale, z: v.z};
+}
+
+// Perspective project 3D→2D
+function persp3to2(v, scale, camZ=4){
+  const d = camZ/(camZ-v.z);
+  return {x: cx + v.x*d*scale, y: cy + v.y*d*scale, z: v.z};
+}
+
+// ── PLATONIC SOLIDS ───────────────────────────────────────────────────────────
+function tetrahedron(){
+  const s=1/Math.sqrt(2);
+  const verts=[v3(1,0,-s),v3(-1,0,-s),v3(0,1,s),v3(0,-1,s)];
+  const edges=[[0,1],[0,2],[0,3],[1,2],[1,3],[2,3]];
+  const faces=[[0,1,2],[0,1,3],[0,2,3],[1,2,3]];
+  return {verts,edges,faces,name:'Tetrahedron'};
+}
+function cube(){
+  const v=[];
+  for(let i=0;i<8;i++)v.push(v3((i&1)?1:-1,(i&2)?1:-1,(i&4)?1:-1));
+  const edges=[];
+  for(let i=0;i<8;i++)for(let j=i+1;j<8;j++){
+    const d=(v[i].x-v[j].x)**2+(v[i].y-v[j].y)**2+(v[i].z-v[j].z)**2;
+    if(Math.abs(d-4)<0.01)edges.push([i,j]);
+  }
+  return {verts:v,edges,faces:[],name:'Cube'};
+}
+function octahedron(){
+  const verts=[v3(1,0,0),v3(-1,0,0),v3(0,1,0),v3(0,-1,0),v3(0,0,1),v3(0,0,-1)];
+  const edges=[[0,2],[0,3],[0,4],[0,5],[1,2],[1,3],[1,4],[1,5],[2,4],[2,5],[3,4],[3,5]];
+  return {verts,edges,faces:[],name:'Octahedron'};
+}
+function icosahedron(){
+  const phi=(1+Math.sqrt(5))/2;
+  const verts=[];
+  for(const[a,b]of[[0,1,phi],[0,-1,phi],[0,1,-phi],[0,-1,-phi],[1,phi,0],[-1,phi,0],[1,-phi,0],[-1,-phi,0],[phi,0,1],[-phi,0,1],[phi,0,-1],[-phi,0,-1]]){
+    verts.push(v3(a,b,0));
+  }
+  // actually build properly
+  const r=[];
+  const p=phi;
+  [[0,1,p],[0,1,-p],[0,-1,p],[0,-1,-p],[1,p,0],[-1,p,0],[1,-p,0],[-1,-p,0],[p,0,1],[p,0,-1],[-p,0,1],[-p,0,-1]].forEach(([a,b,c])=>r.push(v3(a,b,c)));
+  const edges=[];
+  for(let i=0;i<12;i++)for(let j=i+1;j<12;j++){
+    const v1=r[i],v2=r[j];
+    const d=(v1.x-v2.x)**2+(v1.y-v2.y)**2+(v1.z-v2.z)**2;
+    if(Math.abs(d-4)<0.1)edges.push([i,j]);
+  }
+  return {verts:r,edges,faces:[],name:'Icosahedron'};
+}
+function dodecahedron(){
+  const phi=(1+Math.sqrt(5))/2;
+  const verts=[];
+  for(let i=0;i<8;i++)verts.push(v3((i&1)?1:-1,(i&2)?1:-1,(i&4)?1:-1));
+  for(const s1 of[-1,1])for(const s2 of[-1,1]){
+    verts.push(v3(0,s1*phi,s2/phi));
+    verts.push(v3(s1/phi,0,s2*phi));
+    verts.push(v3(s1*phi,s2/phi,0));
+  }
+  const edges=[];
+  const target=(2/phi)**2;
+  for(let i=0;i<20;i++)for(let j=i+1;j<20;j++){
+    const d=(verts[i].x-verts[j].x)**2+(verts[i].y-verts[j].y)**2+(verts[i].z-verts[j].z)**2;
+    if(Math.abs(d-target)<0.05)edges.push([i,j]);
+  }
+  return {verts,edges,faces:[],name:'Dodecahedron'};
+}
+
+// ── ARCHIMEDEAN SOLIDS ────────────────────────────────────────────────────────
+function truncatedOctahedron(){
+  const verts=[];
+  for(const p of[0,1,-1,2,-2])for(const q of[0,1,-1,2,-2])for(const r of[0,1,-1,2,-2]){
+    const a=Math.abs(p),b=Math.abs(q),c=Math.abs(r);
+    if(a+b+c===3&&a!==b&&b!==c&&a!==c)verts.push(v3(p,q,r));
+  }
+  const scale=1/Math.sqrt(5);
+  const sv=verts.map(v=>v3(v.x*scale,v.y*scale,v.z*scale));
+  const edges=[];
+  for(let i=0;i<sv.length;i++)for(let j=i+1;j<sv.length;j++){
+    const d=(sv[i].x-sv[j].x)**2+(sv[i].y-sv[j].y)**2+(sv[i].z-sv[j].z)**2;
+    if(d<0.5)edges.push([i,j]);
+  }
+  return {verts:sv,edges,faces:[],name:'TruncOctahedron'};
+}
+function cuboctahedron(){
+  const verts=[];
+  for(const[a,b,c]of[[1,1,0],[1,-1,0],[-1,1,0],[-1,-1,0],[1,0,1],[1,0,-1],[-1,0,1],[-1,0,-1],[0,1,1],[0,1,-1],[0,-1,1],[0,-1,-1]])
+    verts.push(v3(a,b,c));
+  const edges=[];
+  for(let i=0;i<12;i++)for(let j=i+1;j<12;j++){
+    const d=(verts[i].x-verts[j].x)**2+(verts[i].y-verts[j].y)**2+(verts[i].z-verts[j].z)**2;
+    if(Math.abs(d-2)<0.01)edges.push([i,j]);
+  }
+  return {verts,edges,faces:[],name:'Cuboctahedron'};
+}
+
+// ── 4D POLYTOPES ─────────────────────────────────────────────────────────────
+function tesseract(){
+  const verts=[];
+  for(let i=0;i<16;i++)verts.push(v4((i&1)?1:-1,(i&2)?1:-1,(i&4)?1:-1,(i&8)?1:-1));
+  const edges=[];
+  for(let i=0;i<16;i++)for(let j=i+1;j<16;j++){
+    const d=(verts[i].x-verts[j].x)**2+(verts[i].y-verts[j].y)**2+(verts[i].z-verts[j].z)**2+(verts[i].w-verts[j].w)**2;
+    if(Math.abs(d-4)<0.01)edges.push([i,j]);
+  }
+  return {verts,edges,name:'Tesseract',dim:4};
+}
+function cell16(){
+  const verts=[];
+  for(const s of[-1,1])for(let ax=0;ax<4;ax++){
+    const v={x:0,y:0,z:0,w:0};
+    if(ax===0)v.x=s;else if(ax===1)v.y=s;else if(ax===2)v.z=s;else v.w=s;
+    verts.push(v4(v.x,v.y,v.z,v.w));
+  }
+  const edges=[];
+  for(let i=0;i<8;i++)for(let j=i+1;j<8;j++){
+    const d=(verts[i].x-verts[j].x)**2+(verts[i].y-verts[j].y)**2+(verts[i].z-verts[j].z)**2+(verts[i].w-verts[j].w)**2;
+    if(Math.abs(d-2)<0.01)edges.push([i,j]);
+  }
+  return {verts,edges,name:'16-Cell',dim:4};
+}
+function cell24(){
+  const verts=[];
+  for(const s1 of[-1,1])for(const s2 of[-1,1])for(let i=0;i<4;i++)for(let j=i+1;j<4;j++){
+    const v={x:0,y:0,z:0,w:0};
+    const keys=['x','y','z','w'];
+    v[keys[i]]=s1; v[keys[j]]=s2;
+    verts.push(v4(v.x,v.y,v.z,v.w));
+  }
+  const edges=[];
+  for(let i=0;i<verts.length;i++)for(let j=i+1;j<verts.length;j++){
+    const d=(verts[i].x-verts[j].x)**2+(verts[i].y-verts[j].y)**2+(verts[i].z-verts[j].z)**2+(verts[i].w-verts[j].w)**2;
+    if(Math.abs(d-2)<0.01)edges.push([i,j]);
+  }
+  return {verts,edges,name:'24-Cell',dim:4};
+}
+
+// ── SPECTRAL COLOR ────────────────────────────────────────────────────────────
+function wavelengthToRGB(wl){
+  let r=0,g=0,b=0;
+  if(wl>=380&&wl<440){r=(440-wl)/60;g=0;b=1;}
+  else if(wl<490){r=0;g=(wl-440)/50;b=1;}
+  else if(wl<510){r=0;g=1;b=(510-wl)/20;}
+  else if(wl<580){r=(wl-510)/70;g=1;b=0;}
+  else if(wl<645){r=1;g=(645-wl)/65;b=0;}
+  else if(wl<=780){r=1;g=0;b=0;}
+  let factor=1;
+  if(wl>=380&&wl<420)factor=0.3+0.7*(wl-380)/40;
+  else if(wl>700&&wl<=780)factor=0.3+0.7*(780-wl)/80;
+  return [Math.round(255*r*factor),Math.round(255*g*factor),Math.round(255*b*factor)];
+}
+function buildSpectral(){
+  spectral=[];
+  for(let i=0;i<64;i++){
+    const wl=380+i*(780-380)/63;
+    spectral.push(wavelengthToRGB(wl));
+  }
+}
+function spectralColor(t,alpha=1){
+  const i=Math.floor(((t%1+1)%1)*63);
+  const [r,g,b]=spectral[i];
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+function buildPalette(){
+  palette=[];
+  const base=rng()*0.4;
+  for(let i=0;i<8;i++){
+    palette.push(spectralColor(base+i/8+colorPhase));
+  }
+}
+
+// ── DELAUNAY TRIANGULATION (Bowyer-Watson) ────────────────────────────────────
+function circumcircle(ax,ay,bx,by,cx2,cy){
+  const D=2*(ax*(by-cy)+bx*(cy-ay)+cx2*(ay-by));
+  if(Math.abs(D)<1e-10)return null;
+  const ux=((ax*ax+ay*ay)*(by-cy)+(bx*bx+by*by)*(cy-ay)+(cx2*cx2+cy*cy)*(ay-by))/D;
+  const uy=((ax*ax+ay*ay)*(cx2-bx)+(bx*bx+by*by)*(ax-cx2)+(cx2*cx2+cy*cy)*(bx-ax))/D;
+  const r=Math.sqrt((ax-ux)**2+(ay-uy)**2);
+  return {x:ux,y:uy,r};
+}
+function bowyer(pts){
+  const big=99999;
+  const st=[[{x:-big,y:-big},{x:0,y:big*3},{x:big*3,y:-big}]];
+  let tris=[...st];
+  for(const p of pts){
+    let bad=[];
+    for(const tri of tris){
+      const cc=circumcircle(tri[0].x,tri[0].y,tri[1].x,tri[1].y,tri[2].x,tri[2].y);
+      if(cc&&(p.x-cc.x)**2+(p.y-cc.y)**2<cc.r**2)bad.push(tri);
+    }
+    const poly=[];
+    for(const tri of bad){
+      for(let i=0;i<3;i++){
+        const e=[tri[i],tri[(i+1)%3]];
+        let shared=false;
+        for(const t2 of bad){
+          if(t2===tri)continue;
+          for(let j=0;j<3;j++){
+            if((e[0]===t2[j]&&e[1]===t2[(j+1)%3])||(e[1]===t2[j]&&e[0]===t2[(j+1)%3])){shared=true;break;}
+          }
+          if(shared)break;
+        }
+        if(!shared)poly.push(e);
+      }
+    }
+    tris=tris.filter(t=>!bad.includes(t));
+    for(const e of poly)tris.push([e[0],e[1],p]);
+  }
+  tris=tris.filter(t=>{
+    for(const v of st[0])for(const tv of t)if(tv===v)return false;
+    return true;
+  });
+  return tris;
+}
+
+// ── VORONOI SITES ─────────────────────────────────────────────────────────────
+function buildVoronoi(n){
+  const sites=[];
+  for(let i=0;i<n;i++){
+    sites.push({x:(rng()*0.8+0.1)*W,y:(rng()*0.8+0.1)*H,
+      c:spectralColor(rng()+colorPhase,0.4)});
+  }
+  return sites;
+}
+
+// ── MÖBIUS TRANSFORM ──────────────────────────────────────────────────────────
+function mobiusTransform(px,py,ar,ai,br,bi,cr,ci,dr,di){
+  // (a*z+b)/(c*z+d), complex
+  const zr=px, zi=py;
+  const nr=ar*zr-ai*zi+br, ni=ar*zi+ai*zr+bi;
+  const dr2=cr*zr-ci*zi+dr, di2=cr*zi+ci*zr+di;
+  const den=dr2*dr2+di2*di2||1;
+  return {x:(nr*dr2+ni*di2)/den, y:(ni*dr2-nr*di2)/den};
+}
+
+// ── FBM NOISE ────────────────────────────────────────────────────────────────
+function hash21(x,y){
+  const v=Math.sin(x*127.1+y*311.7)*43758.5453;
+  return v-Math.floor(v);
+}
+function smoothNoise(x,y){
+  const ix=Math.floor(x),iy=Math.floor(y);
+  const fx=x-ix,fy=y-iy;
+  const ux=fx*fx*(3-2*fx),uy=fy*fy*(3-2*fy);
+  const a=hash21(ix,iy),b=hash21(ix+1,iy);
+  const c=hash21(ix,iy+1),d=hash21(ix+1,iy+1);
+  return a+(b-a)*ux+(c-a)*uy+(a-b-c+d)*ux*uy;
+}
+function fbm(x,y,oct=5){
+  let v=0,amp=0.5,freq=1;
+  for(let i=0;i<oct;i++){v+=amp*smoothNoise(x*freq,y*freq);amp*=0.5;freq*=2.1;}
+  return v;
+}
+
+// ── E8 LATTICE OVERLAY ────────────────────────────────────────────────────────
+function buildE8(){
+  // Sample E8 root system projected to 2D via random 8->2 matrix
+  const roots=[];
+  // E8 has 240 roots; generate some via ±ei±ej and half-integer
+  for(let i=0;i<8;i++)for(let j=i+1;j<8;j++){
+    for(const si of[-1,1])for(const sj of[-1,1]){
+      const v=new Array(8).fill(0);
+      v[i]=si;v[j]=sj;
+      roots.push(v);
+    }
+  }
+  // random projection matrix 8->2
+  const proj=[];
+  for(let i=0;i<2;i++){const row=[];for(let j=0;j<8;j++)row.push(rng()-0.5);proj.push(row);}
+  // normalize
+  for(let i=0;i<2;i++){const n=Math.sqrt(proj[i].reduce((s,x)=>s+x*x,0))||1;proj[i]=proj[i].map(x=>x/n);}
+  e8Angles=roots.map(r=>{
+    const x=proj[0].reduce((s,v,i)=>s+v*r[i],0);
+    const y=proj[1].reduce((s,v,i)=>s+v*r[i],0);
+    return {x,y};
+  });
+}
+
+// ── SDF RAY MARCHING (2D screen-space) ───────────────────────────────────────
+function sdfSphere(px,py,cx2,cy,r){return Math.sqrt((px-cx2)**2+(py-cy)**2)-r;}
+function sdfTorus(px,py,cx2,cy,R,r){const q=Math.sqrt((px-cx2)**2+(py-cy)**2)-R;return Math.sqrt(q*q)-r;}
+function sdfScene(px,py,tim){
+  let d=1e9;
+  const offs=fbm(px*0.003+tim*0.1,py*0.003)*60;
+  const px2=px+offs,py2=py+offs;
+  d=Math.min(d,sdfSphere(px2,py2,cx,cy,Math.min(W,H)*0.2));
+  d=Math.min(d,sdfTorus(px2,py2,cx,cy,Math.min(W,H)*0.28,Math.min(W,H)*0.04));
+  return d;
+}
+
+// ── AUDIO ─────────────────────────────────────────────────────────────────────
+function initAudio(){
+  if(audioCtx)return;
+  audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+  masterGain=audioCtx.createGain();
+  masterGain.gain.value=0.07;
+  analyser=audioCtx.createAnalyser();
+  analyser.fftSize=256;
+  fftData=new Uint8Array(analyser.frequencyBinCount);
+  masterGain.connect(analyser);
+  analyser.connect(audioCtx.destination);
+}
+// Eigenfrequencies of a polytope-like structure
+const eigenFreqs=[55,110,165,220,330,440,550,660,880,1100];
+function spawnOsc(freq,amp,dur){
+  if(!audioCtx||!soundOn)return;
+  const o=audioCtx.createOscillator();
+  const g=audioCtx.createGain();
+  const types=['sine','triangle','sawtooth'];
+  o.type=types[Math.floor(rng()*types.length)];
+  o.frequency.value=freq;
+  g.gain.setValueAtTime(amp*0.15,audioCtx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.0001,audioCtx.currentTime+dur);
+  o.connect(g);g.connect(masterGain);
+  o.start();o.stop(audioCtx.currentTime+dur);
+}
+function updateAudio(){
+  if(!soundOn||!audioCtx)return;
+  analyser.getByteFrequencyData(fftData);
+  // Periodically trigger eigenfrequency tones
+  if(frameCount%60===0){
+    const f=eigenFreqs[Math.floor(rng()*eigenFreqs.length)];
+    const harm=Math.floor(rng()*4+1);
+    spawnOsc(f*harm,0.3+rng()*0.4,0.5+rng()*1.5);
+  }
+  if(frameCount%180===0){
+    // chord
+    const root=eigenFreqs[Math.floor(rng()*5)];
+    for(const ratio of[1,1.25,1.5,2]){
+      spawnOsc(root*ratio,0.15,2+rng()*2);
+    }
+  }
+}
+
+// ── INITIALIZATION ────────────────────────────────────────────────────────────
+function reseed(){
+  seed=Date.now()^(Math.random()*0xFFFFFFFF)|0;
+  rng=mkRng(seed);
+  colorPhase=rng()*1;
+  buildSpectral();
+  buildPalette();
+
+  // Build polytope ensemble
+  polytopes=[];
+  const factories3=[tetrahedron,cube,octahedron,icosahedron,dodecahedron,truncatedOctahedron,cuboctahedron];
+  const factories4=[tesseract,cell16,cell24];
+
+  // Pick 3-4 solids
+  const n3=2+Math.floor(rng()*2);
+  for(let i=0;i<n3;i++){
+    const f=factories3[Math.floor(rng()*factories3.length)];
+    const p=f();
+    p.rx=rng()*0.4+0.1; p.ry=rng()*0.4+0.1; p.rz=rng()*0.4+0.1;
+    p.phase=rng()*TAU;
+    p.scale=(Math.min(W,H)*0.22+rng()*Math.min(W,H)*0.1);
+    p.dim=3;
+    p.colorOffset=rng();
+    p.usePersp=rng()>0.5;
+    p.blend=rng()>0.4;
+    polytopes.push(p);
+  }
+  // Pick 1-2 4D
+  const n4=1+Math.floor(rng()*2);
+  for(let i=0;i<n4;i++){
+    const f=factories4[Math.floor(rng()*factories4.length)];
+    const p=f();
+    p.rx=rng()*0.3+0.05; p.ry=rng()*0.3+0.05; p.rz=rng()*0.3+0.05;
+    p.rxw=rng()*0.2+0.05; p.ryw=rng()*0.15; p.rzw=rng()*0.15;
+    p.phase=rng()*TAU;
+    p.scale=(Math.min(W,H)*0.28+rng()*Math.min(W,H)*0.08);
+    p.colorOffset=rng();
+    polytopes.push(p);
+  }
+
+  // Voronoi
+  voronoiSites=buildVoronoi(18+Math.floor(rng()*12));
+
+  // Delaunay
+  const dpts=voronoiSites.map(s=>({x:s.x,y:s.y}));
+  delaunayTris=bowyer(dpts);
+
+  // Möbius params
+  const ang=rng()*TAU;
+  mobius={ar:Math.cos(ang),ai:Math.sin(ang),br:rng()-0.5,bi:rng()-0.5,
+    cr:rng()*0.3,ci:rng()*0.3,dr:1,di:0};
+
+  // E8
+  buildE8();
+
+  activeMode=Math.floor(rng()*3);
+  frameCount=0;
+}
+
+// ── DRAWING HELPERS ───────────────────────────────────────────────────────────
+function drawEdges(verts2d, edges, strokeStyle, lw=1, alpha=1){
+  ctx.save();
+  ctx.globalAlpha=alpha;
+  ctx.strokeStyle=strokeStyle;
+  ctx.lineWidth=lw;
+  ctx.beginPath();
+  for(const[i,j] of edges){
+    const a=verts2d[i],b=verts2d[j];
+    if(!a||!b)continue;
+    ctx.moveTo(a.x,a.y);
+    ctx.lineTo(b.x,b.y);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawGlow(verts2d, edges, color, lw, blur){
+  ctx.save();
+  ctx.shadowBlur=blur;
+  ctx.shadowColor=color;
+  ctx.strokeStyle=color;
+  ctx.lineWidth=lw;
+  ctx.beginPath();
+  for(const[i,j] of edges){
+    const a=verts2d[i],b=verts2d[j];
+    if(!a||!b)continue;
+    ctx.moveTo(a.x,a.y);
+    ctx.lineTo(b.x,b.y);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+// ── RENDER POLYTOPE 3D ────────────────────────────────────────────────────────
+function renderPoly3(p, time){
+  const th=time*p.rx+p.phase;
+  const ph=time*p.ry+p.phase*1.3;
+  const ps=time*p.rz+p.phase*0.7;
+  const M=mulMM3(mulMM3(rotX(th),rotY(ph)),rotZ(ps));
+  // FBM displacement
+  const dispAmt=0.06+Math.sin(time*0.3)*0.03;
+  const verts2d=p.verts.map((v,idx)=>{
+    const rv=mulM3(M,v);
+    // Barycentric warp via fbm
+    const disp=fbm(rv.x*2+time*0.1+idx,rv.y*2)*dispAmt;
+    rv.x+=disp*Math.cos(time+idx);
+    rv.y+=disp*Math.sin(time*0.7+idx);
+    // Möbius mapping (subtle)
+    const sc=0.3;
+    const mx=(rv.x*sc*2-1)*0.4, my=(rv.y*sc*2-1)*0.4;
+    const {x:mx2,y:my2}=mobiusTransform(mx,my,mobius.ar,mobius.ai,mobius.br,mobius.bi,mobius.cr,mobius.ci,mobius.dr,mobius.di);
+    rv.x=rv.x*0.85+(mx2*1.2)*0.15;
+    rv.y=rv.y*0.85+(my2*1.2)*0.15;
+
+    if(p.usePersp)return persp3to2(rv,p.scale);
+    return stereo3to2(rv,p.scale);
+  });
+
+  const co=spectralColor(p.colorOffset+colorPhase+time*colorCycleSpeed,1);
+  const co2=spectralColor(p.colorOffset+0.5+colorPhase+time*colorCycleSpeed,0.6);
+
+  // Sort edges by depth
+  const sortedEdges=p.edges.map(e=>{
+    const d=(verts2d[e[0]]?.z||0+verts2d[e[1]]?.z||0)*0.5;
+    return{e,d};
+  }).sort((a,b)=>a.d-b.d);
+
+  // Glow pass
+  drawGlow(verts2d,sortedEdges.slice(-Math.floor(sortedEdges.length*0.3)).map(x=>x.e),co,2.5,18);
+  // Main pass
+  drawEdges(verts2d,p.edges,co2,1.2,0.85);
+
+  // Draw verts
+  ctx.save();
+  ctx.shadowBlur=12; ctx.shadowColor=co;
+  ctx.fillStyle=co;
+  for(const v of verts2d){
+    if(!v)continue;
+    const r=2.5;
+    ctx.beginPath();
+    ctx.arc(v.x,v.y,r,0,TAU);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+// ── RENDER POLYTOPE 4D ────────────────────────────────────────────────────────
+function renderPoly4(p, time){
+  const rXW=rot4xw(time*p.rxw+p.phase);
+  const rYW=rot4yw(time*p.ryw+p.phase*1.2);
+  const rZW=rot4zw(time*p.rzw+p.phase*0.8);
+  const th=time*p.rx+p.phase;
+  const ph=time*p.ry;
+  const M3=mulMM3(rotX(th),rotY(ph));
+
+  const verts2d=p.verts.map((v,idx)=>{
+    let v4d=rXW(v);
+    v4d=rYW(v4d);
+    v4d=rZW(v4d);
+    // FBM on w coordinate
+    v4d={...v4d,w:v4d.w+fbm(v4d.x+idx*0.3,v4d.y+time*0.05)*0.15};
+    const v3d=proj4to3(v4d,2.2);
+    const rv=mulM3(M3,v3d);
+    return persp3to2(rv,p.scale*0.85);
+  });
+
+  const co=spectralColor(p.colorOffset+colorPhase+time*colorCycleSpeed*1.3,0.9);
+  const co2=spectralColor(p.colorOffset+0.33+colorPhase,0.5);
+
+  drawGlow(verts2d,p.edges,co,1.8,22);
+  drawEdges(verts2d,p.edges,co2,1,0.7);
+
+  ctx.save();
+  ctx.fillStyle=co;
+  ctx.shadowColor=co;ctx.shadowBlur=16;
+  for(const v of verts2d){
+    if(!v)continue;
+    ctx.beginPath();ctx.arc(v.x,v.y,2,0,TAU);ctx.fill();
+  }
+  ctx.restore();
+}
+
+// ── RENDER VORONOI ────────────────────────────────────────────────────────────
+function renderVoronoi(time){
+  const alpha=0.12+Math.sin(time*0.2)*0.04;
+  ctx.save();
+  ctx.globalAlpha=alpha;
+  // Draw Delaunay triangulation
+  ctx.strokeStyle=spectralColor(0.6+colorPhase+time*colorCycleSpeed,1);
+  ctx.lineWidth=0.5;
+  for(const tri of delaunayTris){
+    ctx.beginPath();
+    ctx.moveTo(tri[0].x,tri[0].y);
+    ctx.lineTo(tri[1].x,tri[1].y);
+    ctx.lineTo(tri[2].x,tri[2].y);
+    ctx.closePath();
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // Voronoi cells approximated as colorful regions per site
+  // (true Voronoi requires more compute; we draw colored halos)
+  ctx.save();
+  for(const s of voronoiSites){
+    const r=80+fbm(s.x*0.01+time*0.05,s.y*0.01)*40;
+    const g2=ctx.createRadialGradient(s.x,s.y,0,s.x,s.y,r);
+    const col=spectralColor(s.x/W+colorPhase+time*colorCycleSpeed,1);
+    g2.addColorStop(0,col.replace(/[\d.]+\)$/,'0.12)'));
+    g2.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle=g2;
+    ctx.beginPath();ctx.arc(s.x,s.y,r,0,TAU);ctx.fill();
+  }
+  ctx.restore();
+}
+
+// ── RENDER E8 OVERLAY ─────────────────────────────────────────────────────────
+function renderE8(time){
+  const sc=Math.min(W,H)*0.18;
+  const rot=time*0.07;
+  const cr=Math.cos(rot),sr=Math.sin(rot);
+  ctx.save();
+  ctx.globalAlpha=0.18;
+  ctx.strokeStyle=spectralColor(0.8+colorPhase+time*colorCycleSpeed,1);
+  ctx.lineWidth=0.7;
+  const projected=e8Angles.map(({x,y})=>({
+    x:cx+(x*cr-y*sr)*sc,
+    y:cy+(x*sr+y*cr)*sc
+  }));
+  // Draw root connections
+  ctx.beginPath();
+  for(let i=0;i<projected.length;i++){
+    for(let j=i+1;j<projected.length;j++){
+      const d=Math.sqrt((projected[i].x-projected[j].x)**2+(projected[i].y-projected[j].y)**2);
+      if(d<sc*0.55){
+        ctx.moveTo(projected[i].x,projected[i].y);
+        ctx.lineTo(projected[j].x,projected[j].y);
+      }
+    }
+  }
+  ctx.stroke();
+  ctx.fillStyle=spectralColor(0.9+colorPhase,1);
+  ctx.globalAlpha=0.35;
+  for(const v of projected){
+    ctx.beginPath();ctx.arc(v.x,v.y,2.5,0,TAU);ctx.fill();
+  }
+  ctx.restore();
+}
+
+// ── RENDER SDF GLOW RING ──────────────────────────────────────────────────────
+function renderSDFRing(time){
+  // Sample SDF on a grid and draw iso-contours
+  const step=Math.max(4,Math.floor(Math.min(W,H)/120));
+  ctx.save();
+  ctx.globalAlpha=0.18;
+  const col=spectralColor(0.3+colorPhase+time*colorCycleSpeed,1);
+  ctx.fillStyle=col;
+  for(let px=0;px<W;px+=step){
+    for(let py=0;py<H;py+=step){
+      const d=sdfScene(px,py,time);
+      if(Math.abs(d)<step*1.5){
+        const a=1-Math.abs(d)/(step*1.5);
+        ctx.globalAlpha=a*0.22;
+        ctx.fillRect(px,py,step-1,step-1);
+      }
+    }
+  }
+  ctx.restore();
+}
+
+// ── RENDER FFT BARS ───────────────────────────────────────────────────────────
+function renderFFT(time){
+  if(!soundOn||!analyser||!fftData)return;
+  analyser.getByteFrequencyData(fftData);
+  const n=fftData.length;
+  const bw=(W/n)*0.8;
+  ctx.save();
+  ctx.globalAlpha=0.35;
+  for(let i=0;i<n;i++){
+    const v=fftData[i]/255;
+    const h=v*80;
+    const x=i*(W/n);
+    ctx.fillStyle=spectralColor(i/n+colorPhase,1);
+    ctx.fillRect(x,H-h,bw,h);
+  }
+  ctx.restore();
+}
+
+// ── MAIN RENDER LOOP ──────────────────────────────────────────────────────────
+function render(now){
+  requestAnimationFrame(render);
+  dt=Math.min((now-lastTime)*0.001,0.05);
+  lastTime=now;
+  t+=dt;
+  frameCount++;
+  colorPhase+=colorCycleSpeed*dt*60;
+
+  // Background: deep fade
+  ctx.fillStyle='rgba(0,0,0,0.18)';
+  ctx.fillRect(0,0,W,H);
+
+  // SDF ring (cheap, every 2 frames)
+  if(frameCount%2===0)renderSDFRing(t);
+
+  // Voronoi/Delaunay
+  renderVoronoi(t);
+
+  // E8 lattice
+  renderE8(t);
+
+  // Polytopes
+  for(const p of polytopes){
+    if(p.dim===4)renderPoly4(p,t);
+    else renderPoly3(p,t);
+  }
+
+  // FFT
+  renderFFT(t);
+
+  // Update audio
+  updateAudio();
+
+  // Color rebuild every ~5s
+  if(frameCount%300===0)buildPalette();
+
+  // HUD
+  if(hudOn){
+    hud.innerHTML=`
+      <b>TOPOLOGICAL POLYTOPE KALEIDOFUSION</b><br>
+      seed: ${seed.toString(16).toUpperCase()}<br>
+      t: ${t.toFixed(2)}s · fps: ${(1/dt).toFixed(0)}<br>
+      polytopes: ${polytopes.map(p=>p.name).join(', ')}<br>
+      E8 roots: ${e8Angles.length} · voronoi sites: ${voronoiSites.length}<br>
+      color phase: ${(colorPhase%1).toFixed(3)}<br>
+      sound: ${soundOn?'ON':'OFF'}
+    `;
+  }
+}
+
+// ── INPUT ─────────────────────────────────────────────────────────────────────
+function handleReseed(){
+  reseed();
+  if(soundOn&&audioCtx){
+    // Burst chord
+    for(const f of[220,277,330,440])spawnOsc(f,0.4,0.8);
+  }
+}
+
+window.addEventListener('keydown',e=>{
+  if(e.code==='Space'){e.preventDefault();handleReseed();}
+  if(e.code==='KeyH'){hudOn=!hudOn;hud.classList.toggle('visible',hudOn);}
+  if(e.code==='KeyS'){
+    if(!soundOn){
+      soundOn=true;
+      initAudio();
+      if(audioCtx.state==='suspended')audioCtx.resume();
+    }else{
+      soundOn=false;
+      if(masterGain)masterGain.gain.setTargetAtTime(0,audioCtx.currentTime,0.1);
+      setTimeout(()=>{if(masterGain)masterGain.gain.value=0.07;},500);
+    }
+  }
+});
+canvas.addEventListener('click',handleReseed);
+canvas.addEventListener('touchstart',e=>{e.preventDefault();handleReseed();},{passive:false});
+
+// ── BOOT ──────────────────────────────────────────────────────────────────────
+reseed();
+requestAnimationFrame(render);
+
+})();
+</script>
+</body>
+</html>

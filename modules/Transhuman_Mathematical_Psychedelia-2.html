@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Transhuman Mathematical Psychedelia 2026 – Hyper-Synchronized Fractal Engine</title>
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+
+<meta name="description" content="Ultra-efficient real-time WebGL2 generative art engine combining kaleidoscopic fractals, reaction diffusion morphogenesis, Lorenz attractor flow fields and synchronized modular WebAudio synthesis. A psychedelic canvas experience for 2026.">
+<meta name="keywords" content="abstract generative art, real-time math visualization, psychedelic canvas experience, kaleidoscopic fractal music, mesmerizing audio reactive visuals 2026">
+
+<style>
+html,body{margin:0;overflow:hidden;background:#000;}
+canvas{position:fixed;top:0;left:0;}
+#hud{
+position:fixed;top:10px;left:10px;
+font-family:monospace;font-size:12px;
+color:#0f0;background:rgba(0,0,0,.4);
+padding:8px;border-radius:8px;
+display:none;
+}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="hud"></div>
+
+<script>
+"use strict";
+
+/* =====================================================
+   GLOBAL STATE
+===================================================== */
+
+const canvas = document.getElementById("gl");
+const hud = document.getElementById("hud");
+
+let gl, program;
+let audioCtx=null;
+let audioEnabled=false;
+let showHUD=false;
+
+let state={};
+let last=performance.now();
+let fps=0;
+let resolutionScale=1;
+
+/* =====================================================
+   RANDOMIZATION CORE
+===================================================== */
+
+function reseed(){
+
+state = {
+seed: Math.random()*10000,
+sym: 3+Math.floor(Math.random()*22),
+power: 2+Math.random()*6,
+warp: Math.random()*2,
+diff: Math.random(),
+noiseFreq: 0.5+Math.random()*3,
+lorenz: [
+5+Math.random()*25,
+20+Math.random()*40,
+1+Math.random()*4
+],
+palettePhase: [
+Math.random(),
+Math.random(),
+Math.random()
+],
+paletteFreq: [
+0.2+Math.random(),
+0.2+Math.random(),
+0.2+Math.random()
+],
+pulsar: 0.5+Math.random()*3
+};
+
+if(audioEnabled) buildAudio(true);
+}
+
+/* =====================================================
+   RESIZE
+===================================================== */
+
+function resize(){
+const dpr=window.devicePixelRatio||1;
+canvas.width=innerWidth*dpr*resolutionScale;
+canvas.height=innerHeight*dpr*resolutionScale;
+canvas.style.width=innerWidth+"px";
+canvas.style.height=innerHeight+"px";
+if(gl) gl.viewport(0,0,canvas.width,canvas.height);
+}
+window.addEventListener("resize",resize);
+
+/* =====================================================
+   GL INIT
+===================================================== */
+
+function initGL(){
+gl=canvas.getContext("webgl2",{antialias:false});
+if(!gl){alert("WebGL2 required");return;}
+
+const vs=`#version 300 es
+layout(location=0) in vec2 p;
+void main(){gl_Position=vec4(p,0.,1.);}`;
+
+const fs=`#version 300 es
+precision highp float;
+out vec4 O;
+
+uniform float time;
+uniform vec2 res;
+uniform float seed;
+uniform int sym;
+uniform float power;
+uniform float warp;
+uniform float diff;
+uniform float noiseFreq;
+uniform vec3 lorenz;
+uniform vec3 palettePhase;
+uniform vec3 paletteFreq;
+uniform float pulsar;
+
+float hash(vec2 p){
+return fract(sin(dot(p,vec2(127.1,311.7))+seed)*43758.5453);
+}
+
+float noise(vec2 p){
+vec2 i=floor(p);
+vec2 f=fract(p);
+vec2 u=f*f*(3.-2.*f);
+return mix(mix(hash(i),hash(i+vec2(1,0)),u.x),
+mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),u.x),u.y);
+}
+
+vec2 kaleido(vec2 uv){
+float r=length(uv);
+float a=atan(uv.y,uv.x);
+float seg=6.28318/float(sym);
+a=mod(a,seg);
+a=abs(a-seg*.5);
+return vec2(cos(a),sin(a))*r;
+}
+
+float multibrot(vec2 c){
+vec2 z=vec2(0.);
+float m=0.;
+for(int i=0;i<50;i++){
+float r=length(z);
+float a=atan(z.y,z.x);
+float zr=pow(r,power);
+float za=a*power;
+z=zr*vec2(cos(za),sin(za))+c;
+if(dot(z,z)>4.) break;
+m+=1.;
+}
+return m/50.;
+}
+
+vec3 palette(float t){
+return .5+.5*cos(6.2831*(paletteFreq*t+palettePhase));
+}
+
+void main(){
+vec2 uv=(gl_FragCoord.xy/res)*2.-1.;
+uv.x*=res.x/res.y;
+
+uv=kaleido(uv);
+
+float n=noise(uv*noiseFreq+time*.2);
+uv+=n*diff;
+
+float m=multibrot(uv+vec2(sin(time*.1),cos(time*.1)));
+
+float lor=sin(uv.x*lorenz.x+time*.3)+
+cos(uv.y*lorenz.y-time*.2);
+
+float pulse=sin(time*pulsar);
+
+float t=m + n + lor*.3 + pulse*.2;
+
+vec3 col=palette(t);
+
+O=vec4(col,1.);
+}`;
+
+function compile(type,src){
+const s=gl.createShader(type);
+gl.shaderSource(s,src);
+gl.compileShader(s);
+return s;
+}
+
+program=gl.createProgram();
+gl.attachShader(program,compile(gl.VERTEX_SHADER,vs));
+gl.attachShader(program,compile(gl.FRAGMENT_SHADER,fs));
+gl.linkProgram(program);
+gl.useProgram(program);
+
+const quad=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,quad);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([
+-1,-1,1,-1,-1,1,
+-1,1,1,-1,1,1]),gl.STATIC_DRAW);
+
+gl.enableVertexAttribArray(0);
+gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
+
+resize();
+}
+
+/* =====================================================
+   AUDIO – SYNCHRONIZED TO VISUAL STATE
+===================================================== */
+
+function buildAudio(rebuild=false){
+
+if(!audioEnabled) return;
+
+if(rebuild && audioCtx){
+audioCtx.close();
+audioCtx=null;
+}
+
+if(!audioCtx)
+audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+
+const master=audioCtx.createGain();
+master.gain.value=.6;
+master.connect(audioCtx.destination);
+
+const osc=audioCtx.createOscillator();
+osc.type="sawtooth";
+osc.frequency.value=40+state.sym*4;
+
+const fm=audioCtx.createOscillator();
+fm.frequency.value=state.pulsar*20;
+
+const fmGain=audioCtx.createGain();
+fmGain.gain.value=state.power*30;
+
+fm.connect(fmGain);
+fmGain.connect(osc.frequency);
+
+const filter=audioCtx.createBiquadFilter();
+filter.type="lowpass";
+filter.frequency.value=500+state.noiseFreq*1000;
+
+osc.connect(filter);
+filter.connect(master);
+
+osc.start();
+fm.start();
+}
+
+/* =====================================================
+   LOOP
+===================================================== */
+
+function loop(now){
+const dt=(now-last)/1000;
+last=now;
+fps=1/dt;
+
+gl.useProgram(program);
+
+gl.uniform1f(gl.getUniformLocation(program,"time"),now*.001);
+gl.uniform2f(gl.getUniformLocation(program,"res"),canvas.width,canvas.height);
+gl.uniform1f(gl.getUniformLocation(program,"seed"),state.seed);
+gl.uniform1i(gl.getUniformLocation(program,"sym"),state.sym);
+gl.uniform1f(gl.getUniformLocation(program,"power"),state.power);
+gl.uniform1f(gl.getUniformLocation(program,"warp"),state.warp);
+gl.uniform1f(gl.getUniformLocation(program,"diff"),state.diff);
+gl.uniform1f(gl.getUniformLocation(program,"noiseFreq"),state.noiseFreq);
+gl.uniform3f(gl.getUniformLocation(program,"lorenz"),
+state.lorenz[0],state.lorenz[1],state.lorenz[2]);
+gl.uniform3f(gl.getUniformLocation(program,"palettePhase"),
+state.palettePhase[0],state.palettePhase[1],state.palettePhase[2]);
+gl.uniform3f(gl.getUniformLocation(program,"paletteFreq"),
+state.paletteFreq[0],state.paletteFreq[1],state.paletteFreq[2]);
+gl.uniform1f(gl.getUniformLocation(program,"pulsar"),state.pulsar);
+
+gl.drawArrays(gl.TRIANGLES,0,6);
+
+if(showHUD){
+hud.style.display="block";
+hud.innerHTML=
+"FPS: "+fps.toFixed(1)+"<br>"+
+"Sym: "+state.sym+"<br>"+
+"Power: "+state.power.toFixed(2)+"<br>"+
+"Audio: "+(audioEnabled?"ON":"OFF")+"<br>"+
+"[SPACE] reseed<br>[H] HUD<br>[S] sound";
+}else hud.style.display="none";
+
+requestAnimationFrame(loop);
+}
+
+/* =====================================================
+   INPUT
+===================================================== */
+
+window.addEventListener("keydown",e=>{
+if(e.code==="Space") reseed();
+if(e.key==="h"||e.key==="H") showHUD=!showHUD;
+if(e.key==="s"||e.key==="S"){
+audioEnabled=!audioEnabled;
+if(audioEnabled) buildAudio(true);
+}
+});
+
+window.addEventListener("click",reseed);
+window.addEventListener("touchstart",reseed);
+
+/* =====================================================
+   BOOT
+===================================================== */
+
+initGL();
+reseed();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

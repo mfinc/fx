@@ -1,0 +1,969 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Spectral Polytopic Dreamforge</title>
+<meta name="description" content="Spectral Polytopic Dreamforge — an immersive WebGL audiovisual experience featuring ray-marched signed distance fields of Archimedean and Johnson solids blended through Coxeter kaleidoscopic symmetry engines, Lie algebra SO(3) rotations, fractal Brownian motion, simplex noise, logistic map cascades, Feigenbaum bifurcations, Hilbert space projections, and CIELAB perceptual spectral harmonization with opponent-process color theory. Optional spectral audio synthesis via inverse Fourier transforms and phase modulation.">
+<meta name="keywords" content="ray marching,signed distance fields,SDF,WebGL,Archimedean solids,Johnson solids,polytope,Coxeter groups,Lie algebra,SO3,fractal,FBM,simplex noise,CIELAB,perceptual color,opponent process,Feigenbaum,bifurcation,logistic map,Hilbert space,generative art,audiovisual,spectral synthesis,kaleidoscope,generative,creative coding,demoscene">
+<meta name="author" content="Spectral Polytopic Dreamforge">
+<meta name="robots" content="index,follow">
+<meta property="og:title" content="Spectral Polytopic Dreamforge">
+<meta property="og:description" content="Ray-marched polytopic dreamscapes — Coxeter kaleidoscopes, Lie algebra rotations, Feigenbaum bifurcations, and CIELAB spectral harmonics in WebGL.">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Spectral Polytopic Dreamforge">
+<meta name="twitter:description" content="Immersive WebGL ray-marched polytopic audiovisual experience with Coxeter symmetry and perceptual CIELAB color.">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000;touch-action:none;user-select:none}
+canvas{display:block;position:fixed;top:0;left:0;width:100vw;height:100vh}
+#hud{
+  position:fixed;top:0;left:0;width:100%;height:100%;
+  pointer-events:none;display:none;
+  font-family:'Courier New',Courier,monospace;
+  font-size:11px;line-height:1.75;
+  color:rgba(180,210,255,0.78);
+  text-shadow:0 0 8px rgba(80,140,255,0.6);
+}
+.ht{position:absolute;top:18px;left:18px}
+.hr{position:absolute;top:18px;right:18px;text-align:right}
+.hb{position:absolute;bottom:18px;left:18px;letter-spacing:.12em;font-size:10px;opacity:.6}
+.hbr{position:absolute;bottom:18px;right:18px;text-align:right}
+.k{color:#f9c74f;text-shadow:0 0 8px rgba(249,199,79,.7)}
+.v{color:#90e0ef;text-shadow:0 0 6px rgba(144,224,239,.6)}
+.flash{animation:fl .6s ease-out forwards}
+@keyframes fl{0%{opacity:1}100%{opacity:0}}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div class="ht">
+    <div><span class="k">SPACE / CLICK / TAP</span> &mdash; New Universe</div>
+    <div><span class="k">H</span> &mdash; Toggle HUD</div>
+    <div><span class="k">S</span> &mdash; Toggle Sound</div>
+  </div>
+  <div class="hr" id="info"></div>
+  <div class="hb">✦ SPECTRAL POLYTOPIC DREAMFORGE ✦</div>
+  <div class="hbr" id="extra"></div>
+</div>
+<script>
+/* ================================================================
+   SPECTRAL POLYTOPIC DREAMFORGE
+   Ray-marched Archimedean/Johnson SDF polytopes · Coxeter
+   kaleidoscopes · Lie algebra SO(3) · FBM simplex noise ·
+   Logistic map cascades · Feigenbaum bifurcations ·
+   Hilbert projections · CIELAB perceptual color harmonics ·
+   Opponent-process color theory · Spectral audio synthesis
+   ================================================================ */
+(function(){'use strict';
+
+const canvas=document.getElementById('c');
+const hud=document.getElementById('hud');
+const info=document.getElementById('info');
+const extra=document.getElementById('extra');
+
+// ── Device detection & quality ──────────────────────────────────
+const isMobile=/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+const MAX_S = isMobile ? 40 : 72;
+const FBM_O = isMobile ? 3 : 5;
+let   quality= isMobile ? 0.45 : 0.9;
+const DPR    = Math.min(window.devicePixelRatio||1, isMobile?1.5:2.0);
+
+// ── Shared state params (Float32Array — also drives audio) ───────
+const P = new Float32Array(16);
+
+// ── Universe state ───────────────────────────────────────────────
+const SOLID_NAMES=[
+  'Icosahedron','Dodecahedron','Truncated Octahedron',
+  'Cuboctahedron','Rhombicuboctahedron','Truncated Icosahedron',
+  'Snub Cube','Johnson Elongated Bipyramid'
+];
+const COLOR_NAMES=[
+  'HSV Spectral','CIELAB Perceptual','Opponent Process','Feigenbaum Bands'
+];
+const SYM_NAMES=[
+  'Tetrahedral [3,3]','Octahedral [3,4]','Icosahedral [3,5]','Hexagonal Prism'
+];
+
+let U={}; // universe
+
+function rng(a,b){return a+Math.random()*(b-a);}
+function rni(n){return Math.floor(Math.random()*n);}
+
+function randomize(){
+  U.seed     = rng(1,9999);
+  U.solid0   = rni(SOLID_NAMES.length);
+  U.solid1   = rni(SOLID_NAMES.length);
+  U.sym      = rni(SYM_NAMES.length);
+  U.colorMode= rni(COLOR_NAMES.length);
+  U.colorPhase=rng(0,Math.PI*2);
+  U.feigenR  = rng(3.42,3.96);   // bifurcation cascade region
+  U.noiseScale=rng(0.4,2.8);
+  U.noiseAmp  =rng(0.04,0.22);
+  U.blendK    =rng(0.12,0.45);
+  // rot speeds (Lie algebra elements stored in P[8..13])
+  for(let i=0;i<16;i++) P[i]=Math.random();
+  for(let i=8;i<14;i++) P[i]=(Math.random()-0.5)*0.3;
+  U.time=U.time||0;
+  U.soundEnabled=U.soundEnabled||false;
+  U.hudVisible=U.hudVisible||false;
+  U.fps=60;U.fpsFrames=0;U.fpsTime=0;
+}
+
+randomize();
+
+// ── WebGL ────────────────────────────────────────────────────────
+const gl=canvas.getContext('webgl',{
+  antialias:false,
+  powerPreference:'high-performance',
+  premultipliedAlpha:false
+})||canvas.getContext('experimental-webgl');
+
+if(!gl){
+  document.body.innerHTML='<p style="color:#adf;padding:2em;font-family:monospace">WebGL unavailable in this browser.</p>';
+  return;
+}
+
+// ── Shader Sources ───────────────────────────────────────────────
+const VS=`attribute vec2 a;void main(){gl_Position=vec4(a,0.,1.);}`;
+
+const FS=`
+precision highp float;
+uniform vec2  uRES;
+uniform float uT;
+uniform float uSEED;
+uniform float uP[16];
+uniform mat3  uRA;
+uniform mat3  uRB;
+uniform float uSOL0;
+uniform float uSOL1;
+uniform float uSYM;
+uniform float uCM;
+uniform float uCP;
+uniform float uFR;
+uniform float uNS;
+uniform float uNA;
+uniform float uBK;
+
+#define PI   3.14159265358979
+#define TAU  6.28318530717959
+#define PHI  1.61803398874989
+#define MS   ${MAX_S}
+#define FOCT ${FBM_O}
+
+// ── Rotation ────────────────────────────────────────────────────
+mat2 r2(float a){float c=cos(a),s=sin(a);return mat2(c,-s,s,c);}
+
+// Sort vec3 descending (for polytope SDFs via symmetry folding)
+vec3 sD(vec3 p){
+  if(p.x<p.y){float t=p.x;p.x=p.y;p.y=t;}
+  if(p.x<p.z){float t=p.x;p.x=p.z;p.z=t;}
+  if(p.y<p.z){float t=p.y;p.y=p.z;p.z=t;}
+  return p;
+}
+
+// ── Value Noise (fast, for FBM) ──────────────────────────────────
+float h1(float n){return fract(sin(n)*43758.5453);}
+float vn(vec3 p){
+  vec3 i=floor(p),f=fract(p);
+  f=f*f*(3.-2.*f);
+  float n=i.x+i.y*57.+i.z*113.;
+  return mix(
+    mix(mix(h1(n),    h1(n+1.),  f.x),mix(h1(n+57.), h1(n+58.), f.x),f.y),
+    mix(mix(h1(n+113.),h1(n+114.),f.x),mix(h1(n+170.),h1(n+171.),f.x),f.y),
+  f.z);
+}
+
+// ── Simplex Noise 3D (for non-FBM uses) ─────────────────────────
+vec3 m289(vec3 x){return x-floor(x*(1./289.))*289.;}
+vec4 m289v(vec4 x){return x-floor(x*(1./289.))*289.;}
+vec4 prm(vec4 x){return m289v(((x*34.)+1.)*x);}
+vec4 tis(vec4 r){return 1.79284291-0.85373472*r;}
+float snz(vec3 v){
+  const vec2 C=vec2(1./6.,1./3.);
+  vec3 i=floor(v+dot(v,C.yyy));
+  vec3 x0=v-i+dot(i,C.xxx);
+  vec3 g=step(x0.yzx,x0.xyz),l=1.-g;
+  vec3 i1=min(g.xyz,l.zxy),i2=max(g.xyz,l.zxy);
+  vec3 x1=x0-i1+C.xxx,x2=x0-i2+C.yyy,x3=x0-.5;
+  i=m289(i);
+  vec4 p4=prm(prm(prm(i.z+vec4(0.,i1.z,i2.z,1.))+i.y+vec4(0.,i1.y,i2.y,1.))+i.x+vec4(0.,i1.x,i2.x,1.));
+  vec3 ns=.142857*vec3(2.,-.5,-1.);
+  vec4 jj=p4-49.*floor(p4*ns.z*ns.z);
+  vec4 xf=floor(jj*ns.z),yf=floor(jj-7.*xf);
+  vec4 xx=xf*ns.x+ns.yyyy,yy=yf*ns.x+ns.yyyy,hh=1.-abs(xx)-abs(yy);
+  vec4 b0=vec4(xx.xy,yy.xy),b1=vec4(xx.zw,yy.zw);
+  vec4 s0=floor(b0)*2.+1.,s1=floor(b1)*2.+1.,sh=-step(hh,vec4(0.));
+  vec4 a0=b0.xzyw+s0.xzyw*sh.xxyy,a1=b1.xzyw+s1.xzyw*sh.zzww;
+  vec3 p0=vec3(a0.xy,hh.x),p1=vec3(a0.zw,hh.y),p2=vec3(a1.xy,hh.z),p3=vec3(a1.zw,hh.w);
+  vec4 nm=tis(vec4(dot(p0,p0),dot(p1,p1),dot(p2,p2),dot(p3,p3)));
+  p0*=nm.x;p1*=nm.y;p2*=nm.z;p3*=nm.w;
+  vec4 mm=max(.6-vec4(dot(x0,x0),dot(x1,x1),dot(x2,x2),dot(x3,x3)),0.);
+  mm=mm*mm;
+  return 42.*dot(mm*mm,vec4(dot(p0,x0),dot(p1,x1),dot(p2,x2),dot(p3,x3)));
+}
+
+// ── FBM (value noise for speed) ──────────────────────────────────
+float fbm(vec3 p){
+  float v=0.,a=.5,f=1.;
+  for(int i=0;i<FOCT;i++){v+=a*vn(p*f);a*=.5;f*=2.3;}
+  return v*2.-1.;
+}
+
+// ── Logistic Map / Feigenbaum ────────────────────────────────────
+float logi(float x,float r,int n){
+  for(int i=0;i<12;i++){if(i>=n)break;x=r*x*(1.-x);}
+  return x;
+}
+float feigWarp(vec3 p,float r,float amp){
+  float x=.5+.35*vn(p*.6+vec3(7.31,2.17,4.73));
+  x=clamp(x,.01,.99);
+  // 8 logistic iterations — Feigenbaum cascade
+  for(int i=0;i<8;i++) x=r*x*(1.-x);
+  return amp*(x-.5);
+}
+
+// ── Polytope SDFs ─────────────────────────────────────────────────
+// All use symmetry-sorted abs(p) (Coxeter fundamental domain trick)
+
+float sdIco(vec3 p,float r){
+  // Icosahedron: SDF via dodecahedron face normals (dual)
+  vec3 q=sD(abs(p));
+  float d1=dot(q,normalize(vec3(1.,1.,1.)));
+  float d2=dot(q,normalize(vec3(PHI,1./PHI,0.)));
+  return max(d1,d2)-r;
+}
+
+float sdDodec(vec3 p,float r){
+  // Dodecahedron: SDF via icosahedron face normals (dual)
+  vec3 q=sD(abs(p));
+  return dot(q,normalize(vec3(PHI,1.,0.)))-r;
+}
+
+float sdTOct(vec3 p,float r){
+  // Truncated octahedron: cube ∩ scaled octahedron
+  vec3 q=abs(p)/r;
+  float dc=max(q.x,max(q.y,q.z))-1.;
+  float do_=( q.x+q.y+q.z)*0.5774-1.;  // 1/sqrt(3)
+  return max(dc,do_)*r;
+}
+
+float sdCubOct(vec3 p,float r){
+  // Cuboctahedron: intersection of cube and octahedron
+  vec3 q=abs(p)/r;
+  float dc=max(q.x,max(q.y,q.z))-1.;
+  float do_=(q.x+q.y+q.z)*0.5774-1.;
+  return max(dc*0.9,do_)*r;
+}
+
+float sdRCubo(vec3 p,float r){
+  // Rhombicuboctahedron via sorted half-space intersections
+  vec3 q=sD(abs(p))/r;
+  float d1=q.x-1.;
+  float d2=(q.x+q.y)*0.7071-1.;
+  float d3=(q.x+q.y+q.z)*0.5774-1.;
+  return max(max(d1,d2*0.95),d3*0.88)*r;
+}
+
+float sdTIco(vec3 p,float r){
+  // Truncated icosahedron (C60 / soccer ball)
+  // Bounded by pentagonal + hexagonal face half-spaces
+  vec3 q=sD(abs(p));
+  float N1=sqrt(1.+PHI*PHI);
+  float N2=sqrt(4.+PHI*PHI);
+  float d1=dot(q,vec3(0.,1./N1,PHI/N1))-r;
+  float d2=dot(q,vec3(2./N2,PHI/N2,0.))-r*0.97;
+  float d3=dot(q,normalize(vec3(1.,1.,PHI+1.)))-r*0.98;
+  return max(max(d1,d2),d3);
+}
+
+float sdSnub(vec3 p,float r){
+  // Snub cube: rhombicuboctahedron with chiral twist
+  float twist=sin(uT*0.071+uSEED*0.001)*0.28;
+  p.xy=r2(twist)*p.xy;
+  p.yz=r2(twist*0.618)*p.yz;
+  return sdRCubo(p,r);
+}
+
+float sdJohnson(vec3 p,float r){
+  // Johnson solid: elongated square bipyramid (J15 approximation)
+  float elong=0.65;
+  float cyl=length(p.xz)-r*0.55;
+  float body=max(cyl,abs(p.y)-r*elong);
+  float tip1=length(p-vec3(0.,r*(elong+.35),0.))-r*.42;
+  float tip2=length(p+vec3(0.,r*(elong+.35),0.))-r*.42;
+  return min(body,min(tip1,tip2));
+}
+
+float sdSolid(vec3 p,float idx,float r){
+  if(idx<.5) return sdIco(p,r);
+  if(idx<1.5) return sdDodec(p,r);
+  if(idx<2.5) return sdTOct(p,r);
+  if(idx<3.5) return sdCubOct(p,r);
+  if(idx<4.5) return sdRCubo(p,r);
+  if(idx<5.5) return sdTIco(p,r);
+  if(idx<6.5) return sdSnub(p,r);
+  return sdJohnson(p,r);
+}
+
+// ── Smooth union/blend ────────────────────────────────────────────
+float smin(float a,float b,float k){
+  float h=clamp(.5+.5*(b-a)/k,0.,1.);
+  return mix(b,a,h)-k*h*(1.-h);
+}
+
+// ── Coxeter Group Folding ─────────────────────────────────────────
+// Implements discrete reflection groups that generate kaleidoscopic symmetry
+vec3 coxFold(vec3 p,int sym){
+  if(sym==0){
+    // Tetrahedral [3,3,3]: A3 symmetry, sort into fundamental simplex
+    p=abs(p);
+    if(p.x<p.y){float t=p.x;p.x=p.y;p.y=t;}
+    if(p.x<p.z){float t=p.x;p.x=p.z;p.z=t;}
+    if(p.y<p.z){float t=p.y;p.y=p.z;p.z=t;}
+  } else if(sym==1){
+    // Octahedral [3,4,3]: hyperoctahedral symmetry B3
+    p=abs(p);
+    if(p.x<p.y){float t=p.x;p.x=p.y;p.y=t;}
+    if(p.x<p.z){float t=p.x;p.x=p.z;p.z=t;}
+    if(p.y<p.z){float t=p.y;p.y=p.z;p.z=t;}
+    // Additional diagonal mirror of B3
+    float d=p.x-p.y+p.z;
+    if(d<0.){float t=p.y;p.y=p.z;p.z=t;}
+  } else if(sym==2){
+    // Icosahedral [3,5,3]: H3 symmetry, golden ratio mirrors
+    p=abs(p);
+    // Three icosahedral mirror planes
+    vec3 n1=normalize(vec3(PHI,1.,0.));
+    vec3 n2=normalize(vec3(0.,PHI,1.));
+    vec3 n3=normalize(vec3(1.,0.,PHI));
+    float d;
+    d=dot(p,n1);if(d<0.)p-=2.*d*n1;
+    d=dot(p,n2);if(d<0.)p-=2.*d*n2;
+    d=dot(p,n3);if(d<0.)p-=2.*d*n3;
+    d=dot(p,n1);if(d<0.)p-=2.*d*n1;
+    // Sort for consistent fundamental domain
+    if(p.x<p.z){float t=p.x;p.x=p.z;p.z=t;}
+  } else {
+    // Hexagonal prism symmetry: dihedral D6h
+    p.xy=abs(p.xy);
+    p.z=abs(p.z);
+    // Fold into 30° sector (6-fold)
+    float sq3=1.7320508;
+    if(p.y*sq3>p.x){
+      float px=p.x,py=p.y;
+      p.x=px*.5+py*.866;
+      p.y=py*.5-px*.866;
+      if(p.x<0.)p.x=-p.x;
+      if(p.y<0.)p.y=-p.y;
+    }
+  }
+  return p;
+}
+
+// ── Scene SDF ────────────────────────────────────────────────────
+float scene(vec3 p){
+  int sym=int(uSYM+.5);
+
+  // Lie algebra SO(3) rotations (precomputed in JS as mat3)
+  vec3 q0=coxFold(uRA*p,sym);
+  vec3 q1=coxFold(uRB*p,sym);
+
+  // FBM surface displacement (fractal Brownian motion)
+  float disp=fbm(p*uNS+vec3(uT*.04))*uNA;
+
+  // Feigenbaum/logistic warp
+  float chaos=feigWarp(p,uFR,uNA*.65);
+
+  float warp=disp+chaos;
+
+  // Primary Archimedean/Johnson solid
+  float d0=sdSolid(q0,uSOL0,1.0)+warp;
+
+  // Secondary solid (blended via smooth-min)
+  float d1=sdSolid(q1,uSOL1,.78)+warp*.55;
+
+  // Smooth blend (parameterized by blendK)
+  float d=smin(d0,d1,uBK);
+
+  // Hilbert-inspired fractal repetition in background
+  // Iterate 2 levels of self-similar tiling
+  float rep=5.0;
+  vec3 rp=mod(p+rep*.5,rep)-rep*.5;
+  vec3 bq=coxFold(rp,sym);
+  float db=sdSolid(bq,uSOL0,0.26)+disp*.4;
+  d=smin(d,db,.55);
+
+  // Second tiling scale (Hilbert space projection metaphor)
+  rep=11.0;
+  rp=mod(p+rep*.5,rep)-rep*.5;
+  bq=coxFold(uRA*rp,sym);
+  float db2=sdSolid(bq,uSOL1,0.1)+disp*.25;
+  d=smin(d,db2,.3);
+
+  return d;
+}
+
+// ── Normal (4-tap tetrahedral for speed) ─────────────────────────
+vec3 nrm(vec3 p){
+  const float e=.0008;
+  vec2 k=vec2(1.,-1.);
+  return normalize(
+    k.xyy*scene(p+k.xyy*e)+k.yyx*scene(p+k.yyx*e)+
+    k.yxy*scene(p+k.yxy*e)+k.xxx*scene(p+k.xxx*e)
+  );
+}
+
+// ── Ambient Occlusion ────────────────────────────────────────────
+float ao(vec3 p,vec3 n){
+  float oc=0.,sc=1.;
+  for(int i=0;i<5;i++){
+    float hr=.01+.13*float(i)/4.;
+    oc-=(scene(p+n*hr)-hr)*sc;
+    sc*=.94;
+  }
+  return clamp(1.-2.8*oc,0.,1.);
+}
+
+// ── Ray March ────────────────────────────────────────────────────
+float march(vec3 ro,vec3 rd){
+  float t=.08;
+  for(int i=0;i<MS;i++){
+    float d=scene(ro+rd*t);
+    if(d<.0009) return t;
+    if(t>26.)   break;
+    t+=d*.82;
+  }
+  return -1.;
+}
+
+// ── Color Spaces ─────────────────────────────────────────────────
+vec3 hsv2rgb(vec3 c){
+  vec4 K=vec4(1.,2./3.,1./3.,3.);
+  return c.z*mix(K.xxx,clamp(abs(fract(c.xxx+K.xyz)*6.-K.www)-K.xxx,0.,1.),c.y);
+}
+
+// CIELAB ↔ RGB (full conversion pipeline)
+float labF(float t){return t>.008856?pow(t,1./3.):7.787*t+.13793;}
+float labFi(float t){return t>.20690?t*t*t:(t-.13793)*.12842;}
+
+vec3 rgb2lab(vec3 c){
+  c=pow(clamp(c,0.,1.),vec3(2.2));
+  float X=dot(c,vec3(.4124564,.3575761,.1804375));
+  float Y=dot(c,vec3(.2126729,.7151522,.0721750));
+  float Z=dot(c,vec3(.0193339,.1191920,.9503041));
+  float fx=labF(X/.95047),fy=labF(Y),fz=labF(Z/1.08883);
+  return vec3(116.*fy-16.,500.*(fx-fy),200.*(fy-fz));
+}
+
+vec3 lab2rgb(vec3 lab){
+  float fy=(lab.x+16.)/116.;
+  float fx=lab.y/500.+fy,fz=fy-lab.z/200.;
+  float X=labFi(fx)*.95047,Y=labFi(fy),Z=labFi(fz)*1.08883;
+  vec3 c=vec3(
+    dot(vec3(X,Y,Z),vec3(3.2404542,-1.5371385,-.4985314)),
+    dot(vec3(X,Y,Z),vec3(-.9692660,1.8760108,.0415560)),
+    dot(vec3(X,Y,Z),vec3(.0556434,-.2040259,1.0572252))
+  );
+  return pow(clamp(c,0.,1.),vec3(1./2.2));
+}
+
+// Opponent-process color model (LMS chromatic channels → CIELAB)
+vec3 opponent(float hue,float sat,float lum){
+  // Red-green and blue-yellow opponent channels
+  float rg=cos(hue*TAU)*sat;
+  float by=sin(hue*TAU)*sat;
+  // Barycentric weighting of spectral bands
+  float bary=sin(hue*TAU*3.+uT*.11)*.5+.5;
+  vec3 lab=vec3(18.+lum*60., rg*72.*bary+by*18.*(1.-bary), by*72.*(1.-bary)+rg*12.*bary);
+  return lab2rgb(lab);
+}
+
+// ── Colorizer ────────────────────────────────────────────────────
+vec3 colorize(vec3 ro,vec3 rd,float t,vec3 pos,vec3 n,float occ){
+  float tt=uT;
+
+  // ── Background (ray miss) ──
+  if(t<0.){
+    // FBM-driven nebula background
+    float bg =fbm(rd*1.8+vec3(tt*.025))*1.2;
+    float bg2=fbm(rd*3.5-vec3(tt*.018))*0.7;
+    float h=fract(uCP/(2.*PI)+uSEED*.00013+(bg+bg2)*.22);
+    if(uCM<.5){
+      return hsv2rgb(vec3(h,.85,.03+max(bg*.04,0.)));
+    } else if(uCM<1.5){
+      vec3 lab=vec3(3.+max(bg*7.,0.),(h-.5)*18.,sin(h*TAU)*16.);
+      return lab2rgb(lab);
+    } else if(uCM<2.5){
+      return opponent(h,.25,.02+max(bg*.04,0.));
+    } else {
+      float bx=fract(uSEED*.00017+bg*.3);
+      for(int i=0;i<8;i++) bx=uFR*bx*(1.-bx);
+      return hsv2rgb(vec3(fract(bx+h),.8,.03+max(bg*.04,0.)));
+    }
+  }
+
+  // ── Lights (3 colored Lie-algebra–animated) ─────────────────
+  vec3 L1=normalize(vec3(sin(tt*.13+uP[0]), .75,cos(tt*.09+uP[1])));
+  vec3 L2=normalize(vec3(-sin(tt*.11+1.1),.45,cos(tt*.08+.55)));
+  vec3 L3=normalize(vec3(cos(tt*.17+uP[2]),-sin(tt*.14+.33),.4));
+
+  float df1=max(0.,dot(n,L1));
+  float df2=max(0.,dot(n,L2))*.55;
+  float df3=max(0.,dot(n,L3))*.3;
+  float sp =pow(max(0.,dot(reflect(-L1,n),-rd)),56.)*1.2;
+  float sp2=pow(max(0.,dot(reflect(-L2,n),-rd)),24.)*.5;
+  float rim=pow(1.-max(0.,dot(n,-rd)),3.5)*.65;
+  float lum=df1*.75+df2+df3+rim*.45;
+
+  // ── Logistic / Feigenbaum hue chaos ─────────────────────────
+  // Map surface position through logistic map to get chaotic hue shift
+  float cx=fract(pos.x*.29+pos.y*.17+pos.z*.11+uSEED*.00031);
+  cx=clamp(cx,.01,.99);
+  for(int i=0;i<8;i++) cx=uFR*cx*(1.-cx);
+
+  // ── Spectral hue (barycentric + Hilbert-projected coords) ───
+  // Barycentric interpolation across the solid's surface
+  float bary1=fract(pos.x*.11+pos.y*.07+pos.z*.09);
+  float bary2=fract(pos.y*.13+pos.z*.08+pos.x*.06);
+  float baryH=bary1*.6+bary2*.4;
+
+  // Spectral banding (simulates wavelength-dependent refraction)
+  float band=sin(pos.x*3.7+pos.y*6.1+pos.z*4.9+tt*.38)*.5+.5;
+  float band2=sin(pos.x*7.3-pos.y*3.9+pos.z*8.1-tt*.22)*.5+.5;
+  float spectralShift=band*.08+band2*.05;
+
+  float baseHue=fract(uCP/(2.*PI)+uSEED*.00011+uP[0]*.28
+               +baryH*.15+cx*.09+spectralShift);
+  float sat=.62+.38*df1+.12*rim;
+  float hue=baseHue;
+
+  vec3 col;
+  int cm=int(uCM+.5);
+
+  if(cm==0){
+    // ── HSV Spectral ─────────────────────────────────────────
+    col=hsv2rgb(vec3(hue,sat,clamp(lum*.75+.08,0.,1.)));
+    // Iridescent spectral shimmer
+    float shi=sin(dot(pos,vec3(5.,8.,3.))+tt*.6)*.5+.5;
+    col=mix(col,hsv2rgb(vec3(fract(hue+.35),sat*.8,lum*.6+.1)),shi*.18);
+    col+=sp*.55+sp2*.25;
+
+  } else if(cm==1){
+    // ── CIELAB Perceptual harmonization ─────────────────────
+    // Full perceptual lightness/chroma computation in Lab space
+    float L=12.+lum*58.+occ*14.;
+    float A=cos(hue*TAU)*65.*sat;
+    float B=sin(hue*TAU)*65.*sat;
+    // Hilbert-space warp: project noise into Lab chroma plane
+    float hn=fbm(pos*.22+vec3(tt*.018));
+    A+=hn*18.; B+=hn*13.;
+    col=lab2rgb(vec3(L,A,B));
+    // Spectral gradient overlay
+    vec3 labB=lab2rgb(vec3(L+12.,A*.5,-B*.8));
+    col=mix(col,labB,band*.18);
+    col+=sp*.4+sp2*.2;
+
+  } else if(cm==2){
+    // ── Opponent Process ─────────────────────────────────────
+    // Chromatic opponent channels (as in biological visual cortex)
+    col=opponent(hue,sat,lum*.62);
+    // Spectral iridescence via cross-channel mixing
+    vec3 colShift=opponent(fract(hue+.5),sat*.7,lum*.45);
+    float irid=sin(dot(pos,vec3(4.,7.,5.))*2.+tt*.45)*.5+.5;
+    col=mix(col,colShift,irid*.22);
+    // Flowing gradient
+    col=mix(col,col.brg,band*.15);
+    col+=sp*.45+sp2*.2;
+
+  } else {
+    // ── Feigenbaum Bifurcation Bands ─────────────────────────
+    // Use iterated logistic map to paint bifurcation structure on surface
+    float bx=fract(pos.x*.38+pos.y*.27+uSEED*.00019);
+    float by=fract(pos.z*.31+pos.y*.19+uSEED*.00023);
+    bx=clamp(bx,.01,.99);by=clamp(by,.01,.99);
+    for(int i=0;i<8;i++){bx=uFR*bx*(1.-bx);by=uFR*by*(1.-by);}
+    float bifH1=fract(bx+hue);
+    float bifH2=fract(by+hue+.5);
+    col    =hsv2rgb(vec3(bifH1,.95,clamp(lum*.7+.12,0.,1.)));
+    vec3 col2=lab2rgb(vec3(18.+lum*42.,cos(bifH2*TAU)*55.,sin(bifH2*TAU)*55.));
+    // Animate blend between HSV and Lab (flowing spectral transition)
+    float blend=sin(tt*.07+uSEED*.001)*.5+.5;
+    col=mix(col,col2,blend*.5);
+    col+=sp*.4+sp2*.15;
+  }
+
+  // AO darkening
+  col*=.18+.82*occ;
+
+  // Distance fog with spectral tint
+  float fog=exp(-t*.065);
+  vec3 fogColor=lab2rgb(vec3(6.,sin(uCP)*.5,cos(uCP)*.5));
+  col=mix(fogColor,col,fog);
+
+  return col;
+}
+
+// ── Main ─────────────────────────────────────────────────────────
+void main(){
+  vec2 uv=(gl_FragCoord.xy-.5*uRES)/min(uRES.x,uRES.y);
+  float tt=uT;
+
+  // ── Camera with Lie algebra motion ──────────────────────────
+  float camR =4.5+sin(tt*.11)*.75+sin(tt*.07+1.3)*.4;
+  float camAz=tt*uP[8]*0.55+uP[14]*PI;
+  float camEl=sin(tt*.07+uP[13])*.58;
+  vec3 ro=vec3(sin(camAz)*camR*cos(camEl),
+               sin(camEl)*camR,
+               cos(camAz)*camR*cos(camEl));
+
+  vec3 fwd=normalize(-ro);
+  vec3 worldUp=vec3(sin(tt*.024)*.15,.98,cos(tt*.019)*.12);
+  vec3 rgt=normalize(cross(worldUp,fwd));
+  vec3 up2=cross(fwd,rgt);
+
+  // Camera roll (Lie algebra element of so(3))
+  float roll=sin(tt*uP[11]*.35+uP[15])*.25;
+  vec2 uvr=r2(roll)*uv;
+
+  // Field of view (slight zoom variation)
+  float fov=1.38+sin(tt*.05)*.08;
+  vec3 rd=normalize(uvr.x*rgt+uvr.y*up2+fov*fwd);
+
+  // Barrel lens distortion (Hilbert-space curvature metaphor)
+  float k1=.045+uP[3]*.04;
+  float r2_=dot(uv,uv);
+  vec2 lensOff=uv*r2_*k1;
+  rd+=rgt*lensOff.x+up2*lensOff.y;
+  rd=normalize(rd);
+
+  // ── Ray March ───────────────────────────────────────────────
+  float dist=march(ro,rd);
+
+  vec3 pos=ro+rd*max(dist,0.);
+  vec3 n  =dist>0.?nrm(pos):vec3(0.,1.,0.);
+  float oc=dist>0.?ao(pos,n):1.;
+
+  // ── Color ───────────────────────────────────────────────────
+  vec3 col=colorize(ro,rd,dist,pos,n,oc);
+
+  // ── Post-processing ─────────────────────────────────────────
+
+  // Chromatic aberration (spectral dispersion)
+  float cab=.0028*(1.+uP[4]);
+  float r2u=dot(uv,uv);
+  col.r*=1.+r2u*cab*8.;
+  col.b*=1.-r2u*cab*6.;
+  // Green channel slight fringe
+  col.g*=1.+r2u*cab*1.5;
+
+  // Bloom glow (luminance-based)
+  float lum2=dot(col,vec3(.299,.587,.114));
+  float bloom=pow(max(lum2-.68,0.),.45);
+  // Spectral bloom color from hue
+  float bloomH=fract(uCP/(2.*PI)+uSEED*.00011+lum2*.3);
+  col+=bloom*hsv2rgb(vec3(bloomH,.5,1.))*1.8;
+
+  // Vignette
+  float vig=pow(max(1.-dot(uv*.9,uv*.9),0.),1.15);
+  col*=vig;
+
+  // Filmic tone mapping (ACES-approximation)
+  col=col*(2.51*col+.03)/(col*(2.43*col+.59)+.14);
+  col=pow(clamp(col,0.,1.),vec3(.91));
+
+  gl_FragColor=vec4(col,1.);
+}
+`;
+
+// ── Compile & Link ───────────────────────────────────────────────
+function mkShader(src,type){
+  const sh=gl.createShader(type);
+  gl.shaderSource(sh,src);
+  gl.compileShader(sh);
+  if(!gl.getShaderParameter(sh,gl.COMPILE_STATUS)){
+    console.error('Shader error:',gl.getShaderInfoLog(sh));
+    console.error(src.split('\n').map((l,i)=>`${i+1}: ${l}`).join('\n'));
+    return null;
+  }
+  return sh;
+}
+
+const vs=mkShader(VS,gl.VERTEX_SHADER);
+const fs=mkShader(FS,gl.FRAGMENT_SHADER);
+if(!vs||!fs){return;}
+
+const prog=gl.createProgram();
+gl.attachShader(prog,vs);gl.attachShader(prog,fs);
+gl.linkProgram(prog);
+if(!gl.getProgramParameter(prog,gl.LINK_STATUS)){
+  console.error(gl.getProgramInfoLog(prog));return;
+}
+gl.useProgram(prog);
+
+// ── Geometry (fullscreen quad) ───────────────────────────────────
+const buf=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+const aLoc=gl.getAttribLocation(prog,'a');
+gl.enableVertexAttribArray(aLoc);
+gl.vertexAttribPointer(aLoc,2,gl.FLOAT,false,0,0);
+
+// ── Uniform Locations ────────────────────────────────────────────
+const UL={};
+['uRES','uT','uSEED','uP','uRA','uRB',
+ 'uSOL0','uSOL1','uSYM','uCM','uCP','uFR','uNS','uNA','uBK'
+].forEach(n=>UL[n]=gl.getUniformLocation(prog,n));
+
+// ── Resize ──────────────────────────────────────────────────────
+function resize(){
+  canvas.width =Math.max(1,Math.floor(window.innerWidth *DPR*quality));
+  canvas.height=Math.max(1,Math.floor(window.innerHeight*DPR*quality));
+  gl.viewport(0,0,canvas.width,canvas.height);
+}
+resize();
+window.addEventListener('resize',resize);
+
+// ── SO(3) / Lie algebra utils (JS side) ─────────────────────────
+function expSO3js(vx,vy,vz){
+  // exp: so(3) → SO(3)  (Rodrigues formula)
+  // Returns column-major Float32Array for gl.uniformMatrix3fv
+  const angle=Math.sqrt(vx*vx+vy*vy+vz*vz);
+  if(angle<1e-8) return new Float32Array([1,0,0,0,1,0,0,0,1]);
+  const ax=vx/angle,ay=vy/angle,az=vz/angle;
+  const c=Math.cos(angle),s=Math.sin(angle),t=1-c;
+  // Column-major (WebGL convention)
+  return new Float32Array([
+    t*ax*ax+c,    t*ax*ay+s*az, t*ax*az-s*ay,   // col 0
+    t*ax*ay-s*az, t*ay*ay+c,    t*ay*az+s*ax,   // col 1
+    t*ax*az+s*ay, t*ay*az-s*ax, t*az*az+c        // col 2
+  ]);
+}
+
+// ── Audio Engine ─────────────────────────────────────────────────
+// All computations use the shared params Float32Array P[]
+// No audio calculations performed when muted
+class AudioEngine{
+  constructor(){this.ctx=null;this.oscs=[];this.master=null;this.active=false;}
+
+  start(){
+    if(this.active)return;
+    try{
+      this.ctx=new(window.AudioContext||window.webkitAudioContext)();
+      const ctx=this.ctx;
+
+      // Master compressor + gain
+      const cmp=ctx.createDynamicsCompressor();
+      cmp.threshold.value=-18;cmp.ratio.value=5;cmp.attack.value=.003;cmp.release.value=.25;
+      this.master=ctx.createGain();
+      this.master.gain.setValueAtTime(.0001,ctx.currentTime);
+      this.master.gain.linearRampToValueAtTime(.14,ctx.currentTime+1.2);
+      this.master.connect(cmp);cmp.connect(ctx.destination);
+
+      // Stereo delay reverb network (allpass + feedback)
+      const dL=ctx.createDelay(2.),dR=ctx.createDelay(2.);
+      const dLg=ctx.createGain(),dRg=ctx.createGain();
+      dL.delayTime.value=.23;dR.delayTime.value=.37;
+      dLg.gain.value=.28;dRg.gain.value=.32;
+      dL.connect(dLg);dLg.connect(dR);dR.connect(dRg);dRg.connect(dL);
+      dLg.connect(this.master);dRg.connect(this.master);
+
+      // 8 oscillators — spectral synthesis via harmonic series
+      // Frequency mapping: inverse Fourier–inspired (partial sums)
+      // Panning: stereo field via phase modulation
+      this.oscs=[];
+      const types=['sine','sine','triangle','sine','sine','triangle','sawtooth','sine'];
+      const harmonics=[1,2,3,4,5,6,8,10];
+
+      for(let i=0;i<8;i++){
+        const osc=ctx.createOscillator();
+        const g=ctx.createGain();
+        const pan=ctx.createStereoPanner();
+        const flt=ctx.createBiquadFilter();
+        flt.type='bandpass';flt.Q.value=3.+i*1.5;
+
+        osc.type=types[i];
+        osc.connect(flt);flt.connect(g);g.connect(pan);pan.connect(this.master);
+        // Connect to reverb send
+        g.connect(dL);
+
+        // Initial stereo spread
+        pan.pan.value=(i/7.)*2.-1.;
+        osc.start();
+
+        this.oscs.push({osc,g,pan,flt,harm:harmonics[i]});
+      }
+
+      this.active=true;
+      this._tick();
+    }catch(e){console.warn('Audio init failed:',e);}
+  }
+
+  stop(){
+    if(!this.active||!this.ctx)return;
+    this.master.gain.linearRampToValueAtTime(.0001,this.ctx.currentTime+.5);
+    setTimeout(()=>{
+      try{this.ctx.close();}catch(e){}
+      this.ctx=null;this.oscs=[];this.active=false;
+    },600);
+  }
+
+  _tick(){
+    if(!this.active||!this.ctx)return;
+    const ctx=this.ctx;
+    const now=ctx.currentTime+.06; // scheduling lookahead
+
+    // ── Spectral synthesis from shared state P[] ──────────────
+    // Fundamental frequency mapped from Feigenbaum R (chaos level)
+    // Low R → consonant drone; high R → dissonant cascade
+    const fund=48.+( U.feigenR-3.4)*380.;  // 48 Hz to 428 Hz
+
+    // Logistic map state (using P[] values — shared with visual)
+    let lx=P[0];
+    const lr=U.feigenR;
+
+    for(let i=0;i<this.oscs.length;i++){
+      const {osc,g,pan,flt,harm}=this.oscs[i];
+
+      // Inverse FFT–inspired: amplitude = 1/harmonic (falling spectrum)
+      // modulated by P[] for timbral variation
+      lx=lr*lx*(1.-lx);  // logistic iteration
+      const freq=fund*harm*(0.995+lx*.01);
+      osc.frequency.linearRampToValueAtTime(freq,now);
+
+      // Detune = phase modulation (PM synthesis)
+      const detune=(P[(i+8)%16]-.5)*22.;
+      osc.detune.linearRampToValueAtTime(detune,now);
+
+      // Amplitude: 1/harmonic weighting + logistic modulation
+      lx=lr*lx*(1.-lx);
+      const amp=P[i%8]*0.014/Math.sqrt(harm)+lx*.004;
+      g.gain.linearRampToValueAtTime(Math.max(amp,.0001),now);
+
+      // Bandpass filter frequency tracks harmonic
+      flt.frequency.linearRampToValueAtTime(freq,now);
+
+      // Stereo field: phase modulation maps to panning
+      // (inverse Fourier: each partial panned by its phase)
+      const panVal=Math.sin(U.time*(P[i]*.12+.03)+i*1.2)*0.75;
+      pan.pan.linearRampToValueAtTime(panVal,now);
+    }
+
+    if(this.active) setTimeout(()=>this._tick(),90);
+  }
+}
+
+const aud=new AudioEngine();
+
+// ── HUD ─────────────────────────────────────────────────────────
+function hudUpdate(){
+  if(!U.hudVisible)return;
+  info.innerHTML=
+    `<div class="v">${U.fps|0} FPS &nbsp;·&nbsp; ${(quality*100)|0}% px</div>`+
+    `<div>Solid A: <span class="v">${SOLID_NAMES[U.solid0]}</span></div>`+
+    `<div>Solid B: <span class="v">${SOLID_NAMES[U.solid1]}</span></div>`+
+    `<div>Symmetry: <span class="v">${SYM_NAMES[U.sym]}</span></div>`+
+    `<div>Color: <span class="v">${COLOR_NAMES[U.colorMode]}</span></div>`+
+    `<div>Sound: <span class="v">${U.soundEnabled?'ON ♫':'OFF'}</span></div>`+
+    `<div>Feigenbaum r: <span class="v">${U.feigenR.toFixed(4)}</span></div>`;
+  extra.innerHTML=
+    `<div>Noise Ω: <span class="v">${U.noiseScale.toFixed(2)}</span></div>`+
+    `<div>Noise Δ: <span class="v">${U.noiseAmp.toFixed(3)}</span></div>`+
+    `<div>Blend K: <span class="v">${U.blendK.toFixed(3)}</span></div>`;
+}
+
+// ── Adaptive Quality ─────────────────────────────────────────────
+let aqCount=0;
+function adaptQuality(fps){
+  aqCount++;
+  if(aqCount<90)return;
+  aqCount=0;
+  if(fps<22&&quality>0.25){
+    quality=Math.max(.22,quality-.08);resize();
+  } else if(fps>52&&quality<(isMobile?.7:1.0)){
+    quality=Math.min(isMobile?.7:1.0,quality+.04);resize();
+  }
+}
+
+// ── Render Loop ──────────────────────────────────────────────────
+let lastT=0;
+
+function frame(ts){
+  requestAnimationFrame(frame);
+
+  const dt=Math.min((ts-lastT)/1000,.05);lastT=ts;
+  U.time+=dt;
+
+  // FPS tracking
+  U.fpsFrames++;U.fpsTime+=dt;
+  if(U.fpsTime>=.5){
+    U.fps=U.fpsFrames/U.fpsTime;
+    U.fpsFrames=0;U.fpsTime=0;
+    adaptQuality(U.fps);
+    hudUpdate();
+  }
+
+  // ── Pre-compute Lie algebra rotation matrices (SO(3) via JS) ──
+  const t=U.time;
+  const raM=expSO3js(P[8]*t, P[9]*t, P[10]*t);
+  const rbM=expSO3js(P[11]*t,P[12]*t,P[13]*t);
+
+  // Slow color phase drift
+  U.colorPhase+=dt*.018;
+
+  // ── Set uniforms ──────────────────────────────────────────────
+  gl.uniform2f(UL.uRES,canvas.width,canvas.height);
+  gl.uniform1f(UL.uT,t);
+  gl.uniform1f(UL.uSEED,U.seed);
+  gl.uniform1fv(UL.uP,P);
+  gl.uniformMatrix3fv(UL.uRA,false,raM);
+  gl.uniformMatrix3fv(UL.uRB,false,rbM);
+  gl.uniform1f(UL.uSOL0,U.solid0);
+  gl.uniform1f(UL.uSOL1,U.solid1);
+  gl.uniform1f(UL.uSYM,U.sym);
+  gl.uniform1f(UL.uCM,U.colorMode);
+  gl.uniform1f(UL.uCP,U.colorPhase);
+  gl.uniform1f(UL.uFR,U.feigenR);
+  gl.uniform1f(UL.uNS,U.noiseScale);
+  gl.uniform1f(UL.uNA,U.noiseAmp);
+  gl.uniform1f(UL.uBK,U.blendK);
+
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+}
+requestAnimationFrame(frame);
+
+// ── Input Handling ───────────────────────────────────────────────
+function doRestart(){
+  randomize();
+  if(U.soundEnabled){aud.stop();setTimeout(()=>aud.start(),650);}
+  hudUpdate();
+}
+
+document.addEventListener('keydown',e=>{
+  if(e.repeat)return;
+  const k=e.key;
+  if(k===' '){e.preventDefault();doRestart();}
+  else if(k.toLowerCase()==='h'){
+    U.hudVisible=!U.hudVisible;
+    hud.style.display=U.hudVisible?'block':'none';
+    hudUpdate();
+  }
+  else if(k.toLowerCase()==='s'){
+    U.soundEnabled=!U.soundEnabled;
+    if(U.soundEnabled)aud.start(); else aud.stop();
+    hudUpdate();
+  }
+});
+
+canvas.addEventListener('click',doRestart);
+canvas.addEventListener('touchend',e=>{e.preventDefault();doRestart();},{passive:false});
+
+// ── Prevent touch scroll ─────────────────────────────────────────
+document.addEventListener('touchmove',e=>e.preventDefault(),{passive:false});
+
+})();
+</script>
+</body>
+</html>

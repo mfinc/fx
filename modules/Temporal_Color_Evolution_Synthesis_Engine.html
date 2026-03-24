@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Temporal Color Evolution Synthesis Engine — Chromatic Harmonic Visualizer</title>
+<meta name="description" content="An immersive full-screen generative art experience where color palettes evolve through algorithmic harmonic cycles, stochastic variation, and perceptual mapping — rendered as rotating wheels, gradient fields, and adaptive swatch grids.">
+<meta name="keywords" content="generative art, color theory, chromatic evolution, algorithmic animation, color synthesis, harmonic cycles, perceptual color mapping, interactive art, HSL animation, color wheel">
+<meta property="og:title" content="Temporal Color Evolution Synthesis Engine">
+<meta property="og:description" content="Watch color palettes breathe, evolve, and transform through harmonic cycles and stochastic variation in this mesmerizing generative art experience.">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#000000">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --ui-font: 'Courier New', monospace;
+    --hud-bg: rgba(0,0,0,0.72);
+    --hud-border: rgba(255,255,255,0.12);
+    --hud-text: rgba(255,255,255,0.85);
+  }
+
+  html, body {
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background: #000;
+    cursor: crosshair;
+    font-family: var(--ui-font);
+    user-select: none;
+  }
+
+  canvas {
+    position: fixed;
+    inset: 0;
+    display: block;
+  }
+
+  #c-bg   { z-index: 1; }
+  #c-mid  { z-index: 2; }
+  #c-top  { z-index: 3; }
+  #c-ui   { z-index: 4; }
+
+  /* ── HUD ── */
+  #hud {
+    position: fixed;
+    top: 18px; left: 18px;
+    z-index: 10;
+    background: var(--hud-bg);
+    border: 1px solid var(--hud-border);
+    border-radius: 4px;
+    padding: 14px 18px;
+    font-size: 10.5px;
+    line-height: 1.85;
+    color: var(--hud-text);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    backdrop-filter: blur(12px);
+    min-width: 210px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.35s;
+  }
+  #hud.visible { opacity: 1; }
+  #hud .label { color: rgba(255,255,255,0.4); }
+  #hud .val   { color: #fff; }
+  #hud hr { border: none; border-top: 1px solid var(--hud-border); margin: 7px 0; }
+
+  /* ── corner keys ── */
+  #keys {
+    position: fixed;
+    bottom: 16px; right: 18px;
+    z-index: 10;
+    font-size: 9.5px;
+    color: rgba(255,255,255,0.22);
+    letter-spacing: 0.09em;
+    text-align: right;
+    line-height: 1.9;
+    text-transform: uppercase;
+    transition: opacity 0.4s;
+  }
+
+  /* ── seed flash ── */
+  #flash {
+    position: fixed;
+    inset: 0; z-index: 20;
+    background: rgba(255,255,255,0.07);
+    pointer-events: none;
+    opacity: 0;
+  }
+</style>
+</head>
+<body>
+
+<canvas id="c-bg"></canvas>
+<canvas id="c-mid"></canvas>
+<canvas id="c-top"></canvas>
+<canvas id="c-ui"></canvas>
+
+<div id="hud">
+  <div><span class="label">System   </span><span class="val" id="h-sys">—</span></div>
+  <div><span class="label">Phase    </span><span class="val" id="h-phase">—</span></div>
+  <div><span class="label">Tempo    </span><span class="val" id="h-tempo">—</span></div>
+  <div><span class="label">Entropy  </span><span class="val" id="h-entropy">—</span></div>
+  <hr>
+  <div><span class="label">Hue A    </span><span class="val" id="h-ha">—</span></div>
+  <div><span class="label">Hue B    </span><span class="val" id="h-hb">—</span></div>
+  <div><span class="label">Sat      </span><span class="val" id="h-sat">—</span></div>
+  <div><span class="label">Lum      </span><span class="val" id="h-lum">—</span></div>
+  <hr>
+  <div><span class="label">Seed     </span><span class="val" id="h-seed">—</span></div>
+  <div><span class="label">FPS      </span><span class="val" id="h-fps">—</span></div>
+</div>
+
+<div id="keys">
+  [space / tap] randomize<br>
+  [h] hud &nbsp; [s] sound
+</div>
+
+<div id="flash"></div>
+
+<script>
+'use strict';
+
+/* ════════════════════════════════════════════════
+   GLOBALS & STATE
+════════════════════════════════════════════════ */
+const cvBg  = document.getElementById('c-bg');
+const cvMid = document.getElementById('c-mid');
+const cvTop = document.getElementById('c-top');
+const cvUi  = document.getElementById('c-ui');
+const [gBg, gMid, gTop, gUi] = [cvBg, cvMid, cvTop, cvUi].map(c => c.getContext('2d'));
+
+const hud     = document.getElementById('hud');
+const flash   = document.getElementById('flash');
+
+let W = 0, H = 0;
+let hudVisible = false;
+let soundOn    = false;
+let t = 0;           // master time (seconds)
+let lastTs = 0;
+let fps = 60;
+let frameCount = 0;
+let fpsTs = 0;
+
+/* Audio */
+let audioCtx = null;
+let masterGain = null;
+let osc1 = null, osc2 = null, lfoGain = null;
+
+/* Seed / randomizer */
+let seed = Math.random() * 99999 | 0;
+let rng  = mkRng(seed);
+
+/* Color systems config (randomized on seed) */
+let cfg = {};
+
+/* Palette history */
+const HISTORY_LEN = 120;
+let history = [];       // [{h,s,l}]
+
+/* ════════════════════════════════════════════════
+   SEEDED RNG  (mulberry32)
+════════════════════════════════════════════════ */
+function mkRng(s) {
+  return function() {
+    s |= 0; s = s + 0x6D2B79F5 | 0;
+    let t2 = Math.imul(s ^ s >>> 15, 1 | s);
+    t2 = t2 + Math.imul(t2 ^ t2 >>> 7, 61 | t2) ^ t2;
+    return ((t2 ^ t2 >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+/* ════════════════════════════════════════════════
+   INIT / RESIZE
+════════════════════════════════════════════════ */
+function resize() {
+  W = window.innerWidth; H = window.innerHeight;
+  [cvBg, cvMid, cvTop, cvUi].forEach(c => {
+    c.width  = W;
+    c.height = H;
+  });
+}
+
+function randomize() {
+  seed = Math.random() * 99999 | 0;
+  rng  = mkRng(seed);
+  history = [];
+  buildConfig();
+  flashScreen();
+  syncAudio();
+}
+
+function flashScreen() {
+  flash.style.transition = 'none';
+  flash.style.opacity = '1';
+  requestAnimationFrame(() => {
+    flash.style.transition = 'opacity 0.55s ease';
+    flash.style.opacity = '0';
+  });
+}
+
+/* ════════════════════════════════════════════════
+   CONFIG BUILDER
+════════════════════════════════════════════════ */
+const COLOR_SYSTEMS = ['HSL','LCH','OKLAB-sim','RYB','SPLIT-COMP','TETRAD','ANALOGIC'];
+const SHAPES = ['wheels','spirals','plasma','voronoi'];
+
+function buildConfig() {
+  const r = rng;
+  cfg = {
+    system    : COLOR_SYSTEMS[Math.floor(r() * COLOR_SYSTEMS.length)],
+    baseHue   : r() * 360,
+    hue2      : r() * 360,
+    satBase   : 0.55 + r() * 0.40,
+    lumBase   : 0.38 + r() * 0.24,
+    tempoA    : 0.08 + r() * 0.28,   // main cycle speed
+    tempoB    : 0.03 + r() * 0.12,   // secondary
+    tempoC    : 0.17 + r() * 0.55,   // fast accent
+    entropy   : 0.05 + r() * 0.30,   // stochastic amplitude
+    wheelCount: 3 + (Math.floor(r() * 4)),
+    swatchRows: 4 + (Math.floor(r() * 5)),
+    swatchCols: 6 + (Math.floor(r() * 8)),
+    landscapeAmp: 0.25 + r() * 0.55,
+    shape     : SHAPES[Math.floor(r() * SHAPES.length)],
+    spread    : 18 + r() * 90,       // hue spread across wheels
+    bgDark    : r() > 0.4,
+    trailAlpha: 0.03 + r() * 0.08,
+    noiseScale: 0.003 + r() * 0.009,
+  };
+}
+
+/* ════════════════════════════════════════════════
+   COLOR MATH
+════════════════════════════════════════════════ */
+function hsl(h, s, l, a = 1) {
+  return `hsla(${h % 360},${(s*100).toFixed(1)}%,${(l*100).toFixed(1)}%,${a})`;
+}
+
+function lerpAngle(a, b, t2) {
+  let d = ((b - a + 540) % 360) - 180;
+  return (a + d * t2 + 360) % 360;
+}
+
+function lerp(a, b, t2) { return a + (b - a) * t2; }
+
+/* Perceptual brightness weight */
+function perceivedL(h, s, l) {
+  const r = h / 60;
+  const warm = Math.cos((r - 1) * Math.PI / 3) * 0.5 + 0.5;
+  return l * (0.85 + warm * 0.15);
+}
+
+/* Get evolving primary hue */
+function primaryHue(time) {
+  const noise1 = Math.sin(time * cfg.tempoA) * cfg.spread;
+  const noise2 = Math.cos(time * cfg.tempoB * 1.618) * cfg.spread * 0.5;
+  const stoch  = Math.sin(time * cfg.tempoC * 2.71) * cfg.entropy * 40;
+  return (cfg.baseHue + noise1 + noise2 + stoch + 360) % 360;
+}
+
+function secondaryHue(time, offset = 137.508) {
+  return (primaryHue(time) + offset + Math.sin(time * cfg.tempoB) * 30) % 360;
+}
+
+function saturation(time) {
+  return Math.max(0.15, Math.min(1, cfg.satBase + Math.sin(time * cfg.tempoA * 1.3) * 0.18));
+}
+
+function luminance(time) {
+  return Math.max(0.15, Math.min(0.88, cfg.lumBase + Math.cos(time * cfg.tempoB * 0.9) * 0.12));
+}
+
+/* ════════════════════════════════════════════════
+   LAYER 1 — BACKGROUND chromatic landscape
+════════════════════════════════════════════════ */
+function drawBackground(ctx, time) {
+  const pH = primaryHue(time);
+  const sH = secondaryHue(time);
+  const sat = saturation(time);
+  const lum = luminance(time);
+
+  /* Draw with alpha trail (motion blur feel) */
+  ctx.fillStyle = `rgba(0,0,0,${cfg.bgDark ? 0.055 : 0.04})`;
+  ctx.fillRect(0, 0, W, H);
+
+  /* Horizontal gradient field — flowing landscape */
+  const bands = 7;
+  for (let b = 0; b < bands; b++) {
+    const y0 = (b / bands) * H;
+    const y1 = ((b + 1) / bands) * H;
+    const frac = b / (bands - 1);
+    const h2 = lerpAngle(pH, sH, frac + Math.sin(time * 0.13 + b) * 0.15);
+    const s2 = sat * (0.7 + 0.3 * Math.cos(time * 0.19 + b * 0.8));
+    const l2 = lum * (0.55 + 0.45 * Math.sin(time * 0.07 + b * 0.5));
+
+    const grd = ctx.createLinearGradient(0, y0, W, y1);
+    grd.addColorStop(0,   hsl(h2,            s2, l2 * 0.7, 0.85));
+    grd.addColorStop(0.35,hsl((h2+18)%360,   s2 * 0.9, l2, 0.90));
+    grd.addColorStop(0.65,hsl((h2-22+360)%360, s2, l2 * 1.1, 0.88));
+    grd.addColorStop(1,   hsl((h2+40)%360,   s2 * 0.8, l2 * 0.75, 0.85));
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, y0, W, y1 - y0 + 1);
+  }
+
+  /* Radial pulse from center */
+  const cx = W / 2, cy = H / 2;
+  const pulseR = (Math.min(W, H) * 0.7) * (0.6 + Math.sin(time * cfg.tempoA * 0.7) * 0.4);
+  const radGrd = ctx.createRadialGradient(cx, cy, 0, cx, cy, pulseR);
+  const pH3 = (pH + 180) % 360;
+  radGrd.addColorStop(0,   hsl(pH3, sat * 0.8, lum * 1.3, 0.18));
+  radGrd.addColorStop(0.5, hsl(pH,  sat,        lum,       0.08));
+  radGrd.addColorStop(1,   hsl(pH,  sat,        lum,       0.0));
+  ctx.fillStyle = radGrd;
+  ctx.fillRect(0, 0, W, H);
+}
+
+/* ════════════════════════════════════════════════
+   LAYER 2 — ROTATING WHEELS + SPIRAL RINGS
+════════════════════════════════════════════════ */
+function drawWheels(ctx, time) {
+  ctx.clearRect(0, 0, W, H);
+  const cx = W / 2, cy = H / 2;
+  const pH = primaryHue(time);
+  const sat = saturation(time);
+  const lum = luminance(time);
+  const maxR = Math.min(W, H) * 0.44;
+
+  const n = cfg.wheelCount;
+  for (let wi = 0; wi < n; wi++) {
+    const frac  = wi / n;
+    const r     = maxR * (0.28 + frac * 0.72);
+    const speed = (wi % 2 === 0 ? 1 : -1) * cfg.tempoA * (0.4 + frac * 0.9);
+    const baseAngle = time * speed + frac * Math.PI * 2;
+
+    /* Ring gradient */
+    const segments = 60;
+    for (let si = 0; si < segments; si++) {
+      const a0 = baseAngle + (si / segments) * Math.PI * 2;
+      const a1 = baseAngle + ((si + 1) / segments) * Math.PI * 2;
+      const hSlice = (pH + (si / segments) * cfg.spread * 2 + wi * cfg.spread * 0.5) % 360;
+      const sSlice = sat * (0.8 + 0.2 * Math.sin(time * 0.31 + si * 0.2));
+      const lSlice = lum * (0.7 + 0.3 * Math.cos(time * 0.17 + si * 0.15));
+      const thick  = maxR * (0.025 + 0.01 * Math.sin(time * cfg.tempoB + si * 0.3 + wi));
+
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, a0, a1);
+      ctx.arc(cx, cy, r - thick, a1, a0, true);
+      ctx.closePath();
+
+      const grd = ctx.createRadialGradient(cx, cy, r - thick, cx, cy, r);
+      grd.addColorStop(0, hsl(hSlice, sSlice, lSlice * 0.7, 0.65));
+      grd.addColorStop(1, hsl((hSlice + 20) % 360, sSlice, lSlice, 0.90));
+      ctx.fillStyle = grd;
+      ctx.fill();
+    }
+
+    /* Spoke accents */
+    const spokes = 8 + wi * 2;
+    for (let sp = 0; sp < spokes; sp++) {
+      const sa = baseAngle + (sp / spokes) * Math.PI * 2;
+      const x1 = cx + Math.cos(sa) * (r - maxR * 0.06);
+      const y1 = cy + Math.sin(sa) * (r - maxR * 0.06);
+      const x2 = cx + Math.cos(sa) * (r + maxR * 0.01);
+      const y2 = cy + Math.sin(sa) * (r + maxR * 0.01);
+      const hSpoke = (pH + sp * (cfg.spread / spokes) + wi * 45) % 360;
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.strokeStyle = hsl(hSpoke, sat, lum * 1.3, 0.55);
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+  }
+
+  /* Central orb */
+  const orbR = maxR * 0.11 * (0.85 + Math.sin(time * cfg.tempoA * 1.4) * 0.15);
+  const orbGrd = ctx.createRadialGradient(cx, cy, 0, cx, cy, orbR);
+  orbGrd.addColorStop(0,   hsl(pH, sat * 0.5, 0.92, 0.95));
+  orbGrd.addColorStop(0.4, hsl(pH, sat,       lum,  0.85));
+  orbGrd.addColorStop(1,   hsl(pH, sat,       lum * 0.4, 0.0));
+  ctx.beginPath();
+  ctx.arc(cx, cy, orbR, 0, Math.PI * 2);
+  ctx.fillStyle = orbGrd;
+  ctx.fill();
+}
+
+/* ════════════════════════════════════════════════
+   LAYER 3 — SWATCH GRID + HISTORY TRAIL
+════════════════════════════════════════════════ */
+function drawSwatches(ctx, time) {
+  ctx.clearRect(0, 0, W, H);
+  const pH = primaryHue(time);
+  const sat = saturation(time);
+  const lum = luminance(time);
+
+  /* Bottom strip: swatch grid */
+  const rows = cfg.swatchRows;
+  const cols = cfg.swatchCols;
+  const swW  = W / cols;
+  const swH  = H * 0.20 / rows;
+  const yOff = H - swH * rows - 2;
+
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const fi  = (col / cols + row / (rows * 2)) % 1;
+      const tim = time * cfg.tempoA + fi * 8.3 + row * 0.7;
+      const h2  = (pH + fi * cfg.spread + Math.sin(tim) * 22) % 360;
+      const s2  = sat * (0.65 + 0.35 * Math.cos(tim * 0.9 + col * 0.2));
+      const l2  = lum * (0.6  + 0.4  * Math.sin(tim * 0.7 + row * 0.3));
+      const alpha = 0.55 + 0.30 * Math.sin(time * 0.23 + fi * Math.PI * 2);
+
+      const rx = col * swW;
+      const ry = yOff + row * swH;
+      const grd = ctx.createLinearGradient(rx, ry, rx + swW, ry + swH);
+      grd.addColorStop(0, hsl(h2,                  s2, l2,        alpha));
+      grd.addColorStop(1, hsl((h2 + 30) % 360,     s2 * 0.9, l2 * 0.85, alpha * 0.7));
+      ctx.fillStyle = grd;
+      ctx.fillRect(rx, ry, swW + 1, swH + 1);
+    }
+  }
+
+  /* Right strip: palette history trail */
+  const trailW = Math.min(48, W * 0.06);
+  const trailH = (H - swH * rows - 20) / Math.max(history.length, 1);
+  history.forEach((p, i) => {
+    const alpha = (i / history.length) * 0.88 + 0.12;
+    ctx.fillStyle = hsl(p.h, p.s, p.l, alpha);
+    ctx.fillRect(W - trailW, i * trailH, trailW, trailH + 1);
+  });
+
+  /* Left strip: complementary palette */
+  const lStripW = Math.min(40, W * 0.05);
+  for (let i = 0; i < history.length; i++) {
+    const p = history[i];
+    const ch = (p.h + 180) % 360;
+    const alpha = (i / history.length) * 0.88 + 0.12;
+    ctx.fillStyle = hsl(ch, p.s, p.l, alpha);
+    ctx.fillRect(0, i * trailH, lStripW, trailH + 1);
+  }
+
+  /* Evolving chromatic landscape strips at top */
+  const ltH = H * 0.085;
+  const ltSegs = 80;
+  for (let s2 = 0; s2 < ltSegs; s2++) {
+    const fi2 = s2 / ltSegs;
+    const th  = (pH + fi2 * 240 + Math.sin(time * 0.11 + fi2 * 9) * 35) % 360;
+    const ts  = sat * (0.7 + 0.3 * Math.sin(time * 0.19 + fi2 * 4));
+    const tl  = lum * (0.5 + 0.5 * Math.abs(Math.sin(time * 0.09 + fi2 * 6)));
+    const grd = ctx.createLinearGradient(0, 0, 0, ltH);
+    grd.addColorStop(0, hsl(th, ts, tl, 0.80));
+    grd.addColorStop(1, hsl(th, ts, tl * 0.4, 0.0));
+    ctx.fillStyle = grd;
+    ctx.fillRect(fi2 * W, 0, W / ltSegs + 1, ltH);
+  }
+}
+
+/* ════════════════════════════════════════════════
+   LAYER 4 — UI CANVAS (particles / sparkles)
+════════════════════════════════════════════════ */
+const SPARKS = Array.from({length: 55}, () => ({
+  x: Math.random(), y: Math.random(),
+  vx: (Math.random() - 0.5) * 0.00018,
+  vy: (Math.random() - 0.5) * 0.00018,
+  life: Math.random(),
+  r: 1 + Math.random() * 3.5,
+}));
+
+function drawUi(ctx, time) {
+  ctx.clearRect(0, 0, W, H);
+  const pH = primaryHue(time);
+  const sat = saturation(time);
+  const lum = luminance(time);
+
+  SPARKS.forEach(sp => {
+    sp.x = (sp.x + sp.vx + 1) % 1;
+    sp.y = (sp.y + sp.vy + 1) % 1;
+    sp.life = (sp.life + 0.0025) % 1;
+    const alpha = Math.sin(sp.life * Math.PI) * 0.7;
+    const sh = (pH + sp.life * 120) % 360;
+    ctx.beginPath();
+    ctx.arc(sp.x * W, sp.y * H, sp.r, 0, Math.PI * 2);
+    ctx.fillStyle = hsl(sh, sat, lum * 1.5, alpha);
+    ctx.fill();
+  });
+
+  /* Harmonic grid lines */
+  const gridAlpha = 0.04 + 0.03 * Math.sin(time * 0.13);
+  ctx.strokeStyle = hsl(pH, sat * 0.5, 0.8, gridAlpha);
+  ctx.lineWidth = 0.5;
+  const divs = 10;
+  for (let i = 1; i < divs; i++) {
+    ctx.beginPath(); ctx.moveTo(i * W / divs, 0); ctx.lineTo(i * W / divs, H); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, i * H / divs); ctx.lineTo(W, i * H / divs); ctx.stroke();
+  }
+}
+
+/* ════════════════════════════════════════════════
+   HUD UPDATE
+════════════════════════════════════════════════ */
+function updateHud(time) {
+  if (!hudVisible) return;
+  const pH = primaryHue(time);
+  const sH = secondaryHue(time);
+  const sat = saturation(time);
+  const lum = luminance(time);
+
+  document.getElementById('h-sys').textContent     = cfg.system;
+  document.getElementById('h-phase').textContent   = (time % 100).toFixed(2) + 's';
+  document.getElementById('h-tempo').textContent   = cfg.tempoA.toFixed(3) + ' / ' + cfg.tempoB.toFixed(3);
+  document.getElementById('h-entropy').textContent = (cfg.entropy * 100).toFixed(1) + '%';
+  document.getElementById('h-ha').textContent      = pH.toFixed(1) + '°';
+  document.getElementById('h-hb').textContent      = sH.toFixed(1) + '°';
+  document.getElementById('h-sat').textContent     = (sat * 100).toFixed(1) + '%';
+  document.getElementById('h-lum').textContent     = (lum * 100).toFixed(1) + '%';
+  document.getElementById('h-seed').textContent    = seed;
+  document.getElementById('h-fps').textContent     = fps.toFixed(0);
+}
+
+/* ════════════════════════════════════════════════
+   AUDIO
+════════════════════════════════════════════════ */
+function initAudio() {
+  if (audioCtx) return;
+  audioCtx   = new (window.AudioContext || window.webkitAudioContext)();
+  masterGain = audioCtx.createGain();
+  masterGain.gain.value = 0;
+  masterGain.connect(audioCtx.destination);
+
+  const oA = audioCtx.createOscillator();
+  const oB = audioCtx.createOscillator();
+  const oC = audioCtx.createOscillator();
+
+  oA.type = 'sine';   oA.frequency.value = 110;
+  oB.type = 'sine';   oB.frequency.value = 165.4;
+  oC.type = 'triangle'; oC.frequency.value = 220;
+
+  const gA = audioCtx.createGain(); gA.gain.value = 0.40;
+  const gB = audioCtx.createGain(); gB.gain.value = 0.30;
+  const gC = audioCtx.createGain(); gC.gain.value = 0.15;
+
+  /* LFO on pitch */
+  const lfo = audioCtx.createOscillator();
+  lfo.frequency.value = 0.12;
+  lfoGain = audioCtx.createGain();
+  lfoGain.gain.value = 4;
+  lfo.connect(lfoGain);
+  lfoGain.connect(oA.frequency);
+  lfoGain.connect(oB.frequency);
+  lfo.start();
+
+  oA.connect(gA); gA.connect(masterGain);
+  oB.connect(gB); gB.connect(masterGain);
+  oC.connect(gC); gC.connect(masterGain);
+
+  oA.start(); oB.start(); oC.start();
+  osc1 = oA; osc2 = oB;
+}
+
+function syncAudio() {
+  if (!audioCtx || !soundOn) return;
+  const pH = primaryHue(t);
+  const freq = 55 + (pH / 360) * 220;
+  if (osc1) osc1.frequency.setTargetAtTime(freq,          audioCtx.currentTime, 0.5);
+  if (osc2) osc2.frequency.setTargetAtTime(freq * 1.5,    audioCtx.currentTime, 0.5);
+  if (lfoGain) lfoGain.gain.setTargetAtTime(cfg.entropy * 18, audioCtx.currentTime, 0.5);
+}
+
+function setSound(on) {
+  soundOn = on;
+  if (on) {
+    initAudio();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    masterGain.gain.setTargetAtTime(0.18, audioCtx.currentTime, 0.6);
+  } else if (masterGain) {
+    masterGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.4);
+  }
+}
+
+/* ════════════════════════════════════════════════
+   MAIN LOOP
+════════════════════════════════════════════════ */
+function frame(ts) {
+  if (!lastTs) lastTs = ts;
+  const dt = Math.min((ts - lastTs) / 1000, 0.05);
+  lastTs = ts;
+  t += dt;
+  frameCount++;
+
+  if (ts - fpsTs > 800) {
+    fps = frameCount / ((ts - fpsTs) / 1000);
+    frameCount = 0; fpsTs = ts;
+  }
+
+  /* Push history */
+  const pH = primaryHue(t);
+  const sat = saturation(t);
+  const lum = luminance(t);
+  if (Math.floor(t * 4) !== Math.floor((t - dt) * 4)) {
+    history.unshift({h: pH, s: sat, l: lum});
+    if (history.length > HISTORY_LEN) history.pop();
+  }
+
+  /* Draw layers */
+  drawBackground(gBg,  t);
+  drawWheels(gMid,     t);
+  drawSwatches(gTop,   t);
+  drawUi(gUi,          t);
+
+  /* Sync audio periodically */
+  if (soundOn && frameCount % 20 === 0) syncAudio();
+
+  updateHud(t);
+
+  requestAnimationFrame(frame);
+}
+
+/* ════════════════════════════════════════════════
+   EVENTS
+════════════════════════════════════════════════ */
+window.addEventListener('resize', resize);
+
+document.addEventListener('keydown', e => {
+  switch(e.key) {
+    case ' ':  e.preventDefault(); randomize(); break;
+    case 'h': case 'H':
+      hudVisible = !hudVisible;
+      hud.classList.toggle('visible', hudVisible);
+      break;
+    case 's': case 'S':
+      setSound(!soundOn);
+      break;
+  }
+});
+
+document.addEventListener('click',     randomize);
+document.addEventListener('touchstart', e => { e.preventDefault(); randomize(); }, {passive: false});
+
+/* ════════════════════════════════════════════════
+   BOOT
+════════════════════════════════════════════════ */
+resize();
+buildConfig();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Transcendent Fractal Geometrician</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #000; overflow: hidden; width: 100vw; height: 100vh; font-family: 'Courier New', monospace; cursor: crosshair; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  #hud {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none; display: none; z-index: 10;
+  }
+  #hud.visible { display: block; }
+  .hud-panel {
+    position: absolute; top: 20px; left: 20px;
+    background: rgba(0,0,0,0.72); border: 1px solid rgba(255,255,255,0.12);
+    padding: 18px 22px; color: rgba(255,255,255,0.85); font-size: 11px;
+    letter-spacing: 0.08em; line-height: 2; min-width: 260px;
+    backdrop-filter: blur(8px);
+    text-transform: uppercase;
+  }
+  .hud-panel span { color: #7fffb2; }
+  .hud-title {
+    position: absolute; bottom: 28px; left: 50%; transform: translateX(-50%);
+    color: rgba(255,255,255,0.18); font-size: 10px; letter-spacing: 0.3em;
+    text-transform: uppercase; text-align: center; pointer-events: none;
+  }
+  .hud-keys {
+    position: absolute; top: 20px; right: 20px;
+    background: rgba(0,0,0,0.72); border: 1px solid rgba(255,255,255,0.12);
+    padding: 14px 18px; color: rgba(255,255,255,0.55); font-size: 10px;
+    letter-spacing: 0.1em; line-height: 2.2; backdrop-filter: blur(8px);
+  }
+  .hud-keys b { color: rgba(255,200,80,0.9); }
+  #flash {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none; z-index: 5; opacity: 0;
+    background: radial-gradient(ellipse at 50% 50%, rgba(255,255,255,0.35) 0%, transparent 70%);
+    transition: opacity 0.08s ease;
+  }
+  #sound-indicator {
+    position: fixed; bottom: 24px; right: 24px; z-index: 20;
+    color: rgba(255,255,255,0.22); font-size: 9px; letter-spacing: 0.2em;
+    text-transform: uppercase; transition: color 0.4s;
+  }
+  #sound-indicator.on { color: rgba(120,255,180,0.7); }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div class="hud-panel">
+    <div style="color:rgba(255,255,255,0.4);font-size:9px;letter-spacing:0.25em;margin-bottom:8px">TRANSCENDENT FRACTAL GEOMETRICIAN</div>
+    Mode: <span id="h-mode">—</span><br>
+    Iterations: <span id="h-iter">—</span><br>
+    Symmetry: <span id="h-sym">—</span><br>
+    Palette: <span id="h-pal">—</span><br>
+    Zoom: <span id="h-zoom">—</span><br>
+    Center: <span id="h-center">—</span><br>
+    Param A: <span id="h-pa">—</span><br>
+    Param B: <span id="h-pb">—</span><br>
+    Frame: <span id="h-frame">—</span>
+  </div>
+  <div class="hud-keys">
+    <b>SPACE / CLICK / TAP</b> — Reparameterize<br>
+    <b>S</b> — Toggle Sound<br>
+    <b>H</b> — Toggle HUD<br>
+    <b>R</b> — Force Redraw
+  </div>
+  <div class="hud-title">ESCAPE-TIME ALGORITHMS · DOMAIN COLORING · KALEIDOSCOPIC SYMMETRY</div>
+</div>
+<div id="flash"></div>
+<div id="sound-indicator">SOUND OFF</div>
+
+<script>
+(function(){
+'use strict';
+
+// ─── STATE ──────────────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H, imgData, buf32;
+let frameCount = 0;
+let soundOn = false;
+let hudOn = false;
+let rendering = false;
+let params = {};
+let audioCtx = null;
+let masterGain = null;
+
+// ─── AUDIO ──────────────────────────────────────────────────────────────────
+const INTERVALS = [1, 9/8, 5/4, 4/3, 3/2, 5/3, 15/8, 2, 9/4, 5/2, 3, 4];
+const BASE_FREQ = 55;
+
+function initAudio() {
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  masterGain = audioCtx.createGain();
+  masterGain.gain.setValueAtTime(0.0, audioCtx.currentTime);
+  masterGain.connect(audioCtx.destination);
+}
+
+function playFractalTone(iterDepth, maxIter) {
+  if (!soundOn || !audioCtx) return;
+  const t = audioCtx.currentTime;
+  const ratio = iterDepth / maxIter;
+  const intervalIdx = Math.floor(ratio * INTERVALS.length) % INTERVALS.length;
+  const freq = BASE_FREQ * INTERVALS[intervalIdx];
+  const harmIdx = (intervalIdx + 3) % INTERVALS.length;
+  const harmFreq = BASE_FREQ * INTERVALS[harmIdx];
+
+  const osc1 = audioCtx.createOscillator();
+  const osc2 = audioCtx.createOscillator();
+  const osc3 = audioCtx.createOscillator();
+  const filt = audioCtx.createBiquadFilter();
+  const env  = audioCtx.createGain();
+
+  osc1.type = 'sawtooth'; osc1.frequency.value = freq;
+  osc2.type = 'square';   osc2.frequency.value = harmFreq; osc2.detune.value = 7;
+  osc3.type = 'sine';     osc3.frequency.value = freq * 0.5;
+
+  filt.type = 'lowpass';
+  filt.frequency.setValueAtTime(200 + ratio * 3000, t);
+  filt.frequency.exponentialRampToValueAtTime(80, t + 0.9);
+  filt.Q.value = 4 + ratio * 12;
+
+  env.gain.setValueAtTime(0.0, t);
+  env.gain.linearRampToValueAtTime(0.22, t + 0.04);
+  env.gain.exponentialRampToValueAtTime(0.001, t + 1.1);
+
+  osc1.connect(filt); osc2.connect(filt); osc3.connect(filt);
+  filt.connect(env); env.connect(masterGain);
+  masterGain.gain.setValueAtTime(soundOn ? 0.7 : 0.0, t);
+
+  osc1.start(t); osc2.start(t); osc3.start(t);
+  osc1.stop(t + 1.2); osc2.stop(t + 1.2); osc3.stop(t + 1.2);
+}
+
+function playAmbientDrone(p) {
+  if (!soundOn || !audioCtx) return;
+  const t = audioCtx.currentTime;
+  const rootFreq = BASE_FREQ * INTERVALS[p.paletteIdx % INTERVALS.length];
+
+  for (let i = 0; i < 3; i++) {
+    const osc = audioCtx.createOscillator();
+    const lfo  = audioCtx.createOscillator();
+    const lfoG = audioCtx.createGain();
+    const filt = audioCtx.createBiquadFilter();
+    const gn   = audioCtx.createGain();
+
+    osc.type = ['sine','triangle','sawtooth'][i];
+    osc.frequency.value = rootFreq * INTERVALS[(i * 2) % INTERVALS.length] * (1 + i * 0.003);
+    lfo.type = 'sine'; lfo.frequency.value = 0.1 + i * 0.07;
+    lfoG.gain.value = rootFreq * 0.03;
+    filt.type = 'bandpass'; filt.frequency.value = 800 + i * 300; filt.Q.value = 6;
+    gn.gain.setValueAtTime(0.0, t);
+    gn.gain.linearRampToValueAtTime(0.12 / (i+1), t + 1.5);
+    gn.gain.linearRampToValueAtTime(0.0, t + 9);
+
+    lfo.connect(lfoG); lfoG.connect(osc.frequency);
+    osc.connect(filt); filt.connect(gn); gn.connect(masterGain);
+    masterGain.gain.setValueAtTime(0.7, t);
+    lfo.start(t); osc.start(t);
+    lfo.stop(t + 9.5); osc.stop(t + 9.5);
+  }
+}
+
+// ─── MATH HELPERS ───────────────────────────────────────────────────────────
+function smoothstep(a, b, t) {
+  t = Math.max(0, Math.min(1, (t - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+}
+function sigmoid(x) { return 1 / (1 + Math.exp(-x)); }
+function fract(x) { return x - Math.floor(x); }
+function mix(a, b, t) { return a + (b - a) * t; }
+
+function cmul(ar, ai, br, bi) { return [ar*br - ai*bi, ar*bi + ai*br]; }
+function cdiv(ar, ai, br, bi) {
+  const d = br*br + bi*bi + 1e-20;
+  return [(ar*br + ai*bi)/d, (ai*br - ar*bi)/d];
+}
+function cpow(ar, ai, n) {
+  const r = Math.sqrt(ar*ar + ai*ai);
+  const theta = Math.atan2(ai, ar);
+  const rn = Math.pow(r, n);
+  return [rn * Math.cos(n*theta), rn * Math.sin(n*theta)];
+}
+function cexp(ar, ai) {
+  const e = Math.exp(ar);
+  return [e * Math.cos(ai), e * Math.sin(ai)];
+}
+function clog(ar, ai) {
+  return [0.5 * Math.log(ar*ar + ai*ai + 1e-20), Math.atan2(ai, ar)];
+}
+function csin(ar, ai) {
+  return [Math.sin(ar)*Math.cosh(ai), Math.cos(ar)*Math.sinh(ai)];
+}
+function ccos(ar, ai) {
+  return [Math.cos(ar)*Math.cosh(ai), -Math.sin(ar)*Math.sinh(ai)];
+}
+function ctan(ar, ai) {
+  const s = csin(ar, ai), c = ccos(ar, ai);
+  return cdiv(s[0], s[1], c[0], c[1]);
+}
+function csinh(ar, ai) {
+  return [Math.sinh(ar)*Math.cos(ai), Math.cosh(ar)*Math.sin(ai)];
+}
+
+// ─── PALETTE SYSTEMS ────────────────────────────────────────────────────────
+const PALETTES = [
+  // 0: Volcanic Aurora
+  (t, iter, maxIter, zr, zi) => {
+    const s = smoothstep(0, 1, iter / maxIter);
+    const k = fract(s * 7 + zr * 0.3);
+    const phase = t * 0.0001;
+    const r = 0.5 + 0.5 * Math.sin(k * 6.28 + phase * 2.1);
+    const g = 0.5 + 0.5 * Math.sin(k * 6.28 * 1.618 + phase * 1.3 + 1.5);
+    const b = 0.5 + 0.5 * Math.cos(k * 6.28 * 0.618 + phase * 3.7 + 3.1);
+    const bright = Math.pow(sigmoid((iter / maxIter - 0.5) * 8), 0.7);
+    return [r * bright, g * bright * 0.6, b * bright * 0.3];
+  },
+  // 1: Bioluminescent Deep
+  (t, iter, maxIter, zr, zi) => {
+    const s = iter / maxIter;
+    const log2 = Math.log2(Math.max(1, iter));
+    const smooth = s + 1 - Math.log2(Math.log2(Math.sqrt(zr*zr+zi*zi)+1)+1);
+    const k = fract(smooth * 0.15);
+    const phase = t * 0.00007;
+    const r = Math.pow(smoothstep(0, 1, Math.sin(k * 9.42 + phase) * 0.5 + 0.5), 2.2);
+    const g = Math.pow(smoothstep(0, 1, Math.sin(k * 6.28 * 1.4 + phase * 0.7 + 1) * 0.5 + 0.5), 1.4);
+    const b = Math.pow(smoothstep(0, 1, Math.cos(k * 6.28 * 2.1 + phase * 1.9 + 2) * 0.5 + 0.5), 0.8);
+    return [r * 0.2, g, b];
+  },
+  // 2: Nuclear Coral
+  (t, iter, maxIter, zr, zi) => {
+    const s = fract(iter / maxIter * 5.3 + Math.atan2(zi, zr) / 6.28);
+    const phase = t * 0.00012;
+    const mask = smoothstep(0, 0.05, iter / maxIter);
+    const r = 0.5 + 0.5 * Math.sin(s * 12.56 + phase * 1.7);
+    const g = 0.25 + 0.25 * Math.sin(s * 18.84 + phase * 3.1 + 0.9);
+    const b = 0.5 + 0.5 * Math.cos(s * 9.42 + phase * 2.3 + 2.1);
+    return [r * mask, g * mask, b * mask];
+  },
+  // 3: Modular Ultraviolet
+  (t, iter, maxIter, zr, zi) => {
+    const m = (iter % 7) / 7;
+    const n = (iter % 13) / 13;
+    const o = (iter % 17) / 17;
+    const phase = t * 0.00009;
+    const r = smoothstep(0, 1, Math.sin(m * 6.28 + phase * 2.9) * 0.5 + 0.5);
+    const g = smoothstep(0, 1, Math.sin(n * 6.28 + phase * 1.3 + 2) * 0.5 + 0.5);
+    const b = smoothstep(0, 1, Math.cos(o * 6.28 + phase * 4.1 + 4) * 0.5 + 0.5);
+    const bright = Math.pow(iter / maxIter, 0.4);
+    return [r * bright, g * bright * 0.5, b * bright];
+  },
+  // 4: Chromatic Aberration
+  (t, iter, maxIter, zr, zi) => {
+    const ang = Math.atan2(zi, zr) / Math.PI;
+    const rad = Math.sqrt(zr*zr + zi*zi);
+    const s = iter / maxIter;
+    const phase = t * 0.00015;
+    const swirl = fract(ang + rad * 0.5 + s * 3 + phase * 0.5);
+    const r = sigmoid((Math.sin(swirl * 6.28 * 3 + phase * 7) * 0.5 + 0.5 - 0.5) * 10);
+    const g = sigmoid((Math.sin(swirl * 6.28 * 5 + phase * 4 + 2) * 0.5 + 0.5 - 0.5) * 10);
+    const b = sigmoid((Math.cos(swirl * 6.28 * 7 + phase * 2 + 4) * 0.5 + 0.5 - 0.5) * 10);
+    return [r, g * 0.7, b];
+  },
+  // 5: Supernova Remnant
+  (t, iter, maxIter, zr, zi) => {
+    const s = Math.pow(iter / maxIter, 0.3);
+    const phase = t * 0.00006;
+    const hue = fract(s * 2.618 + phase + Math.atan2(zi, zr) / 6.28);
+    // HSV to RGB
+    const h6 = hue * 6;
+    const i_ = Math.floor(h6), f = h6 - i_;
+    const v = smoothstep(0, 1, s);
+    const sat = 0.8 + 0.2 * Math.sin(iter * 0.1 + phase * 10);
+    const p = v * (1 - sat), q = v * (1 - sat * f), t2 = v * (1 - sat * (1 - f));
+    let r, g, b;
+    switch(i_ % 6) {
+      case 0: r=v; g=t2; b=p; break; case 1: r=q; g=v; b=p; break;
+      case 2: r=p; g=v; b=t2; break; case 3: r=p; g=q; b=v; break;
+      case 4: r=t2; g=p; b=v; break; default: r=v; g=p; b=q;
+    }
+    return [r, g, b];
+  },
+  // 6: Psychedelic Lattice
+  (t, iter, maxIter, zr, zi) => {
+    const phase = t * 0.00018;
+    const wave1 = Math.sin(zr * 4 + phase * 3) * Math.cos(zi * 4 + phase * 2);
+    const wave2 = Math.cos(zr * 6 + phase * 5) * Math.sin(zi * 6 + phase * 4);
+    const wave3 = Math.sin((zr + zi) * 3 + phase * 6);
+    const s = iter / maxIter;
+    const mask = smoothstep(0, 0.02, s) * (1 - smoothstep(0.95, 1, s));
+    const r = (wave1 * 0.5 + 0.5) * mask;
+    const g = (wave2 * 0.5 + 0.5) * mask;
+    const b = (wave3 * 0.5 + 0.5) * mask;
+    return [Math.pow(r, 0.7), Math.pow(g, 0.7), Math.pow(b, 0.7)];
+  },
+  // 7: Obsidian Fire
+  (t, iter, maxIter, zr, zi) => {
+    const s = iter / maxIter;
+    const phase = t * 0.0001;
+    const k = Math.pow(s, 1.5);
+    const r = smoothstep(0, 1, Math.pow(k * 2.1, 1.8));
+    const g = smoothstep(0, 1, Math.pow(Math.max(0, k * 2.1 - 0.5), 2.5));
+    const b = smoothstep(0, 1, Math.pow(Math.max(0, k * 2.1 - 1.0), 3.5));
+    const grain = fract(Math.sin(iter * 127.1 + zr * 311.7 + phase * 100) * 43758.5) * 0.05;
+    return [Math.min(1, r + grain), Math.min(1, g + grain * 0.5), Math.min(1, b)];
+  }
+];
+
+// ─── FRACTAL MODES ──────────────────────────────────────────────────────────
+const MODES = [
+  // 0: Newton z^4 - 1
+  {
+    name: 'NEWTON z⁴−1',
+    compute: (cr, ci, maxIter, p) => {
+      let zr = cr, zi = ci;
+      for (let i = 0; i < maxIter; i++) {
+        const z3 = cpow(zr, zi, 3);
+        const z4 = cmul(z3[0], z3[1], zr, zi);
+        const z3m = cmul(z3[0], z3[1], 4, 0);
+        // f(z) = z^4 - 1, f'(z) = 4z^3
+        const num = [z4[0] - 1, z4[1]];
+        const den = z3m;
+        const frac = cdiv(num[0], num[1], den[0], den[1]);
+        zr -= frac[0] * p.relax;
+        zi -= frac[1] * p.relax;
+        const mag2 = zr*zr + zi*zi;
+        if (!isFinite(mag2) || mag2 > 1e8) return { iter: i, zr, zi };
+        // Check convergence to roots
+        const roots = [[1,0],[-1,0],[0,1],[0,-1]];
+        for (let r of roots) {
+          const dr = zr-r[0], di = zi-r[1];
+          if (dr*dr+di*di < 1e-6) return { iter: i, zr, zi, root: r };
+        }
+      }
+      return { iter: maxIter, zr, zi };
+    }
+  },
+  // 1: Newton z^6 - z^3 + 1
+  {
+    name: 'NEWTON z⁶−z³+1',
+    compute: (cr, ci, maxIter, p) => {
+      let zr = cr, zi = ci;
+      for (let i = 0; i < maxIter; i++) {
+        const z2 = cmul(zr, zi, zr, zi);
+        const z3 = cmul(z2[0], z2[1], zr, zi);
+        const z5 = cmul(z3[0], z3[1], z2[0], z2[1]);
+        const z6 = cmul(z5[0], z5[1], zr, zi);
+        // f = z^6 - z^3 + 1
+        const fr = z6[0] - z3[0] + 1;
+        const fi = z6[1] - z3[1];
+        // f' = 6z^5 - 3z^2
+        const dfr = 6*z5[0] - 3*z2[0];
+        const dfi = 6*z5[1] - 3*z2[1];
+        const frac = cdiv(fr, fi, dfr, dfi);
+        zr -= frac[0] * p.relax;
+        zi -= frac[1] * p.relax;
+        const mag2 = zr*zr + zi*zi;
+        if (!isFinite(mag2) || mag2 > 1e8) return { iter: i, zr, zi };
+        if (fr*fr + fi*fi < 1e-8) return { iter: i, zr, zi };
+      }
+      return { iter: maxIter, zr, zi };
+    }
+  },
+  // 2: Mandelbrot with Burning Ship twist
+  {
+    name: 'BURNING MANDEL',
+    compute: (cr, ci, maxIter, p) => {
+      let zr = 0, zi = 0;
+      for (let i = 0; i < maxIter; i++) {
+        const azr = Math.abs(zr), azi = Math.abs(zi);
+        const nr = azr*azr - azi*azi + cr + p.juliaR * 0.3;
+        const ni = 2 * azr * azi + ci + p.juliaI * 0.3;
+        zr = nr; zi = ni;
+        if (zr*zr + zi*zi > 4) return { iter: i + 1 - Math.log2(Math.log2(zr*zr+zi*zi)), zr, zi };
+      }
+      return { iter: maxIter, zr, zi };
+    }
+  },
+  // 3: Julia set with dynamic C
+  {
+    name: 'JULIA DYNAMIC',
+    compute: (cr, ci, maxIter, p) => {
+      let zr = cr, zi = ci;
+      const jr = p.juliaR, ji = p.juliaI;
+      for (let i = 0; i < maxIter; i++) {
+        const nr = zr*zr - zi*zi + jr;
+        const ni = 2*zr*zi + ji;
+        zr = nr; zi = ni;
+        const m2 = zr*zr + zi*zi;
+        if (m2 > 4) return { iter: i + 1 - Math.log2(Math.log2(m2+1)), zr, zi };
+      }
+      return { iter: maxIter, zr, zi };
+    }
+  },
+  // 4: Newton z^5 - z + 1 + Lyapunov twist
+  {
+    name: 'NEWTON z⁵−z+1',
+    compute: (cr, ci, maxIter, p) => {
+      let zr = cr, zi = ci;
+      for (let i = 0; i < maxIter; i++) {
+        const z2 = cmul(zr, zi, zr, zi);
+        const z4 = cmul(z2[0], z2[1], z2[0], z2[1]);
+        const z5 = cmul(z4[0], z4[1], zr, zi);
+        const fr = z5[0] - zr + 1;
+        const fi = z5[1] - zi;
+        const dfr = 5*z4[0] - 1;
+        const dfi = 5*z4[1];
+        const frac = cdiv(fr, fi, dfr, dfi);
+        zr -= frac[0] * p.relax;
+        zi -= frac[1] * p.relax;
+        if (!isFinite(zr) || !isFinite(zi)) return { iter: i, zr: cr, zi: ci };
+        if (fr*fr + fi*fi < 1e-8) return { iter: i, zr, zi };
+      }
+      return { iter: maxIter, zr, zi };
+    }
+  },
+  // 5: Mandelbrot z^p variant (cubic or quartic)
+  {
+    name: 'MANDEL-POWER',
+    compute: (cr, ci, maxIter, p) => {
+      let zr = 0, zi = 0;
+      const exp = p.power;
+      for (let i = 0; i < maxIter; i++) {
+        const zp = cpow(zr, zi, exp);
+        zr = zp[0] + cr;
+        zi = zp[1] + ci;
+        const m2 = zr*zr + zi*zi;
+        if (m2 > 256) {
+          const smooth = i + 1 - Math.log(Math.log(Math.sqrt(m2)) / Math.log(exp)) / Math.log(exp);
+          return { iter: smooth, zr, zi };
+        }
+      }
+      return { iter: maxIter, zr, zi };
+    }
+  },
+  // 6: Newton sinh(z) = c variant
+  {
+    name: 'NEWTON sinh(z)',
+    compute: (cr, ci, maxIter, p) => {
+      let zr = cr, zi = ci;
+      const tr = p.juliaR * 0.5, ti = p.juliaI * 0.5;
+      for (let i = 0; i < maxIter; i++) {
+        const sh = csinh(zr, zi);
+        const ch = [Math.cosh(zr)*Math.cos(zi), Math.sinh(zr)*Math.sin(zi)];
+        const fr = sh[0] - tr, fi = sh[1] - ti;
+        const frac = cdiv(fr, fi, ch[0], ch[1]);
+        zr -= frac[0] * p.relax;
+        zi -= frac[1] * p.relax;
+        if (!isFinite(zr) || !isFinite(zi) || zr*zr+zi*zi > 1e6) return { iter: i, zr: cr, zi: ci };
+        if (fr*fr+fi*fi < 1e-8) return { iter: i, zr, zi };
+      }
+      return { iter: maxIter, zr, zi };
+    }
+  },
+  // 7: Newton z*exp(z) - 1 (transcendental Newton)
+  {
+    name: 'NEWTON z·eᶻ',
+    compute: (cr, ci, maxIter, p) => {
+      let zr = cr, zi = ci;
+      for (let i = 0; i < maxIter; i++) {
+        const ez = cexp(zr, zi);
+        const zez = cmul(zr, zi, ez[0], ez[1]);
+        // f = z*e^z - 1
+        const fr = zez[0] - 1, fi = zez[1];
+        // f' = e^z + z*e^z = e^z(1+z)
+        const one_z = [1 + zr, zi];
+        const dfv = cmul(ez[0], ez[1], one_z[0], one_z[1]);
+        const frac = cdiv(fr, fi, dfv[0], dfv[1]);
+        zr -= frac[0] * p.relax;
+        zi -= frac[1] * p.relax;
+        if (!isFinite(zr) || !isFinite(zi) || zr*zr+zi*zi > 1e8) return { iter: i, zr: cr, zi: ci };
+        if (fr*fr+fi*fi < 1e-8) return { iter: i, zr, zi };
+      }
+      return { iter: maxIter, zr, zi };
+    }
+  },
+  // 8: Mandelbrot with exponential map
+  {
+    name: 'EXPEL MANDEL',
+    compute: (cr, ci, maxIter, p) => {
+      let zr = 0, zi = 0;
+      for (let i = 0; i < maxIter; i++) {
+        const ez = cexp(zr * 0.5, zi * 0.5);
+        const nr = ez[0] * (zr*0.5) - ez[1] * (zi*0.5) + cr;
+        const ni = ez[0] * (zi*0.5) + ez[1] * (zr*0.5) + ci;
+        zr = nr; zi = ni;
+        const m = zr*zr + zi*zi;
+        if (m > 100 || !isFinite(m)) return { iter: i, zr, zi };
+      }
+      return { iter: maxIter, zr, zi };
+    }
+  },
+  // 9: Newton z^3 - 2z + 2 (classic Cayley)
+  {
+    name: 'CAYLEY CLASSIC',
+    compute: (cr, ci, maxIter, p) => {
+      let zr = cr, zi = ci;
+      for (let i = 0; i < maxIter; i++) {
+        const z2 = cmul(zr, zi, zr, zi);
+        const z3 = cmul(z2[0], z2[1], zr, zi);
+        // f = z^3 - 2z + 2, f' = 3z^2 - 2
+        const fr = z3[0] - 2*zr + 2, fi = z3[1] - 2*zi;
+        const dfr = 3*z2[0] - 2, dfi = 3*z2[1];
+        const frac = cdiv(fr, fi, dfr, dfi);
+        zr -= frac[0] * p.relax;
+        zi -= frac[1] * p.relax;
+        if (!isFinite(zr) || !isFinite(zi)) return { iter: i, zr: 0, zi: 0 };
+        if (fr*fr+fi*fi < 1e-8) return { iter: i, zr, zi };
+      }
+      return { iter: maxIter, zr, zi };
+    }
+  }
+];
+
+// ─── SYMMETRY SYSTEMS ────────────────────────────────────────────────────────
+function applySymmetry(cr, ci, sym) {
+  switch(sym) {
+    case 0: return [cr, ci]; // none
+    case 1: return [Math.abs(cr), ci]; // mirror X
+    case 2: return [cr, Math.abs(ci)]; // mirror Y
+    case 3: return [Math.abs(cr), Math.abs(ci)]; // 4-fold
+    case 4: { // 6-fold
+      const r = Math.sqrt(cr*cr+ci*ci);
+      const a = (Math.atan2(ci,cr) % (Math.PI/3) + Math.PI/3) % (Math.PI/3);
+      return [r*Math.cos(a), r*Math.sin(a)];
+    }
+    case 5: { // 8-fold kaleidoscope
+      const r = Math.sqrt(cr*cr+ci*ci);
+      const a = (Math.atan2(ci,cr) % (Math.PI/4) + Math.PI/4) % (Math.PI/4);
+      return [r*Math.cos(a), r*Math.sin(a)];
+    }
+    case 6: { // swirl
+      const r = Math.sqrt(cr*cr+ci*ci);
+      const a = Math.atan2(ci,cr) + r * 0.5;
+      return [r*Math.cos(a), r*Math.sin(a)];
+    }
+    case 7: { // inversion
+      const r2 = cr*cr+ci*ci+1e-10;
+      return [cr/r2, -ci/r2];
+    }
+    case 8: { // 5-fold
+      const r = Math.sqrt(cr*cr+ci*ci);
+      const a = (Math.atan2(ci,cr) % (2*Math.PI/5) + 2*Math.PI/5) % (2*Math.PI/5);
+      return [r*Math.cos(a), r*Math.sin(a)];
+    }
+    case 9: { // Möbius-like
+      const d = (cr-0.5)*(cr-0.5) + ci*ci + 1e-10;
+      return [(cr*(cr-0.5)+ci*ci)/d, (ci*(cr-0.5)-ci*(cr-0.5))/d];
+    }
+    default: return [cr, ci];
+  }
+}
+
+// ─── PARAMETER GENERATION ───────────────────────────────────────────────────
+function randomParam() {
+  const modeIdx = Math.floor(Math.random() * MODES.length);
+  const paletteIdx = Math.floor(Math.random() * PALETTES.length);
+  const symmetry = Math.floor(Math.random() * 10);
+  const maxIter = 40 + Math.floor(Math.random() * 160);
+
+  // Interesting zoom regions per mode
+  let cx = 0, cy = 0, scale = 2.5;
+  if (modeIdx <= 1 || modeIdx === 4 || modeIdx === 6 || modeIdx === 7 || modeIdx === 9) {
+    // Newton-type — small complex view
+    cx = (Math.random() - 0.5) * 0.6;
+    cy = (Math.random() - 0.5) * 0.6;
+    scale = 1.2 + Math.random() * 1.5;
+  } else if (modeIdx === 3) {
+    // Julia — random c
+    cx = 0; cy = 0; scale = 2.2;
+  } else {
+    cx = -0.5 + (Math.random()-0.5) * 2;
+    cy = (Math.random()-0.5) * 1.5;
+    scale = 0.5 + Math.random() * 2.5;
+  }
+
+  const juliaR = (Math.random()-0.5) * 1.6;
+  const juliaI = (Math.random()-0.5) * 1.6;
+  const relax = 0.7 + Math.random() * 0.7;
+  const power = 2 + Math.floor(Math.random() * 5);
+
+  return { modeIdx, paletteIdx, symmetry, maxIter, cx, cy, scale, juliaR, juliaI, relax, power };
+}
+
+// ─── RENDER ─────────────────────────────────────────────────────────────────
+let tileQueue = [];
+let renderToken = 0;
+
+function startRender(p) {
+  renderToken++;
+  const token = renderToken;
+
+  const mode = MODES[p.modeIdx];
+  const palette = PALETTES[p.paletteIdx];
+  const aspect = W / H;
+  const now = performance.now();
+
+  // Tile-based rendering for responsiveness
+  const TILE = 64;
+  const cols = Math.ceil(W / TILE);
+  const rows = Math.ceil(H / TILE);
+  const tiles = [];
+  for (let ty = 0; ty < rows; ty++)
+    for (let tx = 0; tx < cols; tx++)
+      tiles.push([tx * TILE, ty * TILE, Math.min(TILE, W - tx*TILE), Math.min(TILE, H - ty*TILE)]);
+
+  // Shuffle tiles for dramatic reveal
+  for (let i = tiles.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i+1));
+    [tiles[i], tiles[j]] = [tiles[j], tiles[i]];
+  }
+
+  let tileIdx = 0;
+
+  function renderTile() {
+    if (token !== renderToken) return;
+    if (tileIdx >= tiles.length) { updateHUD(p, 0); return; }
+
+    const [tx, ty, tw, th] = tiles[tileIdx++];
+    const localBuf = new Uint8ClampedArray(tw * th * 4);
+
+    for (let py = 0; py < th; py++) {
+      for (let px = 0; px < tw; px++) {
+        const x = tx + px, y = ty + py;
+        let cr = (x / W - 0.5) * p.scale * aspect + p.cx;
+        let ci = (y / H - 0.5) * p.scale + p.cy;
+
+        [cr, ci] = applySymmetry(cr, ci, p.symmetry);
+
+        const res = mode.compute(cr, ci, p.maxIter, p);
+        const iter = Math.min(res.iter, p.maxIter);
+        const zr = res.zr || 0, zi = res.zi || 0;
+
+        let rgb;
+        if (iter >= p.maxIter) {
+          rgb = [0, 0, 0];
+        } else {
+          rgb = palette(now, iter, p.maxIter, zr, zi);
+        }
+
+        const i4 = (py * tw + px) * 4;
+        localBuf[i4]   = Math.max(0, Math.min(255, rgb[0] * 255));
+        localBuf[i4+1] = Math.max(0, Math.min(255, rgb[1] * 255));
+        localBuf[i4+2] = Math.max(0, Math.min(255, rgb[2] * 255));
+        localBuf[i4+3] = 255;
+      }
+    }
+
+    const id = new ImageData(localBuf, tw, th);
+    ctx.putImageData(id, tx, ty);
+
+    if (tileIdx < 4) renderTile();
+    else setTimeout(renderTile, 0);
+  }
+
+  renderTile();
+}
+
+// ─── HUD UPDATE ─────────────────────────────────────────────────────────────
+function updateHUD(p) {
+  document.getElementById('h-mode').textContent = MODES[p.modeIdx].name;
+  document.getElementById('h-iter').textContent = p.maxIter;
+  document.getElementById('h-sym').textContent = ['None','Mirror X','Mirror Y','4-Fold','6-Fold','8-Fold','Swirl','Inversion','5-Fold','Möbius'][p.symmetry] || p.symmetry;
+  document.getElementById('h-pal').textContent = ['Volcanic Aurora','Bioluminescent','Nuclear Coral','Modular UV','Chromatic Ab.','Supernova','Psychedelic','Obsidian Fire'][p.paletteIdx];
+  document.getElementById('h-zoom').textContent = (2.5 / p.scale).toFixed(3) + 'x';
+  document.getElementById('h-center').textContent = p.cx.toFixed(4) + ' + ' + p.cy.toFixed(4) + 'i';
+  document.getElementById('h-pa').textContent = 'Julia(' + p.juliaR.toFixed(3) + ', ' + p.juliaI.toFixed(3) + ')';
+  document.getElementById('h-pb').textContent = 'Relax=' + p.relax.toFixed(2) + ' Pow=' + p.power;
+  document.getElementById('h-frame').textContent = ++frameCount;
+}
+
+// ─── INIT & EVENTS ──────────────────────────────────────────────────────────
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+
+function flashScreen() {
+  const f = document.getElementById('flash');
+  f.style.opacity = '1';
+  setTimeout(() => { f.style.opacity = '0'; }, 80);
+}
+
+function reparameterize() {
+  flashScreen();
+  params = randomParam();
+  initAudio();
+  startRender(params);
+  playAmbientDrone(params);
+  playFractalTone(params.maxIter * 0.4, params.maxIter);
+}
+
+function toggleSound() {
+  soundOn = !soundOn;
+  initAudio();
+  const ind = document.getElementById('sound-indicator');
+  if (soundOn) {
+    ind.textContent = 'SOUND ON';
+    ind.classList.add('on');
+    masterGain && masterGain.gain.setValueAtTime(0.7, audioCtx.currentTime);
+    playAmbientDrone(params);
+  } else {
+    ind.textContent = 'SOUND OFF';
+    ind.classList.remove('on');
+    masterGain && masterGain.gain.setValueAtTime(0.0, audioCtx.currentTime);
+  }
+}
+
+function toggleHUD() {
+  hudOn = !hudOn;
+  document.getElementById('hud').classList.toggle('visible', hudOn);
+  if (hudOn) updateHUD(params);
+}
+
+window.addEventListener('keydown', e => {
+  switch(e.key.toUpperCase()) {
+    case ' ': e.preventDefault(); reparameterize(); break;
+    case 'S': toggleSound(); break;
+    case 'H': toggleHUD(); break;
+    case 'R': startRender(params); break;
+  }
+});
+
+canvas.addEventListener('click', reparameterize);
+canvas.addEventListener('touchend', e => { e.preventDefault(); reparameterize(); }, { passive: false });
+
+window.addEventListener('resize', () => {
+  resize();
+  startRender(params);
+});
+
+// ─── BOOT ───────────────────────────────────────────────────────────────────
+resize();
+params = randomParam();
+startRender(params);
+
+// Brief intro flash
+setTimeout(() => {
+  const f = document.getElementById('flash');
+  f.style.transition = 'none';
+  f.style.opacity = '0.6';
+  setTimeout(() => {
+    f.style.transition = 'opacity 0.4s ease';
+    f.style.opacity = '0';
+  }, 60);
+}, 50);
+
+})();
+</script>
+</body>
+</html>

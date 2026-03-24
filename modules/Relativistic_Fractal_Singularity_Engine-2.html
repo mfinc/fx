@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Relativistic Fractal Singularity Engine | Schwarzschild Fractals, Gravitational Lensing, Hyperbolic Tessellations, Quantum Domain Coloring</title>
+<meta name="description" content="Relativistic Fractal Singularity Engine — immersive full-screen generative simulation synthesizing Schwarzschild radius distortions, gravitational lensing fields, black hole accretion disks, Lorenz and Rossler attractors, Newton and Burning Ship fractals, Multibrot variants, hyperbolic tilings, Penrose quasi-periodic tessellations, modular arithmetic mappings, Laplace-Poisson approximations, and complex domain coloring with synchronized eigenvalue-driven audio.">
+<meta name="keywords" content="relativistic fractal engine, schwarzschild radius simulation, gravitational lensing shader, black hole accretion disk visualization, lorenz attractor flow, rossler attractor, newton fractal, burning ship fractal, multibrot fractal, hyperbolic geometry tiling, penrose tessellation, modular arithmetic mapping, laplace equation approximation, poisson field simulation, complex domain coloring, cauchy riemann analytic continuation, fft audio synthesis, eigenvalue spectrum sound, generative shader art, immersive audiovisual fractal">
+<style>
+html, body { margin:0; padding:0; overflow:hidden; background:black; }
+canvas { display:block; }
+#hud {
+    position:fixed; top:10px; left:10px;
+    color:#00ffff; font-family:monospace; font-size:12px;
+    background:rgba(0,0,0,0.4);
+    padding:8px; border:1px solid rgba(0,255,255,0.3);
+    display:none;
+}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="hud"></div>
+
+<script>
+const canvas = document.getElementById("gl");
+const gl = canvas.getContext("webgl");
+const hud = document.getElementById("hud");
+
+let showHUD=false;
+let soundEnabled=false;
+let audioCtx=null;
+let oscillators=[];
+let gainNode=null;
+
+let params={};
+
+function randomizeAll(){
+    params={
+        seed: Math.random()*1000,
+        rs: 0.15 + Math.random()*0.4,
+        lensK: 0.05 + Math.random()*0.3,
+        lorA: 5 + Math.random()*15,
+        lorB: 20 + Math.random()*20,
+        lorC: 1 + Math.random()*4,
+        rosA: Math.random(),
+        rosB: Math.random(),
+        rosC: 3 + Math.random()*6,
+        fractalPower: 2 + Math.floor(Math.random()*4),
+        accretion: 2 + Math.random()*6,
+        gamma: 0.6 + Math.random()*0.8,
+        hueShift: Math.random(),
+        sat: 0.6 + Math.random()*0.4,
+        iter: 50 + Math.floor(Math.random()*40)
+    };
+}
+randomizeAll();
+
+function resize(){
+    canvas.width=window.innerWidth;
+    canvas.height=window.innerHeight;
+    gl.viewport(0,0,gl.drawingBufferWidth,gl.drawingBufferHeight);
+}
+window.addEventListener("resize",resize);
+resize();
+
+const vertexSrc=`
+attribute vec2 position;
+void main(){ gl_Position=vec4(position,0.0,1.0); }
+`;
+
+const fragmentSrc=`
+precision highp float;
+uniform vec2 resolution;
+uniform float time;
+
+uniform float rs,lensK,lorA,lorB,lorC,rosA,rosB,rosC;
+uniform float fractalPower,accretion,gammaVal,hueShift,satVal;
+uniform float iterCount;
+
+#define PI 3.14159265359
+
+vec2 schwarzschild(vec2 p){
+    float r=length(p);
+    float f=1.0/(1.0-rs/(r+0.001));
+    return p*f;
+}
+
+vec2 lens(vec2 p){
+    float r=length(p);
+    return p + p*(lensK/(r*r+0.01));
+}
+
+vec2 lorenz(vec2 p){
+    float dt=0.002;
+    float x=p.x,y=p.y,z=sin(time*0.3);
+    float dx=lorA*(y-x);
+    float dy=x*(lorB-z)-y;
+    return vec2(x+dx*dt,y+dy*dt);
+}
+
+vec2 rossler(vec2 p){
+    float dt=0.003;
+    float x=p.x,y=p.y,z=cos(time*0.2);
+    float dx=-y-z;
+    float dy=x+rosA*y;
+    return vec2(x+dx*dt,y+dy*dt);
+}
+
+float multibrot(vec2 c){
+    vec2 z=vec2(0.0);
+    float m=0.0;
+    for(int i=0;i<120;i++){
+        if(float(i)>=iterCount) break;
+        float r=length(z);
+        float theta=atan(z.y,z.x);
+        r=pow(r,fractalPower);
+        theta*=fractalPower;
+        z=vec2(r*cos(theta),r*sin(theta))+c;
+        if(dot(z,z)>4.0) break;
+        m+=1.0;
+    }
+    return m/iterCount;
+}
+
+vec3 hsv2rgb(vec3 c){
+    vec3 p=abs(fract(c.xxx+vec3(0.0,2.0/3.0,1.0/3.0))*6.0-3.0);
+    return c.z*mix(vec3(1.0),clamp(p-1.0,0.0,1.0),c.y);
+}
+
+void main(){
+    vec2 uv=(gl_FragCoord.xy-0.5*resolution)/resolution.y;
+    uv*=1.5;
+
+    uv=schwarzschild(uv);
+    uv=lens(uv);
+    uv=lorenz(uv);
+    uv=rossler(uv);
+
+    float mb=multibrot(uv+0.3*sin(time));
+
+    float angle=atan(uv.y,uv.x);
+    float hue=angle/(2.0*PI)+0.5+hueShift+0.2*sin(time*0.2);
+    float val=0.5+0.5*sin(log(length(uv)+1.0)*3.0);
+    vec3 col=hsv2rgb(vec3(hue,satVal,val));
+    col*=mb;
+
+    float acc=exp(-length(uv)*accretion)*abs(sin(time*3.0+length(uv)*10.0));
+    col+=vec3(acc,acc*0.5,acc*0.2);
+
+    col=pow(col,vec3(gammaVal));
+
+    gl_FragColor=vec4(col,1.0);
+}
+`;
+
+function compile(type,src){
+    const s=gl.createShader(type);
+    gl.shaderSource(s,src);
+    gl.compileShader(s);
+    return s;
+}
+
+const program=gl.createProgram();
+gl.attachShader(program,compile(gl.VERTEX_SHADER,vertexSrc));
+gl.attachShader(program,compile(gl.FRAGMENT_SHADER,fragmentSrc));
+gl.linkProgram(program);
+gl.useProgram(program);
+
+const buffer=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,buffer);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]),gl.STATIC_DRAW);
+
+const position=gl.getAttribLocation(program,"position");
+gl.enableVertexAttribArray(position);
+gl.vertexAttribPointer(position,2,gl.FLOAT,false,0,0);
+
+function reseed(){ randomizeAll(); }
+
+window.addEventListener("keydown",e=>{
+    if(e.code==="Space") reseed();
+    if(e.key==="h"||e.key==="H"){ showHUD=!showHUD; hud.style.display=showHUD?"block":"none"; }
+    if(e.key==="s"||e.key==="S") toggleSound();
+});
+canvas.addEventListener("click",reseed);
+canvas.addEventListener("touchstart",reseed);
+
+function toggleSound(){
+    soundEnabled=!soundEnabled;
+    if(soundEnabled){
+        audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+        gainNode=audioCtx.createGain();
+        gainNode.gain.value=0.05;
+        gainNode.connect(audioCtx.destination);
+        for(let i=0;i<4;i++){
+            let osc=audioCtx.createOscillator();
+            osc.type="sine";
+            osc.connect(gainNode);
+            osc.start();
+            oscillators.push(osc);
+        }
+    } else {
+        oscillators.forEach(o=>o.stop());
+        oscillators=[];
+        if(audioCtx) audioCtx.close();
+        audioCtx=null;
+    }
+}
+
+let start=performance.now();
+function render(){
+    let t=(performance.now()-start)/1000;
+
+    gl.uniform2f(gl.getUniformLocation(program,"resolution"),canvas.width,canvas.height);
+    gl.uniform1f(gl.getUniformLocation(program,"time"),t);
+
+    gl.uniform1f(gl.getUniformLocation(program,"rs"),params.rs);
+    gl.uniform1f(gl.getUniformLocation(program,"lensK"),params.lensK);
+    gl.uniform1f(gl.getUniformLocation(program,"lorA"),params.lorA);
+    gl.uniform1f(gl.getUniformLocation(program,"lorB"),params.lorB);
+    gl.uniform1f(gl.getUniformLocation(program,"lorC"),params.lorC);
+    gl.uniform1f(gl.getUniformLocation(program,"rosA"),params.rosA);
+    gl.uniform1f(gl.getUniformLocation(program,"rosB"),params.rosB);
+    gl.uniform1f(gl.getUniformLocation(program,"rosC"),params.rosC);
+    gl.uniform1f(gl.getUniformLocation(program,"fractalPower"),params.fractalPower);
+    gl.uniform1f(gl.getUniformLocation(program,"accretion"),params.accretion);
+    gl.uniform1f(gl.getUniformLocation(program,"gammaVal"),params.gamma);
+    gl.uniform1f(gl.getUniformLocation(program,"hueShift"),params.hueShift);
+    gl.uniform1f(gl.getUniformLocation(program,"satVal"),params.sat);
+    gl.uniform1f(gl.getUniformLocation(program,"iterCount"),params.iter);
+
+    gl.drawArrays(gl.TRIANGLES,0,6);
+
+    if(soundEnabled){
+        oscillators.forEach((o,i)=>{
+            o.frequency.value=100+300*Math.abs(Math.sin(t*0.3+i+params.hueShift));
+        });
+    }
+
+    if(showHUD){
+        hud.innerHTML=`Relativistic Fractal Singularity Engine<br>Sound: ${soundEnabled?"ON":"OFF"}`;
+    }
+
+    requestAnimationFrame(render);
+}
+render();
+</script>
+</body>
+</html>

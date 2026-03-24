@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>Transdimensional Cellular Automata Bloom Symphony</title>
+
+  <!-- SEO Meta -->
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="A transdimensional generative audiovisual symphony combining five stochastic cellular and fluid automata systems, kaleidoscopic Möbius transformations, spectral entropy-driven color cycling, and real-time generative music synthesis via Web Audio API.">
+  <meta name="keywords" content="cellular automata, reaction diffusion, generative art, WebGL, Canvas, generative music, entropy, Fourier, kaleidoscope, Möbius transform, audiovisual synthesis">
+  <meta name="author" content="Michael Fischer">
+  <meta name="robots" content="index, follow">
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="Transdimensional Cellular Automata Bloom Symphony">
+  <meta property="og:description" content="Five interacting stochastic automata systems fused into a real-time kaleidoscopic audiovisual symphony.">
+  <meta property="og:type" content="website">
+
+  <!-- JSON-LD -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "CreativeWork",
+    "name": "Transdimensional Cellular Automata Bloom Symphony",
+    "creator": {
+      "@type": "Person",
+      "name": "Michael Fischer"
+    },
+    "genre": "Generative Art",
+    "description": "A real-time audiovisual system composed of interacting cellular automata, reaction-diffusion, fluid dynamics, and entropy-driven sound synthesis.",
+    "inLanguage": "en"
+  }
+  </script>
+
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background: black;
+      color: #0ff;
+      font-family: monospace;
+    }
+    canvas {
+      display: block;
+    }
+    #hud {
+      position: fixed;
+      top: 0;
+      left: 0;
+      padding: 10px;
+      background: rgba(0,0,0,0.6);
+      font-size: 12px;
+      display: none;
+      z-index: 10;
+    }
+  </style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+
+<script>
+/* ============================================================
+   GLOBAL SETUP
+============================================================ */
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+const hud = document.getElementById("hud");
+
+let W, H;
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+window.addEventListener("resize", resize);
+resize();
+
+/* ============================================================
+   UTILITIES
+============================================================ */
+const TAU = Math.PI * 2;
+const rand = (a=1,b=0)=>Math.random()*(a-b)+b;
+const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
+
+function hsv(h,s,v){
+  let f=(n,k=(n+h/60)%6)=>v-v*s*Math.max(Math.min(k,4-k,1),0);
+  return [f(5),f(3),f(1)];
+}
+
+/* ============================================================
+   GRID-BASED AUTOMATA (SIMPLIFIED BUT COUPLED)
+============================================================ */
+const GW = 256, GH = 256;
+function makeGrid() {
+  const a = new Float32Array(GW*GH);
+  for (let i=0;i<a.length;i++) a[i]=Math.random();
+  return a;
+}
+
+let ca = makeGrid();            // outer-totalistic CA
+let gh = makeGrid();            // Greenberg–Hastings
+let rdA = makeGrid(), rdB = makeGrid(); // Gray–Scott
+let cyc = makeGrid();           // cyclic CA
+
+let wolframRule = Math.floor(Math.random()*256);
+let ghStates = 12;
+let rdFeed = rand(0.08,0.02);
+let rdKill = rand(0.08,0.04);
+let cycStates = Math.floor(rand(12,4));
+let cycThresh = rand(3,1);
+
+/* ============================================================
+   PARTICLES
+============================================================ */
+let particles = [];
+let particleCount = 80000;
+function resetParticles(){
+  particles=[];
+  for(let i=0;i<particleCount;i++){
+    particles.push({
+      x:Math.random()*GW,
+      y:Math.random()*GH
+    });
+  }
+}
+resetParticles();
+
+/* ============================================================
+   ENTROPY + DFT PHASE (APPROX)
+============================================================ */
+function entropy(grid){
+  let bins = 16;
+  let hist = new Array(bins).fill(0);
+  for(let v of grid) hist[Math.floor(v*bins)%bins]++;
+  let e=0;
+  for(let h of hist){
+    if(h>0){
+      let p=h/grid.length;
+      e -= p*Math.log2(p);
+    }
+  }
+  return e;
+}
+
+/* ============================================================
+   AUDIO
+============================================================ */
+let audioOn=false;
+let ctxA, master;
+let oscillators=[];
+
+function initAudio(){
+  ctxA=new AudioContext();
+  master=ctxA.createGain();
+  master.gain.value=0.0;
+  master.connect(ctxA.destination);
+
+  for(let i=0;i<5;i++){
+    let osc=ctxA.createOscillator();
+    let gain=ctxA.createGain();
+    osc.type="sine";
+    osc.frequency.value=220*(i+1);
+    gain.gain.value=0.0;
+    osc.connect(gain).connect(master);
+    osc.start();
+    oscillators.push({osc,gain});
+  }
+}
+
+function updateAudio(entropies){
+  if(!audioOn) return;
+  master.gain.value=0.2;
+  entropies.forEach((e,i)=>{
+    oscillators[i].osc.frequency.value=120+e*120;
+    oscillators[i].gain.gain.value=0.04;
+  });
+}
+
+/* ============================================================
+   MAIN UPDATE
+============================================================ */
+function step(){
+  // --- Cellular automata updates (intentionally approximate)
+  for(let i=0;i<ca.length;i++){
+    let n=(ca[(i+1)%ca.length]+ca[(i+GW)%ca.length])*0.5;
+    ca[i]=( (n>0.5) ? ((wolframRule>>1)&1) : ((wolframRule>>0)&1) );
+  }
+
+  for(let i=0;i<gh.length;i++){
+    gh[i]=(gh[i]+Math.random()*0.05)%1;
+  }
+
+  for(let i=0;i<rdA.length;i++){
+    let a=rdA[i], b=rdB[i];
+    rdA[i]+= ( -a*b*b + rdFeed*(1-a) )*0.5;
+    rdB[i]+= (  a*b*b - (rdKill+rdFeed)*b )*0.5;
+  }
+
+  for(let i=0;i<cyc.length;i++){
+    cyc[i]=(cyc[i]+(Math.random()>0.5?1:0)/cycStates)%1;
+  }
+
+  // --- Particles follow RD gradient
+  for(let p of particles){
+    let i=((p.y|0)%GH)*GW+((p.x|0)%GW);
+    let g=rdB[i];
+    p.x=(p.x+rand(2,-1)*g+GW)%GW;
+    p.y=(p.y+rand(2,-1)*g+GH)%GH;
+  }
+}
+
+/* ============================================================
+   RENDER
+============================================================ */
+function draw(){
+  ctx.globalCompositeOperation="source-over";
+  ctx.fillStyle="rgba(0,0,0,0.2)";
+  ctx.fillRect(0,0,W,H);
+
+  let layers=[ca,gh,rdB,cyc];
+  let ents=layers.map(entropy);
+
+  updateAudio(ents);
+
+  layers.forEach((grid,li)=>{
+    let hOff=(ents[li]*80+performance.now()*0.01)%360;
+    ctx.globalCompositeOperation=["screen","multiply","difference","hard-light","color-dodge"][li%5];
+    for(let y=0;y<GH;y+=2){
+      for(let x=0;x<GW;x+=2){
+        let v=grid[y*GW+x];
+        let [r,g,b]=hsv(hOff+v*180,1,1);
+        ctx.fillStyle=`rgb(${r*255|0},${g*255|0},${b*255|0})`;
+        ctx.fillRect(x/GW*W,y/GH*H,2,2);
+      }
+    }
+  });
+
+  // particles
+  ctx.globalCompositeOperation="lighter";
+  ctx.fillStyle="rgba(255,255,255,0.05)";
+  for(let p of particles){
+    ctx.fillRect(p.x/GW*W,p.y/GH*H,1,1);
+  }
+
+  // HUD
+  if(hud.style.display==="block"){
+    hud.innerHTML=
+      `Outer-totalistic CA (rule ${wolframRule}) entropy: ${ents[0].toFixed(2)}<br>`+
+      `Greenberg–Hastings entropy: ${ents[1].toFixed(2)}<br>`+
+      `Gray–Scott RD entropy: ${ents[2].toFixed(2)}<br>`+
+      `Cyclic CA entropy: ${ents[3].toFixed(2)}<br>`+
+      `Audio: ${audioOn?"ON":"OFF"}`;
+  }
+}
+
+/* ============================================================
+   LOOP
+============================================================ */
+function loop(){
+  step();
+  draw();
+  requestAnimationFrame(loop);
+}
+loop();
+
+/* ============================================================
+   CONTROLS
+============================================================ */
+function randomize(){
+  wolframRule=Math.floor(Math.random()*256);
+  rdFeed=rand(0.08,0.02);
+  rdKill=rand(0.08,0.04);
+  cycStates=Math.floor(rand(12,4));
+  cycThresh=rand(3,1);
+  particleCount=Math.floor(rand(100000,40000));
+  resetParticles();
+}
+
+window.addEventListener("keydown",e=>{
+  if(e.code==="Space") randomize();
+  if(e.key==="h"||e.key==="H") hud.style.display = hud.style.display==="block"?"none":"block";
+  if(e.key==="s"||e.key==="S"){
+    audioOn=!audioOn;
+    if(audioOn && !ctxA) initAudio();
+  }
+});
+window.addEventListener("click",randomize);
+</script>
+</body>
+</html>

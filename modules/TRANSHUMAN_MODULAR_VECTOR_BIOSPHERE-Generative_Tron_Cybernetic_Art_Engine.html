@@ -1,0 +1,1053 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>TRANSHUMAN MODULAR VECTOR BIOSPHERE | Generative Tron Cybernetic Art Engine</title>
+<meta name="description" content="A real-time generative art engine fusing Atari arcade vector aesthetics with Tron cyber-architecture. Human silhouettes evolve into modular machine organisms through CRISPR-inspired cybernetic editing visualized as animated category-theory object-morphism networks. Procedural audiovisual synthesis with recursive fractals, particle swarms, attractor flows, and dynamic field distortions.">
+<meta name="keywords" content="generative art, Tron graphics, Atari vector art, CRISPR cybernetic evolution, category theory morphisms, procedural audiovisual synthesis, neon generative art, cyberpunk animation, transhuman art, modular synthesis visuals, particle swarm art, fractal animation, attractor flow visualization, graph rewriting art, cyber architecture, morphism networks, HTML5 canvas generative art, realtime procedural graphics, cybernetic organism art, machine learning visualization art">
+<meta name="author" content="Transhuman Biosphere Engine">
+<meta property="og:title" content="TRANSHUMAN MODULAR VECTOR BIOSPHERE">
+<meta property="og:description" content="Generative Tron/Atari cybernetic evolution art engine with category-theory morphism networks, CRISPR-inspired organism editing, and procedural audiovisual synthesis.">
+<meta property="og:type" content="website">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Courier New',monospace}
+  canvas{display:block;position:fixed;top:0;left:0;width:100vw;height:100vh}
+  #hud{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;display:none;z-index:10}
+  #hud-tl{position:absolute;top:16px;left:16px;font-size:10px;letter-spacing:2px;line-height:1.8;opacity:.75}
+  #hud-tr{position:absolute;top:16px;right:16px;font-size:10px;letter-spacing:2px;line-height:1.8;text-align:right;opacity:.75}
+  #hud-bl{position:absolute;bottom:16px;left:16px;font-size:9px;letter-spacing:3px;opacity:.5;text-transform:uppercase}
+  #hud-br{position:absolute;bottom:16px;right:16px;font-size:9px;letter-spacing:3px;text-align:right;opacity:.5}
+  .hud-bar{display:inline-block;width:80px;height:3px;background:rgba(255,255,255,.15);vertical-align:middle;margin-left:6px;position:relative;overflow:hidden}
+  .hud-bar-fill{position:absolute;left:0;top:0;height:100%;transition:width .3s}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div id="hud-tl">
+    <div id="h-gen">GEN <span id="v-gen">0001</span></div>
+    <div id="h-nodes">NODES <span id="v-nodes">000</span></div>
+    <div id="h-phase">PHASE <span id="v-phase">INIT</span></div>
+    <div id="h-palette">PALETTE <span id="v-palette">∅</span></div>
+  </div>
+  <div id="hud-tr">
+    <div>ENTROPY <span id="v-entropy">0.000</span><span class="hud-bar"><span class="hud-bar-fill" id="b-entropy"></span></span></div>
+    <div>MORPH <span id="v-morph">0.000</span><span class="hud-bar"><span class="hud-bar-fill" id="b-morph"></span></span></div>
+    <div>SWARM <span id="v-swarm">0000</span><span class="hud-bar"><span class="hud-bar-fill" id="b-swarm"></span></span></div>
+    <div>FIELD Ω <span id="v-field">0.000</span><span class="hud-bar"><span class="hud-bar-fill" id="b-field"></span></span></div>
+  </div>
+  <div id="hud-bl">TRANSHUMAN MODULAR VECTOR BIOSPHERE · CRISPR CYBERNETIC ENGINE v4.0</div>
+  <div id="hud-br">SPACE:REGEN · H:HUD · S:SOUND</div>
+</div>
+<script>
+(function(){
+'use strict';
+
+// ── Constants & globals ──────────────────────────────────────────────────────
+const cv=document.getElementById('c');
+const ctx=cv.getContext('2d');
+let W,H,CX,CY,DPR=1;
+let RAF,t=0,gen=0,entropy=0,morphPhase=0;
+let HUD=false,SOUND=false;
+let audioCtx=null,masterGain=null,oscBank=[];
+
+// ── Resize ───────────────────────────────────────────────────────────────────
+function resize(){
+  DPR=window.devicePixelRatio||1;
+  W=window.innerWidth; H=window.innerHeight;
+  CX=W/2; CY=H/2;
+  cv.width=W*DPR; cv.height=H*DPR;
+  cv.style.width=W+'px'; cv.style.height=H+'px';
+  ctx.scale(DPR,DPR);
+}
+window.addEventListener('resize',()=>{resize();});
+
+// ── Math utils ───────────────────────────────────────────────────────────────
+const PI=Math.PI, TAU=PI*2, sin=Math.sin, cos=Math.cos, abs=Math.abs,
+      sqrt=Math.sqrt, floor=Math.floor, pow=Math.pow, random=Math.random,
+      atan2=Math.atan2, hypot=Math.hypot, min=Math.min, max=Math.max;
+const rnd=(a,b)=>a+(b-a)*random();
+const rint=(a,b)=>floor(rnd(a,b+1));
+const pick=arr=>arr[floor(random()*arr.length)];
+const lerp=(a,b,t)=>a+(b-a)*t;
+const clamp=(v,a,b)=>max(a,min(b,v));
+const ease=(t)=>t<.5?2*t*t:1-pow(-2*t+2,2)/2;
+
+// ── State ────────────────────────────────────────────────────────────────────
+let S={
+  seed:0,
+  palette:[],
+  paletteNames:[],
+  bgCol:'#000',
+  nodes:[],
+  edges:[],
+  particles:[],
+  attractors:[],
+  humanSilhouettes:[],
+  fieldGrid:[],
+  fractals:[],
+  morphisms:[],
+  gridLines:[],
+  glowPulse:0,
+  phaseLabel:'INIT',
+  colorTime:0,
+  colorSpeed:0,
+  colorMode:0,
+  swarmTarget:{x:0,y:0},
+  rewriteTimer:0,
+  crisprActive:false,
+  crisprTimer:0,
+  crisprTargets:[],
+  fieldOmega:0,
+  paletteIdx:0
+};
+
+// ── Palette engine ───────────────────────────────────────────────────────────
+const PALETTE_DEFS=[
+  {name:'TRON AZURE',  cols:['#00F5FF','#0080FF','#0030CC','#00FFCC','#FF00FF','#8800FF']},
+  {name:'ATARI NEON',  cols:['#FF6600','#FFCC00','#FF0066','#00FF66','#6600FF','#FF3300']},
+  {name:'CYBER JADE',  cols:['#00FF88','#00CCFF','#44FF00','#FFFF00','#FF0088','#00FFFF']},
+  {name:'PLASMA GRID', cols:['#FF00CC','#CC00FF','#6600CC','#FF6600','#FF3366','#FF99FF']},
+  {name:'CRISPR RED',  cols:['#FF2200','#FF6622','#FFAA00','#FF0044','#FF4488','#440000']},
+  {name:'VECTOR LIME', cols:['#AAFF00','#66FF33','#00FF66','#FFFF00','#CCFF00','#FFFFFF']},
+  {name:'SYNTH WAVE',  cols:['#FF71CE','#01CDFE','#05FFA1','#B967FF','#FFFB96','#FF6E6E']},
+  {name:'DEEP SPACE',  cols:['#4488FF','#0044FF','#00AAFF','#AA00FF','#FF00AA','#FFFFFF']},
+];
+
+function buildPalette(){
+  const pdef=pick(PALETTE_DEFS);
+  S.palette=[...pdef.cols];
+  S.paletteNames=pdef.name;
+  // Occasionally mix two palettes
+  if(random()<.3){
+    const p2=pick(PALETTE_DEFS);
+    S.palette=[...S.palette,...p2.cols];
+    S.paletteNames=pdef.name+' × '+p2.name;
+  }
+  S.colorMode=rint(0,4);
+  S.colorSpeed=rnd(.3,1.2);
+  S.bgCol=`hsl(${rint(200,280)},${rint(60,100)}%,${rint(0,4)}%)`;
+}
+
+function getPalCol(i,offset){
+  const c=S.palette.length;
+  const idx=(floor(i+offset+S.colorTime*S.colorSpeed*2)%c+c)%c;
+  return S.palette[idx];
+}
+
+function parseCol(s){
+  if(!s||typeof s!=='string') return [0,200,255];
+  if(s[0]==='#'){
+    // Expand #rgb shorthand to #rrggbb
+    if(s.length===4) s='#'+s[1]+s[1]+s[2]+s[2]+s[3]+s[3];
+    const r=parseInt(s.slice(1,3),16);
+    const g=parseInt(s.slice(3,5),16);
+    const b=parseInt(s.slice(5,7),16);
+    if(!isNaN(r)&&!isNaN(g)&&!isNaN(b)) return [r,g,b];
+  }
+  // rgb(...) or rgba(...)
+  const m=s.match(/[\d.]+/g);
+  if(m&&m.length>=3) return [+m[0],+m[1],+m[2]];
+  return [0,200,255];
+}
+
+function lerpHex(c1,c2,t){
+  const [r1,g1,b1]=parseCol(c1),[r2,g2,b2]=parseCol(c2);
+  return `rgb(${floor(lerp(r1,r2,t))},${floor(lerp(g1,g2,t))},${floor(lerp(b1,b2,t))})`;
+}
+
+function animatedCol(i){
+  const c=S.palette.length;
+  if(!c) return '#00FFFF';
+  const tt=S.colorTime*S.colorSpeed;
+  const idx=((floor(i+tt))%c+c)%c;
+  const nxt=(idx+1)%c;
+  const f=((tt+i)%1+1)%1;
+  return lerpHex(S.palette[idx],S.palette[nxt],f);
+}
+
+// ── Category-theory nodes & morphisms ────────────────────────────────────────
+function buildGraph(){
+  S.nodes=[];
+  S.edges=[];
+  S.morphisms=[];
+  const N=rint(18,45);
+  const layers=rint(3,7);
+  const perlayer=[];
+  let total=0;
+  for(let l=0;l<layers;l++){
+    const cnt=rint(2,8);
+    perlayer.push(cnt); total+=cnt;
+  }
+  let ni=0;
+  for(let l=0;l<layers;l++){
+    const cnt=perlayer[l];
+    const lx=lerp(W*.1,W*.9,(l/(layers-1)));
+    for(let k=0;k<cnt;k++){
+      const ly=lerp(H*.12,H*.88,(k+1)/(cnt+1));
+      S.nodes.push({
+        id:ni++, x:lx+rnd(-60,60), y:ly+rnd(-40,40),
+        vx:rnd(-.3,.3), vy:rnd(-.3,.3),
+        r:rnd(4,14), layer:l,
+        type:rint(0,3),
+        phase:random()*TAU,
+        omega:rnd(.3,1.5),
+        glowRadius:rnd(8,30),
+        col:rint(0,S.palette.length-1),
+        crispr:false,
+        morphTarget:-1,
+        evolve:random()
+      });
+    }
+  }
+  // Edges: intra + inter layer
+  for(let i=0;i<S.nodes.length;i++){
+    const a=S.nodes[i];
+    for(let j=i+1;j<S.nodes.length;j++){
+      const b=S.nodes[j];
+      const dl=abs(a.layer-b.layer);
+      const dist=hypot(a.x-b.x,a.y-b.y);
+      if(dl===1&&random()<.55&&dist<W*.35){
+        S.edges.push({a:i,b:j,w:rnd(.5,2.5),phase:random()*TAU,speed:rnd(.3,1.2),type:rint(0,2)});
+      } else if(dl===0&&random()<.15&&dist<W*.2){
+        S.edges.push({a:i,b:j,w:rnd(.3,1.2),phase:random()*TAU,speed:rnd(.2,.8),type:rint(0,2)});
+      }
+    }
+  }
+  // Morphisms: curved arrows representing category morphisms
+  for(let i=0;i<min(20,S.nodes.length);i++){
+    const ai=rint(0,S.nodes.length-1);
+    const bi=rint(0,S.nodes.length-1);
+    if(ai!==bi) S.morphisms.push({from:ai,to:bi,t:0,speed:rnd(.002,.008),cp:rnd(-120,120),active:true,col:rint(0,S.palette.length-1)});
+  }
+}
+
+// ── Human silhouettes (procedural) ───────────────────────────────────────────
+function buildSilhouettes(){
+  S.humanSilhouettes=[];
+  const N=rint(3,8);
+  for(let i=0;i<N;i++){
+    const x=rnd(W*.05,W*.95), y=rnd(H*.15,H*.85);
+    const sc=rnd(.4,1.2);
+    const evolveLevel=random(); // 0=human, 1=full machine
+    S.humanSilhouettes.push({x,y,sc,evolveLevel,phase:random()*TAU,speed:rnd(.002,.006),
+      crisprMark:false,segmentPhase:new Array(12).fill(0).map(()=>random()*TAU),
+      col:rint(0,S.palette.length-1)});
+  }
+}
+
+// ── Particle swarm ───────────────────────────────────────────────────────────
+function buildSwarm(){
+  S.particles=[];
+  const N=rint(120,300);
+  for(let i=0;i<N;i++){
+    S.particles.push({
+      x:rnd(0,W),y:rnd(0,H),
+      vx:rnd(-1.5,1.5),vy:rnd(-1.5,1.5),
+      r:rnd(.8,3.5),
+      col:rint(0,S.palette.length-1),
+      phase:random()*TAU,
+      life:random(),
+      decay:rnd(.002,.008),
+      trail:[],
+      trailLen:rint(4,20)
+    });
+  }
+}
+
+// ── Strange attractors ───────────────────────────────────────────────────────
+function buildAttractors(){
+  S.attractors=[];
+  const types=['lorenz','halvorsen','thomas','aizawa','dadras'];
+  const N=rint(2,5);
+  for(let i=0;i<N;i++){
+    const type=pick(types);
+    S.attractors.push({
+      type, x:rnd(-1,1)*W*.2+CX, y:rnd(-1,1)*H*.2+CY,
+      ax:rnd(-15,15),ay:rnd(-15,15),az:rnd(-15,15),
+      trail:[],trailMax:rint(80,220),
+      scale:rnd(.012,.035),
+      col:rint(0,S.palette.length-1),
+      dt:rnd(.003,.009)
+    });
+  }
+}
+
+// ── Field grid ───────────────────────────────────────────────────────────────
+function buildField(){
+  S.fieldGrid=[];
+  const cols=rint(16,32), rows=rint(12,24);
+  const cw=W/cols, rh=H/rows;
+  for(let r=0;r<rows;r++){
+    for(let c=0;c<cols;c++){
+      S.fieldGrid.push({
+        x:c*cw+cw*.5, y:r*rh+rh*.5,
+        angle:random()*TAU,
+        speed:rnd(.01,.04),
+        len:rnd(8,28),
+        col:rint(0,S.palette.length-1),
+        phase:random()*TAU
+      });
+    }
+  }
+}
+
+// ── Recursive fractals ───────────────────────────────────────────────────────
+function buildFractals(){
+  S.fractals=[];
+  const N=rint(2,5);
+  for(let i=0;i<N;i++){
+    S.fractals.push({
+      x:rnd(W*.1,W*.9), y:rnd(H*.1,H*.9),
+      depth:rint(3,6),
+      scale:rnd(.45,.68),
+      angle:random()*TAU,
+      dangle:rnd(.3,1.2),
+      len:rnd(30,90),
+      col:rint(0,S.palette.length-1),
+      speed:rnd(.003,.012),
+      type:rint(0,3),
+      phase:random()*TAU
+    });
+  }
+}
+
+// ── Grid lines (Tron/Atari vector grid) ──────────────────────────────────────
+function buildGrid(){
+  S.gridLines=[];
+  const N=rint(6,14);
+  for(let i=0;i<N;i++){
+    S.gridLines.push({
+      type:rint(0,2), // 0=h, 1=v, 2=diagonal
+      pos:rnd(0,1),
+      speed:rnd(.00015,.0008),
+      col:rint(0,S.palette.length-1),
+      alpha:rnd(.05,.25),
+      width:rnd(.3,1.5)
+    });
+  }
+}
+
+// ── CRISPR edit event ─────────────────────────────────────────────────────────
+function triggerCRISPR(){
+  S.crisprActive=true;
+  S.crisprTimer=0;
+  S.crisprTargets=[];
+  const n=rint(2,6);
+  for(let i=0;i<n;i++){
+    if(S.nodes.length>0){
+      const ni=rint(0,S.nodes.length-1);
+      S.crisprTargets.push(ni);
+      S.nodes[ni].crispr=true;
+    }
+    if(S.humanSilhouettes.length>0){
+      pick(S.humanSilhouettes).crisprMark=true;
+    }
+  }
+  S.phaseLabel='CRISPR-EDIT';
+}
+
+// ── Graph rewriting (morphism rewrite rule) ──────────────────────────────────
+function rewriteGraph(){
+  if(S.nodes.length<3) return;
+  // Randomly collapse two adjacent nodes into one, or split one into two
+  const op=random()<.5?'merge':'split';
+  if(op==='merge'&&S.edges.length>0){
+    const e=pick(S.edges);
+    const ia=e.a, ib=e.b;
+    const a=S.nodes[ia], b=S.nodes[ib];
+    a.x=(a.x+b.x)*.5; a.y=(a.y+b.y)*.5;
+    a.r=max(a.r,b.r)*1.15;
+    // Remove b
+    S.nodes.splice(ib,1);
+    S.edges=S.edges.filter(e=>e.a!==ib&&e.b!==ib).map(e=>({
+      ...e,a:e.a>ib?e.a-1:e.a,b:e.b>ib?e.b-1:e.b
+    }));
+  } else {
+    const ni=rint(0,S.nodes.length-1);
+    const n=S.nodes[ni];
+    const child={...n,x:n.x+rnd(-50,50),y:n.y+rnd(-50,50),r:n.r*.7,id:S.nodes.length,phase:random()*TAU,col:rint(0,S.palette.length-1)};
+    S.nodes.push(child);
+    S.edges.push({a:ni,b:S.nodes.length-1,w:1,phase:0,speed:.5,type:0});
+  }
+  S.phaseLabel='REWRITE';
+}
+
+// ── Full system initialisation ────────────────────────────────────────────────
+function init(){
+  gen++;
+  t=0;
+  entropy=0;
+  morphPhase=0;
+  S.colorTime=0;
+  S.crisprActive=false;
+  S.rewriteTimer=rnd(200,400);
+  buildPalette();
+  buildGraph();
+  buildSilhouettes();
+  buildSwarm();
+  buildAttractors();
+  buildField();
+  buildFractals();
+  buildGrid();
+  S.fieldOmega=rnd(.3,1.8);
+  S.swarmTarget={x:CX,y:CY};
+  updateHUD();
+  if(SOUND) initAudio();
+}
+
+// ── Draw helpers ─────────────────────────────────────────────────────────────
+function hexAlpha(hex,a){
+  if(!hex||typeof hex!=='string') return `rgba(0,200,255,${a})`;
+  if(hex.startsWith('rgb')){
+    const m=hex.match(/[\d.]+/g);
+    if(m&&m.length>=3) return `rgba(${m[0]},${m[1]},${m[2]},${a})`;
+    return `rgba(0,200,255,${a})`;
+  }
+  if(hex[0]==='#'&&hex.length>=7){
+    const r=parseInt(hex.slice(1,3),16);
+    const g=parseInt(hex.slice(3,5),16);
+    const b=parseInt(hex.slice(5,7),16);
+    if(!isNaN(r)&&!isNaN(g)&&!isNaN(b)) return `rgba(${r},${g},${b},${a})`;
+  }
+  return `rgba(0,200,255,${a})`;
+}
+
+function glow(x,y,radius,col,alpha){
+  if(!radius||radius<=0||!isFinite(radius)) return;
+  const grad=ctx.createRadialGradient(x,y,0,x,y,radius);
+  grad.addColorStop(0,hexAlpha(col,alpha));
+  grad.addColorStop(1,hexAlpha(col,0));
+  ctx.fillStyle=grad;
+  ctx.beginPath();
+  ctx.arc(x,y,radius,0,TAU);
+  ctx.fill();
+}
+
+// ── Draw grid lines ──────────────────────────────────────────────────────────
+function drawGrid(){
+  for(let g of S.gridLines){
+    g.pos=(g.pos+g.speed)%1;
+    const col=animatedCol(g.col);
+    ctx.strokeStyle=hexAlpha(col||'#00FFFF',g.alpha);
+    ctx.lineWidth=g.width;
+    ctx.beginPath();
+    if(g.type===0){
+      const y=g.pos*H; ctx.moveTo(0,y); ctx.lineTo(W,y);
+    } else if(g.type===1){
+      const x=g.pos*W; ctx.moveTo(x,0); ctx.lineTo(x,H);
+    } else {
+      const p=g.pos*2-0.5;
+      ctx.moveTo(0,p*H); ctx.lineTo(W,(p+1)*H);
+    }
+    ctx.stroke();
+  }
+}
+
+// ── Draw vector field ─────────────────────────────────────────────────────────
+function drawField(){
+  for(let f of S.fieldGrid){
+    const ang=f.angle+sin(t*.02*f.speed+f.phase)*TAU*.5;
+    const col=animatedCol(f.col);
+    const dx=cos(ang)*f.len, dy=sin(ang)*f.len;
+    ctx.strokeStyle=hexAlpha(col||'#00FFFF',.12+.06*sin(t*.03+f.phase));
+    ctx.lineWidth=.7;
+    ctx.beginPath();
+    ctx.moveTo(f.x,f.y);
+    ctx.lineTo(f.x+dx,f.y+dy);
+    ctx.stroke();
+    // Arrowhead
+    ctx.beginPath();
+    ctx.arc(f.x+dx,f.y+dy,1.2,0,TAU);
+    ctx.fillStyle=hexAlpha(col||'#00FFFF',.2);
+    ctx.fill();
+    f.angle+=f.speed*.003*S.fieldOmega;
+  }
+}
+
+// ── Draw fractal branches ─────────────────────────────────────────────────────
+function drawFractalBranch(x,y,angle,len,depth,col,scale,dangle,ftype,phase){
+  if(depth<=0||len<1.5) return;
+  const ex=x+cos(angle)*len, ey=y+sin(angle)*len;
+  const alpha=clamp(.08+depth*.12,0,1);
+  ctx.strokeStyle=hexAlpha(col||'#00FFFF',alpha);
+  ctx.lineWidth=max(.3,depth*.5);
+  ctx.beginPath();
+  ctx.moveTo(x,y); ctx.lineTo(ex,ey); ctx.stroke();
+  const nd=depth-1;
+  if(ftype===0){
+    drawFractalBranch(ex,ey,angle-dangle,len*scale,nd,col,scale,dangle,ftype,phase);
+    drawFractalBranch(ex,ey,angle+dangle,len*scale,nd,col,scale,dangle,ftype,phase);
+  } else if(ftype===1){
+    drawFractalBranch(ex,ey,angle-dangle,len*scale,nd,col,scale,dangle+.05,ftype,phase);
+    drawFractalBranch(ex,ey,angle+dangle*.7,len*scale*.9,nd,col,scale,dangle,ftype,phase);
+    drawFractalBranch(ex,ey,angle+PI*.5,len*scale*.5,nd,col,scale,dangle,ftype,phase);
+  } else if(ftype===2){
+    for(let i=0;i<3;i++){
+      drawFractalBranch(ex,ey,angle+dangle*(i-1),len*scale,nd,col,scale,dangle,ftype,phase);
+    }
+  } else {
+    drawFractalBranch(ex,ey,angle-dangle,len*scale,nd,col,scale,dangle,ftype,phase);
+    drawFractalBranch(ex,ey,angle+dangle,len*scale,nd,col,scale,dangle,ftype,phase);
+    drawFractalBranch(ex,ey,angle,len*scale*.6,nd-1,col,scale,dangle,ftype,phase);
+  }
+}
+
+function drawFractals(){
+  for(let f of S.fractals){
+    f.phase+=f.speed;
+    const col=animatedCol(f.col);
+    const ang=f.angle+f.phase*.5;
+    drawFractalBranch(f.x,f.y,ang-PI*.5,f.len,f.depth,col,f.scale,f.dangle+sin(f.phase)*.3,f.type,f.phase);
+  }
+}
+
+// ── Draw attractors ────────────────────────────────────────────────────────────
+function stepAttractor(a){
+  let x=a.ax,y=a.ay,z=a.az;
+  const dt=a.dt;
+  let nx,ny,nz;
+  if(a.type==='lorenz'){
+    const s=10,r=28,b=8/3;
+    nx=x+dt*(s*(y-x)); ny=y+dt*(x*(r-z)-y); nz=z+dt*(x*y-b*z);
+  } else if(a.type==='halvorsen'){
+    const a0=1.4;
+    nx=x+dt*(-a0*x-4*y-4*z-y*y); ny=y+dt*(-a0*y-4*z-4*x-z*z); nz=z+dt*(-a0*z-4*x-4*y-x*x);
+  } else if(a.type==='thomas'){
+    const b=.19;
+    nx=x+dt*(sin(y)-b*x); ny=y+dt*(sin(z)-b*y); nz=z+dt*(sin(x)-b*z);
+  } else if(a.type==='aizawa'){
+    const[a1,b1,c,d,e,f]=[.95,.7,.6,3.5,.25,.1];
+    nx=x+dt*((z-b1)*x-d*y); ny=y+dt*(d*x+(z-b1)*y); nz=z+dt*(c+a1*z-z*z*z/3-(x*x+y*y)*(1+e*z)+f*z*x*x*x);
+  } else { // dadras
+    const[a1,b1,c,d,e]=[3,2.7,.06,.07,8.3];
+    nx=x+dt*(y-a1*x+b1*y*z); ny=y+dt*(c*y-x*z+z); nz=z+dt*(d*x*y-e*z);
+  }
+  a.ax=clamp(nx,-30,30); a.ay=clamp(ny,-30,30); a.az=clamp(nz,-30,30);
+  return {x:a.ax*a.scale*W*.35+a.x, y:a.ay*a.scale*H*.35+a.y};
+}
+
+function drawAttractors(){
+  for(let a of S.attractors){
+    const col=animatedCol(a.col);
+    for(let i=0;i<4;i++){
+      const p=stepAttractor(a);
+      a.trail.push(p);
+      if(a.trail.length>a.trailMax) a.trail.shift();
+    }
+    if(a.trail.length<2) continue;
+    for(let i=1;i<a.trail.length;i++){
+      const ratio=i/a.trail.length;
+      ctx.strokeStyle=hexAlpha(col||'#00FFFF',ratio*.6);
+      ctx.lineWidth=ratio*1.5;
+      ctx.beginPath();
+      ctx.moveTo(a.trail[i-1].x,a.trail[i-1].y);
+      ctx.lineTo(a.trail[i].x,a.trail[i].y);
+      ctx.stroke();
+    }
+  }
+}
+
+// ── Draw particle swarm ────────────────────────────────────────────────────────
+function drawSwarm(){
+  // Update swarm target occasionally
+  if(random()<.002) S.swarmTarget={x:rnd(W*.1,W*.9),y:rnd(H*.1,H*.9)};
+  for(let p of S.particles){
+    // Flocking: seek target + random wander
+    const dx=S.swarmTarget.x-p.x, dy=S.swarmTarget.y-p.y;
+    const d=hypot(dx,dy)+.001;
+    p.vx+=(dx/d)*.04+rnd(-.15,.15);
+    p.vy+=(dy/d)*.04+rnd(-.15,.15);
+    // Speed cap
+    const spd=hypot(p.vx,p.vy);
+    if(spd>2.5){p.vx=p.vx/spd*2.5; p.vy=p.vy/spd*2.5;}
+    p.x+=p.vx; p.y+=p.vy;
+    // Wrap
+    if(p.x<0)p.x=W; if(p.x>W)p.x=0;
+    if(p.y<0)p.y=H; if(p.y>H)p.y=0;
+    // Trail
+    p.trail.push({x:p.x,y:p.y});
+    if(p.trail.length>p.trailLen) p.trail.shift();
+    p.life-=p.decay;
+    if(p.life<=0){p.life=1;p.x=rnd(0,W);p.y=rnd(0,H);}
+    const col=animatedCol(p.col);
+    // Draw trail
+    if(p.trail.length>1){
+      for(let i=1;i<p.trail.length;i++){
+        const ratio=i/p.trail.length;
+        ctx.strokeStyle=hexAlpha(col||'#00FFFF',ratio*.3*p.life);
+        ctx.lineWidth=p.r*ratio*.7;
+        ctx.beginPath();
+        ctx.moveTo(p.trail[i-1].x,p.trail[i-1].y);
+        ctx.lineTo(p.trail[i].x,p.trail[i].y);
+        ctx.stroke();
+      }
+    }
+    ctx.fillStyle=hexAlpha(col||'#00FFFF',p.life*.7);
+    ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,TAU); ctx.fill();
+  }
+}
+
+// ── Draw graph nodes & edges ─────────────────────────────────────────────────
+function drawGraph(){
+  // Draw edges first
+  for(let e of S.edges){
+    if(e.a>=S.nodes.length||e.b>=S.nodes.length) continue;
+    const na=S.nodes[e.a], nb=S.nodes[e.b];
+    const col=animatedCol(na.col);
+    const pulse=.5+.5*sin(t*e.speed+e.phase);
+    if(e.type===0){
+      ctx.strokeStyle=hexAlpha(col||'#00FFFF',(.15+.2*pulse));
+      ctx.lineWidth=e.w;
+      ctx.setLineDash([]); 
+      ctx.beginPath(); ctx.moveTo(na.x,na.y); ctx.lineTo(nb.x,nb.y); ctx.stroke();
+    } else if(e.type===1){
+      // Dashed
+      ctx.strokeStyle=hexAlpha(col||'#00FFFF',(.12+.15*pulse));
+      ctx.lineWidth=e.w*.7;
+      ctx.setLineDash([6,4]);
+      ctx.beginPath(); ctx.moveTo(na.x,na.y); ctx.lineTo(nb.x,nb.y); ctx.stroke();
+      ctx.setLineDash([]);
+    } else {
+      // Curved
+      const mx=(na.x+nb.x)*.5+rnd(-40,40), my=(na.y+nb.y)*.5+rnd(-40,40);
+      ctx.strokeStyle=hexAlpha(col||'#00FFFF',(.1+.12*pulse));
+      ctx.lineWidth=e.w*.5;
+      ctx.beginPath(); ctx.moveTo(na.x,na.y); ctx.quadraticCurveTo(mx,my,nb.x,nb.y); ctx.stroke();
+    }
+    // Travelling pulse along edge
+    if(pulse>.8){
+      const tp=(t*e.speed*.5)%1;
+      const px=lerp(na.x,nb.x,tp), py=lerp(na.y,nb.y,tp);
+      glow(px,py,6,col||'#00FFFF',.6);
+    }
+  }
+
+  // Draw morphisms (curved arrows with animated travel)
+  for(let m of S.morphisms){
+    if(m.from>=S.nodes.length||m.to>=S.nodes.length) continue;
+    const na=S.nodes[m.from], nb=S.nodes[m.to];
+    const col=animatedCol(m.col);
+    const cx=(na.x+nb.x)*.5+m.cp*cos(t*.005), cy=(na.y+nb.y)*.5+m.cp*sin(t*.005);
+    // Draw bezier
+    ctx.strokeStyle=hexAlpha(col||'#FF00FF',.15);
+    ctx.lineWidth=.8;
+    ctx.setLineDash([3,5]);
+    ctx.beginPath(); ctx.moveTo(na.x,na.y); ctx.quadraticCurveTo(cx,cy,nb.x,nb.y); ctx.stroke();
+    ctx.setLineDash([]);
+    // Travelling dot (morphism application)
+    m.t=(m.t+m.speed)%1;
+    const mt=m.t, mt1=1-mt;
+    const bx=mt1*mt1*na.x+2*mt1*mt*cx+mt*mt*nb.x;
+    const by=mt1*mt1*na.y+2*mt1*mt*cy+mt*mt*nb.y;
+    glow(bx,by,8,col||'#FF00FF',.8);
+    ctx.fillStyle=col||'#FF00FF';
+    ctx.beginPath(); ctx.arc(bx,by,2,0,TAU); ctx.fill();
+    // Label 'f' at midpoint
+    if(m.t>.45&&m.t<.55){
+      const mx2=(mt1*mt1*na.x+2*mt1*mt*cx+mt*mt*nb.x);
+      const my2=(mt1*mt1*na.y+2*mt1*mt*cy+mt*mt*nb.y);
+      ctx.fillStyle=hexAlpha(col||'#FF00FF',.4);
+      ctx.font='8px Courier New';
+      ctx.fillText('f',mx2+4,my2-4);
+    }
+  }
+
+  // Draw nodes
+  for(let n of S.nodes){
+    n.x+=n.vx; n.y+=n.vy;
+    // Soft boundary repulsion
+    if(n.x<60){n.vx+=.05;} if(n.x>W-60){n.vx-=.05;}
+    if(n.y<60){n.vy+=.05;} if(n.y>H-60){n.vy-=.05;}
+    n.vx*=.98; n.vy*=.98;
+    n.phase+=n.omega*.01;
+    const col=animatedCol(n.col);
+    const pls=.5+.5*sin(n.phase);
+    const r=n.r*(1+.2*pls);
+    // Glow
+    glow(n.x,n.y,n.glowRadius*(1+.3*pls),col||'#00FFFF',.25+.15*pls);
+    if(n.crispr){
+      // CRISPR ring
+      ctx.strokeStyle=hexAlpha('#FF2200',.7+.3*pls);
+      ctx.lineWidth=2;
+      ctx.beginPath();
+      ctx.arc(n.x,n.y,r+6+pls*4,0,TAU);
+      ctx.stroke();
+      ctx.strokeStyle=hexAlpha('#FF6600',.4);
+      ctx.lineWidth=1;
+      ctx.setLineDash([3,3]);
+      ctx.beginPath();
+      ctx.arc(n.x,n.y,r+12,0,TAU);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    if(n.type===0){
+      // Circle node
+      ctx.fillStyle=hexAlpha(col||'#00FFFF',.5+.2*pls);
+      ctx.beginPath(); ctx.arc(n.x,n.y,r,0,TAU); ctx.fill();
+      ctx.strokeStyle=hexAlpha(col||'#00FFFF',.9);
+      ctx.lineWidth=1.5; ctx.stroke();
+    } else if(n.type===1){
+      // Square node (object)
+      ctx.fillStyle=hexAlpha(col||'#00FFFF',.4);
+      ctx.strokeStyle=hexAlpha(col||'#00FFFF',.9);
+      ctx.lineWidth=1.5;
+      ctx.beginPath();
+      ctx.rect(n.x-r,n.y-r,r*2,r*2);
+      ctx.fill(); ctx.stroke();
+    } else if(n.type===2){
+      // Diamond
+      ctx.fillStyle=hexAlpha(col||'#00FFFF',.4);
+      ctx.strokeStyle=hexAlpha(col||'#00FFFF',.9);
+      ctx.lineWidth=1.5;
+      ctx.beginPath();
+      ctx.moveTo(n.x,n.y-r*1.3);
+      ctx.lineTo(n.x+r*1.3,n.y);
+      ctx.lineTo(n.x,n.y+r*1.3);
+      ctx.lineTo(n.x-r*1.3,n.y);
+      ctx.closePath();
+      ctx.fill(); ctx.stroke();
+    } else {
+      // Hexagon
+      ctx.fillStyle=hexAlpha(col||'#00FFFF',.4);
+      ctx.strokeStyle=hexAlpha(col||'#00FFFF',.9);
+      ctx.lineWidth=1.5;
+      ctx.beginPath();
+      for(let k=0;k<6;k++){
+        const a=k/6*TAU;
+        k===0?ctx.moveTo(n.x+cos(a)*r,n.y+sin(a)*r):ctx.lineTo(n.x+cos(a)*r,n.y+sin(a)*r);
+      }
+      ctx.closePath();
+      ctx.fill(); ctx.stroke();
+    }
+    // Object label
+    ctx.fillStyle=hexAlpha(col||'#00FFFF',.5);
+    ctx.font=`${max(7,r*.7)}px Courier New`;
+    ctx.fillText('A'+n.id,n.x+r+2,n.y-r*.5);
+  }
+}
+
+// ── Draw human silhouettes evolving ───────────────────────────────────────────
+function drawSilhouettes(){
+  for(let s of S.humanSilhouettes){
+    s.phase+=s.speed;
+    const el=s.evolveLevel;
+    const col=animatedCol(s.col);
+    const alpha=.12+.07*sin(s.phase);
+    ctx.save();
+    ctx.translate(s.x,s.y);
+    ctx.scale(s.sc,s.sc);
+    // Head
+    const headR=18*(1-el*.3);
+    if(el<.7){
+      // Organic head
+      ctx.strokeStyle=hexAlpha(col||'#00FFFF',alpha*2);
+      ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.arc(0,-80,headR,0,TAU); ctx.stroke();
+      glow(0,-80,headR*2,col||'#00FFFF',alpha*.5);
+    } else {
+      // Machine head - box with scanlines
+      ctx.strokeStyle=hexAlpha(col||'#00FFFF',alpha*2.5);
+      ctx.lineWidth=1.5;
+      ctx.strokeRect(-headR,-80-headR,headR*2,headR*2);
+      // Scanlines
+      for(let k=0;k<5;k++){
+        const ly=-80-headR+k*headR*.4;
+        ctx.strokeStyle=hexAlpha(col||'#00FFFF',alpha*.8);
+        ctx.lineWidth=.4;
+        ctx.beginPath(); ctx.moveTo(-headR,ly); ctx.lineTo(headR,ly); ctx.stroke();
+      }
+      glow(0,-80,headR*2.5,col||'#00FFFF',alpha*.8);
+    }
+    // Torso segments
+    const segs=12;
+    for(let k=0;k<segs;k++){
+      const ky=lerp(-60,40,k/segs);
+      const ky2=lerp(-60,40,(k+1)/segs);
+      const wid=lerp(22,14,k/segs)*(1+.1*sin(s.segmentPhase[k]+t*.02));
+      s.segmentPhase[k]+=.005;
+      const alpha2=alpha*(1+.3*sin(s.segmentPhase[k]));
+      if(el<.5||(k%2===0)){
+        // Organic curves
+        ctx.strokeStyle=hexAlpha(col||'#00FFFF',alpha2*1.5);
+        ctx.lineWidth=1;
+        ctx.beginPath();
+        ctx.moveTo(-wid,ky); ctx.lineTo(wid,ky);
+        ctx.stroke();
+        // Vertical lines
+        ctx.beginPath();
+        ctx.moveTo(-wid,ky); ctx.lineTo(-wid*(1-el*.5),ky2);
+        ctx.moveTo(wid,ky); ctx.lineTo(wid*(1-el*.5),ky2);
+        ctx.stroke();
+      }
+      if(el>.3){
+        // Machine segments
+        const mx=-wid*(1-k/segs*.4);
+        ctx.strokeStyle=hexAlpha(col||'#00FFFF',alpha2*el*2);
+        ctx.lineWidth=.7;
+        ctx.strokeRect(mx,ky,abs(mx)*2,ky2-ky);
+        if(k%3===0){
+          glow(0,(ky+ky2)*.5,wid*.8,col||'#00FFFF',alpha*el*.7);
+        }
+      }
+    }
+    // Arms
+    const armL=el>.5?['M',-22,-20,'L',-55,-10,'L',-60,20,'L',-40,50]:['M',-22,-20,'Q',-55,-5,-55,25];
+    const armR=el>.5?['M',22,-20,'L',55,-10,'L',60,20,'L',40,50]:['M',22,-20,'Q',55,-5,55,25];
+    for(let arm of [armL,armR]){
+      ctx.strokeStyle=hexAlpha(col||'#00FFFF',alpha*1.8);
+      ctx.lineWidth=el>.5?1:1.5;
+      ctx.beginPath();
+      for(let i=0;i<arm.length;i++){
+        if(arm[i]==='M') ctx.moveTo(arm[i+1],arm[i+2]),i+=2;
+        else if(arm[i]==='L') ctx.lineTo(arm[i+1],arm[i+2]),i+=2;
+        else if(arm[i]==='Q') ctx.quadraticCurveTo(arm[i+1],arm[i+2],arm[i+3],arm[i+4]),i+=4;
+      }
+      ctx.stroke();
+    }
+    // Legs
+    for(let side of [-1,1]){
+      ctx.strokeStyle=hexAlpha(col||'#00FFFF',alpha*1.5);
+      ctx.lineWidth=el>.5?1:1.5;
+      ctx.beginPath();
+      if(el>.5){
+        ctx.moveTo(side*8,40); ctx.lineTo(side*18,70); ctx.lineTo(side*20,100);
+      } else {
+        ctx.moveTo(side*8,40); ctx.quadraticCurveTo(side*20,65,side*16,100);
+      }
+      ctx.stroke();
+    }
+    if(s.crisprMark){
+      // CRISPR scissors symbol
+      ctx.strokeStyle=hexAlpha('#FF2200',.8);
+      ctx.lineWidth=1.5;
+      ctx.beginPath();
+      ctx.moveTo(-15,-50); ctx.lineTo(15,-30);
+      ctx.moveTo(15,-50); ctx.lineTo(-15,-30);
+      ctx.stroke();
+      glow(0,-40,20,'#FF2200',.5);
+    }
+    ctx.restore();
+    // Slow evolve
+    s.evolveLevel=clamp(s.evolveLevel+rnd(-.0005,.0008),0,1);
+  }
+}
+
+// ── CRISPR visualization ───────────────────────────────────────────────────────
+function drawCRISPR(){
+  if(!S.crisprActive) return;
+  S.crisprTimer++;
+  const life=S.crisprTimer/120;
+  if(life>1){
+    S.crisprActive=false;
+    S.crisprTargets.forEach(ni=>{if(S.nodes[ni])S.nodes[ni].crispr=false;});
+    S.humanSilhouettes.forEach(s=>s.crisprMark=false);
+    S.phaseLabel='EVOLVE';
+    return;
+  }
+  // Draw DNA double helix (CRISPR guide)
+  for(let si=0;si<S.humanSilhouettes.length;si++){
+    const sil=S.humanSilhouettes[si];
+    if(!sil.crisprMark) continue;
+    const cx=sil.x, cy=sil.y;
+    const hl=80*sil.sc;
+    for(let k=-hl;k<hl;k+=4){
+      const angle=k*.06+t*.08;
+      const x1=cx+cos(angle)*15*sil.sc;
+      const y1=cy+k;
+      const x2=cx-cos(angle)*15*sil.sc;
+      const y2=cy+k;
+      const col1=S.palette[0]||'#FF2200';
+      const col2=S.palette[1]||'#00FFFF';
+      ctx.fillStyle=hexAlpha(col1,.6*(1-life*.5));
+      ctx.beginPath(); ctx.arc(x1,y1,1.5,0,TAU); ctx.fill();
+      ctx.fillStyle=hexAlpha(col2,.6*(1-life*.5));
+      ctx.beginPath(); ctx.arc(x2,y2,1.5,0,TAU); ctx.fill();
+      if(k%12<2){
+        ctx.strokeStyle=hexAlpha('#FFFFFF',.3*(1-life));
+        ctx.lineWidth=.7;
+        ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+      }
+    }
+    // Guide RNA text
+    ctx.fillStyle=hexAlpha('#FF6600',.5*(1-life));
+    ctx.font='8px Courier New';
+    ctx.fillText('CRISPR-Cas9',cx-32,cy-hl-10);
+  }
+}
+
+// ── Background ────────────────────────────────────────────────────────────────
+function drawBackground(){
+  // Deep fill
+  ctx.fillStyle=S.bgCol;
+  ctx.fillRect(0,0,W,H);
+  // Vignette
+  const vg=ctx.createRadialGradient(CX,CY,H*.1,CX,CY,H*.75);
+  vg.addColorStop(0,'rgba(0,0,0,0)');
+  vg.addColorStop(1,'rgba(0,0,0,.65)');
+  ctx.fillStyle=vg;
+  ctx.fillRect(0,0,W,H);
+}
+
+// ── Spectral sweep overlay ─────────────────────────────────────────────────────
+function drawSpectralSweep(){
+  if(S.colorMode<2) return;
+  const col=animatedCol(floor(t*.01));
+  const grad=ctx.createLinearGradient(0,0,W,H);
+  grad.addColorStop(0,hexAlpha(col||'#00FFFF',0));
+  grad.addColorStop(.5,hexAlpha(col||'#00FFFF',.03));
+  grad.addColorStop(1,hexAlpha(col||'#00FFFF',0));
+  ctx.fillStyle=grad;
+  ctx.fillRect(0,0,W,H);
+}
+
+// ── Scanlines ─────────────────────────────────────────────────────────────────
+function drawScanlines(){
+  ctx.fillStyle='rgba(0,0,0,.04)';
+  for(let y=0;y<H;y+=3){
+    ctx.fillRect(0,y,W,1);
+  }
+}
+
+// ── HUD update ────────────────────────────────────────────────────────────────
+function updateHUD(){
+  if(!HUD) return;
+  document.getElementById('v-gen').textContent=String(gen).padStart(4,'0');
+  document.getElementById('v-nodes').textContent=String(S.nodes.length).padStart(3,'0');
+  document.getElementById('v-phase').textContent=S.phaseLabel;
+  document.getElementById('v-palette').textContent=S.paletteNames;
+  document.getElementById('v-entropy').textContent=entropy.toFixed(3);
+  document.getElementById('b-entropy').style.width=(entropy*100)+'%';
+  document.getElementById('b-entropy').style.background=S.palette[0]||'#00FFFF';
+  document.getElementById('v-morph').textContent=morphPhase.toFixed(3);
+  document.getElementById('b-morph').style.width=(morphPhase*100)+'%';
+  document.getElementById('b-morph').style.background=S.palette[1]||'#FF00FF';
+  document.getElementById('v-swarm').textContent=String(S.particles.length).padStart(4,'0');
+  document.getElementById('b-swarm').style.width=min(100,S.particles.length/3)+'%';
+  document.getElementById('b-swarm').style.background=S.palette[2]||'#FFFF00';
+  document.getElementById('v-field').textContent=S.fieldOmega.toFixed(3);
+  document.getElementById('b-field').style.width=(S.fieldOmega/3*100)+'%';
+  document.getElementById('b-field').style.background=S.palette[3]||'#00FF88';
+}
+// Colour the HUD text dynamically
+function updateHUDColor(){
+  if(!HUD) return;
+  const col=S.palette[floor(t*.01)%S.palette.length]||'#00FFFF';
+  document.getElementById('hud-tl').style.color=col;
+  document.getElementById('hud-tr').style.color=col;
+  document.getElementById('hud-bl').style.color=col;
+  document.getElementById('hud-br').style.color=col;
+}
+
+// ── Audio engine ──────────────────────────────────────────────────────────────
+function initAudio(){
+  if(!SOUND) return;
+  if(audioCtx) {audioCtx.close();}
+  try{
+    audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+    masterGain=audioCtx.createGain();
+    masterGain.gain.value=.08;
+    masterGain.connect(audioCtx.destination);
+    oscBank=[];
+    for(let i=0;i<4;i++){
+      const osc=audioCtx.createOscillator();
+      const g=audioCtx.createGain();
+      osc.type=pick(['sine','triangle','sawtooth']);
+      osc.frequency.value=110*(i+1)*(1+entropy*.5);
+      g.gain.value=.02+i*.005;
+      osc.connect(g); g.connect(masterGain);
+      osc.start();
+      oscBank.push({osc,g,baseFreq:110*(i+1)});
+    }
+  } catch(e){SOUND=false;}
+}
+
+function updateAudio(){
+  if(!SOUND||!audioCtx||!oscBank.length) return;
+  const now=audioCtx.currentTime;
+  oscBank.forEach((o,i)=>{
+    const node=S.nodes[i%S.nodes.length];
+    const freq=o.baseFreq*(1+entropy*.5+morphPhase*.3+(node?sin(node.phase)*.1:0));
+    o.osc.frequency.setTargetAtTime(clamp(freq,40,3000),now,.1);
+    o.g.gain.setTargetAtTime(.01+entropy*.02,now,.2);
+  });
+}
+
+function stopAudio(){
+  if(!audioCtx) return;
+  try{
+    oscBank.forEach(o=>{o.osc.stop();});
+    audioCtx.close();
+  } catch(e){}
+  audioCtx=null; oscBank=[];
+}
+
+// ── Main loop ─────────────────────────────────────────────────────────────────
+function loop(){
+  RAF=requestAnimationFrame(loop);
+  t+=.5;
+  S.colorTime+=.005;
+  entropy=.5+.5*sin(t*.007);
+  morphPhase=(morphPhase+.002)%1;
+  S.fieldOmega=1.2+.8*sin(t*.011);
+
+  // Periodic events
+  S.rewriteTimer-=1;
+  if(S.rewriteTimer<=0){
+    rewriteGraph();
+    S.rewriteTimer=rnd(180,360);
+  }
+  if(random()<.002&&!S.crisprActive) triggerCRISPR();
+
+  drawBackground();
+  drawGrid();
+  drawField();
+  drawAttractors();
+  drawFractals();
+  drawSwarm();
+  drawGraph();
+  drawSilhouettes();
+  drawCRISPR();
+  drawSpectralSweep();
+  drawScanlines();
+
+  if(SOUND) updateAudio();
+  if(HUD){updateHUD();updateHUDColor();}
+}
+
+// ── Input ─────────────────────────────────────────────────────────────────────
+function regen(){
+  cancelAnimationFrame(RAF);
+  if(audioCtx) stopAudio();
+  resize();
+  init();
+  loop();
+}
+
+document.addEventListener('keydown',e=>{
+  if(e.code==='Space'){e.preventDefault(); regen();}
+  else if(e.key==='h'||e.key==='H'){
+    HUD=!HUD;
+    document.getElementById('hud').style.display=HUD?'block':'none';
+  }
+  else if(e.key==='s'||e.key==='S'){
+    SOUND=!SOUND;
+    if(SOUND) initAudio();
+    else stopAudio();
+  }
+});
+
+cv.addEventListener('click',regen);
+cv.addEventListener('touchstart',e=>{e.preventDefault(); regen();},{passive:false});
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+resize();
+init();
+loop();
+
+})();
+</script>
+</body>
+</html>

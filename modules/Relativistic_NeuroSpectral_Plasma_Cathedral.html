@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="description" content="Relativistic NeuroSpectral Plasma Cathedral — a hyperdimensional audiovisual cosmos synthesizing fractal mathematics, tensor flows, Lie group harmonics, and procedural audio into rotating kaleidoscopic plasma architectures.">
+<meta name="keywords" content="fractal, mandelbrot, julia set, plasma, audiovisual, generative art, mathematical visualization, spectral, holographic, schwarzschild, lie group">
+<title>Relativistic NeuroSpectral Plasma Cathedral</title>
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Courier New',monospace}
+#c{display:block;position:fixed;top:0;left:0;width:100%;height:100%}
+#hud{position:fixed;top:0;left:0;width:100%;pointer-events:none;z-index:10;opacity:0;transition:opacity 0.4s}
+#hud.on{opacity:1}
+#hud-inner{padding:12px 16px;color:rgba(255,255,200,0.9);font-size:11px;line-height:1.9;text-shadow:0 0 10px rgba(255,180,60,0.9),0 0 2px #000;letter-spacing:0.06em}
+#hud-inner span{display:inline-block;margin-right:20px}
+#toast{position:fixed;bottom:28px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.75);color:rgba(255,220,100,1);padding:7px 22px;border-radius:30px;font-size:12px;letter-spacing:0.12em;pointer-events:none;opacity:0;transition:opacity 0.4s;z-index:30;text-shadow:0 0 8px rgba(255,160,0,1);white-space:nowrap}
+#toast.on{opacity:1}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"><div id="hud-inner">
+  <span id="h-mode">MODE: —</span>
+  <span id="h-palette">PALETTE: —</span>
+  <span id="h-iter">ITER: —</span>
+  <span id="h-fps">FPS: —</span>
+  <span style="opacity:0.6">[H] HUD · [S] SOUND · [SPACE/TAP] REINIT</span>
+</div></div>
+<div id="toast"></div>
+<script>
+/* ═══════════════════════════════════════════════════════════════════
+   RELATIVISTIC NEUROSPECTRAL PLASMA CATHEDRAL
+   ─ Single-file WebGL audiovisual cosmos ─
+   Fixes: debounced reinit, stable single RAF loop, audio lifecycle
+   managed with teardown-before-rebuild, ghost-click suppression
+   ═══════════════════════════════════════════════════════════════════ */
+'use strict';
+
+// ── GL setup ─────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const gl = canvas.getContext('webgl2',{antialias:false,preserveDrawingBuffer:false})
+        || canvas.getContext('webgl', {antialias:false,preserveDrawingBuffer:false});
+if(!gl){document.body.innerHTML='<p style="color:#f80;padding:2rem">WebGL unavailable</p>';throw 0;}
+
+const hudEl  = document.getElementById('hud');
+const toastEl= document.getElementById('toast');
+let W=0, H=0;
+
+// ── Palette bank (10 palettes × 7 stops) ─────────────────────────────
+const PALETTES=[
+  [[0,0,0],[80,0,80],[200,0,100],[255,80,0],[255,200,0],[255,255,180],[255,255,255]],
+  [[0,0,20],[0,20,80],[0,80,160],[0,160,200],[40,220,220],[180,255,255],[255,255,255]],
+  [[0,5,15],[0,40,60],[0,120,80],[60,200,60],[180,255,120],[255,255,200],[255,255,255]],
+  [[10,0,0],[60,10,0],[140,40,0],[220,120,0],[255,200,0],[255,240,120],[255,255,255]],
+  [[0,0,10],[20,0,60],[80,0,140],[160,0,200],[220,60,255],[255,160,255],[255,255,255]],
+  [[0,0,5],[40,0,20],[120,0,40],[220,20,40],[255,80,20],[255,200,80],[255,255,200]],
+  [[0,10,10],[0,40,60],[0,100,100],[0,180,160],[80,240,200],[200,255,240],[255,255,255]],
+  [[5,0,0],[80,5,0],[200,30,0],[255,100,0],[255,200,0],[255,255,100],[255,255,255]],
+  [[2,0,10],[30,0,60],[80,20,120],[160,60,180],[220,140,220],[255,210,255],[255,255,255]],
+  [[0,8,4],[0,50,30],[0,120,70],[30,200,120],[120,240,180],[220,255,240],[255,255,255]],
+];
+const PAL_NAMES=['PLASMA FIRE','DEEP OCEAN','AURORA','MOLTEN GOLD','VOID VIOLET',
+                 'CRIMSON NEBULA','QUANTUM TEAL','SOLAR FLARE','AMETHYST','JADE PULSE'];
+const MODE_NAMES=['MANDELBROT','MULTIBROT','BURNING SHIP','JULIA CONST.',
+                  'NEWTON ROOTS','TRICORN','PHOENIX','LYAPUNOV',
+                  'PLASMA TENSOR','SCHWARZSCHILD','LIE HARMONIC','RICCI FLOW'];
+
+// ── Mutable render state (object mutated in-place, never replaced) ────
+const S={
+  mode:0, palA:0, palB:1, palMix:0,
+  colorShift:0, palSpeed:0.00022,
+  cx:-.7269, cy:.1889,
+  power:2, warp:.5, zoom:1.0, rotation:0,
+  tensorPhase:0, lieAngle:0, ricciFlow:0.3,
+  maxIter:128, t0:performance.now(),
+};
+
+// ── UI state ──────────────────────────────────────────────────────────
+let hudOn=false, soundOn=false;
+let fps=60, fpsAcc=0, fpsN=0, lastNow=performance.now();
+
+// Debounce: ignore reinit calls within 150 ms of each other
+let reinitBusy=false;
+
+// ── Vertex / Fragment shaders ─────────────────────────────────────────
+const VS=`#version 300 es
+precision highp float;
+in vec2 a; out vec2 uv;
+void main(){uv=a*.5+.5;gl_Position=vec4(a,0,1);}`;
+
+const FS=`#version 300 es
+precision highp float;
+in vec2 uv; out vec4 frag;
+
+uniform float uT,uZoom,uPow,uCS,uWarp,uRot,uTP,uLA,uRF;
+uniform vec2  uRes,uJulia;
+uniform int   uMode,uMaxIter;
+uniform vec3  p0,p1,p2,p3,p4,p5,p6;
+
+// ─ palette ─
+vec3 pal(float t){
+  t=fract(t+uCS);
+  float s=t*6.; int i=int(s); float f=fract(s);
+  vec3 c[7];
+  c[0]=p0/255.;c[1]=p1/255.;c[2]=p2/255.;c[3]=p3/255.;
+  c[4]=p4/255.;c[5]=p5/255.;c[6]=p6/255.;
+  return i>=6?c[6]:mix(c[i],c[i+1],smoothstep(0.,1.,f));
+}
+
+// ─ complex ─
+vec2 cm(vec2 a,vec2 b){return vec2(a.x*b.x-a.y*b.y,a.x*b.y+a.y*b.x);}
+vec2 cd(vec2 a,vec2 b){float d=dot(b,b)+1e-12;return vec2(dot(a,b),a.y*b.x-a.x*b.y)/d;}
+vec2 cpow(vec2 z,float n){float r=length(z),th=atan(z.y,z.x);return pow(max(r,0.),n)*vec2(cos(th*n),sin(th*n));}
+vec2 rot(vec2 p,float a){float c=cos(a),s=sin(a);return vec2(c*p.x-s*p.y,s*p.x+c*p.y);}
+
+// ─ warp ─
+vec2 dWarp(vec2 p){return p+uWarp*.26*vec2(sin(p.y*2.3+uT*.7),cos(p.x*1.9+uT*.5));}
+vec2 sWarp(vec2 p){float r=length(p)+1e-6,rs=.27*uWarp;return rot(p,uRF*.4*rs/(r+.001))*(1.+.07*rs/r*uWarp);}
+
+// ─ smooth escape ─
+float se(float i,vec2 z){return i+1.-log2(log2(dot(z,z)+1e-8));}
+
+float mbrot(vec2 c){
+  vec2 z=vec2(0);
+  for(int i=0;i<512;i++){
+    if(i>=uMaxIter)break;
+    z=cm(z,z)+c; if(dot(z,z)>64.)return se(float(i),z)/float(uMaxIter);
+  }return 0.;
+}
+float mbrotN(vec2 c){
+  vec2 z=vec2(0);
+  for(int i=0;i<512;i++){
+    if(i>=uMaxIter)break;
+    z=cpow(z,uPow)+c; if(dot(z,z)>64.)return se(float(i),z)/float(uMaxIter);
+  }return 0.;
+}
+float bship(vec2 c){
+  vec2 z=vec2(0);
+  for(int i=0;i<512;i++){
+    if(i>=uMaxIter)break;
+    z=vec2(z.x*z.x-z.y*z.y,2.*abs(z.x*z.y))+c;
+    if(dot(z,z)>64.)return se(float(i),z)/float(uMaxIter);
+  }return 0.;
+}
+float julia(vec2 z){
+  for(int i=0;i<512;i++){
+    if(i>=uMaxIter)break;
+    z=cm(z,z)+uJulia; if(dot(z,z)>64.)return se(float(i),z)/float(uMaxIter);
+  }return 0.;
+}
+float tricorn(vec2 c){
+  vec2 z=vec2(0);
+  for(int i=0;i<512;i++){
+    if(i>=uMaxIter)break;
+    z=cm(vec2(z.x,-z.y),vec2(z.x,-z.y))+c;
+    if(dot(z,z)>64.)return se(float(i),z)/float(uMaxIter);
+  }return 0.;
+}
+float phoenix(vec2 c){
+  vec2 z=c,pz=vec2(0);
+  for(int i=0;i<512;i++){
+    if(i>=uMaxIter)break;
+    vec2 nz=cm(z,z)+vec2(-.5,0)+.5667*pz; pz=z; z=nz;
+    if(dot(z,z)>64.)return se(float(i),z)/float(uMaxIter);
+  }return 0.;
+}
+float newton(vec2 z){
+  vec2 r0=vec2(1,0),r1=vec2(-.5,.866),r2=vec2(-.5,-.866);
+  for(int i=0;i<64;i++){
+    if(i>=uMaxIter)break;
+    vec2 z2=cm(z,z);
+    z=z-cd(cm(z2,z)-vec2(1,0),3.*z2);
+    float d0=length(z-r0),d1=length(z-r1),d2=length(z-r2);
+    if(min(d0,min(d1,d2))<.0005){
+      return (d0<d1?(d0<d2?0.:.667):(d1<d2?.333:.667))+float(i)/float(uMaxIter)*.1;
+    }
+  }return .5;
+}
+float lyapunov(vec2 p){
+  float a=p.x*3.+.7,b=p.y*3.+.7,x=.5,lam=0.;
+  for(int n=0;n<60;n++){float r=mod(float(n),2.)<1.?a:b;x=r*x*(1.-x);lam+=log(abs(r*(1.-2.*x))+.0001);}
+  return lam/60.;
+}
+
+// ─ fields ─
+float rbf(vec2 p){
+  float v=0.;
+  for(int i=0;i<8;i++){float fi=float(i);vec2 cen=.5*vec2(cos(fi*.785+uT*.22),sin(fi*1.2+uT*.18));float r2=dot(p-cen,p-cen);v+=exp(-r2*3.5)*cos(r2*10.-uT*.55+fi*.9);}
+  return v*.125;
+}
+float gabor(vec2 p){
+  float v=0.;
+  for(int i=0;i<6;i++){float fi=float(i),ang=fi*1.047+uT*.07;vec2 k=vec2(cos(ang),sin(ang))*7.,g=p-.26*vec2(cos(fi*1.3),sin(fi*1.7));v+=exp(-dot(g,g)*2.5)*cos(dot(k,p)-uT*.38+fi*1.1);}
+  return v/6.;
+}
+float tensorF(vec2 p){
+  float u2=sin(p.x*3.14+uTP)*cos(p.y*2.72-uTP*.7),v2=cos(p.x*2.72-uTP*1.3)*sin(p.y*3.14+uTP*.5),w=sin(p.x*p.y*4.+uTP*2.);
+  return u2*u2+v2*v2+u2*v2+w*.3;
+}
+float sdBox(vec2 p,vec2 b){vec2 d=abs(p)-b;return length(max(d,0.))+min(max(d.x,d.y),0.);}
+float sdfGlow(vec2 p){
+  float d=1e9;
+  for(int i=0;i<5;i++){float fi=float(i),a=fi*1.257+uT*.3;vec2 c=.4*vec2(cos(a),sin(a));float s=.07+.03*sin(uT+fi);d=min(d,sdBox(rot(p-c,a*.5),vec2(s)));}
+  d=min(d,length(p)-.12-.04*sin(uT*2.));
+  return exp(-abs(d)*10.)*.6;
+}
+float bary(vec2 p){
+  vec2 v0=.44*vec2(cos(uT*.22),sin(uT*.22)),v1=.44*vec2(cos(uT*.22+2.094),sin(uT*.22+2.094)),v2=.44*vec2(cos(uT*.22+4.189),sin(uT*.22+4.189));
+  float D=(v1.y-v2.y)*(v0.x-v2.x)+(v2.x-v1.x)*(v0.y-v2.y)+1e-12;
+  float la=((v1.y-v2.y)*(p.x-v2.x)+(v2.x-v1.x)*(p.y-v2.y))/D;
+  float lb=((v2.y-v0.y)*(p.x-v2.x)+(v0.x-v2.x)*(p.y-v2.y))/D;
+  float lc=1.-la-lb;
+  return step(0.,la)*step(0.,lb)*step(0.,lc)*(la*sin(uT*1.7)+lb*cos(uT*1.4)+lc*sin(uT*1.2));
+}
+float lieH(vec2 p,float ex){
+  float th=atan(p.y,p.x)+uLA+ex,r=length(p);
+  float Y20=.25*sqrt(5./3.14159)*(3.*cos(th)*cos(th)-1.);
+  float Y22=.25*sqrt(15./3.14159)*sin(th)*sin(th);
+  float Y21=.5 *sqrt(15./3.14159)*sin(th)*cos(th);
+  return sin(r*6.28*Y20+uLA)*cos(r*4.*Y22)*sin(r*3.*Y21+uLA*.7);
+}
+vec2 ricciD(vec2 p){float r2=dot(p,p),k=uRF/(1.+r2),sc=1.+k*.45,sh=k*sin(atan(p.y,p.x)*2.)*.25;return vec2(p.x*sc+p.y*sh,p.y*sc-p.x*sh*.5);}
+
+vec3 schwarzMode(vec2 p){
+  float rs=.18,r=length(p);
+  if(r<rs*.68){float rim=exp(-(r-rs*.68)*(r-rs*.68)*180.);return pal(rim*.1+uT*.04)*max(rim,0.);}
+  float th=atan(p.y,p.x),dop=1./(1.-.65*cos(th-uT*.4)*rs/(r+.001));
+  float disk=exp(-abs(abs(p.y)-.022)*70.)*exp(-(r-.32)*(r-.32)*18.)*dop;
+  vec2 wp=p*(1.+rs*rs/(r*r+.001));
+  float bg=sin(length(wp)*17.-uT)*cos(atan(wp.y,wp.x)*5.+uT*.22)*.3;
+  return pal(bg+disk*.9+fract(dop*.25)*.04);
+}
+
+void main(){
+  vec2 p=(uv-.5)*vec2(uRes.x/uRes.y,1.)*2.5/uZoom;
+  p=rot(p,uRot);
+  if(uMode!=9&&uMode!=10) p=dWarp(p);
+  if(uMode!=9)            p=sWarp(p);
+
+  vec3 col=vec3(0);
+  if     (uMode==0){float v=mbrot(p);     col=pal(v*.6+log(v+.01)*.04);}
+  else if(uMode==1){float v=mbrotN(p);    col=pal(v*.6);}
+  else if(uMode==2){float v=bship(p);     col=pal(v*.6);}
+  else if(uMode==3){float v=julia(p);     col=pal(v*.6+rbf(p*.5)*.07);}
+  else if(uMode==4){float v=newton(p);    col=pal(v);}
+  else if(uMode==5){float v=tricorn(p);   col=pal(v*.6);}
+  else if(uMode==6){float v=phoenix(p);   col=pal(v*.6);}
+  else if(uMode==7){float v=lyapunov(p*.55+.5); col=pal(v*.45+.5);}
+  else if(uMode==8){col=pal(tensorF(p*1.8)*.25+rbf(p)*.25+gabor(p)*.2+bary(p)*.1+sdfGlow(p));}
+  else if(uMode==9){col=schwarzMode(p*.55);}
+  else if(uMode==10){float v=lieH(p,0.)*lieH(rot(p,1.047),uLA*.3)+lieH(rot(p,2.094),uLA*.7)*lieH(p,uLA*.5);col=pal(v*.3+rbf(p)*.25+.5);}
+  else if(uMode==11){vec2 rp=ricciD(p);float v=mbrot(rp*2.2);col=pal(v*.6+gabor(p)*.12);}
+
+  // holographic interference
+  col+=sin(p.x*26.+uT)*sin(p.y*26.+uT*1.26)*.022;
+  // spectral harmonization
+  col=mix(col,pal(dot(col,vec3(.3,.59,.11))+uT*.00016),.12);
+  // vignette
+  col*=1.-smoothstep(.55,1.35,length(uv-.5)*2.);
+  // ACES tone + gamma
+  col=col*(2.51*col+.03)/(col*(2.43*col+.59)+.14);
+  frag=vec4(pow(clamp(col,0.,1.),vec3(.4545)),1.);
+}`;
+
+// ── Compile program (once at startup) ────────────────────────────────
+function mkShader(src,type){
+  const s=gl.createShader(type);
+  gl.shaderSource(s,src); gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))console.error(gl.getShaderInfoLog(s));
+  return s;
+}
+const prog=gl.createProgram();
+gl.attachShader(prog,mkShader(VS,gl.VERTEX_SHADER));
+gl.attachShader(prog,mkShader(FS,gl.FRAGMENT_SHADER));
+gl.linkProgram(prog);
+if(!gl.getProgramParameter(prog,gl.LINK_STATUS))console.error(gl.getProgramInfoLog(prog));
+gl.useProgram(prog);
+
+const vbuf=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,vbuf);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+const aLoc=gl.getAttribLocation(prog,'a');
+gl.enableVertexAttribArray(aLoc);
+gl.vertexAttribPointer(aLoc,2,gl.FLOAT,false,0,0);
+
+const U={};
+['uT','uRes','uMode','uMaxIter','uZoom','uPow','uCS','uWarp','uRot','uTP','uLA','uRF',
+ 'uJulia','p0','p1','p2','p3','p4','p5','p6'].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
+
+// ── Interpolated palette → uniforms ──────────────────────────────────
+function flushUniforms(){
+  const A=PALETTES[S.palA], B=PALETTES[S.palB], m=S.palMix;
+  const pal=A.map((c,i)=>[c[0]*(1-m)+B[i][0]*m, c[1]*(1-m)+B[i][1]*m, c[2]*(1-m)+B[i][2]*m]);
+  gl.uniform1f(U.uT,(performance.now()-S.t0)*.001);
+  gl.uniform2f(U.uRes,W,H);
+  gl.uniform1i(U.uMode,S.mode);
+  gl.uniform1i(U.uMaxIter,S.maxIter);
+  gl.uniform1f(U.uZoom,S.zoom);
+  gl.uniform1f(U.uPow,S.power);
+  gl.uniform1f(U.uCS,S.colorShift);
+  gl.uniform1f(U.uWarp,S.warp);
+  gl.uniform1f(U.uRot,S.rotation);
+  gl.uniform1f(U.uTP,S.tensorPhase);
+  gl.uniform1f(U.uLA,S.lieAngle);
+  gl.uniform1f(U.uRF,S.ricciFlow);
+  gl.uniform2f(U.uJulia,S.cx,S.cy);
+  for(let i=0;i<7;i++){const c=pal[i];gl.uniform3f(U[`p${i}`],c[0],c[1],c[2]);}
+}
+
+// ── Per-frame state update ────────────────────────────────────────────
+function tick(){
+  S.rotation    =(S.rotation+0.00027)%(Math.PI*2);
+  S.colorShift  =(S.colorShift+S.palSpeed)%1.0;
+  S.tensorPhase+=0.0038;
+  S.lieAngle   +=0.0065;
+  const t=(performance.now()-S.t0)*.001;
+  S.ricciFlow   =.3+.27*Math.sin(t*.18);
+  S.cx= .7885*Math.cos(t*.0225+.5);
+  S.cy= .7885*Math.sin(t*.0168);
+  S.palMix=Math.min(S.palMix+S.palSpeed*2.1,1.0);
+  if(S.palMix>=1.0){
+    S.palMix=0; S.palA=S.palB;
+    S.palB=(S.palB+1+Math.floor(Math.random()*(PALETTES.length-1)))%PALETTES.length;
+  }
+}
+
+// ── Resize ────────────────────────────────────────────────────────────
+function resize(){W=canvas.width=window.innerWidth;H=canvas.height=window.innerHeight;gl.viewport(0,0,W,H);}
+window.addEventListener('resize',resize); resize();
+
+// ── Single perpetual RAF loop ─────────────────────────────────────────
+(function loop(now){
+  requestAnimationFrame(loop);
+  const dt=now-lastNow; lastNow=now;
+  fpsAcc+=dt; fpsN++;
+  if(fpsAcc>700){fps=Math.round(fpsN*1000/fpsAcc);fpsAcc=0;fpsN=0;refreshHUD();}
+  tick();
+  flushUniforms();
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+  if(soundOn) audioTick(now);
+})(performance.now());
+
+// ── REINIT — debounced, mutates S in-place, no GL/RAF restart ─────────
+function reinit(){
+  if(reinitBusy) return;
+  reinitBusy=true;
+  setTimeout(()=>{reinitBusy=false;},150);
+
+  S.mode  =Math.floor(Math.random()*MODE_NAMES.length);
+  const a =Math.floor(Math.random()*PALETTES.length);
+  S.palA  =a;
+  S.palB  =(a+1+Math.floor(Math.random()*(PALETTES.length-1)))%PALETTES.length;
+  S.palMix=0;
+  S.cx    =(Math.random()-.5)*1.6;
+  S.cy    =(Math.random()-.5)*1.6;
+  S.power =2+Math.floor(Math.random()*5);
+  S.warp  =.15+Math.random()*.85;
+  S.zoom  =.4+Math.random()*1.8;
+  S.colorShift=Math.random();
+  S.palSpeed  =.00012+Math.random()*.00038;
+  S.maxIter   =[64,96,128,160][Math.floor(Math.random()*4)];
+  S.rotation  =Math.random()*Math.PI*2;
+  S.t0        =performance.now();
+
+  showToast(MODE_NAMES[S.mode]+' · '+PAL_NAMES[S.palA]);
+  refreshHUD();
+  if(soundOn) rebuildOscs();
+}
+
+// ── HUD ───────────────────────────────────────────────────────────────
+function refreshHUD(){
+  if(!hudOn) return;
+  document.getElementById('h-mode').textContent    ='MODE: '   +MODE_NAMES[S.mode];
+  document.getElementById('h-palette').textContent ='PALETTE: '+PAL_NAMES[S.palA];
+  document.getElementById('h-iter').textContent    ='ITER: '   +S.maxIter;
+  document.getElementById('h-fps').textContent     ='FPS: '    +fps;
+}
+
+// ── Toast ─────────────────────────────────────────────────────────────
+let toastTimer=null;
+function showToast(msg){
+  toastEl.textContent=msg;
+  toastEl.classList.add('on');
+  if(toastTimer)clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>toastEl.classList.remove('on'),2400);
+}
+
+// ── Audio — single shared AudioContext; only oscillators rebuilt ───────
+let actx=null, masterGain=null, oscNodes=[], lfoOsc=null, lfoGain=null;
+
+function ensureCtx(){
+  if(actx&&actx.state==='closed')actx=null;
+  if(!actx){
+    actx=new (window.AudioContext||window.webkitAudioContext)();
+    masterGain=actx.createGain();
+    masterGain.gain.value=.09;
+    masterGain.connect(actx.destination);
+  }
+  if(actx.state==='suspended')actx.resume();
+}
+
+function killOscs(){
+  // Stop and disconnect every oscillator/gain node safely
+  oscNodes.forEach(o=>{
+    ['osc','gain','filt'].forEach(k=>{
+      if(!o[k])return;
+      try{o[k].stop&&o[k].stop(0);}catch(e){}
+      try{o[k].disconnect();}catch(e){}
+    });
+  });
+  oscNodes=[];
+  if(lfoOsc){try{lfoOsc.stop(0);}catch(e){}try{lfoOsc.disconnect();}catch(e){}lfoOsc=null;}
+  if(lfoGain){try{lfoGain.disconnect();}catch(e){}lfoGain=null;}
+}
+
+function rebuildOscs(){
+  if(!soundOn)return;
+  ensureCtx();
+  killOscs(); // always clean before building
+
+  const BASES=[55,73.4,82.4,110,146.8,165,220,294];
+  const RATIOS=[[1,1.5,2,3,4],[1,1.25,1.5,2,2.5],[1,1.414,2,2.828,4],[1,1.618,2.618,4.236,6.854]];
+  const WAVES=['sine','triangle','sine','sawtooth','triangle'];
+  const base=BASES[S.mode%BASES.length];
+  const ratios=RATIOS[S.mode%RATIOS.length];
+
+  ratios.forEach((r,i)=>{
+    const osc=actx.createOscillator();
+    const gain=actx.createGain();
+    const filt=actx.createBiquadFilter();
+    osc.type=WAVES[i%5];
+    osc.frequency.value=base*r;
+    gain.gain.value=.16/(i+1);
+    filt.type='lowpass'; filt.frequency.value=550+i*160; filt.Q.value=4;
+    osc.connect(filt); filt.connect(gain); gain.connect(masterGain);
+    osc.start();
+    oscNodes.push({osc,gain,filt,baseF:base*r,phase:Math.random()*Math.PI*2});
+  });
+
+  // LFO tremolo
+  lfoOsc=actx.createOscillator();
+  lfoGain=actx.createGain();
+  lfoOsc.frequency.value=.07+Math.random()*.14;
+  lfoGain.gain.value=.028;
+  lfoOsc.connect(lfoGain);
+  oscNodes.forEach(o=>lfoGain.connect(o.gain.gain));
+  lfoOsc.start();
+}
+
+let audioFrame=0;
+function audioTick(now){
+  if(!actx||!oscNodes.length)return;
+  if(++audioFrame%4!==0)return; // throttle to every 4 frames
+  const t=(now-S.t0)*.001, at=actx.currentTime;
+  oscNodes.forEach(o=>{
+    if(!o.baseF)return;
+    o.osc.frequency.setTargetAtTime(o.baseF*(1+.016*Math.sin(t*S.palSpeed*1400+o.phase)),at,.18);
+    if(o.filt)o.filt.frequency.setTargetAtTime(320+320*Math.sin(t*.26+o.phase),at,.28);
+  });
+}
+
+// ── Input ─────────────────────────────────────────────────────────────
+document.addEventListener('keydown',e=>{
+  if(e.code==='Space'){e.preventDefault();reinit();return;}
+  if(e.code==='KeyH'){
+    hudOn=!hudOn;
+    hudEl.classList.toggle('on',hudOn);
+    showToast(hudOn?'HUD ON':'HUD OFF');
+    refreshHUD();
+  }
+  if(e.code==='KeyS'){
+    soundOn=!soundOn;
+    if(soundOn){rebuildOscs();showToast('SOUND ON');}
+    else{killOscs();showToast('SOUND OFF');}
+  }
+});
+
+// Suppress ghost-click after touchend
+let lastTouch=0;
+canvas.addEventListener('touchend',e=>{
+  e.preventDefault();
+  lastTouch=Date.now();
+  reinit();
+},{passive:false});
+canvas.addEventListener('click',()=>{
+  if(Date.now()-lastTouch<400)return; // ghost-click guard
+  reinit();
+});
+
+// ── Boot ──────────────────────────────────────────────────────────────
+reinit();
+</script>
+</body>
+</html>

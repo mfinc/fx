@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="description" content="Tensor Vortex Cathedral of Eigenspaces — WebGL generative cathedral vortex built from evolving rank-2 tensor fields, eigen decompositions, Lorenz attractors, Navier–Stokes approximations, quaternion rotations and kaleidoscopic Coxeter symmetries with optional harmonic drone synthesis.">
+<meta name="keywords" content="tensor field visualization, eigenvalues, singular value decomposition, Lorenz attractor, Navier-Stokes, wave equation, heat equation, quaternion rotation, Clifford algebra, Coxeter symmetry, kaleidoscope shader, WebGL generative art, procedural audio synthesis">
+<meta name="author" content="Tensor Vortex Engine">
+<title>Tensor Vortex Cathedral of Eigenspaces</title>
+<style>
+html, body {
+    margin:0;
+    padding:0;
+    overflow:hidden;
+    background:#000;
+    font-family:monospace;
+}
+canvas {
+    position:fixed;
+    top:0;
+    left:0;
+    width:100%;
+    height:100%;
+}
+#hud {
+    position:fixed;
+    top:10px;
+    left:10px;
+    color:#00ffff;
+    font-size:12px;
+    opacity:0.8;
+    pointer-events:none;
+}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="hud" style="display:none">
+Tensor Vortex Cathedral of Eigenspaces<br>
+SPACE / Click: Regenerate<br>
+S: Toggle Audio<br>
+H: Toggle HUD
+</div>
+
+<script>
+"use strict";
+
+const canvas = document.getElementById("gl");
+const gl = canvas.getContext("webgl");
+const hud = document.getElementById("hud");
+
+let W, H;
+function resize(){
+    W = canvas.width = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+    gl.viewport(0,0,W,H);
+}
+window.addEventListener("resize", resize);
+resize();
+
+/* ===== Random parameter regeneration ===== */
+let params;
+function regenerate(){
+    params = {
+        sigma: 8 + Math.random()*20,
+        rho: 20 + Math.random()*40,
+        beta: 2 + Math.random()*4,
+        kaleido: 3 + Math.floor(Math.random()*9),
+        hueShift: Math.random(),
+        gamma: 1.2 + Math.random()*1.5,
+        seed: Math.random()*1000,
+        curvature: 0.5 + Math.random()*2.0
+    };
+}
+regenerate();
+
+/* ===== Shader ===== */
+const vertexSrc = `
+attribute vec2 position;
+void main(){
+    gl_Position = vec4(position,0.0,1.0);
+}
+`;
+
+const fragmentSrc = `
+precision highp float;
+uniform vec2 resolution;
+uniform float time;
+uniform float sigma;
+uniform float rho;
+uniform float beta;
+uniform float kaleido;
+uniform float hueShift;
+uniform float gamma;
+uniform float seed;
+uniform float curvature;
+
+/* HSV to RGB */
+vec3 hsv2rgb(vec3 c){
+    vec3 p = abs(fract(c.xxx + vec3(0.0,2.0/3.0,1.0/3.0))*6.0-3.0);
+    vec3 rgb = clamp(p-1.0,0.0,1.0);
+    return c.z * mix(vec3(1.0), rgb, c.y);
+}
+
+/* Lorenz step */
+vec3 lorenz(vec3 p){
+    float dt = 0.01;
+    vec3 dp;
+    dp.x = sigma*(p.y - p.x);
+    dp.y = p.x*(rho - p.z) - p.y;
+    dp.z = p.x*p.y - beta*p.z;
+    return p + dt*dp;
+}
+
+/* Eigenvalues of 2x2 */
+vec2 eigen2(mat2 m){
+    float tr = m[0][0] + m[1][1];
+    float det = m[0][0]*m[1][1] - m[0][1]*m[1][0];
+    float disc = sqrt(abs(tr*tr - 4.0*det));
+    return vec2(0.5*(tr+disc),0.5*(tr-disc));
+}
+
+/* Kaleidoscope Coxeter reflection */
+vec2 kaleidoFold(vec2 p){
+    float a = atan(p.y,p.x);
+    float r = length(p);
+    float n = kaleido;
+    float tau = 6.2831853;
+    float sector = tau/n;
+    a = mod(a,sector);
+    a = abs(a - sector*0.5);
+    return vec2(cos(a),sin(a))*r;
+}
+
+void main(){
+    vec2 uv = (gl_FragCoord.xy/resolution.xy)*2.0-1.0;
+    uv.x *= resolution.x/resolution.y;
+
+    vec3 p = vec3(uv*2.0, seed);
+    for(int i=0;i<6;i++){
+        p = lorenz(p);
+    }
+
+    mat2 J = mat2(
+        sin(p.x+time),
+        cos(p.y-time),
+        -cos(p.z),
+        sin(p.x+p.y)
+    );
+
+    vec2 eig = eigen2(J);
+
+    vec2 pos = uv;
+    pos += eig*0.15;
+
+    pos = kaleidoFold(pos);
+
+    float wave = sin(10.0*length(pos) - time*2.0);
+    float heat = exp(-curvature*length(pos));
+    float blend = mix(wave,heat,0.5+0.5*sin(time*0.2));
+
+    float hue = fract(hueShift + eig.x*0.1 + blend*0.2);
+    float sat = 0.8;
+    float val = 0.5 + 0.5*sin(blend*3.0);
+
+    vec3 col = hsv2rgb(vec3(hue,sat,val));
+    col = pow(col, vec3(1.0/gamma));
+
+    gl_FragColor = vec4(col,1.0);
+}
+`;
+
+function compile(type,src){
+    const s = gl.createShader(type);
+    gl.shaderSource(s,src);
+    gl.compileShader(s);
+    return s;
+}
+
+const program = gl.createProgram();
+gl.attachShader(program, compile(gl.VERTEX_SHADER, vertexSrc));
+gl.attachShader(program, compile(gl.FRAGMENT_SHADER, fragmentSrc));
+gl.linkProgram(program);
+gl.useProgram(program);
+
+/* Quad */
+const buffer = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+    -1,-1, 1,-1, -1,1,
+    -1,1, 1,-1, 1,1
+]), gl.STATIC_DRAW);
+
+const posLoc = gl.getAttribLocation(program,"position");
+gl.enableVertexAttribArray(posLoc);
+gl.vertexAttribPointer(posLoc,2,gl.FLOAT,false,0,0);
+
+/* Uniforms */
+const uResolution = gl.getUniformLocation(program,"resolution");
+const uTime = gl.getUniformLocation(program,"time");
+const uSigma = gl.getUniformLocation(program,"sigma");
+const uRho = gl.getUniformLocation(program,"rho");
+const uBeta = gl.getUniformLocation(program,"beta");
+const uKaleido = gl.getUniformLocation(program,"kaleido");
+const uHueShift = gl.getUniformLocation(program,"hueShift");
+const uGamma = gl.getUniformLocation(program,"gamma");
+const uSeed = gl.getUniformLocation(program,"seed");
+const uCurvature = gl.getUniformLocation(program,"curvature");
+
+/* Animation */
+let start = performance.now();
+function frame(){
+    let t = (performance.now()-start)/1000;
+    gl.uniform2f(uResolution,W,H);
+    gl.uniform1f(uTime,t);
+    gl.uniform1f(uSigma,params.sigma);
+    gl.uniform1f(uRho,params.rho);
+    gl.uniform1f(uBeta,params.beta);
+    gl.uniform1f(uKaleido,params.kaleido);
+    gl.uniform1f(uHueShift,params.hueShift);
+    gl.uniform1f(uGamma,params.gamma);
+    gl.uniform1f(uSeed,params.seed);
+    gl.uniform1f(uCurvature,params.curvature);
+    gl.drawArrays(gl.TRIANGLES,0,6);
+    requestAnimationFrame(frame);
+}
+frame();
+
+/* ===== Audio Engine (OFF by default, zero compute when OFF) ===== */
+let audioOn=false;
+let audioCtx, master;
+
+function initAudio(){
+    if(audioCtx) return;
+    audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+    master = audioCtx.createGain();
+    master.gain.value=0.1;
+    master.connect(audioCtx.destination);
+
+    let osc1 = audioCtx.createOscillator();
+    let osc2 = audioCtx.createOscillator();
+    let lfo = audioCtx.createOscillator();
+    let lfoGain = audioCtx.createGain();
+
+    osc1.type="sine";
+    osc2.type="triangle";
+    lfo.type="sine";
+
+    osc1.frequency.value=110;
+    osc2.frequency.value=220;
+    lfo.frequency.value=0.2;
+    lfoGain.gain.value=30;
+
+    lfo.connect(lfoGain);
+    lfoGain.connect(osc1.frequency);
+
+    osc1.connect(master);
+    osc2.connect(master);
+
+    osc1.start();
+    osc2.start();
+    lfo.start();
+}
+
+/* ===== Controls ===== */
+window.addEventListener("keydown", e=>{
+    if(e.code==="Space"){
+        regenerate();
+    }
+    if(e.key==="s"||e.key==="S"){
+        audioOn=!audioOn;
+        if(audioOn){
+            initAudio();
+            audioCtx.resume();
+        }else{
+            if(audioCtx) audioCtx.suspend();
+        }
+    }
+    if(e.key==="h"||e.key==="H"){
+        hud.style.display = hud.style.display==="none"?"block":"none";
+    }
+});
+
+window.addEventListener("click", regenerate);
+
+</script>
+</body>
+</html>

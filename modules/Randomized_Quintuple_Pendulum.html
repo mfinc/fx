@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Randomized Quintuple Pendulum</title>
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<style>
+html,body{
+margin:0;
+padding:0;
+overflow:hidden;
+}
+canvas{
+display:block;
+}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<script>
+
+const canvas=document.getElementById("c")
+const ctx=canvas.getContext("2d")
+
+function resize(){
+canvas.width=window.innerWidth
+canvas.height=window.innerHeight
+}
+window.addEventListener("resize",resize)
+resize()
+
+const n=5
+
+let lengths=[]
+let masses=[]
+let angles=[]
+let velocities=[]
+let gravity
+let damping
+
+let rodColors=[]
+let massColors=[]
+let trailColor
+let backgroundColor
+
+let trail=[]
+
+function rand(a,b){return a+Math.random()*(b-a)}
+
+function randColor(){
+return `hsl(${Math.random()*360},${60+Math.random()*40}%,${40+Math.random()*40}%)`
+}
+
+function regenerate(){
+
+lengths=[]
+masses=[]
+angles=[]
+velocities=[]
+rodColors=[]
+massColors=[]
+
+gravity=rand(7,15)
+damping=rand(0.9985,0.9998)
+
+for(let i=0;i<n;i++){
+lengths.push(rand(60,160))
+masses.push(rand(0.5,3))
+angles.push(rand(-Math.PI,Math.PI))
+velocities.push(rand(-1,1))
+
+rodColors.push(randColor())
+massColors.push(randColor())
+}
+
+trailColor=randColor()
+backgroundColor=`hsl(${Math.random()*360},30%,5%)`
+
+trail=[]
+}
+
+function getPositions(){
+
+let x=0
+let y=0
+let pts=[]
+
+for(let i=0;i<n;i++){
+x+=lengths[i]*Math.sin(angles[i])
+y+=lengths[i]*Math.cos(angles[i])
+pts.push([x,y])
+}
+
+return pts
+}
+
+function step(dt){
+
+let accel=new Array(n).fill(0)
+
+for(let i=0;i<n;i++){
+
+let torque=0
+
+for(let j=i;j<n;j++){
+torque += -gravity * Math.sin(angles[i]) * masses[j]
+}
+
+for(let j=0;j<n;j++){
+if(i!==j){
+let diff=angles[j]-angles[i]
+torque+=0.002*Math.sin(diff)*(velocities[j]-velocities[i])
+}
+}
+
+accel[i]=torque/(lengths[i]*masses[i])
+}
+
+for(let i=0;i<n;i++){
+velocities[i]+=accel[i]*dt
+velocities[i]*=damping
+angles[i]+=velocities[i]*dt
+}
+
+}
+
+function draw(){
+
+ctx.fillStyle=backgroundColor
+ctx.fillRect(0,0,canvas.width,canvas.height)
+
+ctx.save()
+ctx.translate(canvas.width/2,canvas.height/5)
+
+let pts=getPositions()
+
+trail.push(pts[n-1])
+if(trail.length>600) trail.shift()
+
+ctx.beginPath()
+for(let i=0;i<trail.length;i++){
+let p=trail[i]
+ctx.lineTo(p[0],p[1])
+}
+ctx.strokeStyle=trailColor
+ctx.lineWidth=2
+ctx.globalAlpha=0.6
+ctx.stroke()
+ctx.globalAlpha=1
+
+let x=0
+let y=0
+
+for(let i=0;i<n;i++){
+
+let nx=x+lengths[i]*Math.sin(angles[i])
+let ny=y+lengths[i]*Math.cos(angles[i])
+
+ctx.beginPath()
+ctx.moveTo(x,y)
+ctx.lineTo(nx,ny)
+ctx.strokeStyle=rodColors[i]
+ctx.lineWidth=3
+ctx.stroke()
+
+ctx.beginPath()
+ctx.arc(nx,ny,10*masses[i],0,Math.PI*2)
+ctx.fillStyle=massColors[i]
+ctx.fill()
+
+x=nx
+y=ny
+}
+
+ctx.restore()
+}
+
+function loop(){
+
+for(let i=0;i<4;i++) step(0.016)
+
+draw()
+
+requestAnimationFrame(loop)
+}
+
+window.addEventListener("keydown",e=>{
+if(e.code==="Space") regenerate()
+})
+
+canvas.addEventListener("mousedown",regenerate)
+canvas.addEventListener("touchstart",regenerate)
+
+regenerate()
+loop()
+
+</script>
+</body>
+</html>

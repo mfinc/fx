@@ -1,0 +1,1136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Topological Puzzle-Mechanics Universe | Möbius Labyrinths & Klein Bottle Mazes</title>
+<meta name="description" content="An immersive generative audiovisual system featuring Möbius strip mazes, Klein bottle labyrinths, toroidal surfaces, hypercube tilings, sliding block puzzles, hitori grids, and real-time physics simulations with Byzantine, Celtic, Moorish, Thai, and Bauhaus decorative traditions.">
+<meta name="keywords" content="topology, Möbius strip, Klein bottle, torus, hypercube, maze, puzzle, generative art, audiovisual, physics simulation, Byzantine mosaic, Celtic knotwork, Moorish tessellation, Bauhaus geometry">
+<meta name="author" content="Topological Universe Generator">
+<meta property="og:title" content="Topological Puzzle-Mechanics Universe">
+<meta property="og:description" content="Generative Möbius mazes, Klein bottle labyrinths, toroidal puzzles, and multibody physics in a surreal audiovisual universe.">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Topological Puzzle-Mechanics Universe">
+<meta name="robots" content="index, follow">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000;touch-action:none}
+  canvas{display:block;position:fixed;top:0;left:0;width:100%;height:100%}
+  #hud{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,0.55);font-family:'Courier New',monospace;font-size:11px;letter-spacing:2px;text-align:center;pointer-events:none;text-transform:uppercase;transition:opacity 0.5s;z-index:10}
+  #hud.hidden{opacity:0}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud" class="hidden">
+  <span id="hudText">SPACE/TAP · REGENERATE &nbsp;|&nbsp; H · HUD &nbsp;|&nbsp; S · SOUND</span>
+</div>
+<script>
+(()=>{
+'use strict';
+
+// ─── Canvas Setup ─────────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H, DPR;
+
+function resize(){
+  DPR = Math.min(window.devicePixelRatio||1, 2);
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width = W * DPR;
+  canvas.height = H * DPR;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+window.addEventListener('resize', ()=>{ resize(); regenerate(); });
+resize();
+
+// ─── State ────────────────────────────────────────────────────────────────────
+let hudVisible = false;
+let soundOn = false;
+let audioCtx = null;
+let masterGain = null;
+let oscillators = [];
+let animId = null;
+let state = {};
+let t = 0;
+let lastTime = 0;
+
+// ─── Math Helpers ─────────────────────────────────────────────────────────────
+const TAU = Math.PI * 2;
+const rnd = (a,b) => a + Math.random()*(b-a);
+const rndInt = (a,b) => Math.floor(rnd(a,b+1));
+const pick = arr => arr[Math.floor(Math.random()*arr.length)];
+const lerp = (a,b,t) => a+(b-a)*t;
+const clamp = (v,a,b) => Math.max(a,Math.min(b,v));
+const hsl = (h,s,l,a=1) => `hsla(${h|0},${s|0}%,${l|0}%,${a})`;
+
+// ─── Palette Generator ────────────────────────────────────────────────────────
+function makePalette(){
+  const types = ['spectral','neon','harmonic','byzantine','celtic','bauhaus'];
+  const type = pick(types);
+  const baseHue = rnd(0,360);
+  const colors = [];
+  if(type==='spectral'){
+    for(let i=0;i<8;i++) colors.push({h:(baseHue+i*45)%360,s:70+rnd(-10,10),l:50+rnd(-10,10)});
+  } else if(type==='neon'){
+    for(let i=0;i<8;i++) colors.push({h:(baseHue+i*43)%360,s:100,l:55+rnd(-5,5)});
+  } else if(type==='harmonic'){
+    for(let i=0;i<8;i++) colors.push({h:(baseHue+i*30)%360,s:80,l:40+i*4});
+  } else if(type==='byzantine'){
+    const bs=[[30,80,55],[45,90,50],[200,60,40],[270,50,35],[0,0,80],[45,100,60]];
+    bs.forEach(b=>colors.push({h:b[0],s:b[1],l:b[2]}));
+  } else if(type==='celtic'){
+    const cs=[[120,60,35],[200,70,40],[30,80,50],[300,50,40],[60,70,45],[180,60,35]];
+    cs.forEach(c=>colors.push({h:c[0],s:c[1],l:c[2]}));
+  } else {
+    const bs2=[[0,90,50],[60,90,50],[120,90,50],[210,90,50],[0,0,95],[0,0,10]];
+    bs2.forEach(b=>colors.push({h:b[0],s:b[1],l:b[2]}));
+  }
+  return {colors, type, baseHue};
+}
+
+function palColor(pal, idx, alpha=1, shift=0){
+  const n = pal.colors.length;
+  const i = (((idx|0)+Math.round(shift))%n+n)%n;
+  const c = pal.colors[i];
+  if(!c) return `rgba(200,200,200,${alpha})`;
+  return hsl(c.h, c.s, c.l, alpha);
+}
+
+// ─── Topology Generators ──────────────────────────────────────────────────────
+
+// Möbius strip parametric
+function mobiusPoint(u, v){
+  const r = 1 + v/2 * Math.cos(u/2);
+  return {
+    x: r * Math.cos(u),
+    y: r * Math.sin(u),
+    z: v/2 * Math.sin(u/2)
+  };
+}
+
+// Torus parametric
+function torusPoint(u, v, R=1.5, r=0.5){
+  return {
+    x: (R + r*Math.cos(v)) * Math.cos(u),
+    y: (R + r*Math.cos(v)) * Math.sin(u),
+    z: r * Math.sin(v)
+  };
+}
+
+// Klein bottle (figure-8 immersion)
+function kleinPoint(u, v){
+  let x, y, z;
+  if(u < Math.PI){
+    x = 3*Math.cos(u)*(1+Math.sin(u)) + (2*(1-Math.cos(u)/2))*Math.cos(u)*Math.cos(v);
+    z = -8*Math.sin(u) - 2*(1-Math.cos(u)/2)*Math.sin(u)*Math.cos(v);
+  } else {
+    x = 3*Math.cos(u)*(1+Math.sin(u)) + (2*(1-Math.cos(u)/2))*Math.cos(v+Math.PI);
+    z = -8*Math.sin(u);
+  }
+  y = -2*(1-Math.cos(u)/2)*Math.sin(v);
+  return {x:x*0.15, y:y*0.15, z:z*0.15};
+}
+
+// Project 3D -> 2D with perspective
+function project3D(p, cx, cy, fov=4, rx=0, ry=0, rz=0){
+  let {x,y,z} = p;
+  // Rotate X
+  let y2 = y*Math.cos(rx) - z*Math.sin(rx);
+  let z2 = y*Math.sin(rx) + z*Math.cos(rx);
+  // Rotate Y
+  let x3 = x*Math.cos(ry) + z2*Math.sin(ry);
+  let z3 = -x*Math.sin(ry) + z2*Math.cos(ry);
+  // Rotate Z
+  let x4 = x3*Math.cos(rz) - y2*Math.sin(rz);
+  let y4 = x3*Math.sin(rz) + y2*Math.cos(rz);
+  const scale = fov / (fov + z3 + 3);
+  return {
+    sx: cx + x4 * scale * Math.min(W,H) * 0.22,
+    sy: cy + y4 * scale * Math.min(W,H) * 0.22,
+    scale
+  };
+}
+
+// ─── Physics: Verlet + RK4 ────────────────────────────────────────────────────
+function makeParticle(x, y, mass=1){
+  return {x, y, px:x, py:y, vx:0, vy:0, mass, fx:0, fy:0, pinned:false};
+}
+
+function verletStep(particles, springs, dt, gravity=0){
+  // Clear forces
+  for(const p of particles){ p.fx=0; p.fy=gravity*p.mass; }
+  // Spring forces
+  for(const s of springs){
+    const a = particles[s.a], b = particles[s.b];
+    const dx = b.x-a.x, dy = b.y-a.y;
+    const dist = Math.sqrt(dx*dx+dy*dy)||0.001;
+    const f = (dist - s.rest) * s.k;
+    const fx = (dx/dist)*f, fy = (dy/dist)*f;
+    if(!a.pinned){ a.fx+=fx; a.fy+=fy; }
+    if(!b.pinned){ b.fx-=fx; b.fy-=fy; }
+    // Damping
+    const dvx = b.vx-a.vx, dvy = b.vy-a.vy;
+    const damp = s.damp||0.02;
+    if(!a.pinned){ a.fx+=dvx*damp; a.fy+=dvy*damp; }
+    if(!b.pinned){ b.fx-=dvx*damp; b.fy-=dvy*damp; }
+  }
+  // Integrate
+  for(const p of particles){
+    if(p.pinned) continue;
+    const nx = 2*p.x - p.px + p.fx/p.mass*dt*dt;
+    const ny = 2*p.y - p.py + p.fy/p.mass*dt*dt;
+    p.vx = (nx - p.px)/(2*dt);
+    p.vy = (ny - p.py)/(2*dt);
+    p.px = p.x; p.py = p.y;
+    p.x = nx; p.y = ny;
+  }
+}
+
+// RK4 pendulum chain
+function makePendulumChain(ox, oy, n, len, palette){
+  const bobs = [];
+  for(let i=0;i<n;i++){
+    bobs.push({
+      angle: rnd(-0.5,0.5),
+      omega: rnd(-0.3,0.3),
+      len: len*(1-i*0.05),
+      mass: 1-i*0.05,
+      colorIdx: i
+    });
+  }
+  return {ox, oy, bobs, palette, phase: rnd(0,TAU)};
+}
+
+function pendulumRK4Step(bob, dt, gravity=0.5){
+  // Simple pendulum dω/dt = -g/l * sin(θ) - damping*ω
+  const f = (th, om) => {
+    const dth = om;
+    const dom = -gravity/bob.len * Math.sin(th) - 0.005*om;
+    return {dth, dom};
+  };
+  const k1 = f(bob.angle, bob.omega);
+  const k2 = f(bob.angle+0.5*dt*k1.dth, bob.omega+0.5*dt*k1.dom);
+  const k3 = f(bob.angle+0.5*dt*k2.dth, bob.omega+0.5*dt*k2.dom);
+  const k4 = f(bob.angle+dt*k3.dth, bob.omega+dt*k3.dom);
+  bob.angle += dt*(k1.dth+2*k2.dth+2*k3.dth+k4.dth)/6;
+  bob.omega += dt*(k1.dom+2*k2.dom+2*k3.dom+k4.dom)/6;
+}
+
+// ─── Gear Train ────────────────────────────────────────────────────────────────
+function makeGearTrain(cx, cy, n, palette){
+  const gears = [];
+  let x = cx, y = cy;
+  let lastR = 0, lastAngle = 0;
+  let dir = 1;
+  for(let i=0;i<n;i++){
+    const r = rnd(18, 55) * (0.7+i*0.1);
+    const teeth = Math.max(6, Math.round(r/4));
+    if(i===0){ gears.push({x,y,r,teeth,angle:0,dir:1,speed:rnd(0.002,0.008),colorIdx:i}); }
+    else {
+      const g0 = gears[i-1];
+      const ang = rnd(0, TAU);
+      const dist = g0.r + r + 2;
+      x = g0.x + Math.cos(ang)*dist;
+      y = g0.y + Math.sin(ang)*dist;
+      dir = -gears[i-1].dir;
+      const speed = gears[0].speed * gears[0].r / r * dir;
+      gears.push({x,y,r,teeth,angle:rnd(0,TAU),dir,speed,colorIdx:i});
+    }
+  }
+  return {gears, palette};
+}
+
+function drawGear(ctx, g, pal, t){
+  const teeth = g.teeth, r = g.r;
+  const angle = g.angle + g.speed * t;
+  const toothH = r * 0.22;
+  const innerR = r - toothH;
+  ctx.save();
+  ctx.translate(g.x, g.y);
+  ctx.rotate(angle);
+  // Gear body
+  ctx.beginPath();
+  for(let i=0;i<teeth;i++){
+    const a0 = (i/teeth)*TAU;
+    const a1 = ((i+0.3)/teeth)*TAU;
+    const a2 = ((i+0.5)/teeth)*TAU;
+    const a3 = ((i+0.8)/teeth)*TAU;
+    ctx.lineTo(Math.cos(a0)*innerR, Math.sin(a0)*innerR);
+    ctx.lineTo(Math.cos(a1)*r, Math.sin(a1)*r);
+    ctx.lineTo(Math.cos(a2)*r, Math.sin(a2)*r);
+    ctx.lineTo(Math.cos(a3)*innerR, Math.sin(a3)*innerR);
+  }
+  ctx.closePath();
+  ctx.fillStyle = palColor(pal, g.colorIdx, 0.5);
+  ctx.strokeStyle = palColor(pal, g.colorIdx+1, 0.9);
+  ctx.lineWidth = 1.5;
+  ctx.fill(); ctx.stroke();
+  // Hub
+  ctx.beginPath();
+  ctx.arc(0,0,r*0.25,0,TAU);
+  ctx.fillStyle = palColor(pal, g.colorIdx+2, 0.8);
+  ctx.fill();
+  ctx.restore();
+}
+
+// ─── Celtic Knotwork ──────────────────────────────────────────────────────────
+function drawCelticKnot(ctx, cx, cy, r, strands, pal, t){
+  const N = strands;
+  for(let s=0;s<N;s++){
+    ctx.beginPath();
+    const pts = 120;
+    for(let i=0;i<=pts;i++){
+      const u = (i/pts)*TAU;
+      const phase = s*(TAU/N) + t*0.3;
+      const twist = 3;
+      const rr = r*(0.6 + 0.4*Math.cos(twist*u+phase));
+      const wobble = r*0.08*Math.sin(5*u+phase*2);
+      const x = cx + (rr+wobble)*Math.cos(u);
+      const y = cy + (rr+wobble)*Math.sin(u);
+      i===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+    }
+    ctx.closePath();
+    ctx.strokeStyle = palColor(pal, s, 0.7);
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+  }
+}
+
+// ─── Byzantine Mosaic ─────────────────────────────────────────────────────────
+function drawByzantineMosaic(ctx, cx, cy, size, pal, t){
+  const grid = 7;
+  const tileW = size/grid, tileH = size/grid;
+  const ox = cx - size/2, oy = cy - size/2;
+  for(let gy=0;gy<grid;gy++){
+    for(let gx=0;gx<grid;gx++){
+      const tx = ox + gx*tileW;
+      const ty = oy + gy*tileH;
+      const dist = Math.sqrt((gx-3)**2+(gy-3)**2);
+      const pulse = Math.sin(t*0.5 - dist*0.5)*0.5+0.5;
+      const colorIdx = (gx+gy+Math.floor(t*0.5))%pal.colors.length;
+      ctx.fillStyle = palColor(pal, colorIdx, 0.4+pulse*0.4);
+      // Diamond tile
+      ctx.beginPath();
+      const cx2 = tx+tileW/2, cy2 = ty+tileH/2;
+      const hw = tileW*0.42, hh = tileH*0.42;
+      ctx.moveTo(cx2, cy2-hh);
+      ctx.lineTo(cx2+hw, cy2);
+      ctx.lineTo(cx2, cy2+hh);
+      ctx.lineTo(cx2-hw, cy2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = palColor(pal, colorIdx+2, 0.3);
+      ctx.lineWidth = 0.5;
+      ctx.stroke();
+    }
+  }
+}
+
+// ─── Moorish Tessellation ─────────────────────────────────────────────────────
+function drawMoorishStar(ctx, cx, cy, r, points, pal, idx, t){
+  const angle = t*0.1 + idx*0.3;
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(angle);
+  for(let layer=0;layer<3;layer++){
+    const lr = r*(1-layer*0.25);
+    ctx.beginPath();
+    for(let i=0;i<points*2;i++){
+      const a = (i/(points*2))*TAU - TAU/4;
+      const rr = i%2===0 ? lr : lr*0.45;
+      i===0 ? ctx.moveTo(Math.cos(a)*rr, Math.sin(a)*rr)
+             : ctx.lineTo(Math.cos(a)*rr, Math.sin(a)*rr);
+    }
+    ctx.closePath();
+    ctx.strokeStyle = palColor(pal, idx+layer, 0.6+layer*0.1);
+    ctx.lineWidth = 1+layer;
+    ctx.stroke();
+    ctx.fillStyle = palColor(pal, idx+layer+1, 0.15);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+// ─── Thai Ornamental Motif ────────────────────────────────────────────────────
+function drawThaiFlame(ctx, cx, cy, scale, pal, idx, t){
+  ctx.save();
+  ctx.translate(cx, cy);
+  const layers = 5;
+  for(let l=0;l<layers;l++){
+    const s = scale*(1-l*0.15);
+    const rot = t*0.08*(l%2===0?1:-1);
+    ctx.rotate(rot);
+    ctx.beginPath();
+    // Flame teardrop
+    for(let i=0;i<=40;i++){
+      const u = (i/40)*TAU;
+      const x = s*(0.4*Math.sin(u) + 0.1*Math.sin(3*u));
+      const y = s*(-0.5*Math.cos(u) - 0.15 + 0.05*Math.cos(2*u));
+      i===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+    }
+    ctx.closePath();
+    ctx.strokeStyle = palColor(pal, idx+l, 0.7);
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+    ctx.fillStyle = palColor(pal, idx+l, 0.08);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+// ─── Bauhaus Grid ─────────────────────────────────────────────────────────────
+function drawBauhausGrid(ctx, cx, cy, size, pal, t){
+  const divisions = 5;
+  const step = size/divisions;
+  const ox = cx - size/2, oy = cy - size/2;
+  for(let gy=0;gy<divisions;gy++){
+    for(let gx=0;gx<divisions;gx++){
+      const tx = ox + gx*step, ty = oy + gy*step;
+      const colorIdx = (gx*3+gy*2)%pal.colors.length;
+      const pulse = Math.sin(t*0.4+gx*0.8+gy*0.6)*0.5+0.5;
+      const shapeType = (gx+gy)%3;
+      ctx.fillStyle = palColor(pal, colorIdx, 0.3+pulse*0.3);
+      ctx.strokeStyle = palColor(pal, colorIdx+1, 0.8);
+      ctx.lineWidth = 1;
+      if(shapeType===0){
+        ctx.fillRect(tx+2,ty+2,step-4,step-4);
+        ctx.strokeRect(tx+2,ty+2,step-4,step-4);
+      } else if(shapeType===1){
+        ctx.beginPath();
+        ctx.arc(tx+step/2,ty+step/2,step/2-3,0,TAU);
+        ctx.fill(); ctx.stroke();
+      } else {
+        ctx.beginPath();
+        ctx.moveTo(tx+step/2,ty+2);
+        ctx.lineTo(tx+step-2,ty+step-2);
+        ctx.lineTo(tx+2,ty+step-2);
+        ctx.closePath();
+        ctx.fill(); ctx.stroke();
+      }
+    }
+  }
+}
+
+// ─── Topology Surface Drawing ─────────────────────────────────────────────────
+function drawTopologySurface(ctx, type, cx, cy, pal, t){
+  const stepsU = 48, stepsV = 24;
+  const rx = t*0.15, ry = t*0.13, rz = t*0.07;
+  const lines = [];
+  for(let vi=0;vi<stepsV;vi++){
+    const line = [];
+    for(let ui=0;ui<=stepsU;ui++){
+      const u = (ui/stepsU)*TAU;
+      const v = -1 + 2*(vi/stepsV);
+      let p;
+      if(type==='mobius') p = mobiusPoint(u,v);
+      else if(type==='torus') p = torusPoint(u, v*Math.PI);
+      else p = kleinPoint(u, v*Math.PI);
+      const proj = project3D(p, cx, cy, 4, rx, ry, rz);
+      line.push(proj);
+    }
+    lines.push(line);
+  }
+  // Draw
+  for(let vi=0;vi<lines.length;vi++){
+    const line = lines[vi];
+    ctx.beginPath();
+    for(let ui=0;ui<line.length;ui++){
+      const {sx,sy,scale} = line[ui];
+      ui===0 ? ctx.moveTo(sx,sy) : ctx.lineTo(sx,sy);
+    }
+    ctx.strokeStyle = palColor(pal, vi, 0.35+0.3*Math.sin(t+vi));
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+  }
+  // Meridian lines
+  for(let ui=0;ui<stepsU;ui+=3){
+    ctx.beginPath();
+    for(let vi=0;vi<=stepsV;vi++){
+      const u = (ui/stepsU)*TAU;
+      const v = -1 + 2*(vi/stepsV);
+      let p;
+      if(type==='mobius') p = mobiusPoint(u,v);
+      else if(type==='torus') p = torusPoint(u, v*Math.PI);
+      else p = kleinPoint(u, v*Math.PI);
+      const {sx,sy} = project3D(p, cx, cy, 4, rx, ry, rz);
+      vi===0 ? ctx.moveTo(sx,sy) : ctx.lineTo(sx,sy);
+    }
+    ctx.strokeStyle = palColor(pal, ui>>2, 0.2);
+    ctx.lineWidth = 0.5;
+    ctx.stroke();
+  }
+}
+
+// ─── Hypercube (Tesseract) ────────────────────────────────────────────────────
+function drawHypercube(ctx, cx, cy, size, pal, t){
+  // 4D vertices projected to 2D
+  const verts4 = [];
+  for(let i=0;i<16;i++){
+    verts4.push([
+      (i&1)?1:-1,
+      (i&2)?1:-1,
+      (i&4)?1:-1,
+      (i&8)?1:-1
+    ]);
+  }
+  // 4D rotation
+  const a = t*0.12, b = t*0.08;
+  const ca=Math.cos(a),sa=Math.sin(a),cb=Math.cos(b),sb=Math.sin(b);
+  const rot4 = v => {
+    // XW plane
+    let x=v[0]*ca-v[3]*sa, w=v[0]*sa+v[3]*ca;
+    // YZ plane
+    let y=v[1]*cb-v[2]*sb, z=v[1]*sb+v[2]*cb;
+    return [x,y,z,w];
+  };
+  const project = v => {
+    const [x,y,z,w] = rot4(v);
+    const wScale = 1/(3-w);
+    const xp = x*wScale*3, yp = y*wScale*3, zp = z*wScale*3;
+    const zScale = 1/(3-zp);
+    return {
+      sx: cx + xp*zScale*size,
+      sy: cy + yp*zScale*size,
+      depth: w+z
+    };
+  };
+  const projs = verts4.map(project);
+  // Draw edges
+  for(let i=0;i<16;i++){
+    for(let j=i+1;j<16;j++){
+      const diff = i^j;
+      if(diff&&!(diff&(diff-1))){ // power of 2 = adjacent
+        const a2 = projs[i], b2 = projs[j];
+        const depth = (a2.depth+b2.depth)/2+2;
+        ctx.beginPath();
+        ctx.moveTo(a2.sx, a2.sy);
+        ctx.lineTo(b2.sx, b2.sy);
+        ctx.strokeStyle = palColor(pal, Math.abs(Math.floor(depth)), 0.5+Math.abs(depth)*0.05);
+        ctx.lineWidth = 0.8 + depth*0.1;
+        ctx.stroke();
+      }
+    }
+  }
+  // Draw vertices
+  for(let i=0;i<16;i++){
+    const {sx,sy,depth} = projs[i];
+    ctx.beginPath();
+    ctx.arc(sx,sy,2+depth*0.5,0,TAU);
+    ctx.fillStyle = palColor(pal, i, 0.8);
+    ctx.fill();
+  }
+}
+
+// ─── Sliding Block Puzzle (Hitori-inspired overlay) ───────────────────────────
+function makeSlidingPuzzle(cx, cy, gridN, tileSize, pal){
+  const tiles = [];
+  for(let r=0;r<gridN;r++){
+    for(let c=0;c<gridN;c++){
+      if(r===gridN-1&&c===gridN-1) continue; // blank
+      tiles.push({
+        r, c, val: r*gridN+c+1,
+        tx: cx+(c-(gridN-1)/2)*tileSize,
+        ty: cy+(r-(gridN-1)/2)*tileSize,
+        vx: rnd(-0.2,0.2), vy: rnd(-0.2,0.2),
+        colorIdx: (r+c)%pal.colors.length
+      });
+    }
+  }
+  return {tiles, cx, cy, gridN, tileSize, pal};
+}
+
+function updateSlidingPuzzle(puz, t){
+  for(const tile of puz.tiles){
+    // Gently drift
+    const targetX = puz.cx+(tile.c-(puz.gridN-1)/2)*puz.tileSize;
+    const targetY = puz.cy+(tile.r-(puz.gridN-1)/2)*puz.tileSize;
+    const dx = targetX - tile.tx, dy = targetY - tile.ty;
+    tile.tx += dx*0.02 + Math.sin(t*0.3+tile.val)*0.3;
+    tile.ty += dy*0.02 + Math.cos(t*0.2+tile.val)*0.3;
+  }
+}
+
+function drawSlidingPuzzle(ctx, puz, t){
+  const s = puz.tileSize*0.9;
+  for(const tile of puz.tiles){
+    const pulse = Math.sin(t*0.5+tile.val*0.7)*0.5+0.5;
+    ctx.save();
+    ctx.translate(tile.tx, tile.ty);
+    ctx.rotate(Math.sin(t*0.1+tile.val*0.3)*0.05);
+    // Tile body
+    const r2 = 4;
+    ctx.beginPath();
+    ctx.moveTo(-s/2+r2,-s/2);
+    ctx.lineTo(s/2-r2,-s/2);
+    ctx.quadraticCurveTo(s/2,-s/2,s/2,-s/2+r2);
+    ctx.lineTo(s/2,s/2-r2);
+    ctx.quadraticCurveTo(s/2,s/2,s/2-r2,s/2);
+    ctx.lineTo(-s/2+r2,s/2);
+    ctx.quadraticCurveTo(-s/2,s/2,-s/2,s/2-r2);
+    ctx.lineTo(-s/2,-s/2+r2);
+    ctx.quadraticCurveTo(-s/2,-s/2,-s/2+r2,-s/2);
+    ctx.closePath();
+    ctx.fillStyle = palColor(puz.pal, tile.colorIdx, 0.3+pulse*0.25);
+    ctx.strokeStyle = palColor(puz.pal, tile.colorIdx+2, 0.7);
+    ctx.lineWidth = 1;
+    ctx.fill(); ctx.stroke();
+    // Number
+    ctx.fillStyle = palColor(puz.pal, tile.colorIdx+1, 0.9);
+    ctx.font = `bold ${s*0.35|0}px monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(tile.val, 0, 0);
+    ctx.restore();
+  }
+}
+
+// ─── Hamiltonian Path Visualization ───────────────────────────────────────────
+function makeHamiltonianPath(cx, cy, n, radius, pal){
+  const nodes = [];
+  for(let i=0;i<n;i++){
+    const a = (i/n)*TAU;
+    nodes.push({
+      x: cx + radius*Math.cos(a),
+      y: cy + radius*Math.sin(a),
+      vx: rnd(-0.5,0.5), vy: rnd(-0.5,0.5),
+      colorIdx: i%pal.colors.length
+    });
+  }
+  // Random Hamiltonian path
+  const perm = Array.from({length:n},(_,i)=>i);
+  for(let i=n-1;i>0;i--){
+    const j = Math.floor(Math.random()*(i+1));
+    [perm[i],perm[j]]=[perm[j],perm[i]];
+  }
+  return {nodes, path: perm, pal, cx, cy, radius};
+}
+
+function updateHamiltonianPath(hp, t){
+  for(const node of hp.nodes){
+    node.x += node.vx*0.3;
+    node.y += node.vy*0.3;
+    const dr = Math.sqrt((node.x-hp.cx)**2+(node.y-hp.cy)**2);
+    if(Math.abs(dr-hp.radius)>hp.radius*0.3){
+      node.vx *= -0.9; node.vy *= -0.9;
+    }
+    node.vx += (Math.random()-0.5)*0.05;
+    node.vy += (Math.random()-0.5)*0.05;
+    node.vx *= 0.98; node.vy *= 0.98;
+  }
+}
+
+function drawHamiltonianPath(ctx, hp, t){
+  const {nodes, path, pal} = hp;
+  // Draw path
+  for(let i=0;i<path.length-1;i++){
+    const progress = ((t*0.3)%1);
+    const alpha = i < path.length*((t*0.2)%1) ? 0.6 : 0.15;
+    const a = nodes[path[i]], b = nodes[path[i+1]];
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.strokeStyle = palColor(pal, i, alpha);
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+  // Draw nodes
+  for(let i=0;i<nodes.length;i++){
+    const n2 = nodes[i];
+    const glow = Math.sin(t*0.8+i)*0.5+0.5;
+    ctx.beginPath();
+    ctx.arc(n2.x, n2.y, 4+glow*3, 0, TAU);
+    ctx.fillStyle = palColor(pal, n2.colorIdx, 0.8+glow*0.2);
+    ctx.fill();
+    ctx.strokeStyle = palColor(pal, n2.colorIdx+2, 0.5);
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+}
+
+// ─── Mass-Spring Lattice ──────────────────────────────────────────────────────
+function makeMassSpring(cx, cy, cols, rows, spacing, pal){
+  const particles = [];
+  const springs = [];
+  for(let r=0;r<rows;r++){
+    for(let c=0;c<cols;c++){
+      const p = makeParticle(
+        cx+(c-(cols-1)/2)*spacing,
+        cy+(r-(rows-1)/2)*spacing,
+        1
+      );
+      if(r===0) p.pinned = true;
+      particles.push(p);
+    }
+  }
+  for(let r=0;r<rows;r++){
+    for(let c=0;c<cols;c++){
+      const i = r*cols+c;
+      if(c<cols-1) springs.push({a:i,b:i+1,rest:spacing,k:0.3,damp:0.05});
+      if(r<rows-1) springs.push({a:i,b:i+cols,rest:spacing,k:0.3,damp:0.05});
+      // Diagonal
+      if(c<cols-1&&r<rows-1){
+        springs.push({a:i,b:i+cols+1,rest:spacing*Math.SQRT2,k:0.15,damp:0.02});
+        springs.push({a:i+1,b:i+cols,rest:spacing*Math.SQRT2,k:0.15,damp:0.02});
+      }
+    }
+  }
+  return {particles, springs, cols, rows, pal};
+}
+
+function drawMassSpring(ctx, ms, t){
+  const {particles, springs, pal} = ms;
+  // Add gentle wave disturbance
+  for(const p of particles){
+    if(!p.pinned){
+      if(p.fy===undefined) p.fy=0;
+      p.fy += Math.sin(t*1.5+p.x*0.02)*0.05;
+    }
+  }
+  // Draw springs
+  for(const s of springs){
+    const a = particles[s.a], b = particles[s.b];
+    const stretch = Math.sqrt((b.x-a.x)**2+(b.y-a.y)**2)/s.rest;
+    ctx.beginPath();
+    ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y);
+    ctx.strokeStyle = palColor(pal, Math.floor(stretch*3), 0.35);
+    ctx.lineWidth = 0.7;
+    ctx.stroke();
+  }
+  // Draw particles
+  for(let i=0;i<particles.length;i++){
+    const p = particles[i];
+    ctx.beginPath();
+    ctx.arc(p.x,p.y,p.pinned?3:2,0,TAU);
+    ctx.fillStyle = palColor(pal, i%pal.colors.length, p.pinned?0.9:0.6);
+    ctx.fill();
+  }
+}
+
+// ─── Nonogram Grid ────────────────────────────────────────────────────────────
+function drawNonogramGrid(ctx, cx, cy, size, n, pal, t){
+  const cell = size/n;
+  const ox = cx-size/2, oy = cy-size/2;
+  // Random pattern cycling
+  const pattern = [];
+  for(let r=0;r<n;r++){
+    pattern.push([]);
+    for(let c=0;c<n;c++){
+      pattern[r].push(Math.sin(t*0.2+r*0.7+c*0.5)>0 ? 1 : 0);
+    }
+  }
+  for(let r=0;r<n;r++){
+    for(let c=0;c<n;c++){
+      const filled = pattern[r][c];
+      const pulse = Math.sin(t*0.6+r*0.4+c*0.3)*0.5+0.5;
+      ctx.fillStyle = filled
+        ? palColor(pal, (r+c)%pal.colors.length, 0.6+pulse*0.3)
+        : palColor(pal, 0, 0.05);
+      ctx.fillRect(ox+c*cell+1, oy+r*cell+1, cell-2, cell-2);
+      if(filled){
+        ctx.strokeStyle = palColor(pal, (r+c+2)%pal.colors.length, 0.4);
+        ctx.lineWidth = 0.5;
+        ctx.strokeRect(ox+c*cell+1, oy+r*cell+1, cell-2, cell-2);
+      }
+    }
+  }
+  // Grid lines
+  ctx.strokeStyle = palColor(pal, 1, 0.2);
+  ctx.lineWidth = 0.3;
+  for(let i=0;i<=n;i++){
+    ctx.beginPath();
+    ctx.moveTo(ox+i*cell,oy); ctx.lineTo(ox+i*cell,oy+size);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(ox,oy+i*cell); ctx.lineTo(ox+size,oy+i*cell);
+    ctx.stroke();
+  }
+}
+
+// ─── KenKen Logic Fields ──────────────────────────────────────────────────────
+function drawKenKen(ctx, cx, cy, size, n, pal, t){
+  const cell = size/n;
+  const ox = cx-size/2, oy = cy-size/2;
+  const ops = ['+','×','−','÷'];
+  for(let r=0;r<n;r++){
+    for(let c=0;c<n;c++){
+      const val = ((r*n+c+Math.floor(t*0.3))%n)+1;
+      const opIdx = (r+c)%4;
+      const pulse = Math.sin(t*0.4+r+c)*0.4+0.6;
+      // Cell bg
+      ctx.fillStyle = palColor(pal, (r*2+c)%pal.colors.length, 0.2*pulse);
+      ctx.fillRect(ox+c*cell+1,oy+r*cell+1,cell-2,cell-2);
+      // Bold border for cage (simplified)
+      if((r+c)%3===0){
+        ctx.strokeStyle = palColor(pal, opIdx+1, 0.8);
+        ctx.lineWidth = 2;
+        ctx.strokeRect(ox+c*cell+2,oy+r*cell+2,cell*2-4,cell-4);
+      }
+      // Value
+      ctx.fillStyle = palColor(pal, (r+c+1)%pal.colors.length, 0.85);
+      ctx.font = `${cell*0.38|0}px monospace`;
+      ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillText(val, ox+c*cell+cell/2, oy+r*cell+cell/2);
+      // Op hint
+      if((r*n+c)%5===0){
+        ctx.font = `${cell*0.22|0}px monospace`;
+        ctx.fillStyle = palColor(pal, opIdx, 0.7);
+        ctx.fillText(ops[opIdx], ox+c*cell+cell*0.2, oy+r*cell+cell*0.25);
+      }
+    }
+  }
+}
+
+// ─── Spectral Background ──────────────────────────────────────────────────────
+function drawBackground(ctx, pal, t){
+  const grad = ctx.createRadialGradient(W/2,H/2,0,W/2,H/2,Math.max(W,H));
+  const c0 = pal.colors[0], c1 = pal.colors[Math.min(1,pal.colors.length-1)];
+  grad.addColorStop(0, hsl(c0.h, c0.s*0.3, 6, 1));
+  grad.addColorStop(1, hsl(c1.h, c1.s*0.2, 3, 1));
+  ctx.fillStyle = grad;
+  ctx.fillRect(0,0,W,H);
+
+  // Subtle animated flow lines
+  for(let i=0;i<8;i++){
+    const phase = i*(TAU/8)+t*0.05;
+    const x = W/2 + Math.cos(phase)*W*0.35;
+    const y = H/2 + Math.sin(phase*0.7)*H*0.35;
+    const r = Math.min(W,H)*0.3;
+    const grad2 = ctx.createRadialGradient(x,y,0,x,y,r);
+    const c = pal.colors[i%pal.colors.length];
+    grad2.addColorStop(0, hsl(c.h, c.s, c.l, 0.04));
+    grad2.addColorStop(1, hsl(c.h, c.s, c.l, 0));
+    ctx.fillStyle = grad2;
+    ctx.fillRect(0,0,W,H);
+  }
+}
+
+// ─── State Generation ─────────────────────────────────────────────────────────
+function regenerate(){
+  // Cancel previous frame
+  if(animId) cancelAnimationFrame(animId);
+
+  t = 0; lastTime = 0;
+  const pal = makePalette();
+  const mobileScale = Math.min(W,H)/800;
+
+  // Layout zones
+  const zones = [
+    {cx:W*0.25, cy:H*0.28}, {cx:W*0.75, cy:H*0.25},
+    {cx:W*0.5,  cy:H*0.55}, {cx:W*0.2,  cy:H*0.72},
+    {cx:W*0.8,  cy:H*0.72}, {cx:W*0.5,  cy:H*0.18},
+    {cx:W*0.12, cy:H*0.48}, {cx:W*0.88, cy:H*0.48},
+  ];
+
+  const topoTypes = ['mobius','torus','klein'];
+  const primaryTopo = pick(topoTypes);
+  const secondaryTopo = pick(topoTypes.filter(t2=>t2!==primaryTopo));
+
+  // Physics systems
+  const ms = makeMassSpring(
+    zones[2].cx, zones[2].cy,
+    Math.max(3,Math.round(6*mobileScale)),
+    Math.max(3,Math.round(5*mobileScale)),
+    Math.max(25,32*mobileScale),
+    pal
+  );
+
+  const pendulums = [];
+  for(let i=0;i<Math.max(2,Math.round(4*mobileScale));i++){
+    const z = zones[i%zones.length];
+    pendulums.push(makePendulumChain(
+      z.cx, z.cy*0.3,
+      Math.max(3,Math.round(5*mobileScale)),
+      Math.max(30,40*mobileScale),
+      pal
+    ));
+  }
+
+  const gearTrain = makeGearTrain(
+    zones[1].cx, zones[1].cy,
+    Math.max(3,Math.round(5*mobileScale)),
+    pal
+  );
+
+  const hamilton = makeHamiltonianPath(
+    zones[3].cx, zones[3].cy,
+    Math.max(7, Math.round(12*mobileScale)),
+    Math.max(50, 80*mobileScale),
+    pal
+  );
+
+  const slidePuz = makeSlidingPuzzle(
+    zones[4].cx, zones[4].cy,
+    3,
+    Math.max(30, 42*mobileScale),
+    pal
+  );
+
+  // Decorative element positions
+  const decor = {
+    celtic: {cx:zones[5].cx, cy:zones[5].cy, r:Math.max(40,60*mobileScale), strands:rndInt(3,5)},
+    moorish: zones.map((z,i)=>({...z, r:Math.max(25,40*mobileScale), points:rndInt(6,12), idx:i})),
+    thai: [{cx:zones[6].cx, cy:zones[6].cy, scale:Math.max(40,60*mobileScale), idx:0},
+           {cx:zones[7].cx, cy:zones[7].cy, scale:Math.max(35,55*mobileScale), idx:2}],
+    bauhaus: {cx:W*0.5, cy:H*0.9, size:Math.max(80,100*mobileScale)},
+    byzantine: {cx:W*0.05, cy:H*0.15, size:Math.max(80,100*mobileScale)},
+    nonogram: {cx:zones[0].cx, cy:zones[0].cy, size:Math.max(80,110*mobileScale), n:Math.max(4,Math.round(6*mobileScale))},
+    kenken: {cx:zones[7].cx, cy:H*0.55, size:Math.max(70,100*mobileScale), n:Math.max(3,Math.round(4*mobileScale))},
+    hypercube: {cx:W*0.5, cy:H*0.35, size:Math.max(60,90*mobileScale)},
+    topo1: {type:primaryTopo, cx:W*0.5, cy:H*0.55},
+    topo2: {type:secondaryTopo, cx:W*0.15, cy:H*0.55},
+  };
+
+  state = {pal, ms, pendulums, gearTrain, hamilton, slidePuz, decor, mobileScale};
+  requestAnimationFrame(loop);
+}
+
+// ─── Audio Engine ─────────────────────────────────────────────────────────────
+function initAudio(){
+  if(audioCtx) return;
+  try{
+    audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+    masterGain = audioCtx.createGain();
+    masterGain.gain.value = 0.12;
+    masterGain.connect(audioCtx.destination);
+  }catch(e){ soundOn = false; }
+}
+
+function startAudio(pal){
+  if(!soundOn || !audioCtx) return;
+  stopAudio();
+  const baseFreqs = [55, 110, 165, 220, 330, 440];
+  const scale = [1, 1.125, 1.25, 1.333, 1.5, 1.667, 1.875, 2];
+  const base = baseFreqs[Math.floor(Math.random()*baseFreqs.length)];
+  const numOsc = Math.min(6, pal.colors.length);
+  for(let i=0;i<numOsc;i++){
+    try{
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      const filter = audioCtx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.value = base * scale[i%scale.length];
+      filter.Q.value = 8 + i*2;
+      osc.type = ['sine','triangle','sine','sawtooth'][i%4];
+      osc.frequency.value = base * scale[i%scale.length];
+      gain.gain.value = 0.03 / numOsc;
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(masterGain);
+      osc.start();
+      oscillators.push({osc, gain, filter, base: base*scale[i%scale.length]});
+    }catch(e){}
+  }
+}
+
+function stopAudio(){
+  for(const o of oscillators){
+    try{ o.osc.stop(); }catch(e){}
+  }
+  oscillators = [];
+}
+
+function updateAudio(t, ms, pendulums){
+  if(!soundOn || !audioCtx || oscillators.length===0) return;
+  // Modulate oscillators based on physics
+  for(let i=0;i<oscillators.length;i++){
+    const osc = oscillators[i];
+    // Pendulum angle modulates frequency
+    const pend = pendulums[i%pendulums.length];
+    if(pend){
+      const bob = pend.bobs[0];
+      const freqMod = 1 + bob.angle * 0.15;
+      osc.osc.frequency.setTargetAtTime(osc.base*freqMod, audioCtx.currentTime, 0.1);
+      osc.gain.gain.setTargetAtTime(0.02/oscillators.length*(1+Math.abs(bob.omega)*2), audioCtx.currentTime, 0.05);
+    }
+    // Mass-spring energy modulates filter
+    let energy = 0;
+    for(const p of ms.particles){
+      energy += p.vx*p.vx + p.vy*p.vy;
+    }
+    osc.filter.frequency.setTargetAtTime(
+      osc.base*(1+Math.sqrt(energy)*0.01),
+      audioCtx.currentTime, 0.2
+    );
+  }
+}
+
+// ─── Main Loop ────────────────────────────────────────────────────────────────
+function loop(now){
+  animId = requestAnimationFrame(loop);
+  const dt = Math.min((now - (lastTime||now))/1000, 0.05);
+  lastTime = now;
+  t += dt;
+
+  const {pal, ms, pendulums, gearTrain, hamilton, slidePuz, decor, mobileScale} = state;
+
+  // Physics updates
+  const simDt = 0.016;
+  for(let sub=0;sub<2;sub++){
+    verletStep(ms.particles, ms.springs, simDt, 0.08);
+  }
+  for(const pend of pendulums){
+    for(const bob of pend.bobs){
+      pendulumRK4Step(bob, simDt, 0.35);
+    }
+  }
+  updateHamiltonianPath(hamilton, t);
+  updateSlidingPuzzle(slidePuz, t);
+
+  if(soundOn) updateAudio(t, ms, pendulums);
+
+  // ─── Draw ───────────────────────────────────────────────────────────────────
+  ctx.clearRect(0,0,W,H);
+
+  // Background
+  drawBackground(ctx, pal, t);
+
+  // Global composite for layering
+  ctx.save();
+
+  // ── Topology surfaces (large, background layer)
+  ctx.globalAlpha = 0.55;
+  drawTopologySurface(ctx, decor.topo1.type, decor.topo1.cx, decor.topo1.cy, pal, t);
+  ctx.globalAlpha = 0.35;
+  drawTopologySurface(ctx, decor.topo2.type, decor.topo2.cx, decor.topo2.cy, pal, t*0.7);
+  ctx.globalAlpha = 1;
+
+  // ── Bauhaus grid
+  drawBauhausGrid(ctx, decor.bauhaus.cx, decor.bauhaus.cy, decor.bauhaus.size, pal, t);
+
+  // ── Byzantine mosaic
+  drawByzantineMosaic(ctx, decor.byzantine.cx, decor.byzantine.cy, decor.byzantine.size, pal, t);
+
+  // ── Moorish stars
+  for(let i=0;i<decor.moorish.length;i+=2){
+    const m = decor.moorish[i];
+    drawMoorishStar(ctx, m.cx, m.cy, m.r, m.points, pal, m.idx, t);
+  }
+
+  // ── Celtic knotwork
+  drawCelticKnot(ctx, decor.celtic.cx, decor.celtic.cy, decor.celtic.r, decor.celtic.strands, pal, t);
+
+  // ── Thai flame motifs
+  for(const th of decor.thai){
+    drawThaiFlame(ctx, th.cx, th.cy, th.scale, pal, th.idx, t);
+  }
+
+  // ── Hypercube
+  drawHypercube(ctx, decor.hypercube.cx, decor.hypercube.cy, decor.hypercube.size, pal, t);
+
+  // ── Gear train
+  for(const g of gearTrain.gears){
+    drawGear(ctx, g, gearTrain.palette, t*1000);
+  }
+
+  // ── Pendulum chains
+  for(const pend of pendulums){
+    let px = pend.ox, py = pend.oy;
+    for(let i=0;i<pend.bobs.length;i++){
+      const bob = pend.bobs[i];
+      const nx = px + Math.sin(bob.angle)*bob.len;
+      const ny = py + Math.cos(bob.angle)*bob.len;
+      // String
+      ctx.beginPath();
+      ctx.moveTo(px,py); ctx.lineTo(nx,ny);
+      ctx.strokeStyle = palColor(pal, bob.colorIdx, 0.5);
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      // Bob
+      const glow = Math.abs(Math.sin(bob.angle));
+      ctx.beginPath();
+      ctx.arc(nx,ny,5+glow*4,0,TAU);
+      ctx.fillStyle = palColor(pal, bob.colorIdx, 0.85);
+      ctx.fill();
+      ctx.strokeStyle = palColor(pal, bob.colorIdx+1, 0.5);
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      // Trail
+      ctx.beginPath();
+      ctx.arc(nx,ny,3+glow*8,0,TAU);
+      ctx.fillStyle = palColor(pal, bob.colorIdx, 0.1*glow);
+      ctx.fill();
+      px=nx; py=ny;
+    }
+  }
+
+  // ── Mass-spring lattice
+  drawMassSpring(ctx, ms, t);
+
+  // ── Hamiltonian path
+  drawHamiltonianPath(ctx, hamilton, t);
+
+  // ── Nonogram
+  drawNonogramGrid(ctx, decor.nonogram.cx, decor.nonogram.cy, decor.nonogram.size, decor.nonogram.n, pal, t);
+
+  // ── KenKen
+  drawKenKen(ctx, decor.kenken.cx, decor.kenken.cy, decor.kenken.size, decor.kenken.n, pal, t);
+
+  // ── Sliding block puzzle
+  drawSlidingPuzzle(ctx, slidePuz, t);
+
+  // ── Moorish stars (foreground pass, smaller)
+  for(let i=1;i<decor.moorish.length;i+=2){
+    const m = decor.moorish[i];
+    drawMoorishStar(ctx, m.cx, m.cy, m.r*0.5, m.points, pal, m.idx+3, t*1.1);
+  }
+
+  // ── Vignette
+  const vig = ctx.createRadialGradient(W/2,H/2,Math.min(W,H)*0.3,W/2,H/2,Math.max(W,H)*0.8);
+  vig.addColorStop(0,'rgba(0,0,0,0)');
+  vig.addColorStop(1,'rgba(0,0,0,0.65)');
+  ctx.fillStyle = vig;
+  ctx.fillRect(0,0,W,H);
+
+  ctx.restore();
+}
+
+// ─── Input Handling ───────────────────────────────────────────────────────────
+function handleRegen(){
+  stopAudio();
+  regenerate();
+  if(soundOn){
+    initAudio();
+    if(audioCtx && audioCtx.state==='suspended') audioCtx.resume();
+    startAudio(state.pal);
+  }
+}
+
+document.addEventListener('keydown', e=>{
+  const key = e.key.toLowerCase();
+  if(key===' '){ e.preventDefault(); handleRegen(); }
+  else if(key==='h'){
+    hudVisible = !hudVisible;
+    document.getElementById('hud').classList.toggle('hidden', !hudVisible);
+  }
+  else if(key==='s'){
+    soundOn = !soundOn;
+    if(soundOn){
+      initAudio();
+      if(audioCtx && audioCtx.state==='suspended') audioCtx.resume();
+      startAudio(state.pal);
+    } else {
+      stopAudio();
+    }
+    document.getElementById('hudText').textContent =
+      `SPACE/TAP · REGENERATE  |  H · HUD  |  S · SOUND ${soundOn?'ON':'OFF'}`;
+  }
+});
+
+canvas.addEventListener('click', handleRegen);
+canvas.addEventListener('touchstart', e=>{
+  e.preventDefault();
+  handleRegen();
+}, {passive:false});
+
+// ─── Start ────────────────────────────────────────────────────────────────────
+regenerate();
+
+})();
+</script>
+</body>
+</html>
