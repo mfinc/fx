@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Shatari Visual Symphony</title>
+<meta name="description" content="Shatari is a generative, real-time Atari 2600-style visual and audio synthesizer. Every regeneration produces a fully randomized color palette, shader parameters, and synchronized audio-visual evolution. Press SPACE, click, or tap to create infinite unique audiovisual experiences.">
+<meta name="keywords" content="generative art, Atari 2600, WebGL, audio visual, shader art, procedural, real-time synthesis, retro computing, demoscene, audiovisual, GLSL, web audio, interactive art, visual music, algorithmic art">
+<meta name="author" content="Shatari">
+<meta name="robots" content="index, follow">
+<meta property="og:title" content="Shatari — Atari 2600 Visual Symphony">
+<meta property="og:description" content="Infinite generative Atari-style audiovisual art. Every regeneration is unique — fully randomized colors, shaders, and synchronized sound.">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Shatari — Atari 2600 Visual Symphony">
+<meta name="twitter:description" content="Infinite generative Atari-style audiovisual art. Fully randomized, fully synchronized.">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{
+  width:100%;height:100%;
+  background:#000;
+  overflow:hidden;
+  font-family:'Courier New',Courier,monospace;
+  user-select:none;
+  -webkit-user-select:none;
+}
+canvas{
+  position:absolute;
+  top:0;left:0;
+  width:100%;height:100%;
+  display:block;
+  image-rendering:pixelated;
+  image-rendering:crisp-edges;
+}
+#hud{
+  position:absolute;
+  left:12px;top:12px;
+  color:#0f0;
+  font-size:11px;
+  line-height:1.6;
+  white-space:pre;
+  pointer-events:none;
+  display:none;
+  text-shadow:0 0 6px #0f0,0 0 12px #0a0;
+  z-index:10;
+}
+#hint{
+  position:absolute;
+  bottom:14px;
+  left:50%;
+  transform:translateX(-50%);
+  color:rgba(255,255,255,0.22);
+  font-size:10px;
+  letter-spacing:2px;
+  pointer-events:none;
+  text-transform:uppercase;
+  z-index:10;
+  transition:opacity 1s;
+}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="hud"></div>
+<div id="hint">SPACE · CLICK · TAP — regenerate &nbsp;|&nbsp; H — hud &nbsp;|&nbsp; S — sound</div>
+
+<script>
+/* ─────────────────────────────────────────────
+   SHATARI  —  fully randomized audiovisual engine
+   ───────────────────────────────────────────── */
+
+const canvas = document.getElementById("gl");
+const gl = canvas.getContext("webgl", {antialias: false, powerPreference:"high-performance"});
+const hud = document.getElementById("hud");
+const hint = document.getElementById("hint");
+
+// fade hint after 4s
+setTimeout(()=>{hint.style.opacity="0";},4000);
+
+function resize(){
+  canvas.width  = Math.floor(innerWidth);
+  canvas.height = Math.floor(innerHeight);
+  gl.viewport(0,0,canvas.width,canvas.height);
+}
+addEventListener("resize",resize);
+resize();
+
+/* ── PARAMS ── */
+let P = {}; // all randomizable params live here
+
+function randomP(){
+  const r = ()=>Math.random();
+  const rr= (a,b)=>a+r()*(b-a);
+  const ri= (a,b)=>Math.floor(rr(a,b+1));
+
+  P = {
+    seed:       rr(0,10000),
+
+    // field
+    fieldIter:  ri(4,8),
+    foldScale:  rr(0.3,0.9),
+    foldBias:   rr(0.2,0.8),
+    iterScale:  rr(1.1,1.9),
+    iterGain:   rr(1.3,2.2),
+
+    // animation speeds
+    tRotSpeed:  rr(0.04,0.25)*( r()<.5?1:-1),
+    tFieldSpeed:rr(0.8,2.8),
+    tRingFreq:  rr(6,18),
+    tRingSpeed: rr(1.5,5.0),
+    tWaveXFreq: rr(4,14),
+    tWaveYFreq: rr(3,13),
+    tWaveXSpeed:rr(1.0,3.5),
+    tWaveYSpeed:rr(0.8,3.0),
+
+    // colour mixing coefficients
+    colR_a: rr(0.8,2.2),
+    colG_a: rr(0.8,2.2),
+    colB_a: rr(0.8,2.2),
+    colR_p: rr(0,6.28),
+    colG_p: rr(0,6.28),
+    colB_p: rr(0,6.28),
+
+    // palette hue offset & saturation
+    hueOffset:   rr(0,6.28),
+    satBoost:    rr(0.5,1.5),
+    lumGamma:    rr(0.5,1.8),
+
+    // mix weights
+    wField: rr(0.3,1.2),
+    wRings: rr(0.2,1.0),
+    wWave:  rr(0.2,0.9),
+
+    // zoom / scale
+    zoom:  rr(0.6,2.2),
+
+    // extra twist
+    twistAmt:  rr(0,3.0),
+    twistSpeed:rr(0.2,1.5)*( r()<.5?1:-1),
+
+    // ── AUDIO ──
+    // base freqs
+    f1Base: rr(40,200),
+    f2Base: rr(20,120),
+    f3Base: rr(15,80),
+    f4Base: rr(80,400),
+
+    // modulation depths
+    f1Mod: rr(20,150),
+    f2Mod: rr(10,80),
+    f3Mod: rr(5,60),
+    f4Mod: rr(30,200),
+
+    // modulation speeds (coupled to visual speeds below)
+    f1ModSpeed: 0, // filled after
+    f2ModSpeed: 0,
+    f3ModSpeed: 0,
+    f4ModSpeed: 0,
+
+    // oscillator types (0=sine,1=square,2=sawtooth,3=triangle)
+    osc1Type: ri(0,3),
+    osc2Type: ri(0,3),
+    osc3Type: ri(0,3),
+    osc4Type: ri(0,3),
+
+    // gain envelopes
+    g1Base: rr(0.05,0.22),
+    g2Base: rr(0.04,0.18),
+    g3Base: rr(0.03,0.15),
+    g4Base: rr(0.02,0.12),
+    g1Depth:rr(0.02,0.12),
+    g2Depth:rr(0.02,0.10),
+    g3Depth:rr(0.01,0.09),
+    g4Depth:rr(0.01,0.08),
+    g1Speed:0, // filled from visual speeds
+    g2Speed:0,
+    g3Speed:0,
+    g4Speed:0,
+
+    // LFO / filter
+    filterFreq: rr(200,4000),
+    filterQ:    rr(1,20),
+    filterMod:  rr(50,2000),
+    filterSpeed:0,
+
+    masterGain: rr(0.12,0.28),
+  };
+
+  // couple audio modulation speeds to visual speeds — this is the sync
+  P.f1ModSpeed  = P.tFieldSpeed * rr(0.8,1.2);
+  P.f2ModSpeed  = P.tRingSpeed  * rr(0.7,1.3);
+  P.f3ModSpeed  = P.tWaveXSpeed * rr(0.9,1.1);
+  P.f4ModSpeed  = Math.abs(P.tRotSpeed) * rr(4,10);
+  P.g1Speed     = P.tFieldSpeed * rr(0.5,1.0);
+  P.g2Speed     = P.tRingSpeed  * rr(0.5,1.0);
+  P.g3Speed     = P.tWaveYSpeed * rr(0.5,1.0);
+  P.g4Speed     = Math.abs(P.tRotSpeed)*rr(2,6);
+  P.filterSpeed = P.tWaveXSpeed * rr(0.6,1.4);
+}
+
+randomP();
+
+/* ── GLSL ── */
+const VERT = `
+attribute vec2 p;
+void main(){gl_Position=vec4(p,0.,1.);}
+`;
+
+const FRAG = `
+precision mediump float;
+
+uniform float t;
+uniform vec2  r;
+
+// field params
+uniform float u_seed;
+uniform int   u_fieldIter;
+uniform float u_foldScale;
+uniform float u_foldBias;
+uniform float u_iterScale;
+uniform float u_iterGain;
+
+// speeds
+uniform float u_tRotSpeed;
+uniform float u_tFieldSpeed;
+uniform float u_tRingFreq;
+uniform float u_tRingSpeed;
+uniform float u_tWaveXFreq;
+uniform float u_tWaveYFreq;
+uniform float u_tWaveXSpeed;
+uniform float u_tWaveYSpeed;
+
+// colour
+uniform float u_colR_a;
+uniform float u_colG_a;
+uniform float u_colB_a;
+uniform float u_colR_p;
+uniform float u_colG_p;
+uniform float u_colB_p;
+uniform float u_hueOffset;
+uniform float u_satBoost;
+uniform float u_lumGamma;
+
+// mix weights
+uniform float u_wField;
+uniform float u_wRings;
+uniform float u_wWave;
+
+// zoom & twist
+uniform float u_zoom;
+uniform float u_twistAmt;
+uniform float u_twistSpeed;
+
+// ── helpers ──────────────────────────────────
+
+float hash(float n){return fract(sin(n)*43758.5453123);}
+
+vec3 hsv2rgb(vec3 c){
+  vec3 p=abs(fract(c.xxx+vec3(0.,2./3.,1./3.))*6.-3.);
+  return c.z*mix(vec3(1.),clamp(p-1.,0.,1.),c.y);
+}
+
+vec3 atariColor(float t2){
+  float hue=fract(t2/(6.28318)+u_hueOffset/(6.28318));
+  float sat=clamp(u_satBoost*0.8,0.,1.);
+  float lum=pow(clamp(0.4+0.4*sin(t2*1.3),0.,1.),u_lumGamma);
+  return hsv2rgb(vec3(hue,sat,lum));
+}
+
+vec3 quantize(vec3 c){
+  // Atari-style: quantize to 4 levels per channel
+  return floor(c*4.)/4.;
+}
+
+float field(vec2 p2){
+  float v=0.;
+  float s=1.;
+  for(int i=0;i<8;i++){
+    if(i>=u_fieldIter) break;
+    p2=abs(p2)/max(dot(p2,p2),0.0001)-u_foldBias;
+    float d=length(p2)*u_foldScale;
+    v+=sin(d*6.-t*u_tFieldSpeed+s);
+    p2*=u_iterScale;
+    s*=u_iterGain;
+  }
+  return v;
+}
+
+void main(){
+  vec2 uv=(gl_FragCoord.xy/r.xy-.5)*2.;
+  uv.x*=r.x/r.y;
+  uv*=u_zoom;
+
+  // global rotation
+  float rot=t*u_tRotSpeed+u_seed*.01;
+  float ca=cos(rot), sa=sin(rot);
+  uv=mat2(ca,-sa,sa,ca)*uv;
+
+  // per-pixel twist (synced to visual)
+  float twist=u_twistAmt*sin(t*u_twistSpeed+length(uv)*2.);
+  float ct=cos(twist), st=sin(twist);
+  uv=mat2(ct,-st,st,ct)*uv;
+
+  float f=field(uv)*u_wField;
+  float rings=sin(length(uv)*u_tRingFreq-t*u_tRingSpeed)*u_wRings;
+  float wave=(sin(uv.x*u_tWaveXFreq+t*u_tWaveXSpeed)
+             +cos(uv.y*u_tWaveYFreq-t*u_tWaveYSpeed))*u_wWave;
+
+  float v=f+rings+wave;
+
+  // colour
+  vec3 col=vec3(
+    sin(v*u_colR_a+u_colR_p),
+    sin(v*u_colG_a+u_colG_p),
+    sin(v*u_colB_a+u_colB_p)
+  );
+  col=col*.5+.5;
+  col=atariColor(v+u_seed*.001);
+  col=quantize(col);
+
+  gl_FragColor=vec4(col,1.);
+}
+`;
+
+function compile(type,src){
+  const s=gl.createShader(type);
+  gl.shaderSource(s,src);
+  gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))
+    console.error(gl.getShaderInfoLog(s));
+  return s;
+}
+
+const prog = gl.createProgram();
+gl.attachShader(prog,compile(gl.VERTEX_SHADER,VERT));
+gl.attachShader(prog,compile(gl.FRAGMENT_SHADER,FRAG));
+gl.linkProgram(prog);
+gl.useProgram(prog);
+
+const buf=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+const aloc=gl.getAttribLocation(prog,"p");
+gl.enableVertexAttribArray(aloc);
+gl.vertexAttribPointer(aloc,2,gl.FLOAT,false,0,0);
+
+// uniform locations
+const U={};
+[
+ "t","r",
+ "u_seed","u_fieldIter","u_foldScale","u_foldBias","u_iterScale","u_iterGain",
+ "u_tRotSpeed","u_tFieldSpeed","u_tRingFreq","u_tRingSpeed",
+ "u_tWaveXFreq","u_tWaveYFreq","u_tWaveXSpeed","u_tWaveYSpeed",
+ "u_colR_a","u_colG_a","u_colB_a","u_colR_p","u_colG_p","u_colB_p",
+ "u_hueOffset","u_satBoost","u_lumGamma",
+ "u_wField","u_wRings","u_wWave",
+ "u_zoom","u_twistAmt","u_twistSpeed"
+].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
+
+function setUniforms(){
+  gl.uniform1f(U.u_seed,       P.seed);
+  gl.uniform1i(U.u_fieldIter,  P.fieldIter);
+  gl.uniform1f(U.u_foldScale,  P.foldScale);
+  gl.uniform1f(U.u_foldBias,   P.foldBias);
+  gl.uniform1f(U.u_iterScale,  P.iterScale);
+  gl.uniform1f(U.u_iterGain,   P.iterGain);
+  gl.uniform1f(U.u_tRotSpeed,  P.tRotSpeed);
+  gl.uniform1f(U.u_tFieldSpeed,P.tFieldSpeed);
+  gl.uniform1f(U.u_tRingFreq,  P.tRingFreq);
+  gl.uniform1f(U.u_tRingSpeed, P.tRingSpeed);
+  gl.uniform1f(U.u_tWaveXFreq, P.tWaveXFreq);
+  gl.uniform1f(U.u_tWaveYFreq, P.tWaveYFreq);
+  gl.uniform1f(U.u_tWaveXSpeed,P.tWaveXSpeed);
+  gl.uniform1f(U.u_tWaveYSpeed,P.tWaveYSpeed);
+  gl.uniform1f(U.u_colR_a,     P.colR_a);
+  gl.uniform1f(U.u_colG_a,     P.colG_a);
+  gl.uniform1f(U.u_colB_a,     P.colB_a);
+  gl.uniform1f(U.u_colR_p,     P.colR_p);
+  gl.uniform1f(U.u_colG_p,     P.colG_p);
+  gl.uniform1f(U.u_colB_p,     P.colB_p);
+  gl.uniform1f(U.u_hueOffset,  P.hueOffset);
+  gl.uniform1f(U.u_satBoost,   P.satBoost);
+  gl.uniform1f(U.u_lumGamma,   P.lumGamma);
+  gl.uniform1f(U.u_wField,     P.wField);
+  gl.uniform1f(U.u_wRings,     P.wRings);
+  gl.uniform1f(U.u_wWave,      P.wWave);
+  gl.uniform1f(U.u_zoom,       P.zoom);
+  gl.uniform1f(U.u_twistAmt,   P.twistAmt);
+  gl.uniform1f(U.u_twistSpeed, P.twistSpeed);
+}
+
+/* ── AUDIO ── */
+let actx = null;
+let soundOn = false;
+let nodes = null;
+
+const OSC_TYPES = ["sine","square","sawtooth","triangle"];
+
+function buildAudio(){
+  if(actx) destroyAudio();
+  actx = new (window.AudioContext||window.webkitAudioContext)();
+
+  const master = actx.createGain();
+  master.gain.value = soundOn ? P.masterGain : 0;
+  master.connect(actx.destination);
+
+  // biquad filter driven by visual wave speed
+  const filter = actx.createBiquadFilter();
+  filter.type = "bandpass";
+  filter.frequency.value = P.filterFreq;
+  filter.Q.value = P.filterQ;
+  filter.connect(master);
+
+  const oscs=[], gains=[];
+  for(let i=0;i<4;i++){
+    const o = actx.createOscillator();
+    const g = actx.createGain();
+    o.type = OSC_TYPES[P["osc"+(i+1)+"Type"]];
+    o.connect(g);
+    g.connect(filter);
+    g.gain.value = 0;
+    o.start();
+    oscs.push(o);
+    gains.push(g);
+  }
+
+  nodes = {master,filter,oscs,gains};
+}
+
+function destroyAudio(){
+  if(!actx) return;
+  if(nodes){
+    nodes.oscs.forEach(o=>{try{o.stop();}catch(e){}});
+  }
+  actx.close();
+  actx=null; nodes=null;
+}
+
+function rebuildAudio(){
+  buildAudio();
+}
+
+/* ── STATES ── */
+let hudOn   = false;
+let start   = performance.now();
+let frameT  = 0;
+
+function regenerate(){
+  randomP();
+  start = performance.now();
+  setUniforms();
+  rebuildAudio();
+}
+
+/* ── INPUT ── */
+document.addEventListener("keydown",e=>{
+  if(e.code==="Space"||e.key===" "){
+    e.preventDefault();
+    regenerate();
+  }
+  if(e.key==="h"||e.key==="H"){
+    hudOn=!hudOn;
+    hud.style.display=hudOn?"block":"none";
+  }
+  if(e.key==="s"||e.key==="S"){
+    soundOn=!soundOn;
+    if(actx && nodes){
+      nodes.master.gain.setTargetAtTime(
+        soundOn?P.masterGain:0, actx.currentTime, 0.05
+      );
+    } else if(soundOn){
+      rebuildAudio();
+    }
+  }
+});
+
+canvas.addEventListener("click",()=>regenerate());
+canvas.addEventListener("touchend",e=>{e.preventDefault();regenerate();},{passive:false});
+
+/* ── RENDER LOOP ── */
+setUniforms();
+buildAudio();
+
+function frame(){
+  frameT=(performance.now()-start)/1000;
+
+  gl.uniform1f(U.t, frameT);
+  gl.uniform2f(U.r, canvas.width, canvas.height);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+
+  // ── Audio sync (driven by same time + same params as visual) ──
+  if(actx && nodes && soundOn){
+    const {oscs,gains,filter}=nodes;
+    const t=frameT;
+
+    // Each oscillator frequency is modulated by the SAME trig terms used in shader
+    // osc1 ↔ field speed
+    oscs[0].frequency.setTargetAtTime(
+      P.f1Base + P.f1Mod*Math.sin(t*P.f1ModSpeed + P.seed*.01),
+      actx.currentTime, 0.05
+    );
+    // osc2 ↔ ring speed
+    oscs[1].frequency.setTargetAtTime(
+      P.f2Base + P.f2Mod*Math.sin(t*P.f2ModSpeed + P.seed*.02),
+      actx.currentTime, 0.05
+    );
+    // osc3 ↔ wave X speed
+    oscs[2].frequency.setTargetAtTime(
+      P.f3Base + P.f3Mod*Math.cos(t*P.f3ModSpeed),
+      actx.currentTime, 0.05
+    );
+    // osc4 ↔ rotation (fast harmonic)
+    oscs[3].frequency.setTargetAtTime(
+      P.f4Base + P.f4Mod*Math.sin(t*P.f4ModSpeed),
+      actx.currentTime, 0.05
+    );
+
+    // gains modulated by same wave as visual brightness
+    gains[0].gain.setTargetAtTime(
+      Math.max(0, P.g1Base + P.g1Depth*Math.sin(t*P.g1Speed)),
+      actx.currentTime, 0.03
+    );
+    gains[1].gain.setTargetAtTime(
+      Math.max(0, P.g2Base + P.g2Depth*Math.cos(t*P.g2Speed)),
+      actx.currentTime, 0.03
+    );
+    gains[2].gain.setTargetAtTime(
+      Math.max(0, P.g3Base + P.g3Depth*Math.sin(t*P.g3Speed+1.)),
+      actx.currentTime, 0.03
+    );
+    gains[3].gain.setTargetAtTime(
+      Math.max(0, P.g4Base + P.g4Depth*Math.cos(t*P.g4Speed+2.)),
+      actx.currentTime, 0.03
+    );
+
+    // filter cutoff follows visual wave pattern
+    filter.frequency.setTargetAtTime(
+      Math.max(80, P.filterFreq + P.filterMod*(
+        Math.sin(t*P.filterSpeed)*P.wWave +
+        Math.cos(t*P.tRingSpeed*.5)*P.wRings
+      )),
+      actx.currentTime, 0.05
+    );
+  }
+
+  // HUD
+  if(hudOn){
+    hud.textContent=
+      "SHATARI — Atari 2600 Visual Symphony\n"+
+      "─────────────────────────────────────\n"+
+      "seed:        "+P.seed.toFixed(2)+"\n"+
+      "time:        "+frameT.toFixed(2)+"s\n"+
+      "field iter:  "+P.fieldIter+"\n"+
+      "zoom:        "+P.zoom.toFixed(2)+"\n"+
+      "rot speed:   "+P.tRotSpeed.toFixed(3)+"\n"+
+      "field speed: "+P.tFieldSpeed.toFixed(2)+"\n"+
+      "twist:       "+P.twistAmt.toFixed(2)+" @ "+P.twistSpeed.toFixed(2)+"\n"+
+      "hue offset:  "+(P.hueOffset*(180/Math.PI)).toFixed(0)+"°\n"+
+      "sat boost:   "+P.satBoost.toFixed(2)+"\n"+
+      "osc types:   "+[1,2,3,4].map(i=>OSC_TYPES[P["osc"+i+"Type"]].slice(0,3)).join(" ")+"\n"+
+      "f1 base:     "+P.f1Base.toFixed(0)+"Hz\n"+
+      "f2 base:     "+P.f2Base.toFixed(0)+"Hz\n"+
+      "canvas:      "+canvas.width+"×"+canvas.height+"\n"+
+      "─────────────────────────────────────\n"+
+      "SPACE/CLICK/TAP  regenerate\n"+
+      "H  toggle HUD  |  S  toggle sound\n"+
+      "sound: "+(soundOn?"ON ":"OFF");
+  }
+
+  requestAnimationFrame(frame);
+}
+
+frame();
+</script>
+</body>
+</html>
