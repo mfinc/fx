@@ -1,0 +1,1231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="description" content="Pizza Cosmos – an unprecedented audiovisual spectacle featuring breathtaking pizza animations, never-before-seen visual phenomena, ultra-modern generative art, and sensationally mesmerizing pizza graphics. A hyper-detailed, profoundly complex, and phenomenally beautiful pizza animation experience.">
+<meta name="keywords" content="pizza animation, pizza art, generative pizza, pizza graphics, pizza visual effects, pizza cosmos, animated pizza, pizza spectacle, pizza audiovisual, beautiful pizza animation, complex pizza graphics, mesmerizing pizza, pizza fractal, pizza particles, interactive pizza art">
+<meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+<meta name="author" content="Pizza Cosmos Generative Engine">
+<meta property="og:title" content="Pizza Cosmos – The Ultimate Pizza Animation Experience">
+<meta property="og:description" content="Witness the most breathtaking, sensationally mesmerizing, hyper-detailed pizza animation ever created. Never-before-seen visual phenomena powered by generative art.">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Pizza Cosmos – Ultimate Pizza Audiovisual Spectacle">
+<title>Pizza Cosmos – Ultra-Modern Pizza Animation Spectacle | Generative Pizza Art Engine</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Courier New',monospace;}
+  canvas{display:block;position:fixed;top:0;left:0;width:100%;height:100%;}
+  #hud{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;display:none;z-index:10;}
+  #hudContent{position:absolute;top:16px;left:16px;color:rgba(255,220,100,0.9);font-size:11px;line-height:1.7;text-shadow:0 0 8px rgba(255,150,0,0.8);background:rgba(0,0,0,0.5);padding:12px 16px;border:1px solid rgba(255,200,50,0.3);border-radius:4px;backdrop-filter:blur(4px);}
+  #hudRight{position:absolute;top:16px;right:16px;color:rgba(255,220,100,0.9);font-size:11px;line-height:1.7;text-shadow:0 0 8px rgba(255,150,0,0.8);background:rgba(0,0,0,0.5);padding:12px 16px;border:1px solid rgba(255,200,50,0.3);border-radius:4px;backdrop-filter:blur(4px);text-align:right;}
+  #hudBottom{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);color:rgba(255,220,100,0.7);font-size:10px;text-shadow:0 0 6px rgba(255,150,0,0.6);white-space:nowrap;}
+  #flashOverlay{position:fixed;top:0;left:0;width:100%;height:100%;background:#fff;opacity:0;pointer-events:none;z-index:20;transition:opacity 0.05s;}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div id="hudContent">
+    <div>🍕 PIZZA COSMOS ENGINE v∞</div>
+    <div id="hFPS">FPS: --</div>
+    <div id="hMode">MODE: --</div>
+    <div id="hPhase">PHASE: --</div>
+    <div id="hSlices">SLICES: --</div>
+    <div id="hParticles">PARTICLES: --</div>
+    <div id="hSeed">SEED: --</div>
+  </div>
+  <div id="hudRight">
+    <div>SPACE / CLICK → REGENERATE</div>
+    <div>H → TOGGLE HUD</div>
+    <div>S → TOGGLE SOUND</div>
+    <div id="hSound">SOUND: OFF</div>
+  </div>
+  <div id="hudBottom">🍕 PIZZA COSMOS • ULTRA-MODERN GENERATIVE PIZZA ART ENGINE • NEVER-BEFORE-SEEN VISUAL PHENOMENA 🍕</div>
+</div>
+<div id="flashOverlay"></div>
+
+<script>
+// ============================================================
+// PIZZA COSMOS — ULTRA-MODERN GENERATIVE PIZZA ART ENGINE
+// ============================================================
+'use strict';
+
+const C = document.getElementById('c');
+const ctx = C.getContext('2d');
+const flash = document.getElementById('flashOverlay');
+const hud = document.getElementById('hud');
+let W, H, CX, CY;
+let hudVisible = false;
+let soundOn = false;
+let audioCtx = null;
+let frame = 0;
+let seed = Math.random() * 99999 | 0;
+let rng;
+let lastTime = 0;
+let fps = 60;
+let fpsArr = [];
+let globalT = 0;
+let modeTime = 0;
+let currentMode = 0;
+let totalModes = 12;
+let phaseT = 0;
+let params = {};
+let particles = [];
+let pizzas = [];
+let toppings = [];
+let trails = [];
+let warpPoints = [];
+let sliceRings = [];
+let cheeseStrands = [];
+let sauceSplats = [];
+let crustFragments = [];
+let pizzaOrbits = [];
+let nebulae = [];
+let doughWaves = [];
+let animRunning = true;
+
+// ============================================================
+// SEEDED RNG
+// ============================================================
+function mkRng(s) {
+  let st = s >>> 0;
+  return function() {
+    st ^= st << 13; st ^= st >> 17; st ^= st << 5;
+    return ((st >>> 0) / 4294967296);
+  };
+}
+
+function r(a, b) { return a + rng() * (b - a); }
+function ri(a, b) { return Math.floor(r(a, b + 1)); }
+function rc() { return `hsl(${ri(0,360)},${ri(70,100)}%,${ri(50,70)}%)`; }
+function pizzaHue() {
+  const h = [15, 25, 35, 10, 200, 60, 0, 300, 45, 120][ri(0,9)];
+  return `hsl(${h},${ri(80,100)}%,${ri(45,65)}%)`; 
+}
+
+// ============================================================
+// RESIZE
+// ============================================================
+function resize() {
+  W = C.width = window.innerWidth;
+  H = C.height = window.innerHeight;
+  CX = W / 2; CY = H / 2;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ============================================================
+// AUDIO ENGINE
+// ============================================================
+function initAudio() {
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+}
+
+function playTone(freq, type, dur, vol, detune) {
+  if (!soundOn || !audioCtx) return;
+  try {
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    const f = audioCtx.createBiquadFilter();
+    o.type = type || 'sine';
+    o.frequency.value = freq;
+    if (detune) o.detune.value = detune;
+    f.type = 'bandpass';
+    f.frequency.value = freq * 2;
+    f.Q.value = 2;
+    o.connect(f); f.connect(g); g.connect(audioCtx.destination);
+    const t = audioCtx.currentTime;
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(vol || 0.08, t + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.001, t + (dur || 0.3));
+    o.start(t); o.stop(t + (dur || 0.3) + 0.01);
+  } catch(e) {}
+}
+
+function pizzaChord(base) {
+  if (!soundOn || !audioCtx) return;
+  const ratios = [1, 1.25, 1.5, 2, 1.333, 1.667, 0.5, 3];
+  const chosen = [ratios[ri(0,3)], ratios[ri(4,7)]];
+  chosen.forEach((r, i) => {
+    setTimeout(() => playTone(base * r, ['sine','triangle','sawtooth','square'][ri(0,3)], r(0.2,0.8), r(0.02,0.07)), i * 60);
+  });
+}
+
+function ambientDrone() {
+  if (!soundOn || !audioCtx) return;
+  const freqs = [55, 82.4, 110, 164.8, 220, 261.6, 329.6, 440];
+  const f = freqs[ri(0,7)];
+  playTone(f, 'sine', 2.0, 0.03, ri(-20,20));
+}
+
+// ============================================================
+// MATH UTILS
+// ============================================================
+const TAU = Math.PI * 2;
+const sin = Math.sin, cos = Math.cos, abs = Math.abs, sqrt = Math.sqrt;
+function lerp(a, b, t) { return a + (b-a)*t; }
+function clamp(v,a,b) { return v<a?a:v>b?b:v; }
+function dist(x1,y1,x2,y2) { return sqrt((x2-x1)**2+(y2-y1)**2); }
+function ease(t) { return t*t*(3-2*t); }
+function easeIn(t) { return t*t*t; }
+function easeOut(t) { return 1-(1-t)**3; }
+function polar(cx,cy,r,a) { return [cx+cos(a)*r, cy+sin(a)*r]; }
+
+// ============================================================
+// PIZZA DRAWING PRIMITIVES
+// ============================================================
+function drawPizzaBase(x, y, rad, hue, rot, slices, crustW, alpha) {
+  ctx.save();
+  ctx.globalAlpha = clamp(alpha,0,1);
+  ctx.translate(x,y);
+  ctx.rotate(rot);
+
+  // Shadow
+  const shadowG = ctx.createRadialGradient(4,8,rad*0.1,4,8,rad*1.2);
+  shadowG.addColorStop(0,'rgba(0,0,0,0.5)');
+  shadowG.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.beginPath(); ctx.arc(4,8,rad*1.1,0,TAU);
+  ctx.fillStyle = shadowG; ctx.fill();
+
+  // Crust ring
+  const crustG = ctx.createRadialGradient(0,0,rad*0.7,0,0,rad);
+  crustG.addColorStop(0,`hsl(${hue+5},70%,55%)`);
+  crustG.addColorStop(0.5,`hsl(${hue},65%,48%)`);
+  crustG.addColorStop(1,`hsl(${hue-10},55%,30%)`);
+  ctx.beginPath(); ctx.arc(0,0,rad,0,TAU);
+  ctx.fillStyle=crustG; ctx.fill();
+
+  // Sauce
+  const sauceG = ctx.createRadialGradient(0,0,0,0,0,rad*0.82);
+  sauceG.addColorStop(0,`hsl(${hue-100+160},80%,42%)`);
+  sauceG.addColorStop(0.6,`hsl(${hue-90+150},75%,35%)`);
+  sauceG.addColorStop(1,`hsl(${hue-80+140},70%,28%)`);
+  ctx.beginPath(); ctx.arc(0,0,rad*0.84,0,TAU);
+  ctx.fillStyle=sauceG; ctx.fill();
+
+  // Cheese base
+  const cheeseG = ctx.createRadialGradient(-rad*0.1,-rad*0.1,0,0,0,rad*0.75);
+  cheeseG.addColorStop(0,'rgba(255,240,150,0.9)');
+  cheeseG.addColorStop(0.5,'rgba(240,200,80,0.85)');
+  cheeseG.addColorStop(1,'rgba(200,150,40,0.7)');
+  ctx.beginPath(); ctx.arc(0,0,rad*0.77,0,TAU);
+  ctx.fillStyle=cheeseG; ctx.fill();
+
+  // Slice lines
+  if (slices > 0) {
+    ctx.strokeStyle=`rgba(180,80,20,0.4)`;
+    ctx.lineWidth = 1.2;
+    for (let i=0;i<slices;i++) {
+      const a = (i/slices)*TAU;
+      ctx.beginPath();
+      ctx.moveTo(0,0);
+      ctx.lineTo(cos(a)*rad,sin(a)*rad);
+      ctx.stroke();
+    }
+  }
+
+  // Cheese melt blobs
+  const nc = ri(4,10);
+  for (let i=0;i<nc;i++) {
+    const a2=rng()*TAU, r2=rng()*rad*0.65;
+    const cx2=cos(a2)*r2, cy2=sin(a2)*r2;
+    const blobR = r(rad*0.06,rad*0.18);
+    const blobG = ctx.createRadialGradient(cx2-blobR*0.2,cy2-blobR*0.2,0,cx2,cy2,blobR);
+    blobG.addColorStop(0,'rgba(255,250,200,0.9)');
+    blobG.addColorStop(0.6,'rgba(240,210,120,0.7)');
+    blobG.addColorStop(1,'rgba(200,160,60,0.3)');
+    ctx.beginPath(); ctx.arc(cx2,cy2,blobR,0,TAU);
+    ctx.fillStyle=blobG; ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+function drawTopping(type, x, y, sz, alpha) {
+  ctx.save();
+  ctx.globalAlpha = clamp(alpha,0,1);
+  ctx.translate(x,y);
+  switch(type) {
+    case 0: // Pepperoni
+      ctx.beginPath(); ctx.arc(0,0,sz,0,TAU);
+      const pg = ctx.createRadialGradient(-sz*0.2,-sz*0.2,0,0,0,sz);
+      pg.addColorStop(0,'#c0392b'); pg.addColorStop(0.7,'#922b21'); pg.addColorStop(1,'#641e16');
+      ctx.fillStyle=pg; ctx.fill();
+      // spots
+      for(let i=0;i<4;i++){
+        ctx.beginPath();
+        ctx.arc(cos(i*TAU/4)*sz*0.4,sin(i*TAU/4)*sz*0.4,sz*0.1,0,TAU);
+        ctx.fillStyle='rgba(80,10,10,0.5)'; ctx.fill();
+      }
+      break;
+    case 1: // Mushroom
+      ctx.beginPath();
+      ctx.ellipse(0,-sz*0.1,sz*0.85,sz*0.6,0,Math.PI,TAU);
+      ctx.fillStyle='#8d6e63'; ctx.fill();
+      ctx.beginPath();
+      ctx.rect(-sz*0.15,0,sz*0.3,sz*0.5);
+      ctx.fillStyle='#a1887f'; ctx.fill();
+      break;
+    case 2: // Bell pepper
+      ctx.beginPath();
+      for(let i=0;i<5;i++){
+        const a2=i*TAU/5 - TAU/4;
+        i===0?ctx.moveTo(cos(a2)*sz,sin(a2)*sz):ctx.lineTo(cos(a2)*sz,sin(a2)*sz);
+      }
+      ctx.closePath();
+      ctx.fillStyle=`hsl(${ri(80,140)},80%,45%)`; ctx.fill();
+      ctx.strokeStyle='rgba(0,100,0,0.4)'; ctx.lineWidth=sz*0.15; ctx.stroke();
+      break;
+    case 3: // Olive
+      ctx.beginPath(); ctx.arc(0,0,sz,0,TAU);
+      ctx.fillStyle='#2c3e50'; ctx.fill();
+      ctx.beginPath(); ctx.arc(0,0,sz*0.4,0,TAU);
+      ctx.fillStyle='#e74c3c'; ctx.fill();
+      break;
+    case 4: // Basil
+      ctx.save(); ctx.rotate(rng()*TAU);
+      ctx.beginPath();
+      ctx.ellipse(0,0,sz*1.2,sz*0.6,0,0,TAU);
+      ctx.fillStyle=`hsl(${ri(100,140)},70%,35%)`; ctx.fill();
+      ctx.restore();
+      break;
+    case 5: // Cheese chunk
+      ctx.beginPath();
+      ctx.roundRect(-sz,-sz*0.6,sz*2,sz*1.2,sz*0.2);
+      ctx.fillStyle=`hsl(50,85%,60%)`; ctx.fill();
+      ctx.strokeStyle='rgba(200,150,0,0.3)'; ctx.lineWidth=1; ctx.stroke();
+      break;
+    case 6: // Sausage
+      ctx.beginPath();
+      ctx.ellipse(0,0,sz*1.5,sz*0.7,rng()*Math.PI,0,TAU);
+      const sg2=ctx.createLinearGradient(-sz,-sz,sz,sz);
+      sg2.addColorStop(0,'#c0392b'); sg2.addColorStop(1,'#7b241c');
+      ctx.fillStyle=sg2; ctx.fill();
+      break;
+    case 7: // Anchovy
+      ctx.save(); ctx.rotate(rng()*Math.PI);
+      ctx.beginPath();
+      ctx.ellipse(0,0,sz*2,sz*0.35,0,0,TAU);
+      ctx.fillStyle='#85929e'; ctx.fill();
+      ctx.restore();
+      break;
+    case 8: // Pineapple
+      ctx.beginPath();
+      for(let i=0;i<6;i++){
+        const a2=i*TAU/6;
+        i===0?ctx.moveTo(cos(a2)*sz,sin(a2)*sz):ctx.lineTo(cos(a2)*sz,sin(a2)*sz);
+      }
+      ctx.closePath();
+      ctx.fillStyle='#f1c40f'; ctx.fill();
+      ctx.strokeStyle='#d4ac0d'; ctx.lineWidth=1; ctx.stroke();
+      break;
+    case 9: // Jalapeño
+      ctx.save(); ctx.rotate(rng()*Math.PI);
+      ctx.beginPath();
+      ctx.moveTo(0,-sz*1.5); ctx.quadraticCurveTo(sz,0,0,sz*1.5);
+      ctx.quadraticCurveTo(-sz,0,0,-sz*1.5);
+      ctx.fillStyle='#27ae60'; ctx.fill();
+      ctx.restore();
+      break;
+  }
+  ctx.restore();
+}
+
+function drawFullPizza(x, y, rad, rot, alpha, complexity) {
+  const hue = r(10,40);
+  const slices = ri(6,12);
+  drawPizzaBase(x, y, rad, hue, rot, slices, rad*0.15, alpha);
+  // Add toppings
+  const nTop = ri(6, 12 + complexity*2);
+  for (let i=0;i<nTop;i++) {
+    const a2=rng()*TAU, tr=rng()*rad*0.72;
+    const tx=x+cos(a2+rot)*tr, ty=y+sin(a2+rot)*tr;
+    const tt=ri(0,9);
+    const ts=r(rad*0.06, rad*0.13);
+    drawTopping(tt, tx, ty, ts, alpha*r(0.8,1));
+  }
+}
+
+// ============================================================
+// PARTICLE SYSTEM
+// ============================================================
+class Particle {
+  constructor(x,y,opts) {
+    this.x=x; this.y=y;
+    this.vx=opts.vx||0; this.vy=opts.vy||0;
+    this.life=opts.life||60;
+    this.maxLife=this.life;
+    this.color=opts.color||'#fff';
+    this.size=opts.size||3;
+    this.type=opts.type||'circle';
+    this.rot=rng()*TAU;
+    this.rotV=r(-0.1,0.1);
+    this.gravity=opts.gravity||0;
+    this.fade=opts.fade!==undefined?opts.fade:true;
+    this.toppingType=opts.toppingType!==undefined?opts.toppingType:ri(0,9);
+    this.scale=1;
+  }
+  update() {
+    this.x+=this.vx; this.y+=this.vy;
+    this.vy+=this.gravity;
+    this.vx*=0.99; this.vy*=0.99;
+    this.rot+=this.rotV;
+    this.life--;
+    if(this.fade) this.scale = this.life/this.maxLife;
+  }
+  draw() {
+    const a = this.fade ? (this.life/this.maxLife) : 1;
+    if(a<=0) return;
+    ctx.save();
+    if(this.type==='pizza') {
+      drawFullPizza(this.x,this.y,this.size,this.rot,a,1);
+    } else if(this.type==='topping') {
+      drawTopping(this.toppingType,this.x,this.y,this.size,a);
+    } else if(this.type==='cheese') {
+      ctx.globalAlpha=a;
+      ctx.strokeStyle=`hsl(50,90%,${ri(55,75)}%)`;
+      ctx.lineWidth=r(1,3);
+      ctx.beginPath();
+      ctx.moveTo(this.x,this.y);
+      ctx.quadraticCurveTo(this.x+r(-20,20),this.y+r(-20,20),this.x+this.vx*8,this.y+this.vy*8);
+      ctx.stroke();
+    } else {
+      ctx.globalAlpha=a;
+      ctx.fillStyle=this.color;
+      ctx.beginPath();
+      ctx.arc(this.x,this.y,this.size*this.scale,0,TAU);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+  dead() { return this.life<=0; }
+}
+
+// ============================================================
+// EFFECT MODES
+// ============================================================
+
+// MODE 0: Pizza Galaxy Spiral
+function modeGalaxy(t, alpha) {
+  const arms = params.arms || 5;
+  const nStars = params.nStars || 200;
+  const spin = t * params.spinSpeed;
+  
+  for(let i=0;i<nStars;i++) {
+    const fi = i/nStars;
+    const arm = i % arms;
+    const armAngle = (arm/arms)*TAU;
+    const spiral = fi * TAU * 3 + spin + armAngle;
+    const rad = fi * Math.min(CX,CY) * 0.9;
+    const scatter = r(-0.3,0.3);
+    const rx = CX + cos(spiral+scatter)*rad;
+    const ry = CY + sin(spiral+scatter)*rad;
+    const pSize = r(3,18) * (1-fi*0.5);
+    const brightness = (1-fi) * alpha;
+    
+    if(pSize > 8) {
+      drawFullPizza(rx,ry,pSize,spiral,brightness*0.9,1);
+    } else {
+      ctx.save();
+      ctx.globalAlpha=brightness;
+      const ttype = i%10;
+      drawTopping(ttype,rx,ry,pSize,brightness);
+      ctx.restore();
+    }
+  }
+  
+  // Center superpizza
+  const centerPulse = 1 + sin(t*2)*0.15;
+  drawFullPizza(CX,CY,Math.min(CX,CY)*0.18*centerPulse,spin*0.5,alpha,3);
+}
+
+// MODE 1: Pizza Kaleidoscope
+function modeKaleidoscope(t, alpha) {
+  const segs = params.kalSegs || 8;
+  const layers = params.kalLayers || 4;
+  
+  ctx.save();
+  ctx.translate(CX,CY);
+  
+  for(let seg=0;seg<segs;seg++) {
+    ctx.save();
+    ctx.rotate((seg/segs)*TAU);
+    
+    // Clip wedge
+    ctx.beginPath();
+    ctx.moveTo(0,0);
+    const wedge = TAU/segs;
+    ctx.arc(0,0,Math.max(W,H),0,wedge);
+    ctx.closePath();
+    ctx.clip();
+    
+    for(let l=0;l<layers;l++) {
+      const lf=l/layers;
+      const dist2 = lerp(50,Math.min(CX,CY)*0.9,lf);
+      const pulse = 1+sin(t*1.5+l*0.7)*0.2;
+      const angle = t*(0.3+l*0.15)*(seg%2===0?1:-1);
+      const px = cos(angle)*dist2*pulse;
+      const py = sin(angle)*dist2*pulse;
+      const sz = r(15,45)*(1-lf*0.3);
+      
+      if(seg%2===0) {
+        drawFullPizza(px,py,sz,angle,alpha*0.9,2);
+      } else {
+        // mirror
+        drawFullPizza(-px,py,sz,-angle,alpha*0.9,2);
+      }
+    }
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+// MODE 2: Pizza Warp Tunnel
+function modeTunnel(t, alpha) {
+  const rings = params.tunnelRings || 20;
+  const speed = params.tunnelSpeed || 0.4;
+  
+  for(let i=rings;i>=0;i--) {
+    const fi = ((i/rings + t*speed) % 1);
+    const rad = fi * Math.max(W,H) * 0.7;
+    const a = (1-fi)*alpha;
+    const rot = t*(1+fi)*params.tunnelSpin;
+    const slices = params.tunnelSlices || 8;
+    
+    ctx.save();
+    ctx.translate(CX,CY);
+    ctx.rotate(rot);
+    
+    // Ring
+    ctx.beginPath();
+    ctx.arc(0,0,rad,0,TAU);
+    ctx.strokeStyle=`hsla(${fi*360+t*50|0},90%,60%,${a*0.3})`;
+    ctx.lineWidth=rad*0.04;
+    ctx.stroke();
+    
+    // Pizzas on ring
+    if(rad > 30) {
+      for(let j=0;j<slices;j++) {
+        const a2=(j/slices)*TAU;
+        const px=cos(a2)*rad, py=sin(a2)*rad;
+        const pSize=rad*0.12*(1+sin(t*2+j)*0.3);
+        if(pSize>5) drawFullPizza(px,py,pSize,a2+rot,a*0.85,1);
+      }
+    }
+    ctx.restore();
+  }
+}
+
+// MODE 3: Exploding Pizza Nova
+function modeNova(t, alpha) {
+  const nBursts = params.novaBursts || 5;
+  for(let b=0;b<nBursts;b++) {
+    const bt = (t + b/nBursts*2) % 2;
+    const bx = params.novaX[b]; const by = params.novaY[b];
+    const maxR = params.novaR[b];
+    const rad = easeOut(bt/2)*maxR;
+    const a = (1-bt/2)*alpha;
+    
+    // Shockwave ring
+    ctx.save();
+    ctx.beginPath(); ctx.arc(bx,by,rad,0,TAU);
+    ctx.strokeStyle=`hsla(${params.novaHue[b]},100%,65%,${a*0.5})`;
+    ctx.lineWidth=4;
+    ctx.stroke();
+    ctx.restore();
+    
+    // Pizza slices flying out
+    const ns = ri(6,12);
+    for(let j=0;j<ns;j++) {
+      const a2=(j/ns)*TAU + bt*2;
+      const d = rad*0.9;
+      const px=bx+cos(a2)*d, py=by+sin(a2)*d;
+      const sz=maxR*0.1*(1-bt/2);
+      if(sz>4) drawFullPizza(px,py,sz,a2+bt*3,a*0.9,1);
+    }
+  }
+}
+
+// MODE 4: Pizza DNA Helix
+function modeHelix(t, alpha) {
+  const steps = 80;
+  const helixH = H*0.85;
+  const helixW = W*0.2;
+  const freq = params.helixFreq || 2;
+  
+  for(let i=0;i<steps;i++) {
+    const fi=i/steps;
+    const y=CY-helixH/2+fi*helixH;
+    const phase=fi*TAU*freq+t*1.5;
+    
+    // Two strands
+    for(let s=0;s<2;s++) {
+      const off=s*Math.PI;
+      const x=CX+cos(phase+off)*helixW;
+      const depth=(sin(phase+off)+1)/2;
+      const sz=lerp(8,22,depth)*0.9;
+      const a=depth*0.85*alpha;
+      
+      if(s===0) drawFullPizza(x,y,sz,phase+t,a,1);
+      else {
+        ctx.save();
+        ctx.globalAlpha=a;
+        drawTopping(i%10,x,y,sz*0.7,a);
+        ctx.restore();
+      }
+    }
+    
+    // Connecting rung
+    const x1=CX+cos(phase)*helixW;
+    const y1=y;
+    const x2=CX+cos(phase+Math.PI)*helixW;
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y1);
+    ctx.strokeStyle=`hsla(50,80%,60%,${alpha*0.15})`;
+    ctx.lineWidth=1; ctx.stroke();
+  }
+}
+
+// MODE 5: Cheese Pull Vortex
+function modeCheese(t, alpha) {
+  const nStrands = params.nStrands || 30;
+  const vortexR = Math.min(CX,CY)*0.35;
+  
+  // Central pizza
+  drawFullPizza(CX,CY,vortexR*0.9,t*0.3,alpha,3);
+  
+  for(let i=0;i<nStrands;i++) {
+    const fi=i/nStrands;
+    const baseAngle=fi*TAU+t*0.5;
+    const targetAngle=fi*TAU+t*(1+fi)*params.cheeseWrap;
+    const targetR = Math.min(CX,CY)*0.85;
+    
+    const x1=CX+cos(baseAngle)*vortexR;
+    const y1=CY+sin(baseAngle)*vortexR;
+    const x2=CX+cos(targetAngle)*targetR;
+    const y2=CY+sin(targetAngle)*targetR;
+    
+    const stretch = sin(t*2+fi*TAU)*0.3+0.7;
+    const thickness = lerp(1,6,1-fi)*stretch;
+    
+    const g=ctx.createLinearGradient(x1,y1,x2,y2);
+    g.addColorStop(0,`hsla(50,90%,70%,${alpha*0.9})`);
+    g.addColorStop(0.5,`hsla(45,85%,60%,${alpha*0.5})`);
+    g.addColorStop(1,`hsla(40,80%,45%,${alpha*0.1})`);
+    
+    ctx.beginPath();
+    const mx=(x1+x2)/2+cos(baseAngle+Math.PI/2)*r(-50,50);
+    const my=(y1+y2)/2+sin(baseAngle+Math.PI/2)*r(-50,50);
+    ctx.moveTo(x1,y1);
+    ctx.quadraticCurveTo(mx,my,x2,y2);
+    ctx.strokeStyle=g;
+    ctx.lineWidth=thickness;
+    ctx.stroke();
+  }
+}
+
+// MODE 6: Pizza Mandala
+function modeMandala(t, alpha) {
+  const layers = params.mandalaLayers || 6;
+  ctx.save();
+  ctx.translate(CX,CY);
+  
+  for(let l=0;l<layers;l++) {
+    const lf=(l+1)/layers;
+    const r2=lf*Math.min(CX,CY)*0.92;
+    const n=params.mandalaCount[l]||6+l*2;
+    const spin=t*(l%2===0?1:-1)*(0.2+l*0.05);
+    
+    ctx.save();
+    ctx.rotate(spin);
+    for(let j=0;j<n;j++) {
+      const a2=(j/n)*TAU;
+      const px=cos(a2)*r2, py=sin(a2)*r2;
+      const sz=r2*0.12*(1+sin(t*1.5+l+j)*0.15);
+      if(l%2===0) drawFullPizza(px,py,sz,a2+spin,alpha*0.9,1);
+      else {
+        ctx.save();
+        drawTopping(j%10,px,py,sz*0.8,alpha*0.85);
+        ctx.restore();
+      }
+    }
+    
+    // Ring arc
+    ctx.beginPath(); ctx.arc(0,0,r2,0,TAU);
+    ctx.strokeStyle=`hsla(${l*60},80%,60%,${alpha*0.12})`;
+    ctx.lineWidth=2; ctx.stroke();
+    ctx.restore();
+  }
+  
+  // Center masterpiece
+  drawFullPizza(0,0,Math.min(CX,CY)*0.15,t*0.5,alpha,4);
+  ctx.restore();
+}
+
+// MODE 7: Sauce Plasma Field
+function modePlasma(t, alpha) {
+  const res = 40;
+  const cw = W/res, ch = H/res;
+  
+  for(let xi=0;xi<res;xi++) {
+    for(let yi=0;yi<res;yi++) {
+      const px=xi*cw+cw/2, py=yi*ch+ch/2;
+      const xf=xi/res, yf=yi/res;
+      
+      const v = sin(xf*8+t) + sin(yf*8+t*1.3) +
+                sin((xf+yf)*6+t*0.7) +
+                sin(sqrt((xf-0.5)**2+(yf-0.5)**2)*12-t*2);
+      const nv=(v+4)/8;
+      
+      const h2=nv*360;
+      const l2=40+nv*30;
+      const s2=80+nv*20;
+      
+      if(nv>0.55) {
+        const sz=(nv-0.55)*cw*2.5;
+        if(sz>4) {
+          const ttype=(xi*res+yi)%10;
+          ctx.save();
+          drawTopping(ttype,px,py,sz,alpha*nv*0.9);
+          ctx.restore();
+        }
+      } else if(nv>0.3) {
+        ctx.save();
+        ctx.globalAlpha=alpha*nv*0.5;
+        ctx.beginPath(); ctx.arc(px,py,cw*nv*0.8,0,TAU);
+        ctx.fillStyle=`hsl(${h2|0},${s2|0}%,${l2|0}%)`;
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+  }
+  
+  // Floating pizza overlay
+  for(let i=0;i<params.plasmaFloaters;i++) {
+    const a2=i/params.plasmaFloaters*TAU+t*0.3;
+    const prad=Math.min(CX,CY)*r(0.3,0.7);
+    const px=CX+cos(a2)*prad, py=CY+sin(a2)*prad;
+    drawFullPizza(px,py,r(20,50),a2+t,alpha*0.7,1);
+  }
+}
+
+// MODE 8: Pizza Fractal Tree
+function fractalBranch(x,y,len,angle,depth,t,alpha) {
+  if(depth<=0||len<4) return;
+  const x2=x+cos(angle)*len;
+  const y2=y+sin(angle)*len;
+  
+  ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x2,y2);
+  const hue=(depth/params.fractalDepth)*60+20;
+  ctx.strokeStyle=`hsla(${hue},80%,55%,${alpha*0.8})`;
+  ctx.lineWidth=depth*1.2;
+  ctx.stroke();
+  
+  if(depth<=2) {
+    drawFullPizza(x2,y2,len*0.5,angle+t,alpha*0.85,1);
+  } else if(depth===3) {
+    drawTopping(depth%10,x2,y2,len*0.4,alpha*0.8);
+  }
+  
+  const wobble=sin(t+depth)*0.2;
+  fractalBranch(x2,y2,len*params.fractalScale,angle-params.fractalAngle+wobble,depth-1,t,alpha*0.9);
+  fractalBranch(x2,y2,len*params.fractalScale,angle+params.fractalAngle+wobble,depth-1,t,alpha*0.9);
+  if(params.fractalThree) fractalBranch(x2,y2,len*params.fractalScale*0.8,angle+wobble*2,depth-1,t,alpha*0.7);
+}
+
+function modeFractal(t, alpha) {
+  const len=Math.min(CX,CY)*0.28;
+  const startY=CY+Math.min(CX,CY)*0.6;
+  
+  ctx.save();
+  fractalBranch(CX,startY,len,-Math.PI/2,params.fractalDepth,t,alpha);
+  ctx.restore();
+  
+  // Ground pizza
+  drawFullPizza(CX,startY,30,t,alpha,2);
+}
+
+// MODE 9: Pizza Particle Storm
+function modeStorm(t, alpha) {
+  // Update and draw existing particles
+  for(let i=particles.length-1;i>=0;i--) {
+    particles[i].update();
+    particles[i].draw();
+    if(particles[i].dead()) particles.splice(i,1);
+  }
+  
+  // Spawn new
+  const spawnRate = params.stormRate || 8;
+  for(let i=0;i<spawnRate;i++) {
+    const sx=r(0,W), sy=r(0,H);
+    const spd=r(2,8);
+    const ang=r(0,TAU);
+    const type=['pizza','topping','circle'][ri(0,2)];
+    particles.push(new Particle(sx,sy,{
+      vx:cos(ang)*spd, vy:sin(ang)*spd,
+      life:ri(40,120),
+      color:pizzaHue(),
+      size:type==='pizza'?r(15,40):r(4,12),
+      type,
+      gravity:r(-0.05,0.05),
+      toppingType:ri(0,9)
+    }));
+  }
+  
+  // Attractor pizzas
+  for(let i=0;i<params.stormAttractors;i++) {
+    const a2=i/params.stormAttractors*TAU+t*0.2;
+    const ar=Math.min(CX,CY)*0.5;
+    const ax=CX+cos(a2)*ar, ay=CY+sin(a2)*ar;
+    drawFullPizza(ax,ay,r(25,55),a2+t*1.5,alpha*0.85,2);
+  }
+}
+
+// MODE 10: Dough Wave Ocean
+function modeDoughWaves(t, alpha) {
+  // Wave field
+  const rows=24, cols=32;
+  const cw2=W/cols, ch2=H/rows;
+  
+  for(let yi=0;yi<rows;yi++) {
+    for(let xi=0;xi<cols;xi++) {
+      const px=xi*cw2+cw2/2, py=yi*ch2+ch2/2;
+      const xf=xi/cols, yf=yi/rows;
+      const wave=sin(xf*TAU*params.waveFreqX+t*params.waveSpeedX)*cos(yf*TAU*params.waveFreqY+t*params.waveSpeedY);
+      const wave2=sin(dist(xf,yf,0.5,0.5)*TAU*4-t*2);
+      const combined=(wave+wave2)/2;
+      const nv=(combined+1)/2;
+      
+      const sz=nv*cw2*0.75+4;
+      const rot=(combined)*Math.PI+t*0.5;
+      
+      if(nv>0.6) {
+        drawFullPizza(px,py,sz,rot,alpha*nv*0.8,1);
+      } else if(nv>0.35) {
+        ctx.save();
+        drawTopping((xi+yi*3)%10,px,py,sz*0.6,alpha*nv*0.7);
+        ctx.restore();
+      } else {
+        ctx.save();
+        ctx.globalAlpha=alpha*nv*0.4;
+        ctx.beginPath(); ctx.arc(px,py,sz*0.3,0,TAU);
+        ctx.fillStyle=`hsl(${nv*60+20},70%,50%)`;
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+  }
+}
+
+// MODE 11: Pizza Constellation Network
+function modeConstellation(t, alpha) {
+  const nodes = params.constellNodes;
+  
+  // Draw connections
+  for(let i=0;i<nodes.length;i++) {
+    for(let j=i+1;j<nodes.length;j++) {
+      const d=dist(nodes[i].x,nodes[i].y,nodes[j].x,nodes[j].y);
+      if(d<params.constellMaxDist) {
+        const a2=(1-d/params.constellMaxDist)*alpha*0.4;
+        ctx.beginPath();
+        ctx.moveTo(nodes[i].x,nodes[i].y);
+        ctx.lineTo(nodes[j].x,nodes[j].y);
+        ctx.strokeStyle=`hsla(${(i*37+j*19)%360},80%,60%,${a2})`;
+        ctx.lineWidth=a2*3;
+        ctx.stroke();
+      }
+    }
+  }
+  
+  // Update and draw nodes
+  for(let i=0;i<nodes.length;i++) {
+    const n=nodes[i];
+    n.x+=n.vx; n.y+=n.vy;
+    if(n.x<-n.r||n.x>W+n.r) n.vx*=-1;
+    if(n.y<-n.r||n.y>H+n.r) n.vy*=-1;
+    const pulse=1+sin(t*n.freq+n.phase)*0.2;
+    drawFullPizza(n.x,n.y,n.r*pulse,t*n.spin,alpha*0.9,2);
+  }
+}
+
+// ============================================================
+// BACKGROUND SYSTEM
+// ============================================================
+function drawBackground(t, alpha) {
+  const bg = params.bgStyle;
+  ctx.save();
+  
+  if(bg===0) {
+    // Deep space gradient
+    const g=ctx.createRadialGradient(CX,CY,0,CX,CY,Math.max(W,H)*0.7);
+    g.addColorStop(0,`hsl(${params.bgHue},40%,8%)`);
+    g.addColorStop(0.5,`hsl(${params.bgHue+30},30%,5%)`);
+    g.addColorStop(1,`hsl(${params.bgHue+60},20%,2%)`);
+    ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  } else if(bg===1) {
+    // Fiery
+    const g=ctx.createLinearGradient(0,H,W,0);
+    g.addColorStop(0,`hsl(0,80%,6%)`);
+    g.addColorStop(0.4,`hsl(20,70%,9%)`);
+    g.addColorStop(0.7,`hsl(40,60%,7%)`);
+    g.addColorStop(1,`hsl(60,50%,5%)`);
+    ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  } else if(bg===2) {
+    // Matrix/grid
+    ctx.fillStyle='rgba(0,8,2,1)'; ctx.fillRect(0,0,W,H);
+    const gridSize=Math.min(W,H)/20;
+    ctx.strokeStyle='rgba(0,80,30,0.15)'; ctx.lineWidth=0.5;
+    for(let x=0;x<W;x+=gridSize){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
+    for(let y=0;y<H;y+=gridSize){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
+  } else {
+    // Nebula
+    ctx.fillStyle='rgba(2,0,8,1)'; ctx.fillRect(0,0,W,H);
+    for(let i=0;i<3;i++){
+      const nx=params.nebX[i], ny=params.nebY[i];
+      const ng=ctx.createRadialGradient(nx,ny,0,nx,ny,Math.min(W,H)*0.5);
+      ng.addColorStop(0,`hsla(${params.nebHue[i]},60%,12%,0.4)`);
+      ng.addColorStop(0.5,`hsla(${params.nebHue[i]+40},40%,8%,0.2)`);
+      ng.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=ng; ctx.fillRect(0,0,W,H);
+    }
+  }
+  
+  // Starfield (sauce drop stars)
+  for(let i=0;i<params.nStarfield;i++) {
+    const sx=params.starX[i], sy=params.starY[i];
+    const sz=params.starSize[i];
+    const twinkle=sin(t*params.starFreq[i]+i)*0.5+0.5;
+    ctx.globalAlpha=twinkle*alpha*0.7;
+    ctx.fillStyle=params.starColor[i];
+    ctx.beginPath(); ctx.arc(sx,sy,sz*twinkle,0,TAU);
+    ctx.fill();
+  }
+  
+  ctx.restore();
+}
+
+// ============================================================
+// POST-PROCESSING
+// ============================================================
+function postProcess(t) {
+  // Vignette
+  const vig=ctx.createRadialGradient(CX,CY,Math.min(CX,CY)*0.4,CX,CY,Math.max(W,H)*0.7);
+  vig.addColorStop(0,'rgba(0,0,0,0)');
+  vig.addColorStop(1,'rgba(0,0,0,0.65)');
+  ctx.fillStyle=vig; ctx.fillRect(0,0,W,H);
+  
+  // Chromatic scan line
+  if(params.scanlines) {
+    ctx.save();
+    const scanY=(t*80)%H;
+    ctx.globalAlpha=0.03;
+    ctx.fillStyle='rgba(255,200,100,1)';
+    ctx.fillRect(0,scanY,W,2);
+    ctx.globalAlpha=0.04;
+    for(let y=0;y<H;y+=4){
+      ctx.fillStyle='rgba(0,0,0,0.3)';
+      ctx.fillRect(0,y,W,1);
+    }
+    ctx.restore();
+  }
+  
+  // Edge glow
+  if(params.edgeGlow) {
+    const ew=8;
+    const hue=params.bgHue;
+    ctx.save();
+    ctx.globalAlpha=0.15+sin(t)*0.05;
+    const eg=ctx.createLinearGradient(0,0,ew,0);
+    eg.addColorStop(0,`hsl(${hue},80%,60%)`);
+    eg.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle=eg; ctx.fillRect(0,0,ew,H);
+    const eg2=ctx.createLinearGradient(W-ew,0,W,0);
+    eg2.addColorStop(0,'rgba(0,0,0,0)');
+    eg2.addColorStop(1,`hsl(${hue+180},80%,60%)`);
+    ctx.fillStyle=eg2; ctx.fillRect(W-ew,0,ew,H);
+    ctx.restore();
+  }
+}
+
+// ============================================================
+// TRANSITION SYSTEM
+// ============================================================
+let transitioning = false;
+let transAlpha = 1;
+let transDir = 1;
+let transCallback = null;
+
+function startTransition(cb) {
+  transitioning = true;
+  transDir = -1;
+  transCallback = cb;
+}
+
+function updateTransition() {
+  if(!transitioning) return 1;
+  transAlpha += transDir * 0.04;
+  if(transAlpha<=0) {
+    transAlpha=0;
+    if(transCallback) { transCallback(); transCallback=null; }
+    transDir=1;
+  }
+  if(transAlpha>=1) {
+    transAlpha=1;
+    transitioning=false;
+  }
+  return transAlpha;
+}
+
+// ============================================================
+// INIT PARAMETERS
+// ============================================================
+function initParams() {
+  rng = mkRng(seed);
+  particles = [];
+  
+  params = {
+    // Global
+    bgStyle: ri(0,3),
+    bgHue: ri(0,360),
+    scanlines: rng()>0.5,
+    edgeGlow: rng()>0.4,
+    
+    // Nebula bg
+    nebX: [r(0,W),r(0,W),r(0,W)],
+    nebY: [r(0,H),r(0,H),r(0,H)],
+    nebHue: [ri(0,360),ri(0,360),ri(0,360)],
+    
+    // Starfield
+    nStarfield: ri(60,150),
+    
+    // Galaxy
+    arms: ri(3,8),
+    nStars: ri(150,350),
+    spinSpeed: r(0.15,0.5),
+    
+    // Kaleidoscope
+    kalSegs: ri(4,12),
+    kalLayers: ri(3,6),
+    
+    // Tunnel
+    tunnelRings: ri(15,30),
+    tunnelSpeed: r(0.25,0.7),
+    tunnelSpin: r(0.2,0.8),
+    tunnelSlices: ri(5,14),
+    
+    // Nova
+    novaBursts: ri(3,7),
+    novaX: Array.from({length:7},()=>r(W*0.1,W*0.9)),
+    novaY: Array.from({length:7},()=>r(H*0.1,H*0.9)),
+    novaR: Array.from({length:7},()=>r(80,Math.min(CX,CY)*0.6)),
+    novaHue: Array.from({length:7},()=>ri(0,360)),
+    
+    // Helix
+    helixFreq: r(1.5,3.5),
+    
+    // Cheese
+    nStrands: ri(20,50),
+    cheeseWrap: r(1.5,4),
+    
+    // Mandala
+    mandalaLayers: ri(4,8),
+    mandalaCount: Array.from({length:8},(_,i)=>ri(4+i,8+i*2)),
+    
+    // Plasma
+    plasmaFloaters: ri(3,9),
+    
+    // Fractal
+    fractalDepth: ri(5,8),
+    fractalAngle: r(0.3,0.8),
+    fractalScale: r(0.55,0.72),
+    fractalThree: rng()>0.5,
+    
+    // Storm
+    stormRate: ri(5,15),
+    stormAttractors: ri(2,6),
+    
+    // Dough waves
+    waveFreqX: r(1,3),
+    waveFreqY: r(1,3),
+    waveSpeedX: r(0.3,1),
+    waveSpeedY: r(0.3,1),
+    
+    // Constellation
+    constellNodes: Array.from({length:ri(12,24)},()=>({
+      x:r(0,W), y:r(0,H),
+      vx:r(-1.5,1.5), vy:r(-1.5,1.5),
+      r:r(15,45), spin:r(-0.03,0.03),
+      freq:r(0.5,2), phase:rng()*TAU
+    })),
+    constellMaxDist: r(150,300),
+    
+    // Mode sequence
+    modeDurations: Array.from({length:totalModes},()=>r(8,18)),
+    modeOrder: shuffleArr(Array.from({length:totalModes},(_,i)=>i)),
+  };
+  
+  // Build starfield
+  params.starX = Array.from({length:params.nStarfield},()=>r(0,W));
+  params.starY = Array.from({length:params.nStarfield},()=>r(0,H));
+  params.starSize = Array.from({length:params.nStarfield},()=>r(0.5,3));
+  params.starColor = Array.from({length:params.nStarfield},()=>`hsl(${ri(20,60)},${ri(50,100)}%,${ri(70,100)}%)`);
+  params.starFreq = Array.from({length:params.nStarfield},()=>r(0.5,3));
+  
+  currentMode = 0;
+  modeTime = 0;
+  phaseT = 0;
+}
+
+function shuffleArr(a) {
+  for(let i=a.length-1;i>0;i--){
+    const j=ri(0,i);
+    [a[i],a[j]]=[a[j],a[i]];
+  }
+  return a;
+}
+
+// ============================================================
+// HUD UPDATE
+// ============================================================
+function updateHUD() {
+  document.getElementById('hFPS').textContent=`FPS: ${fps|0}`;
+  document.getElementById('hMode').textContent=`MODE: ${['GALAXY SPIRAL','KALEIDOSCOPE','WARP TUNNEL','NOVA BURST','DNA HELIX','CHEESE VORTEX','MANDALA','PLASMA FIELD','FRACTAL TREE','PARTICLE STORM','DOUGH WAVES','CONSTELLATION'][params.modeOrder[currentMode]||0]}`;
+  document.getElementById('hPhase').textContent=`PHASE: ${(modeTime/params.modeDurations[currentMode]*100)|0}%`;
+  document.getElementById('hSlices').textContent=`SLICES: ${params.mandalaCount?params.mandalaCount.reduce((a,b)=>a+b,0):0}`;
+  document.getElementById('hParticles').textContent=`PARTICLES: ${particles.length}`;
+  document.getElementById('hSeed').textContent=`SEED: ${seed}`;
+  document.getElementById('hSound').textContent=`SOUND: ${soundOn?'ON':'OFF'}`;
+}
+
+// ============================================================
+// MAIN RENDER LOOP
+// ============================================================
+let lastModeAudio = 0;
+
+function render(ts) {
+  if(!animRunning) { requestAnimationFrame(render); return; }
+  
+  // FPS
+  const dt = ts - lastTime;
+  lastTime = ts;
+  fpsArr.push(1000/Math.max(dt,1));
+  if(fpsArr.length>30) fpsArr.shift();
+  fps = fpsArr.reduce((a,b)=>a+b,0)/fpsArr.length;
+  
+  // Time
+  globalT += 0.016;
+  modeTime += 0.016;
+  
+  // Mode cycling
+  if(modeTime >= params.modeDurations[currentMode]) {
+    modeTime = 0;
+    currentMode = (currentMode+1)%totalModes;
+    if(soundOn) pizzaChord(r(110,440));
+  }
+  
+  // Ambient audio
+  if(soundOn && globalT-lastModeAudio > r(1,3)) {
+    lastModeAudio=globalT;
+    ambientDrone();
+    playTone(r(200,800), 'triangle', r(0.1,0.4), 0.03, ri(-50,50));
+  }
+  
+  // Transition alpha
+  const alpha = updateTransition() * ease(Math.min(modeTime,1));
+  
+  // Draw background
+  drawBackground(globalT, 1);
+  
+  // Draw current mode
+  ctx.save();
+  const modeIdx = params.modeOrder[currentMode] % totalModes;
+  
+  switch(modeIdx) {
+    case 0: modeGalaxy(globalT, alpha); break;
+    case 1: modeKaleidoscope(globalT, alpha); break;
+    case 2: modeTunnel(globalT, alpha); break;
+    case 3: modeNova(globalT, alpha); break;
+    case 4: modeHelix(globalT, alpha); break;
+    case 5: modeCheese(globalT, alpha); break;
+    case 6: modeMandala(globalT, alpha); break;
+    case 7: modePlasma(globalT, alpha); break;
+    case 8: modeFractal(globalT, alpha); break;
+    case 9: modeStorm(globalT, alpha); break;
+    case 10: modeDoughWaves(globalT, alpha); break;
+    case 11: modeConstellation(globalT, alpha); break;
+  }
+  ctx.restore();
+  
+  // Cross-blend next mode at transitions
+  if(modeTime < 2 && currentMode > 0) {
+    ctx.save();
+    ctx.globalAlpha = (2-modeTime)/2 * 0.3;
+    const prevIdx = params.modeOrder[(currentMode-1+totalModes)%totalModes] % totalModes;
+    const blendT = globalT - modeTime;
+    switch(prevIdx) {
+      case 0: modeGalaxy(blendT, 0.5); break;
+      case 6: modeMandala(blendT, 0.5); break;
+    }
+    ctx.restore();
+  }
+  
+  // Post-process
+  postProcess(globalT);
+  
+  // HUD
+  if(hudVisible) updateHUD();
+  
+  requestAnimationFrame(render);
+}
+
+// ============================================================
+// REGENERATE
+// ============================================================
+function regenerate() {
+  // Flash effect
+  flash.style.opacity = '0.6';
+  setTimeout(()=>{ flash.style.opacity='0'; }, 150);
+  
+  seed = Math.random() * 99999 | 0;
+  initParams();
+  
+  if(soundOn) {
+    pizzaChord(r(200,600));
+    setTimeout(()=>pizzaChord(r(300,800)), 100);
+  }
+}
+
+// ============================================================
+// CONTROLS
+// ============================================================
+window.addEventListener('keydown', e => {
+  if(e.code==='KeyH') {
+    hudVisible=!hudVisible;
+    hud.style.display=hudVisible?'block':'none';
+  }
+  if(e.code==='KeyS') {
+    initAudio();
+    if(audioCtx && audioCtx.state==='suspended') audioCtx.resume();
+    soundOn=!soundOn;
+    if(hudVisible) document.getElementById('hSound').textContent=`SOUND: ${soundOn?'ON':'OFF'}`;
+    if(soundOn) pizzaChord(440);
+  }
+  if(e.code==='Space') {
+    e.preventDefault();
+    regenerate();
+  }
+});
+
+window.addEventListener('click', regenerate);
+window.addEventListener('touchstart', e=>{ e.preventDefault(); regenerate(); }, {passive:false});
+
+// ============================================================
+// BOOT
+// ============================================================
+initParams();
+requestAnimationFrame(render);
+</script>
+</body>
+</html>

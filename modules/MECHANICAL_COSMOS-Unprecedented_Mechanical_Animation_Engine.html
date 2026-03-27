@@ -1,0 +1,1365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="description" content="MECHANICAL COSMOS — An unprecedented generative audiovisual engine showcasing breathtaking animations of mechanisms and mechanical systems. Never-before-seen visual phenomena: epicyclic gear trains, harmonic oscillators, Lissajous machines, Stirling engines, automata, tensegrity structures, and cosmic clockwork. Ultra-modern, hyper-detailed, spectacularly original interactive art.">
+<meta name="keywords" content="mechanical animation, gear systems, epicyclic mechanisms, harmonic motion, Lissajous figures, automata, clockwork, generative art, WebGL canvas animation, kinetic sculpture, mechanical engineering visualization, interactive art, procedural animation, physics simulation">
+<meta name="robots" content="index, follow, max-image-preview:large">
+<meta name="author" content="Mechanical Cosmos Engine">
+<meta property="og:title" content="MECHANICAL COSMOS — Unprecedented Mechanical Animation Engine">
+<meta property="og:description" content="Breathtaking generative animations of mechanisms and mechanical systems. Epicyclic gears, harmonic oscillators, Stirling engines, tensegrity, automata — all synchronized with procedural audio.">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="MECHANICAL COSMOS — Mechanical Animation Engine">
+<title>MECHANICAL COSMOS — Unprecedented Mechanical Animation Engine | Generative Gear Art</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Courier New',monospace}
+  #c{display:block;width:100vw;height:100vh}
+  #hud{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;display:none;z-index:10}
+  #hud-inner{position:absolute;top:16px;left:16px;color:#0ff;font-size:11px;line-height:1.7;text-shadow:0 0 8px #0ff;background:rgba(0,0,0,0.5);padding:10px 14px;border:1px solid rgba(0,255,255,0.3);border-radius:4px;letter-spacing:.05em}
+  #hud-cr{position:absolute;bottom:16px;right:16px;color:rgba(0,255,255,0.4);font-size:10px;text-shadow:0 0 6px #0ff}
+  #hint{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,0.25);font-size:10px;letter-spacing:.15em;pointer-events:none;z-index:10;transition:opacity 1s}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div id="hud-inner" id="hi"></div>
+  <div id="hud-cr">MECHANICAL COSMOS ENGINE © 2026</div>
+</div>
+<div id="hint">SPACE / CLICK — REGENERATE &nbsp;|&nbsp; H — HUD &nbsp;|&nbsp; S — SOUND</div>
+<script>
+// ═══════════════════════════════════════════════════════════════════
+// MECHANICAL COSMOS — Generative Mechanical Animation Engine
+// ═══════════════════════════════════════════════════════════════════
+'use strict';
+const CV=document.getElementById('c');
+const CX=CV.getContext('2d');
+let W,H,CX2,CY2;
+let T=0,DT=0,LT=0;
+let HUD=false,SND=false;
+let SEED=Math.random()*99999|0;
+let FRAME=0,FPS=60,FPS_T=0,FPS_C=0;
+let audioCtx=null,masterGain=null;
+let PARAMS={};
+let systems=[];
+let particles=[];
+let trails=[];
+let bgLayers=[];
+
+// ── Seeded RNG ──────────────────────────────────────────────────────
+function mkseed(s){let x=s+1;return()=>{x=Math.imul(48271,x)|0;return(x>>>0)/2**32}}
+let R;
+
+// ── Colour Palettes ─────────────────────────────────────────────────
+const PALETTES=[
+  // Molten Gold / Void
+  {bg:'#030108',colors:['#FFD700','#FF8C00','#FF4500','#FF1493','#7B2FBE'],accent:'#FFF2CC'},
+  // Cyan Neon / Deep Space
+  {bg:'#000510',colors:['#00FFFF','#00BFFF','#7DF9FF','#E0FFFF','#00FF7F'],accent:'#FFFFFF'},
+  // Plasma Magenta
+  {bg:'#080010',colors:['#FF00FF','#CC00FF','#FF69B4','#DA70D6','#EE82EE'],accent:'#FFD6FF'},
+  // Toxic Green / Black
+  {bg:'#000A00',colors:['#39FF14','#00FF41','#7FFF00','#ADFF2F','#32CD32'],accent:'#CCFFCC'},
+  // Inferno
+  {bg:'#0A0000',colors:['#FF2400','#FF6700','#FFD700','#FF4500','#DC143C'],accent:'#FFEECC'},
+  // Ice Crystal
+  {bg:'#010A14',colors:['#B0E0FF','#87CEEB','#ADD8E6','#E0F8FF','#FFFFFF'],accent:'#DDEEFF'},
+  // Ultraviolet Storm
+  {bg:'#05000F',colors:['#9400D3','#8B00FF','#7B00FF','#6600CC','#CC00FF'],accent:'#E8CCFF'},
+  // Solar Chromatic
+  {bg:'#020100',colors:['#FF6B35','#F7C59F','#EFEFD0','#004E89','#1A936F'],accent:'#FFE566'},
+];
+
+// ── Math Utilities ──────────────────────────────────────────────────
+const TAU=Math.PI*2;
+const lerp=(a,b,t)=>a+(b-a)*t;
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const map=(v,a,b,c,d)=>(v-a)/(b-a)*(d-c)+c;
+const dist=(x1,y1,x2,y2)=>Math.hypot(x2-x1,y2-y1);
+const ease=(t)=>t<.5?2*t*t:1-(-2*t+2)**2/2;
+const bounce=(t)=>{const n1=7.5625,d1=2.75;if(t<1/d1)return n1*t*t;else if(t<2/d1)return n1*(t-=1.5/d1)*t+.75;else if(t<2.5/d1)return n1*(t-=2.25/d1)*t+.9375;return n1*(t-=2.625/d1)*t+.984375};
+
+// ── Parameter Generator ─────────────────────────────────────────────
+function genParams(){
+  R=mkseed(SEED);
+  const pal=PALETTES[Math.floor(R()*PALETTES.length)];
+  const sysCount=5+Math.floor(R()*7);
+  const motionSpeed=0.3+R()*1.4;
+  const complexity=R();
+  return {
+    pal,sysCount,motionSpeed,complexity,
+    globalRotSpeed:(R()-0.5)*0.002,
+    cameraZoom:0.7+R()*0.8,
+    trailLength:80+Math.floor(R()*200),
+    particleDensity:0.3+R()*0.7,
+    glowIntensity:3+R()*12,
+    chromaticAberration:R()<0.5,
+    gridLines:R()<0.4,
+    vignette:0.4+R()*0.5,
+    bgNoise:R()<0.6,
+    audioFreqBase:80+R()*200,
+    audioHarmonics:2+Math.floor(R()*6),
+    shimmerRate:0.5+R()*3,
+    morphRate:0.1+R()*0.5,
+  };
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// MECHANICAL SYSTEMS — each a self-contained animated entity
+// ══════════════════════════════════════════════════════════════════════
+
+// ── 1. Epicyclic / Planetary Gear Train ──────────────────────────────
+class EpicyclicGear{
+  constructor(x,y,cfg){
+    this.x=x;this.y=y;
+    this.R=cfg.R||mkseed(SEED+1)()*80+60;
+    this.r=cfg.r||this.R/3*(0.5+mkseed(SEED+2)()*0.7);
+    this.nPlanets=cfg.n||3+Math.floor(mkseed(SEED+3)()*4);
+    this.angleSpeed=cfg.speed||0.008+mkseed(SEED+4)()*0.025;
+    this.phase=cfg.phase||0;
+    this.color1=cfg.c1||'#FFD700';
+    this.color2=cfg.c2||'#FF4500';
+    this.color3=cfg.c3||'#FFFFFF';
+    this.teethR=Math.floor(this.R/8);
+    this.teethr=Math.floor(this.r/8);
+    this.teethInt=Math.floor((this.R+this.r)/8);
+    this.trailBuf=[];
+    this.alpha=0;
+    this.born=T;
+    this.showSpiro=true;
+    this.spiroPoints=[];
+    this.spiroMax=PARAMS.trailLength*3;
+    this.armLen=this.r*0.7;
+    this.nArms=2+Math.floor(mkseed(SEED+5)()*3);
+    this.sparkles=[];
+  }
+  step(dt){
+    this.alpha=Math.min(1,this.alpha+dt*0.8);
+    const a=T*this.angleSpeed+this.phase;
+    for(let i=0;i<this.nPlanets;i++){
+      const pa=a+i*TAU/this.nPlanets;
+      const cx=this.x+Math.cos(pa)*(this.R-this.r);
+      const cy=this.y+Math.sin(pa)*(this.R-this.r);
+      const selfA=a*(this.R/this.r)+i*TAU/this.nPlanets;
+      for(let j=0;j<this.nArms;j++){
+        const aa=selfA+j*TAU/this.nArms;
+        const px=cx+Math.cos(aa)*this.armLen;
+        const py=cy+Math.sin(aa)*this.armLen;
+        if(i===0&&j===0){
+          this.spiroPoints.push({x:px,y:py});
+          if(this.spiroPoints.length>this.spiroMax)this.spiroPoints.shift();
+        }
+        // sparkles
+        if(Math.random()<0.02){
+          this.sparkles.push({x:px,y:py,vx:(Math.random()-0.5)*2,vy:(Math.random()-0.5)*2,life:1,r:Math.random()*3+1});
+        }
+      }
+    }
+    this.sparkles=this.sparkles.filter(s=>{s.x+=s.vx;s.y+=s.vy;s.life-=dt*2;return s.life>0});
+  }
+  drawGear(cx,cy,radius,teeth,angle,color,fill){
+    CX.save();
+    CX.translate(cx,cy);
+    CX.rotate(angle);
+    CX.beginPath();
+    const tr=radius*0.15;
+    for(let i=0;i<teeth;i++){
+      const a0=i/teeth*TAU,a1=(i+0.4)/teeth*TAU,a2=(i+0.6)/teeth*TAU,a3=(i+1)/teeth*TAU;
+      CX.lineTo(Math.cos(a0)*(radius-tr),Math.sin(a0)*(radius-tr));
+      CX.lineTo(Math.cos(a1)*(radius+tr),Math.sin(a1)*(radius+tr));
+      CX.lineTo(Math.cos(a2)*(radius+tr),Math.sin(a2)*(radius+tr));
+      CX.lineTo(Math.cos(a3)*(radius-tr),Math.sin(a3)*(radius-tr));
+    }
+    CX.closePath();
+    if(fill){CX.fillStyle=fill;CX.fill();}
+    CX.strokeStyle=color;
+    CX.lineWidth=1.5;
+    CX.shadowColor=color;
+    CX.shadowBlur=PARAMS.glowIntensity;
+    CX.stroke();
+    // hub
+    CX.beginPath();CX.arc(0,0,radius*0.18,0,TAU);
+    CX.strokeStyle=color;CX.stroke();
+    CX.restore();
+  }
+  draw(){
+    CX.save();
+    CX.globalAlpha=this.alpha*0.9;
+    // spiro trail
+    if(this.spiroPoints.length>2){
+      CX.beginPath();
+      CX.moveTo(this.spiroPoints[0].x,this.spiroPoints[0].y);
+      for(let i=1;i<this.spiroPoints.length;i++){
+        const s=i/this.spiroPoints.length;
+        CX.globalAlpha=this.alpha*s*0.6;
+        CX.lineTo(this.spiroPoints[i].x,this.spiroPoints[i].y);
+      }
+      CX.strokeStyle=this.color3;
+      CX.lineWidth=1;
+      CX.shadowColor=this.color3;
+      CX.shadowBlur=8;
+      CX.stroke();
+    }
+    CX.globalAlpha=this.alpha;
+    // ring gear
+    this.drawGear(this.x,this.y,this.R,this.teethR*2,T*this.angleSpeed*0.1,this.color1,'rgba(0,0,0,0.1)');
+    // planets
+    const a=T*this.angleSpeed+this.phase;
+    for(let i=0;i<this.nPlanets;i++){
+      const pa=a+i*TAU/this.nPlanets;
+      const cx=this.x+Math.cos(pa)*(this.R-this.r);
+      const cy=this.y+Math.sin(pa)*(this.R-this.r);
+      const selfA=a*(this.R/this.r);
+      this.drawGear(cx,cy,this.r,this.teethr*2,selfA,this.color2,'rgba(0,0,0,0.15)');
+      // connecting rod
+      CX.beginPath();CX.moveTo(this.x,this.y);CX.lineTo(cx,cy);
+      CX.strokeStyle=this.color1+'44';CX.lineWidth=1;CX.stroke();
+    }
+    // sun gear
+    this.drawGear(this.x,this.y,this.r*0.6,6,T*-this.angleSpeed*2,this.color3,null);
+    // sparkles
+    for(const s of this.sparkles){
+      CX.globalAlpha=s.life*this.alpha;
+      CX.beginPath();CX.arc(s.x,s.y,s.r,0,TAU);
+      CX.fillStyle=this.color2;CX.shadowColor=this.color2;CX.shadowBlur=6;CX.fill();
+    }
+    CX.restore();
+  }
+}
+
+// ── 2. Harmonograph / Lissajous Machine ─────────────────────────────
+class Harmonograph{
+  constructor(x,y,cfg){
+    this.x=x;this.y=y;
+    this.f1=cfg.f1||1+mkseed(SEED+10)()*3;
+    this.f2=cfg.f2||this.f1*(1+mkseed(SEED+11)()*0.5);
+    this.f3=cfg.f3||this.f1*(2+mkseed(SEED+12)()*2);
+    this.f4=cfg.f4||this.f2+0.5;
+    this.A=cfg.A||80+mkseed(SEED+13)()*60;
+    this.B=cfg.B||this.A*(0.5+mkseed(SEED+14)()*0.8);
+    this.d1=cfg.d1||mkseed(SEED+15)()*0.001;
+    this.d2=cfg.d2||mkseed(SEED+16)()*0.001;
+    this.phase=cfg.phase||mkseed(SEED+17)()*TAU;
+    this.color=cfg.color||'#00FFFF';
+    this.pts=[];
+    this.maxPts=600;
+    this.alpha=0;
+    this.pendulumAngle1=0;
+    this.pendulumAngle2=0;
+  }
+  step(dt){
+    this.alpha=Math.min(1,this.alpha+dt*0.5);
+    const t=T*0.3;
+    const decay1=Math.exp(-this.d1*t);
+    const decay2=Math.exp(-this.d2*t);
+    const px=this.x+this.A*decay1*Math.sin(this.f1*t+this.phase)+this.A*0.3*Math.sin(this.f3*t);
+    const py=this.y+this.B*decay2*Math.sin(this.f2*t)+this.B*0.3*Math.sin(this.f4*t+this.phase*0.7);
+    this.pts.push({x:px,y:py,t:T});
+    if(this.pts.length>this.maxPts)this.pts.shift();
+    this.pendulumAngle1=Math.sin(this.f1*t+this.phase)*0.6;
+    this.pendulumAngle2=Math.sin(this.f2*t)*0.6;
+  }
+  drawPendulum(ox,oy,angle,len,color){
+    const ex=ox+Math.sin(angle)*len,ey=oy+Math.cos(angle)*len;
+    CX.beginPath();CX.moveTo(ox,oy);CX.lineTo(ex,ey);
+    CX.strokeStyle=color+'88';CX.lineWidth=2;
+    CX.shadowColor=color;CX.shadowBlur=6;CX.stroke();
+    CX.beginPath();CX.arc(ex,ey,6,0,TAU);
+    CX.fillStyle=color;CX.shadowBlur=10;CX.fill();
+    return {x:ex,y:ey};
+  }
+  draw(){
+    CX.save();
+    CX.globalAlpha=this.alpha;
+    if(this.pts.length>2){
+      for(let i=1;i<this.pts.length;i++){
+        const s=i/this.pts.length;
+        CX.globalAlpha=this.alpha*s;
+        CX.beginPath();
+        CX.moveTo(this.pts[i-1].x,this.pts[i-1].y);
+        CX.lineTo(this.pts[i].x,this.pts[i].y);
+        // rainbow shift
+        const hue=(i/this.pts.length*360+T*20)%360;
+        CX.strokeStyle=`hsla(${hue},100%,70%,${s})`;
+        CX.lineWidth=1.5*s+0.5;
+        CX.shadowColor=this.color;
+        CX.shadowBlur=PARAMS.glowIntensity*s;
+        CX.stroke();
+      }
+    }
+    // pendulum arms
+    CX.globalAlpha=this.alpha*0.5;
+    this.drawPendulum(this.x,this.y-80,this.pendulumAngle1,60,this.color);
+    this.drawPendulum(this.x,this.y-80,this.pendulumAngle2,60,this.color+'AA');
+    CX.restore();
+  }
+}
+
+// ── 3. Watt's Linkage / Four-Bar Mechanism ──────────────────────────
+class FourBarLinkage{
+  constructor(x,y,cfg){
+    this.x=x;this.y=y;
+    this.r=mkseed(SEED+20)()*40+30;// crank
+    this.l=mkseed(SEED+21)()*60+50;// coupler
+    this.c=mkseed(SEED+22)()*60+50;// follower
+    this.g=this.r*2+mkseed(SEED+23)()*60;// ground
+    this.speed=(0.005+mkseed(SEED+24)()*0.03)*(mkseed(SEED+25)()<0.5?1:-1);
+    this.phase=mkseed(SEED+26)()*TAU;
+    this.color=cfg.color||'#FF6700';
+    this.accentColor=cfg.accent||'#FFD700';
+    this.tracePoints=[];
+    this.maxTrace=PARAMS.trailLength;
+    this.alpha=0;
+    this.coupler=0.5+mkseed(SEED+27)()*0.5;// point along coupler
+    this.nLinkages=2+Math.floor(mkseed(SEED+28)()*3);
+    this.pistons=[];
+    for(let i=0;i<3;i++){
+      this.pistons.push({phase:i*TAU/3,stroke:20+mkseed(SEED+29+i)()*30,color:this.color});
+    }
+  }
+  solve(theta){
+    // Grashof four-bar
+    const ax=this.x,ay=this.y;
+    const bx=ax+this.g,by=ay;
+    const cx=ax+Math.cos(theta)*this.r,cy=ay+Math.sin(theta)*this.r;
+    // find D via circle intersection
+    const dx=bx-cx,dy=by-cy;
+    const dist2=Math.hypot(dx,dy);
+    if(dist2>this.l+this.c||dist2<Math.abs(this.l-this.c))return null;
+    const a=(this.l*this.l-this.c*this.c+dist2*dist2)/(2*dist2);
+    const h=Math.sqrt(Math.max(0,this.l*this.l-a*a));
+    const mx=cx+a*dx/dist2,my=cy+a*dy/dist2;
+    const hx=-dy/dist2*h,hy=dx/dist2*h;
+    // coupler point
+    const tx=cx+(mx-cx)*this.coupler,ty=cy+(my-cy)*this.coupler;
+    return{ax,ay,bx,by,cx,cy,dx:mx+hx,dy:my+hy,tx,ty};
+  }
+  step(dt){
+    this.alpha=Math.min(1,this.alpha+dt*0.6);
+    const theta=T*this.speed+this.phase;
+    const r=this.solve(theta);
+    if(r){
+      this.tracePoints.push({x:r.tx,y:r.ty});
+      if(this.tracePoints.length>this.maxTrace)this.tracePoints.shift();
+    }
+    this.lastSolve=r;
+  }
+  draw(){
+    if(!this.lastSolve)return;
+    const r=this.lastSolve;
+    CX.save();
+    CX.globalAlpha=this.alpha;
+    // trace
+    if(this.tracePoints.length>2){
+      CX.beginPath();
+      CX.moveTo(this.tracePoints[0].x,this.tracePoints[0].y);
+      for(let i=1;i<this.tracePoints.length;i++){
+        const s=i/this.tracePoints.length;
+        CX.globalAlpha=this.alpha*s*0.8;
+        CX.lineTo(this.tracePoints[i].x,this.tracePoints[i].y);
+      }
+      CX.strokeStyle=this.accentColor;
+      CX.lineWidth=1.5;
+      CX.shadowColor=this.accentColor;
+      CX.shadowBlur=PARAMS.glowIntensity;
+      CX.stroke();
+    }
+    CX.globalAlpha=this.alpha;
+    // links
+    const links=[[r.ax,r.ay,r.cx,r.cy,this.color,3],[r.cx,r.cy,r.dx,r.dy,this.accentColor,2],[r.dx,r.dy,r.bx,r.by,this.color,2],[r.ax,r.ay,r.bx,r.by,'#444',1]];
+    for(const[x1,y1,x2,y2,col,lw]of links){
+      CX.beginPath();CX.moveTo(x1,y1);CX.lineTo(x2,y2);
+      CX.strokeStyle=col;CX.lineWidth=lw;
+      CX.shadowColor=col;CX.shadowBlur=8;CX.stroke();
+    }
+    // joints
+    for(const[px,py,col]of[[r.ax,r.ay,this.color],[r.bx,r.by,this.color],[r.cx,r.cy,this.accentColor],[r.dx,r.dy,this.accentColor]]){
+      CX.beginPath();CX.arc(px,py,5,0,TAU);
+      CX.fillStyle=col;CX.shadowColor=col;CX.shadowBlur=10;CX.fill();
+    }
+    // coupler point highlight
+    CX.beginPath();CX.arc(r.tx,r.ty,4,0,TAU);
+    CX.fillStyle='#FFFFFF';CX.shadowColor='#FFFFFF';CX.shadowBlur=15;CX.fill();
+    CX.restore();
+  }
+}
+
+// ── 4. Antikythera / Orrery Clock ────────────────────────────────────
+class Orrery{
+  constructor(x,y,cfg){
+    this.x=x;this.y=y;
+    this.nWheels=5+Math.floor(mkseed(SEED+30)()*6);
+    this.wheels=[];
+    let r=25;
+    for(let i=0;i<this.nWheels;i++){
+      const teeth=8+Math.floor(mkseed(SEED+31+i)()*24);
+      this.wheels.push({
+        r,teeth,
+        angle:mkseed(SEED+32+i)()*TAU,
+        speed:(0.003+mkseed(SEED+33+i)()*0.02)*(mkseed(SEED+34+i)()<0.5?1:-1),
+        color:PARAMS.pal.colors[i%PARAMS.pal.colors.length],
+        children:[],parent:i>0?i-1:-1,
+        armR:r*0.7,
+        nSpokes:3+Math.floor(mkseed(SEED+35+i)()*4),
+      });
+      r=r*0.55+15;
+    }
+    this.alpha=0;
+    this.handAngles=[0,0,0];
+    this.handSpeeds=[0.005,0.0012,0.0003].map(s=>s*(0.5+mkseed(SEED+36)()*1.5));
+    this.borderR=this.wheels[0].r*2.5;
+  }
+  drawWheel(x,y,wheel){
+    const{r,teeth,angle,color,nSpokes}=wheel;
+    CX.save();CX.translate(x,y);CX.rotate(angle);
+    // spokes
+    for(let i=0;i<nSpokes;i++){
+      const a=i*TAU/nSpokes;
+      CX.beginPath();
+      CX.moveTo(r*0.2,0);CX.lineTo(r*0.85,0);
+      CX.rotate(TAU/nSpokes);
+      // avoid rotate accumulation
+    }
+    for(let i=0;i<nSpokes;i++){
+      const a=i*TAU/nSpokes;
+      CX.beginPath();
+      CX.moveTo(Math.cos(a)*r*0.2,Math.sin(a)*r*0.2);
+      CX.lineTo(Math.cos(a)*r*0.85,Math.sin(a)*r*0.85);
+      CX.strokeStyle=color+'99';CX.lineWidth=2;CX.stroke();
+    }
+    // gear teeth
+    CX.beginPath();
+    const tr=r*0.12;
+    for(let i=0;i<teeth;i++){
+      const a0=i/teeth*TAU,a1=(i+0.4)/teeth*TAU,a2=(i+0.6)/teeth*TAU,a3=(i+1)/teeth*TAU;
+      CX.lineTo(Math.cos(a0)*(r-tr),Math.sin(a0)*(r-tr));
+      CX.lineTo(Math.cos(a1)*(r+tr),Math.sin(a1)*(r+tr));
+      CX.lineTo(Math.cos(a2)*(r+tr),Math.sin(a2)*(r+tr));
+      CX.lineTo(Math.cos(a3)*(r-tr),Math.sin(a3)*(r-tr));
+    }
+    CX.closePath();
+    CX.strokeStyle=color;CX.lineWidth=1.2;
+    CX.shadowColor=color;CX.shadowBlur=8;CX.stroke();
+    // rim
+    CX.beginPath();CX.arc(0,0,r-tr,0,TAU);
+    CX.strokeStyle=color+'55';CX.lineWidth=1;CX.stroke();
+    // hub
+    CX.beginPath();CX.arc(0,0,r*0.12,0,TAU);
+    CX.fillStyle=color;CX.shadowBlur=12;CX.fill();
+    CX.restore();
+  }
+  step(dt){
+    this.alpha=Math.min(1,this.alpha+dt*0.4);
+    for(const w of this.wheels)w.angle+=w.speed*dt*60;
+    for(let i=0;i<3;i++)this.handAngles[i]+=this.handSpeeds[i]*dt*60;
+  }
+  draw(){
+    CX.save();CX.globalAlpha=this.alpha;
+    // outer border
+    CX.beginPath();CX.arc(this.x,this.y,this.borderR,0,TAU);
+    CX.strokeStyle=PARAMS.pal.colors[0]+'88';CX.lineWidth=2;
+    CX.shadowColor=PARAMS.pal.colors[0];CX.shadowBlur=15;CX.stroke();
+    // tick marks
+    for(let i=0;i<60;i++){
+      const a=i/60*TAU;
+      const isMain=i%5===0;
+      const r1=this.borderR*(isMain?0.88:0.92),r2=this.borderR*0.97;
+      CX.beginPath();
+      CX.moveTo(this.x+Math.cos(a)*r1,this.y+Math.sin(a)*r1);
+      CX.lineTo(this.x+Math.cos(a)*r2,this.y+Math.sin(a)*r2);
+      CX.strokeStyle=isMain?PARAMS.pal.colors[0]:PARAMS.pal.colors[1]+'66';
+      CX.lineWidth=isMain?2:1;CX.shadowBlur=isMain?8:3;CX.stroke();
+    }
+    // stacked wheels
+    let cx=this.x,cy=this.y;
+    for(let i=0;i<this.wheels.length;i++){
+      this.drawWheel(cx,cy,this.wheels[i]);
+    }
+    // clock hands
+    const handDefs=[[this.borderR*0.75,4,PARAMS.pal.colors[0]],[this.borderR*0.55,3,PARAMS.pal.colors[1]],[this.borderR*0.35,2,PARAMS.pal.colors[2]]];
+    for(let i=0;i<3;i++){
+      const[len,lw,col]=handDefs[i];
+      const a=this.handAngles[i]-TAU/4;
+      CX.beginPath();
+      CX.moveTo(this.x,this.y);
+      CX.lineTo(this.x+Math.cos(a)*len,this.y+Math.sin(a)*len);
+      CX.strokeStyle=col;CX.lineWidth=lw;
+      CX.shadowColor=col;CX.shadowBlur=12;CX.stroke();
+    }
+    // center dot
+    CX.beginPath();CX.arc(this.x,this.y,6,0,TAU);
+    CX.fillStyle='#FFF';CX.shadowColor='#FFF';CX.shadowBlur=20;CX.fill();
+    CX.restore();
+  }
+}
+
+// ── 5. Stirling Engine / Piston System ──────────────────────────────
+class PistonEngine{
+  constructor(x,y,cfg){
+    this.x=x;this.y=y;
+    this.nCylinders=cfg.n||4+Math.floor(mkseed(SEED+40)()*5);
+    this.crankR=cfg.cr||35+mkseed(SEED+41)()*25;
+    this.rodLen=cfg.rl||this.crankR*2.5;
+    this.speed=cfg.speed||0.02+mkseed(SEED+42)()*0.04;
+    this.color=cfg.color||'#39FF14';
+    this.accentColor=cfg.accent||'#FFD700';
+    this.alpha=0;
+    this.cylinders=[];
+    const totalAngle=Math.PI*(mkseed(SEED+43)()<0.5?1:2);
+    for(let i=0;i<this.nCylinders;i++){
+      const baseAngle=-TAU/4+i*totalAngle/(this.nCylinders-1)||0;
+      this.cylinders.push({
+        phase:i*TAU/this.nCylinders,
+        baseAngle,
+        pistonPos:0,
+        sparkLife:0,
+        exhaustLife:0,
+      });
+    }
+    this.flyWheelAngle=0;
+    this.crankAngle=0;
+    this.valveBuf=[];
+    this.exhaustParts=[];
+  }
+  step(dt){
+    this.alpha=Math.min(1,this.alpha+dt*0.5);
+    this.crankAngle+=this.speed*dt*60;
+    this.flyWheelAngle+=this.speed*dt*60*0.7;
+    for(const c of this.cylinders){
+      const a=this.crankAngle+c.phase;
+      const crankX=Math.cos(a)*this.crankR,crankY=Math.sin(a)*this.crankR;
+      c.pistonPos=crankY+Math.sqrt(Math.max(0,this.rodLen*this.rodLen-crankX*crankX));
+      // ignition at TDC
+      if(Math.sin(a)>0.95&&Math.random()<0.1){
+        c.sparkLife=1;
+        this.exhaustParts.push({
+          x:this.x+crankX,y:this.y+c.pistonPos-10,
+          vx:(Math.random()-0.5)*3,vy:-2-Math.random()*3,
+          life:1,r:2+Math.random()*3,col:this.color
+        });
+      }
+      if(c.sparkLife>0)c.sparkLife-=dt*4;
+      if(c.exhaustLife>0)c.exhaustLife-=dt*2;
+    }
+    this.exhaustParts=this.exhaustParts.filter(p=>{
+      p.x+=p.vx;p.y+=p.vy;p.vy*=0.95;p.life-=dt*1.5;return p.life>0;
+    });
+  }
+  draw(){
+    CX.save();CX.globalAlpha=this.alpha;
+    // flywheel
+    const fw=this.crankR*2;
+    CX.beginPath();CX.arc(this.x,this.y,fw,0,TAU);
+    CX.strokeStyle=this.color+'44';CX.lineWidth=2;CX.stroke();
+    CX.beginPath();CX.arc(this.x,this.y,fw*0.1,0,TAU);
+    CX.fillStyle=this.color;CX.shadowColor=this.color;CX.shadowBlur=10;CX.fill();
+    for(let i=0;i<8;i++){
+      const a=this.flyWheelAngle+i*TAU/8;
+      CX.beginPath();
+      CX.moveTo(this.x+Math.cos(a)*fw*0.12,this.y+Math.sin(a)*fw*0.12);
+      CX.lineTo(this.x+Math.cos(a)*fw*0.88,this.y+Math.sin(a)*fw*0.88);
+      CX.strokeStyle=this.color+'66';CX.lineWidth=2;CX.stroke();
+    }
+    // pistons
+    for(let i=0;i<this.nCylinders;i++){
+      const c=this.cylinders[i];
+      const a=this.crankAngle+c.phase;
+      const crankX=this.x+Math.cos(a)*this.crankR;
+      const crankY=this.y+Math.sin(a)*this.crankR;
+      const pisX=this.x;
+      const pisY=this.y+c.pistonPos;
+      // cylinder bore
+      CX.beginPath();
+      CX.rect(this.x-20+(i-this.nCylinders/2)*50,this.y-this.rodLen-this.crankR-20,40,this.rodLen+this.crankR+c.pistonPos+20);
+      CX.strokeStyle=this.accentColor+'33';CX.lineWidth=1;CX.stroke();
+      // con-rod
+      CX.beginPath();CX.moveTo(crankX,crankY);CX.lineTo(pisX+(i-this.nCylinders/2)*50,pisY);
+      CX.strokeStyle=this.accentColor;CX.lineWidth=2.5;
+      CX.shadowColor=this.accentColor;CX.shadowBlur=8;CX.stroke();
+      // crank pin
+      CX.beginPath();CX.arc(crankX,crankY,4,0,TAU);
+      CX.fillStyle=this.color;CX.shadowBlur=12;CX.fill();
+      // piston
+      const px=pisX+(i-this.nCylinders/2)*50;
+      CX.beginPath();CX.rect(px-15,pisY-12,30,24);
+      const sparking=c.sparkLife>0;
+      CX.fillStyle=sparking?'#FFFFFF':this.color+'AA';
+      CX.shadowColor=sparking?'#FFFFFF':this.color;
+      CX.shadowBlur=sparking?20:8;
+      CX.fill();
+      CX.strokeStyle=this.color;CX.lineWidth=1;CX.stroke();
+    }
+    // exhaust particles
+    for(const p of this.exhaustParts){
+      CX.globalAlpha=this.alpha*p.life*0.7;
+      CX.beginPath();CX.arc(p.x,p.y,p.r,0,TAU);
+      CX.fillStyle=p.col;CX.shadowColor=p.col;CX.shadowBlur=8;CX.fill();
+    }
+    CX.restore();
+  }
+}
+
+// ── 6. Tensegrity / Cable Tension Structure ──────────────────────────
+class Tensegrity{
+  constructor(x,y,cfg){
+    this.x=x;this.y=y;
+    this.nodes=[];
+    this.cables=[];
+    this.struts=[];
+    this.nStruts=cfg.n||3+Math.floor(mkseed(SEED+50)()*4);
+    const R=cfg.R||60+mkseed(SEED+51)()*50;
+    // Create nodes
+    for(let i=0;i<this.nStruts;i++){
+      const a=i*TAU/this.nStruts;
+      const a2=a+TAU/(this.nStruts*2)+Math.PI;
+      this.nodes.push({x:this.x+Math.cos(a)*R,y:this.y+Math.sin(a)*R,r:5});
+      this.nodes.push({x:this.x+Math.cos(a2)*R*0.8,y:this.y+Math.sin(a2)*R*0.8+mkseed(SEED+52+i)()*30-15,r:5});
+    }
+    // struts connect pairs
+    for(let i=0;i<this.nStruts;i++){
+      this.struts.push([i*2,(i*2+1)%this.nodes.length]);
+    }
+    // cables
+    for(let i=0;i<this.nStruts;i++){
+      this.cables.push([i*2,(i*2+2)%this.nodes.length]);
+      this.cables.push([i*2+1,(i*2+3)%this.nodes.length]);
+      this.cables.push([i*2,(i*2+3)%this.nodes.length]);
+    }
+    this.color=cfg.color||'#CC00FF';
+    this.accentColor=cfg.accent||'#FF69B4';
+    this.alpha=0;
+    this.breathe=0;
+    this.baseNodes=this.nodes.map(n=>({...n}));
+    this.rotAngle=0;
+    this.rotSpeed=0.003+mkseed(SEED+53)()*0.01;
+  }
+  step(dt){
+    this.alpha=Math.min(1,this.alpha+dt*0.4);
+    this.breathe=Math.sin(T*0.5)*0.15;
+    this.rotAngle+=this.rotSpeed*dt*60;
+    const scale=1+this.breathe;
+    for(let i=0;i<this.nodes.length;i++){
+      const b=this.baseNodes[i];
+      const dx=b.x-this.x,dy=b.y-this.y;
+      const rotX=Math.cos(this.rotAngle)*dx-Math.sin(this.rotAngle)*dy;
+      const rotY=Math.sin(this.rotAngle)*dx+Math.cos(this.rotAngle)*dy;
+      this.nodes[i].x=this.x+rotX*scale;
+      this.nodes[i].y=this.y+rotY*scale;
+    }
+  }
+  draw(){
+    CX.save();CX.globalAlpha=this.alpha;
+    // cables
+    for(const[a,b]of this.cables){
+      const n1=this.nodes[a],n2=this.nodes[b];
+      CX.beginPath();CX.moveTo(n1.x,n1.y);CX.lineTo(n2.x,n2.y);
+      CX.strokeStyle=this.color+'66';CX.lineWidth=1;
+      CX.shadowColor=this.color;CX.shadowBlur=5;CX.stroke();
+    }
+    // struts
+    for(const[a,b]of this.struts){
+      const n1=this.nodes[a],n2=this.nodes[b];
+      // gradient
+      const grd=CX.createLinearGradient(n1.x,n1.y,n2.x,n2.y);
+      grd.addColorStop(0,this.color);
+      grd.addColorStop(0.5,this.accentColor);
+      grd.addColorStop(1,this.color);
+      CX.beginPath();CX.moveTo(n1.x,n1.y);CX.lineTo(n2.x,n2.y);
+      CX.strokeStyle=grd;CX.lineWidth=4;
+      CX.shadowColor=this.accentColor;CX.shadowBlur=15;CX.stroke();
+    }
+    // nodes
+    for(const n of this.nodes){
+      CX.beginPath();CX.arc(n.x,n.y,n.r,0,TAU);
+      CX.fillStyle=this.accentColor;CX.shadowColor=this.accentColor;CX.shadowBlur=15;CX.fill();
+    }
+    CX.restore();
+  }
+}
+
+// ── 7. Chebyshev Lambda / Straight-Line Mechanisms ───────────────────
+class StraightLineMechanism{
+  constructor(x,y,cfg){
+    this.x=x;this.y=y;
+    this.type=Math.floor(mkseed(SEED+60)()*4);// 0=Chebyshev,1=Peaucellier,2=Watt,3=Roberts
+    this.a=cfg.a||50+mkseed(SEED+61)()*40;
+    this.b=cfg.b||this.a*1.2;
+    this.c=cfg.c||this.a*2.5;
+    this.speed=(0.01+mkseed(SEED+62)()*0.02)*(mkseed(SEED+63)()<0.5?1:-1);
+    this.color=cfg.color||'#00BFFF';
+    this.trace=[];
+    this.maxTrace=400;
+    this.alpha=0;
+    this.nParallel=2+Math.floor(mkseed(SEED+64)()*3);
+    this.phaseOff=TAU/this.nParallel;
+  }
+  solvePoint(theta){
+    // Chebyshev lambda mechanism
+    const cx=this.x,cy=this.y;
+    const ax=cx-this.c/2,ay=cy;
+    const bx=cx+this.c/2,by=cy;
+    const px=ax+Math.cos(theta)*this.a;
+    const py=ay+Math.sin(theta)*this.a;
+    const dx=bx-px,dy=by-py;
+    const d=Math.hypot(dx,dy);
+    if(d>this.b+this.b||d<0)return null;
+    const aa=(this.b*this.b-this.b*this.b+d*d)/(2*d);
+    const h=Math.sqrt(Math.max(0,this.b*this.b-aa*aa));
+    const mx=px+aa*dx/d,my=py+aa*dy/d;
+    const hx=-dy/d*h,hy=dx/d*h;
+    return{p:{x:px,y:py},q:{x:mx+hx,y:my+hy},a:{x:ax,y:ay},b:{x:bx,y:by}};
+  }
+  step(dt){
+    this.alpha=Math.min(1,this.alpha+dt*0.5);
+    const theta=T*this.speed;
+    const r=this.solvePoint(theta);
+    if(r){
+      this.trace.push({x:r.q.x,y:r.q.y});
+      if(this.trace.length>this.maxTrace)this.trace.shift();
+    }
+    this.lastSolve=r;
+  }
+  draw(){
+    if(!this.lastSolve)return;
+    const r=this.lastSolve;
+    CX.save();CX.globalAlpha=this.alpha;
+    // trace
+    if(this.trace.length>2){
+      CX.beginPath();CX.moveTo(this.trace[0].x,this.trace[0].y);
+      for(let i=1;i<this.trace.length;i++){
+        const s=i/this.trace.length;
+        CX.globalAlpha=this.alpha*s;
+        CX.lineTo(this.trace[i].x,this.trace[i].y);
+      }
+      CX.strokeStyle=this.color;CX.lineWidth=2;
+      CX.shadowColor=this.color;CX.shadowBlur=PARAMS.glowIntensity;CX.stroke();
+    }
+    CX.globalAlpha=this.alpha;
+    // links
+    [[r.a.x,r.a.y,r.p.x,r.p.y,this.color,3],[r.p.x,r.p.y,r.q.x,r.q.y,this.color,2],[r.q.x,r.q.y,r.b.x,r.b.y,this.color+'88',2]].forEach(([x1,y1,x2,y2,c,lw])=>{
+      CX.beginPath();CX.moveTo(x1,y1);CX.lineTo(x2,y2);
+      CX.strokeStyle=c;CX.lineWidth=lw;CX.shadowColor=c;CX.shadowBlur=8;CX.stroke();
+    });
+    // joints
+    [r.a,r.b,r.p,r.q].forEach(pt=>{
+      CX.beginPath();CX.arc(pt.x,pt.y,5,0,TAU);
+      CX.fillStyle=this.color;CX.shadowColor=this.color;CX.shadowBlur=12;CX.fill();
+    });
+    CX.restore();
+  }
+}
+
+// ── 8. Automaton / Walking Machine ───────────────────────────────────
+class WalkingAutomaton{
+  constructor(x,y,cfg){
+    this.x=x;this.y=y;
+    this.nLegs=cfg.legs||6+Math.floor(mkseed(SEED+70)()*4);
+    this.bodyW=60+mkseed(SEED+71)()*40;
+    this.bodyH=25+mkseed(SEED+72)()*15;
+    this.legLen1=30+mkseed(SEED+73)()*20;
+    this.legLen2=25+mkseed(SEED+74)()*20;
+    this.crankR=15+mkseed(SEED+75)()*10;
+    this.speed=0.015+mkseed(SEED+76)()*0.03;
+    this.walkX=0;
+    this.color=cfg.color||'#7B2FBE';
+    this.accentColor=cfg.accent||'#DA70D6';
+    this.alpha=0;
+    this.antennaeAngles=[0,0];
+    this.eyeGlow=1;
+  }
+  getLegEndpoint(i,t){
+    const phase=i/this.nLegs*TAU;
+    const a=t+phase;
+    const crankX=Math.cos(a)*this.crankR;
+    const crankY=Math.sin(a)*this.crankR;
+    const side=i<this.nLegs/2?-1:1;
+    const baseX=this.x+(i%(this.nLegs/2)-(this.nLegs/4-0.5))*this.bodyW/(this.nLegs/2-1||1);
+    const baseY=this.y+this.bodyH/2;
+    // Jansen linkage approximation
+    const legX=baseX+side*crankX*2;
+    const legY=baseY+Math.abs(crankY)*this.legLen1/this.crankR+crankX*0.5;
+    return{x:legX,y:legY,bx:baseX,by:baseY,cx:baseX+side*crankX,cy:baseY+crankY};
+  }
+  step(dt){
+    this.alpha=Math.min(1,this.alpha+dt*0.4);
+    this.walkX+=Math.cos(T*this.speed)*0.3;
+    this.antennaeAngles[0]=Math.sin(T*0.7)*0.3;
+    this.antennaeAngles[1]=Math.sin(T*0.9+1)*0.3;
+    this.eyeGlow=0.7+Math.abs(Math.sin(T*0.2))*0.3;
+  }
+  draw(){
+    CX.save();CX.globalAlpha=this.alpha;
+    const t=T*this.speed;
+    // legs
+    for(let i=0;i<this.nLegs;i++){
+      const leg=this.getLegEndpoint(i,t);
+      // thigh
+      CX.beginPath();CX.moveTo(leg.bx,leg.by);CX.lineTo(leg.cx,leg.cy);
+      CX.strokeStyle=this.color;CX.lineWidth=3;
+      CX.shadowColor=this.color;CX.shadowBlur=8;CX.stroke();
+      // shin
+      CX.beginPath();CX.moveTo(leg.cx,leg.cy);CX.lineTo(leg.x,leg.y);
+      CX.strokeStyle=this.accentColor;CX.lineWidth=2.5;
+      CX.shadowColor=this.accentColor;CX.shadowBlur=6;CX.stroke();
+      // foot
+      CX.beginPath();CX.arc(leg.x,leg.y,4,0,TAU);
+      CX.fillStyle=this.accentColor;CX.shadowBlur=10;CX.fill();
+    }
+    // body
+    CX.beginPath();
+    CX.roundRect(this.x-this.bodyW/2,this.y-this.bodyH/2,this.bodyW,this.bodyH,8);
+    const bgrd=CX.createLinearGradient(this.x-this.bodyW/2,this.y-this.bodyH/2,this.x+this.bodyW/2,this.y+this.bodyH/2);
+    bgrd.addColorStop(0,this.color+'CC');bgrd.addColorStop(1,this.accentColor+'CC');
+    CX.fillStyle=bgrd;CX.shadowColor=this.color;CX.shadowBlur=15;CX.fill();
+    CX.strokeStyle=this.accentColor;CX.lineWidth=2;CX.stroke();
+    // eyes
+    const eyeR=6;
+    for(let i=-1;i<=1;i+=2){
+      CX.beginPath();CX.arc(this.x+i*this.bodyW*0.2,this.y,eyeR,0,TAU);
+      CX.fillStyle=`rgba(0,255,255,${this.eyeGlow})`;
+      CX.shadowColor='#00FFFF';CX.shadowBlur=15*this.eyeGlow;CX.fill();
+    }
+    // antennae
+    for(let i=0;i<2;i++){
+      const side=i===0?-1:1;
+      const ax=this.antennaeAngles[i];
+      CX.save();CX.translate(this.x+side*this.bodyW*0.25,this.y-this.bodyH/2);
+      CX.rotate(ax+side*-0.3);
+      CX.beginPath();CX.moveTo(0,0);CX.lineTo(0,-35);
+      CX.strokeStyle=this.accentColor+'AA';CX.lineWidth=2;CX.stroke();
+      CX.beginPath();CX.arc(0,-35,4,0,TAU);
+      CX.fillStyle=this.accentColor;CX.shadowColor=this.accentColor;CX.shadowBlur=12;CX.fill();
+      CX.restore();
+    }
+    CX.restore();
+  }
+}
+
+// ── 9. Spirograph Field / Rose Curve Array ───────────────────────────
+class SpirographField{
+  constructor(cfg){
+    this.curves=[];
+    const n=6+Math.floor(mkseed(SEED+80)()*8);
+    for(let i=0;i<n;i++){
+      const k=1+Math.floor(mkseed(SEED+81+i)()*9);
+      const r=40+mkseed(SEED+82+i)()*80;
+      const x=mkseed(SEED+83+i)()*W;
+      const y=mkseed(SEED+84+i)()*H;
+      const speed=(0.003+mkseed(SEED+85+i)()*0.015)*(mkseed(SEED+86+i)()<0.5?1:-1);
+      const col=PARAMS.pal.colors[i%PARAMS.pal.colors.length];
+      this.curves.push({k,r,x,y,speed,col,phase:mkseed(SEED+87+i)()*TAU,pts:[],maxPts:PARAMS.trailLength*2});
+    }
+    this.alpha=0;
+  }
+  step(dt){
+    this.alpha=Math.min(1,this.alpha+dt*0.3);
+    for(const c of this.curves){
+      const t=T*c.speed+c.phase;
+      const px=c.x+c.r*Math.sin(c.k*t)*Math.cos(t);
+      const py=c.y+c.r*Math.sin(c.k*t)*Math.sin(t);
+      c.pts.push({x:px,y:py});
+      if(c.pts.length>c.maxPts)c.pts.shift();
+    }
+  }
+  draw(){
+    CX.save();CX.globalAlpha=this.alpha;
+    for(const c of this.curves){
+      if(c.pts.length<2)continue;
+      CX.beginPath();
+      CX.moveTo(c.pts[0].x,c.pts[0].y);
+      for(let i=1;i<c.pts.length;i++){
+        const s=i/c.pts.length;
+        CX.globalAlpha=this.alpha*s*0.7;
+        CX.lineTo(c.pts[i].x,c.pts[i].y);
+      }
+      CX.strokeStyle=c.col;CX.lineWidth=1.5;
+      CX.shadowColor=c.col;CX.shadowBlur=PARAMS.glowIntensity;CX.stroke();
+      // current point glow
+      const last=c.pts[c.pts.length-1];
+      CX.globalAlpha=this.alpha;
+      CX.beginPath();CX.arc(last.x,last.y,4,0,TAU);
+      CX.fillStyle='#FFF';CX.shadowColor=c.col;CX.shadowBlur=20;CX.fill();
+    }
+    CX.restore();
+  }
+}
+
+// ── 10. Binary Counter / Logic Gate Cascade ──────────────────────────
+class BinaryCounter{
+  constructor(x,y,cfg){
+    this.x=x;this.y=y;
+    this.bits=cfg.bits||8+Math.floor(mkseed(SEED+90)()*8);
+    this.state=0;
+    this.tickRate=0.05+mkseed(SEED+91)()*0.15;
+    this.lastTick=0;
+    this.color=cfg.color||'#39FF14';
+    this.alpha=0;
+    this.glowBits=new Array(this.bits).fill(0);
+    this.segW=12;this.segH=20;this.segGap=4;
+    this.ripple=new Array(this.bits).fill(0);
+  }
+  step(dt){
+    this.alpha=Math.min(1,this.alpha+dt*0.6);
+    if(T-this.lastTick>this.tickRate){
+      this.state=(this.state+1)%(1<<this.bits);
+      this.lastTick=T;
+      for(let i=0;i<this.bits;i++)this.glowBits[i]=((this.state>>i)&1)?1:0.1;
+      for(let i=0;i<this.bits;i++)if((this.state>>i)&1){this.ripple[i]=1;break;}
+    }
+    for(let i=0;i<this.bits;i++)if(this.ripple[i]>0)this.ripple[i]=Math.max(0,this.ripple[i]-dt*5);
+  }
+  drawBit(x,y,on,glow,ripple){
+    const w=this.segW,h=this.segH;
+    const col=on?this.color:'#1A1A1A';
+    CX.beginPath();CX.roundRect(x,y,w,h,2);
+    CX.fillStyle=col;
+    CX.shadowColor=this.color;
+    CX.shadowBlur=on?(12+ripple*20):2;
+    CX.fill();
+    if(on){
+      // inner shine
+      CX.beginPath();CX.roundRect(x+2,y+2,w-4,h/2,2);
+      CX.fillStyle='rgba(255,255,255,0.3)';CX.shadowBlur=0;CX.fill();
+    }
+  }
+  draw(){
+    CX.save();CX.globalAlpha=this.alpha;
+    const totalW=this.bits*(this.segW+this.segGap);
+    // background panel
+    CX.beginPath();CX.roundRect(this.x-10,this.y-10,totalW+20,this.segH+20,6);
+    CX.fillStyle='rgba(0,0,0,0.7)';CX.fill();
+    CX.strokeStyle=this.color+'44';CX.lineWidth=1;CX.stroke();
+    for(let i=0;i<this.bits;i++){
+      const on=(this.state>>(this.bits-1-i))&1;
+      const x=this.x+i*(this.segW+this.segGap);
+      this.drawBit(x,this.y,on,this.glowBits[i],this.ripple[i]);
+    }
+    // label
+    CX.font='bold 10px Courier New';
+    CX.fillStyle=this.color+'88';
+    CX.fillText(this.state.toString(16).toUpperCase().padStart(Math.ceil(this.bits/4),'0'),this.x,this.y+this.segH+14);
+    CX.restore();
+  }
+}
+
+// ── 11. Differential / Gear Train Cascade ────────────────────────────
+class GearCascade{
+  constructor(x,y,cfg){
+    this.x=x;this.y=y;
+    this.n=cfg.n||5+Math.floor(mkseed(SEED+100)()*6);
+    this.gears=[];
+    let cx=x,r=30+mkseed(SEED+101)()*20;
+    let speed=0.015+mkseed(SEED+102)()*0.02;
+    const baseAngle=mkseed(SEED+103)()*TAU;
+    for(let i=0;i<this.n;i++){
+      const nr=r*(0.4+mkseed(SEED+104+i)()*0.8);
+      const ratio=-r/nr;
+      const ncx=cx+r+nr;
+      this.gears.push({x:cx,y,r,speed,angle:baseAngle+i*1.3,teeth:Math.floor(r/4),col:PARAMS.pal.colors[i%PARAMS.pal.colors.length]});
+      cx=ncx;r=nr;speed*=ratio;
+    }
+    this.alpha=0;
+    this.pointerLines=[];
+  }
+  step(dt){
+    this.alpha=Math.min(1,this.alpha+dt*0.4);
+    for(const g of this.gears)g.angle+=g.speed*dt*60;
+  }
+  drawOneGear(g){
+    const{x,y,r,angle,teeth,col}=g;
+    CX.save();CX.translate(x,y);CX.rotate(angle);
+    const tr=r*0.15;
+    CX.beginPath();
+    for(let i=0;i<teeth;i++){
+      const a0=i/teeth*TAU,a1=(i+0.35)/teeth*TAU,a2=(i+0.65)/teeth*TAU,a3=(i+1)/teeth*TAU;
+      CX.lineTo(Math.cos(a0)*(r-tr),Math.sin(a0)*(r-tr));
+      CX.lineTo(Math.cos(a1)*(r+tr),Math.sin(a1)*(r+tr));
+      CX.lineTo(Math.cos(a2)*(r+tr),Math.sin(a2)*(r+tr));
+      CX.lineTo(Math.cos(a3)*(r-tr),Math.sin(a3)*(r-tr));
+    }
+    CX.closePath();
+    const grd=CX.createRadialGradient(0,0,r*0.1,0,0,r*1.1);
+    grd.addColorStop(0,col+'33');grd.addColorStop(1,'rgba(0,0,0,0)');
+    CX.fillStyle=grd;CX.fill();
+    CX.strokeStyle=col;CX.lineWidth=1.5;
+    CX.shadowColor=col;CX.shadowBlur=PARAMS.glowIntensity;CX.stroke();
+    // inner ring
+    CX.beginPath();CX.arc(0,0,r*0.6,0,TAU);
+    CX.strokeStyle=col+'55';CX.lineWidth=1;CX.shadowBlur=4;CX.stroke();
+    // spokes
+    for(let i=0;i<4;i++){
+      const a=i*TAU/4;
+      CX.beginPath();CX.moveTo(Math.cos(a)*r*0.15,Math.sin(a)*r*0.15);
+      CX.lineTo(Math.cos(a)*r*0.58,Math.sin(a)*r*0.58);
+      CX.strokeStyle=col+'77';CX.lineWidth=2;CX.stroke();
+    }
+    // hub
+    CX.beginPath();CX.arc(0,0,r*0.12,0,TAU);
+    CX.fillStyle=col;CX.shadowBlur=15;CX.fill();
+    // pointer
+    CX.beginPath();CX.moveTo(0,0);CX.lineTo(r*0.55,0);
+    CX.strokeStyle='#FFF';CX.lineWidth=1.5;CX.shadowColor='#FFF';CX.shadowBlur=6;CX.stroke();
+    CX.restore();
+  }
+  draw(){
+    CX.save();CX.globalAlpha=this.alpha;
+    for(const g of this.gears)this.drawOneGear(g);
+    CX.restore();
+  }
+}
+
+// ── 12. Voronoi / Crystal Growth Mechanism ───────────────────────────
+class VoronoiCrystal{
+  constructor(cfg){
+    this.nSeeds=12+Math.floor(mkseed(SEED+110)()*20);
+    this.seeds=[];
+    this.alpha=0;
+    this.growthFactor=0;
+    for(let i=0;i<this.nSeeds;i++){
+      this.seeds.push({
+        x:mkseed(SEED+111+i)()*W,
+        y:mkseed(SEED+112+i)()*H,
+        vx:(mkseed(SEED+113+i)()-0.5)*0.5,
+        vy:(mkseed(SEED+114+i)()-0.5)*0.5,
+        col:PARAMS.pal.colors[i%PARAMS.pal.colors.length],
+        r:0,maxR:20+mkseed(SEED+115+i)()*40,
+        angle:0,
+        rotSpeed:(mkseed(SEED+116+i)()-0.5)*0.05,
+        nFacets:5+Math.floor(mkseed(SEED+117+i)()*7),
+      });
+    }
+  }
+  step(dt){
+    this.alpha=Math.min(1,this.alpha+dt*0.3);
+    this.growthFactor=Math.min(1,this.growthFactor+dt*0.2);
+    for(const s of this.seeds){
+      s.x+=s.vx;s.y+=s.vy;
+      if(s.x<0||s.x>W)s.vx*=-1;
+      if(s.y<0||s.y>H)s.vy*=-1;
+      s.r=s.maxR*this.growthFactor*(0.8+Math.sin(T*0.5+s.x)*0.2);
+      s.angle+=s.rotSpeed;
+    }
+  }
+  drawCrystal(s){
+    CX.save();CX.translate(s.x,s.y);CX.rotate(s.angle);
+    const n=s.nFacets;
+    CX.beginPath();
+    for(let i=0;i<n;i++){
+      const a=i/n*TAU;
+      const jitter=s.r*(0.85+Math.sin(a*3+T)*0.15);
+      i===0?CX.moveTo(Math.cos(a)*jitter,Math.sin(a)*jitter):CX.lineTo(Math.cos(a)*jitter,Math.sin(a)*jitter);
+    }
+    CX.closePath();
+    const grd=CX.createRadialGradient(0,0,0,0,0,s.r);
+    grd.addColorStop(0,s.col+'44');grd.addColorStop(0.6,s.col+'22');grd.addColorStop(1,'transparent');
+    CX.fillStyle=grd;CX.fill();
+    CX.strokeStyle=s.col;CX.lineWidth=1.5;
+    CX.shadowColor=s.col;CX.shadowBlur=10;CX.stroke();
+    // inner facets
+    for(let i=0;i<n;i++){
+      const a=i/n*TAU;
+      CX.beginPath();
+      CX.moveTo(0,0);
+      CX.lineTo(Math.cos(a)*s.r*0.85,Math.sin(a)*s.r*0.85);
+      CX.strokeStyle=s.col+'33';CX.lineWidth=1;CX.shadowBlur=3;CX.stroke();
+    }
+    // nucleus
+    CX.beginPath();CX.arc(0,0,s.r*0.12,0,TAU);
+    CX.fillStyle=s.col;CX.shadowBlur=15;CX.fill();
+    CX.restore();
+  }
+  draw(){
+    CX.save();CX.globalAlpha=this.alpha*0.7;
+    for(const s of this.seeds)this.drawCrystal(s);
+    CX.restore();
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// GLOBAL PARTICLE SYSTEM
+// ══════════════════════════════════════════════════════════════════════
+function spawnParticles(){
+  const n=Math.floor(20*PARAMS.particleDensity);
+  for(let i=0;i<n;i++){
+    particles.push({
+      x:Math.random()*W,y:Math.random()*H,
+      vx:(Math.random()-0.5)*0.8,vy:(Math.random()-0.5)*0.8,
+      r:Math.random()*2+0.5,
+      col:PARAMS.pal.colors[Math.floor(Math.random()*PARAMS.pal.colors.length)],
+      life:1,decay:0.001+Math.random()*0.003,
+      type:Math.floor(Math.random()*3),
+    });
+  }
+}
+function updateParticles(dt){
+  if(Math.random()<0.1*PARAMS.particleDensity)spawnParticles();
+  particles=particles.filter(p=>{
+    p.x+=p.vx;p.y+=p.vy;p.vy+=0.01;
+    p.life-=p.decay;
+    return p.life>0&&p.x>-10&&p.x<W+10&&p.y>-10&&p.y<H+10;
+  });
+}
+function drawParticles(){
+  for(const p of particles){
+    CX.globalAlpha=p.life*0.4;
+    CX.beginPath();CX.arc(p.x,p.y,p.r,0,TAU);
+    CX.fillStyle=p.col;CX.shadowColor=p.col;CX.shadowBlur=5;CX.fill();
+  }
+  CX.globalAlpha=1;
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// BACKGROUND LAYERS
+// ══════════════════════════════════════════════════════════════════════
+function drawBackground(){
+  // solid fill
+  CX.fillStyle=PARAMS.pal.bg;
+  CX.fillRect(0,0,W,H);
+  // grid
+  if(PARAMS.gridLines){
+    CX.globalAlpha=0.05;
+    const gs=60;
+    CX.strokeStyle=PARAMS.pal.colors[0];
+    CX.lineWidth=0.5;
+    for(let x=0;x<W;x+=gs){CX.beginPath();CX.moveTo(x,0);CX.lineTo(x,H);CX.stroke();}
+    for(let y=0;y<H;y+=gs){CX.beginPath();CX.moveTo(0,y);CX.lineTo(W,y);CX.stroke();}
+    CX.globalAlpha=1;
+  }
+  // scanning lines
+  CX.globalAlpha=0.03;
+  const scanY=(T*30)%2;
+  for(let y=scanY;y<H;y+=2){
+    CX.fillStyle='#000';
+    CX.fillRect(0,y,W,1);
+  }
+  CX.globalAlpha=1;
+  // vignette
+  const vign=CX.createRadialGradient(W/2,H/2,Math.min(W,H)*0.3,W/2,H/2,Math.min(W,H)*0.85);
+  vign.addColorStop(0,'transparent');
+  vign.addColorStop(1,`rgba(0,0,0,${PARAMS.vignette})`);
+  CX.fillStyle=vign;
+  CX.fillRect(0,0,W,H);
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// CHROMATIC ABERRATION OVERLAY
+// ══════════════════════════════════════════════════════════════════════
+function applyCA(){
+  if(!PARAMS.chromaticAberration)return;
+  const shift=2+Math.sin(T*0.3)*2;
+  CX.save();
+  CX.globalCompositeOperation='screen';
+  CX.globalAlpha=0.05;
+  CX.drawImage(CV,shift,0,W,H);
+  CX.globalAlpha=0.05;
+  CX.drawImage(CV,-shift,0,W,H);
+  CX.restore();
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// AUDIO ENGINE
+// ══════════════════════════════════════════════════════════════════════
+function initAudio(){
+  if(audioCtx)return;
+  audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+  masterGain=audioCtx.createGain();
+  masterGain.gain.value=0;
+  masterGain.connect(audioCtx.destination);
+}
+let audioOscillators=[];
+let audioFilters=[];
+function buildAudio(){
+  if(!audioCtx)return;
+  // Stop existing
+  audioOscillators.forEach(o=>{try{o.stop();}catch(e){}});
+  audioOscillators=[];audioFilters=[];
+  const base=PARAMS.audioFreqBase;
+  const harmonics=PARAMS.audioHarmonics;
+  const types=['sine','triangle','sawtooth','square'];
+  for(let i=0;i<harmonics;i++){
+    const osc=audioCtx.createOscillator();
+    const g=audioCtx.createGain();
+    const f=audioCtx.createBiquadFilter();
+    osc.type=types[i%types.length];
+    osc.frequency.value=base*(i+1)*0.5;
+    g.gain.value=0.08/(i+1);
+    f.type='bandpass';
+    f.frequency.value=base*(i+1);
+    f.Q.value=5+i*2;
+    osc.connect(f);f.connect(g);g.connect(masterGain);
+    osc.start();
+    audioOscillators.push(osc);
+    audioFilters.push({filter:f,gain:g,baseFreq:base*(i+1)*0.5});
+  }
+  // LFO for wobble
+  const lfo=audioCtx.createOscillator();
+  const lfoGain=audioCtx.createGain();
+  lfo.frequency.value=0.3+Math.random()*0.7;
+  lfoGain.gain.value=base*0.2;
+  lfo.connect(lfoGain);
+  audioOscillators.forEach(o=>lfoGain.connect(o.frequency));
+  lfo.start();
+  audioOscillators.push(lfo);
+}
+function updateAudio(){
+  if(!audioCtx||!SND)return;
+  const t=audioCtx.currentTime;
+  // Modulate frequencies based on animation state
+  audioFilters.forEach((af,i)=>{
+    const modF=af.baseFreq*(1+Math.sin(T*PARAMS.shimmerRate*(i+1)*0.3)*0.1);
+    af.filter.frequency.setTargetAtTime(modF,t,0.1);
+    const vol=0.05/(i+1)*(0.8+Math.sin(T*0.5+i)*0.2);
+    af.gain.gain.setTargetAtTime(vol,t,0.05);
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// SYSTEM FACTORY
+// ══════════════════════════════════════════════════════════════════════
+function buildSystems(){
+  systems=[];particles=[];trails=[];
+  // Re-init seeded RNG so every buildSystems call with same SEED is deterministic
+  R=mkseed(SEED);
+  const n=PARAMS.sysCount;
+  const pal=PARAMS.pal;
+  // Margins so systems don't spawn at the very edge
+  const mx=W*0.12, my=H*0.12;
+  const rndX=()=>mx+R()*(W-mx*2);
+  const rndY=()=>my+R()*(H-my*2);
+  const rndC=()=>pal.colors[Math.floor(R()*pal.colors.length)];
+  // Shuffle type pool so order is also randomised
+  const typePool=[0,1,2,3,4,5,6,7,8,9,10,11];
+  for(let i=typePool.length-1;i>0;i--){const j=Math.floor(R()*(i+1));[typePool[i],typePool[j]]=[typePool[j],typePool[i]];}
+  for(let i=0;i<n;i++){
+    const cx=rndX(), cy=rndY();
+    const c1=rndC(), c2=rndC();
+    const type=typePool[i%typePool.length];
+    switch(type){
+      case 0: systems.push(new EpicyclicGear(cx,cy,{R:50+R()*60,r:15+R()*35,n:2+Math.floor(R()*4),speed:0.006+R()*0.025,phase:R()*TAU,c1,c2,c3:pal.accent}));break;
+      case 1: systems.push(new Harmonograph(cx,cy,{f1:1+R()*3,f2:1+R()*3,A:55+R()*80,color:c1}));break;
+      case 2: systems.push(new FourBarLinkage(cx,cy,{color:c1,accent:c2}));break;
+      case 3: systems.push(new Orrery(cx,cy,{}));break;
+      case 4: systems.push(new PistonEngine(cx,cy,{n:3+Math.floor(R()*5),color:c1,accent:c2}));break;
+      case 5: systems.push(new Tensegrity(cx,cy,{n:3+Math.floor(R()*4),R:50+R()*70,color:c1,accent:c2}));break;
+      case 6: systems.push(new StraightLineMechanism(cx,cy,{color:c1}));break;
+      case 7: systems.push(new WalkingAutomaton(cx,cy,{color:c1,accent:c2}));break;
+      case 8: systems.push(new SpirographField({color:c1}));break;
+      case 9: systems.push(new BinaryCounter(cx,cy,{bits:8+Math.floor(R()*8),color:c1}));break;
+      case 10: systems.push(new GearCascade(cx,cy,{n:4+Math.floor(R()*4),color:c1}));break;
+      case 11: systems.push(new VoronoiCrystal({color:c1}));break;
+    }
+  }
+  // Always seed a background spirograph field and optional crystal layer
+  systems.unshift(new SpirographField({}));
+  if(PARAMS.complexity>0.5)systems.unshift(new VoronoiCrystal({}));
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// HUD
+// ══════════════════════════════════════════════════════════════════════
+function updateHUD(){
+  const hi=document.getElementById('hud-inner');
+  if(!hi)return;
+  hi.innerHTML=`
+    <b>MECHANICAL COSMOS ENGINE</b><br>
+    SEED: ${SEED} &nbsp;|&nbsp; FRAME: ${FRAME}<br>
+    SYSTEMS: ${systems.length} &nbsp;|&nbsp; PARTICLES: ${particles.length}<br>
+    FPS: ${FPS.toFixed(1)} &nbsp;|&nbsp; T: ${T.toFixed(2)}<br>
+    PALETTE: ${PARAMS.pal.bg} &nbsp;|&nbsp; COMPLEXITY: ${PARAMS.complexity.toFixed(2)}<br>
+    AUDIO: ${SND?'ON':'OFF'} &nbsp;|&nbsp; GLOW: ${PARAMS.glowIntensity.toFixed(1)}<br>
+    MOTION: ${PARAMS.motionSpeed.toFixed(2)} &nbsp;|&nbsp; CA: ${PARAMS.chromaticAberration?'ON':'OFF'}
+  `;
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// MAIN LOOP
+// ══════════════════════════════════════════════════════════════════════
+function resize(){
+  W=CV.width=window.innerWidth;
+  H=CV.height=window.innerHeight;
+}
+
+function regenerate(){
+  SEED=Math.random()*999999|0;
+  T=0;
+  PARAMS=genParams();
+  buildSystems();
+  if(SND)buildAudio();
+  // hide hint after first regen
+  document.getElementById('hint').style.opacity='0';
+}
+
+let lastPhase=-1;
+function animate(ts){
+  requestAnimationFrame(animate);
+  if(!LT)LT=ts;
+  DT=Math.min((ts-LT)/1000,0.05);
+  LT=ts;
+  T+=DT*PARAMS.motionSpeed;
+  FRAME++;
+  FPS_C++;
+  if(ts-FPS_T>500){FPS=FPS_C*1000/(ts-FPS_T);FPS_C=0;FPS_T=ts;}
+  drawBackground();
+  CX.save();
+  updateParticles(DT);
+  drawParticles();
+  for(const s of systems){s.step(DT);s.draw();}
+  // global shimmer overlay
+  const shimA=Math.abs(Math.sin(T*PARAMS.shimmerRate))*0.04;
+  CX.globalAlpha=shimA;
+  const shimGrd=CX.createRadialGradient(W/2,H/2,0,W/2,H/2,Math.max(W,H)*0.6);
+  shimGrd.addColorStop(0,PARAMS.pal.accent);
+  shimGrd.addColorStop(1,'transparent');
+  CX.fillStyle=shimGrd;
+  CX.globalCompositeOperation='screen';
+  CX.fillRect(0,0,W,H);
+  CX.globalCompositeOperation='source-over';
+  CX.globalAlpha=1;
+  CX.restore();
+  applyCA();
+  if(HUD){updateHUD();}
+  updateAudio();
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// INPUT
+// ══════════════════════════════════════════════════════════════════════
+window.addEventListener('keydown',e=>{
+  if(e.key===' '||e.code==='Space'){e.preventDefault();regenerate();}
+  if(e.key==='h'||e.key==='H'){
+    HUD=!HUD;
+    document.getElementById('hud').style.display=HUD?'block':'none';
+  }
+  if(e.key==='s'||e.key==='S'){
+    SND=!SND;
+    if(SND){
+      initAudio();
+      if(audioCtx.state==='suspended')audioCtx.resume();
+      buildAudio();
+      if(masterGain)masterGain.gain.setTargetAtTime(0.4,audioCtx.currentTime,0.3);
+    } else {
+      if(masterGain)masterGain.gain.setTargetAtTime(0,audioCtx.currentTime,0.3);
+    }
+  }
+});
+window.addEventListener('click',()=>regenerate());
+window.addEventListener('touchend',e=>{e.preventDefault();regenerate();},{passive:false});
+window.addEventListener('resize',()=>{resize();buildSystems();});
+
+// ══════════════════════════════════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════════════════════════════════
+resize();
+PARAMS=genParams();
+buildSystems();
+animate(0);
+
+// fade hint
+setTimeout(()=>{document.getElementById('hint').style.opacity='0.4';},500);
+setTimeout(()=>{document.getElementById('hint').style.opacity='0';},5000);
+</script>
+</body>
+</html>

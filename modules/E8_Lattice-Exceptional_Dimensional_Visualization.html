@@ -1,0 +1,831 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>E8 Lattice — Exceptional Dimensional Visualization | 248-Dimensional Lie Group Animation</title>
+<meta name="description" content="An unprecedented audiovisual exploration of the E8 root system — the most beautiful and complex mathematical structure known, rendered as breathtaking real-time animation with 240 root vectors, 248-dimensional symmetry algebra, and synchronized generative audio.">
+<meta name="keywords" content="E8 lattice, exceptional Lie group, root system, 248 dimensions, mathematical visualization, quantum symmetry, string theory, M-theory, Garrett Lisi, Lie algebra, polytope, 4D projection, hyperdimensional geometry, generative art, WebGL animation">
+<meta name="robots" content="index, follow">
+<meta property="og:title" content="E8 Lattice — Unprecedented Dimensional Visualization">
+<meta property="og:description" content="Real-time animation of the E8 exceptional Lie group — 240 root vectors, 248-dimensional symmetry, synchronized generative audio. The most complex mathematical structure in the universe, rendered as breathtaking art.">
+<meta property="og:type" content="website">
+<link rel="canonical" href="">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:monospace}
+canvas{position:fixed;top:0;left:0;width:100%;height:100%}
+#hud{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;display:none;z-index:10}
+.hud-corner{position:absolute;color:rgba(255,255,255,0.7);font-size:11px;line-height:1.8;text-shadow:0 0 8px rgba(0,200,255,0.8)}
+#hud-tl{top:16px;left:16px}
+#hud-tr{top:16px;right:16px;text-align:right}
+#hud-bl{bottom:16px;left:16px}
+#hud-br{bottom:16px;right:16px;text-align:right}
+.hud-val{color:rgba(0,255,200,0.9)}
+#loading{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);color:rgba(255,255,255,0.9);font-size:14px;letter-spacing:4px;text-align:center;z-index:100;text-shadow:0 0 20px rgba(0,200,255,1)}
+#loading p{margin-top:12px;font-size:10px;opacity:0.6;letter-spacing:2px}
+</style>
+<script type="application/ld+json">
+{
+  "@context":"https://schema.org",
+  "@type":"CreativeWork",
+  "name":"E8 Lattice Dimensional Visualization",
+  "description":"Real-time WebGL animation of the E8 exceptional Lie group root system featuring 240 root vectors in 248-dimensional symmetry algebra, synchronized generative audio, and unprecedented visual effect architectures.",
+  "keywords":"E8 lattice, exceptional Lie group, root system, mathematical visualization, generative art",
+  "educationalLevel":"Advanced",
+  "about":{"@type":"Thing","name":"E8 Lie Group","description":"The largest and most complex of the exceptional simple Lie groups, with 248 dimensions and 240 root vectors."}
+}
+</script>
+</head>
+<body>
+<div id="loading">E8 LATTICE<p>INITIALIZING 248-DIMENSIONAL SYMMETRY ENGINE</p></div>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div class="hud-corner" id="hud-tl">
+    E8 EXCEPTIONAL LIE GROUP<br>
+    ROOTS: <span class="hud-val" id="h-roots">240</span> | DIM: <span class="hud-val">248</span><br>
+    MODE: <span class="hud-val" id="h-mode">—</span><br>
+    PHASE: <span class="hud-val" id="h-phase">0.000</span>
+  </div>
+  <div class="hud-corner" id="hud-tr">
+    FPS: <span class="hud-val" id="h-fps">60</span><br>
+    ROT: <span class="hud-val" id="h-rot">—</span><br>
+    ZOOM: <span class="hud-val" id="h-zoom">1.00</span>
+  </div>
+  <div class="hud-corner" id="hud-bl">
+    [SPACE/CLICK] REGENERATE<br>
+    [H] TOGGLE HUD<br>
+    [S] TOGGLE SOUND
+  </div>
+  <div class="hud-corner" id="hud-br">
+    Rank 8 | Order 696729600<br>
+    Dynkin: ○—○—○—○—○—○—○<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;|<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;○
+  </div>
+</div>
+<script>
+const C=document.getElementById('c');
+const ctx2=document.createElement('canvas');
+const g=ctx2.getContext('2d');
+const mainCtx=C.getContext('2d');
+let W,H,t=0,frame=0,hudOn=false,soundOn=false,paused=false;
+let audioCtx=null,masterGain=null,oscillators=[],lastFps=60,fpsArr=[];
+let lastTime=0,fpsTime=0,fpsCount=0;
+let params={};
+
+// E8 root system — all 240 roots in 8D
+function buildE8Roots(){
+  const roots=[];
+  // Type 1: ±e_i ± e_j for i≠j (112 roots)
+  for(let i=0;i<8;i++) for(let j=i+1;j<8;j++){
+    for(let si of[1,-1]) for(let sj of[1,-1]){
+      const r=new Array(8).fill(0);
+      r[i]=si;r[j]=sj;
+      roots.push(r);
+    }
+  }
+  // Type 2: (±1/2, ±1/2, ..., ±1/2) with even number of minus signs (128 roots)
+  for(let mask=0;mask<256;mask++){
+    const bits=[];
+    for(let b=0;b<8;b++) bits.push((mask>>b)&1);
+    const minuses=bits.reduce((s,x)=>s+x,0);
+    if(minuses%2===0){
+      roots.push(bits.map(b=>b?-0.5:0.5));
+    }
+  }
+  return roots;
+}
+
+const E8=buildE8Roots();
+
+// Cartan matrix / Dynkin diagram simple roots
+function getSimpleRoots(){
+  return[
+    [1,-1,0,0,0,0,0,0],
+    [0,1,-1,0,0,0,0,0],
+    [0,0,1,-1,0,0,0,0],
+    [0,0,0,1,-1,0,0,0],
+    [0,0,0,0,1,-1,0,0],
+    [0,0,0,0,0,1,1,0],
+    [-0.5,-0.5,-0.5,-0.5,-0.5,-0.5,-0.5,-0.5],
+    [0,0,0,0,0,1,-1,0]
+  ];
+}
+
+function resize(){
+  W=C.width=ctx2.width=window.innerWidth;
+  H=C.height=ctx2.height=window.innerHeight;
+
+}
+
+function randomParams(){
+  params={
+    projMode:Math.floor(Math.random()*6), // 0=golden angle,1=Petrie,2=Coxeter,3=torus,4=spiral,5=quantum
+    colorMode:Math.floor(Math.random()*8),
+    rotSpeed:0.0003+Math.random()*0.0012,
+    baseHue:Math.random()*360,
+    hueRange:60+Math.random()*200,
+    nodeSize:1.2+Math.random()*3.5,
+    trailLen:Math.floor(10+Math.random()*80),
+    webDensity:Math.random(),
+    pulseFreq:0.3+Math.random()*2,
+    pulseAmp:0.3+Math.random()*0.7,
+    glowLayers:Math.floor(2+Math.random()*5),
+    latticeScale:0.28+Math.random()*0.22,
+    turbulence:Math.random()*0.15,
+    symmetryBreak:Math.random()*0.08,
+    morphSpeed:0.0001+Math.random()*0.0005,
+    plasmaFreq:0.5+Math.random()*3,
+    audioMode:Math.floor(Math.random()*4),
+    zoomBase:0.7+Math.random()*0.6,
+    trailFade:0.02+Math.random()*0.08,
+    particleField:Math.random()>0.4,
+    interferenceWaves:Math.floor(2+Math.random()*6),
+    foldingPlane:Math.random()*Math.PI,
+    geodesicFlow:Math.random()>0.5,
+    quantumFlicker:Math.random()>0.6,
+    chromAberr:Math.random()*3,
+    vortexStrength:Math.random()*0.4,
+    fractalDepth:Math.floor(1+Math.random()*4),
+    rootHighlight:Math.floor(Math.random()*240),
+    weylReflect:Math.random()>0.5,
+    resonanceFreq:110+Math.random()*440,
+    scaleType:Math.floor(Math.random()*5),
+    bloomRadius:3+Math.random()*12,
+    connectionThreshold:0.3+Math.random()*0.5,
+    rotAxes:Array.from({length:8},(_,i)=>Array.from({length:8},(_,j)=>i<j?((Math.random()-0.5)*0.002):0)),
+    background:Math.random(),
+    particleCount:200+Math.floor(Math.random()*600),
+    cosmicDust:Math.random()>0.5,
+    fractalRoots:Math.random()>0.5,
+    hyperplaneSlice:Math.random()*2-1,
+    dynkinAnim:Math.random()>0.6
+  };
+  t=0;
+  updateHUD();
+}
+
+// 8D rotation via sequence of plane rotations
+function rotate8D(v,axes,dt,phase){
+  let u=[...v];
+  const planes=[[0,1],[0,2],[0,3],[1,2],[1,3],[2,3],[0,4],[1,4],[2,4],[3,4],[4,5],[5,6],[6,7],[4,7],[3,7],[2,7]];
+  for(let k=0;k<planes.length;k++){
+    const [i,j]=planes[k];
+    const speed=params.rotAxes[Math.min(i,j)][Math.max(i,j)]||0;
+    const ang=(speed+params.rotSpeed*0.2*Math.sin(phase*0.7+k))*dt;
+    const c=Math.cos(ang),s=Math.sin(ang);
+    const a=u[i],b=u[j];
+    u[i]=c*a-s*b;
+    u[j]=s*a+c*b;
+  }
+  return u;
+}
+
+// Project 8D → 2D using various modes
+function project(v8,mode,ph,scale){
+  const sc=scale*(W<H?W:H)*params.latticeScale;
+  const cx=W/2,cy=H/2;
+
+  // Turbulence offset
+  const tb=params.turbulence;
+  const tv=v8.map((x,i)=>x+tb*Math.sin(ph*0.3+i*1.7+x*3));
+
+  let x,y;
+  switch(mode){
+    case 0:{ // Golden-ratio projection
+      const phi=(1+Math.sqrt(5))/2;
+      x=(tv[0]+tv[1]*phi+tv[2])*sc;
+      y=(tv[3]+tv[4]*phi+tv[5])*sc;
+      break;
+    }
+    case 1:{ // Petrie polygon projection (canonical E8)
+      const a=2*Math.PI/30;
+      x=0;y=0;
+      for(let i=0;i<8;i++){x+=tv[i]*Math.cos(i*a+ph*0.1);y+=tv[i]*Math.sin(i*a+ph*0.1);}
+      x*=sc*0.8;y*=sc*0.8;
+      break;
+    }
+    case 2:{ // Coxeter plane (2D shadow)
+      const ang1=ph*params.rotSpeed*10;
+      const ang2=ang1*1.618;
+      x=(tv[0]*Math.cos(ang1)-tv[1]*Math.sin(ang1)+tv[2]*Math.cos(ang2+0.5))*sc;
+      y=(tv[3]*Math.sin(ang2)+tv[4]*Math.cos(ang1*0.7)+tv[5]*Math.sin(ang1*1.3))*sc;
+      break;
+    }
+    case 3:{ // Torus knot embedding
+      const r1=1+0.4*(tv[0]+tv[1]);
+      const r2=0.5+0.2*(tv[2]+tv[3]);
+      const theta=(tv[4]+tv[5])*Math.PI+ph*params.rotSpeed*5;
+      const phi2=(tv[6]+tv[7])*Math.PI+ph*params.rotSpeed*3;
+      x=(r1+r2*Math.cos(phi2))*Math.cos(theta)*sc*0.5;
+      y=(r1+r2*Math.cos(phi2))*Math.sin(theta)*sc*0.5;
+      break;
+    }
+    case 4:{ // Spiral galaxy projection
+      const r=Math.sqrt(tv[0]*tv[0]+tv[1]*tv[1]+tv[2]*tv[2]+tv[3]*tv[3])+0.001;
+      const a=Math.atan2(tv[1],tv[0])+r*1.2+ph*params.rotSpeed*2;
+      const spread=0.6+0.4*Math.sin(ph*0.002+tv[4]);
+      x=r*Math.cos(a)*sc*spread;
+      y=r*Math.sin(a)*sc*spread*0.6+tv[5]*sc*0.3;
+      break;
+    }
+    case 5:{ // Quantum probability cloud / interference
+      let px=0,py=0;
+      for(let i=0;i<8;i++){
+        const freq=params.interferenceWaves*(i+1)*0.3+1;
+        px+=tv[i]*Math.cos(i*Math.PI/4+ph*freq*0.001);
+        py+=tv[i]*Math.sin(i*Math.PI/4+ph*freq*0.0013);
+      }
+      x=px*sc*0.6;y=py*sc*0.6;
+      break;
+    }
+    default:
+      x=tv[0]*sc;y=tv[1]*sc;
+  }
+
+  // Vortex distortion
+  if(params.vortexStrength>0.05){
+    const dist=Math.sqrt(x*x+y*y)+1;
+    const angle=Math.atan2(y,x)+params.vortexStrength*Math.sin(dist*0.01-ph*0.001);
+    const r2=dist*(1+params.vortexStrength*0.1*Math.sin(dist*0.02+ph*0.0008));
+    x=r2*Math.cos(angle);
+    y=r2*Math.sin(angle);
+  }
+
+  return[cx+x,cy+y];
+}
+
+// Color functions
+function getColor(rootIdx,phase,brightness){
+  const cm=params.colorMode;
+  const h=params.baseHue;
+  const hr=params.hueRange;
+  const p=phase;
+  let r,gr,b,a=brightness;
+
+  switch(cm){
+    case 0:{ // Spectral root classification
+      const root=E8[rootIdx];
+      const energy=root.reduce((s,x)=>s+x*x,0);
+      const hue=(h+energy*hr+p*20)%360;
+      [r,gr,b]=hslToRgb(hue/360,0.9,0.5+brightness*0.4);
+      break;
+    }
+    case 1:{ // Quantum phase chromatics
+      const phase2=rootIdx/240*Math.PI*2+p*0.003;
+      [r,gr,b]=hslToRgb(((h+phase2*180/Math.PI)%360)/360,1,0.5);
+      break;
+    }
+    case 2:{ // Weyl chamber fire
+      const t2=(rootIdx/240+Math.sin(p*0.002)*0.3)%1;
+      r=255*(0.5+0.5*Math.sin(t2*Math.PI*2));
+      gr=255*(0.3+0.7*Math.pow(t2,0.5));
+      b=255*(0.1+0.3*Math.sin(t2*Math.PI*6));
+      break;
+    }
+    case 3:{ // Cosmic nebula
+      const nd=rootIdx/240;
+      [r,gr,b]=hslToRgb((0.55+nd*0.4+p*0.0003)%1,0.8+nd*0.2,0.4+nd*0.4);
+      break;
+    }
+    case 4:{ // Bioluminescent
+      const bio=Math.sin(rootIdx*0.4+p*0.004);
+      r=50+100*Math.max(0,bio);
+      gr=200*Math.abs(Math.sin(rootIdx*0.3+p*0.003));
+      b=255*(0.5+0.5*Math.cos(rootIdx*0.5+p*0.002));
+      break;
+    }
+    case 5:{ // Aurora prismatic
+      const ap=(rootIdx*7+p*0.002)%360;
+      [r,gr,b]=hslToRgb(ap/360,1,0.6);
+      break;
+    }
+    case 6:{ // Metallic crystalline
+      const mc=rootIdx/240;
+      r=180+75*Math.sin(mc*Math.PI*3+p*0.003);
+      gr=150+80*Math.cos(mc*Math.PI*5+p*0.002);
+      b=220+35*Math.sin(mc*Math.PI*7+p*0.004);
+      break;
+    }
+    case 7:{ // Void singularity
+      const vs=1-rootIdx/240;
+      r=255*vs*Math.abs(Math.sin(p*0.002+rootIdx*0.1));
+      gr=200*vs*Math.abs(Math.cos(p*0.003+rootIdx*0.08));
+      b=255*Math.abs(Math.sin(p*0.001+rootIdx*0.15));
+      break;
+    }
+  }
+  return`rgba(${Math.round(r)},${Math.round(gr)},${Math.round(b)},${a.toFixed(3)})`;
+}
+
+function hslToRgb(h,s,l){
+  let r,g,b;
+  if(s===0){r=g=b=l;}else{
+    const hue2rgb=(p,q,t)=>{if(t<0)t+=1;if(t>1)t-=1;if(t<1/6)return p+(q-p)*6*t;if(t<1/2)return q;if(t<2/3)return p+(q-p)*(2/3-t)*6;return p;};
+    const q=l<0.5?l*(1+s):l+s-l*s;
+    const p=2*l-q;
+    r=hue2rgb(p,q,h+1/3);g=hue2rgb(p,q,h);b=hue2rgb(p,q,h-1/3);
+  }
+  return[r*255,g*255,b*255];
+}
+
+// Particle system
+let particles=[];
+function initParticles(){
+  particles=[];
+  for(let i=0;i<params.particleCount;i++){
+    particles.push({
+      x:Math.random()*W,y:Math.random()*H,
+      vx:(Math.random()-0.5)*0.8,vy:(Math.random()-0.5)*0.8,
+      life:Math.random(),
+      maxLife:1,
+      hue:Math.random()*360,
+      size:0.5+Math.random()*2
+    });
+  }
+}
+
+// Trail buffer
+const trails=[];
+for(let i=0;i<240;i++) trails.push([]);
+let rotatedRoots=E8.map(r=>[...r]);
+
+// Audio engine
+function initAudio(){
+  if(audioCtx) return;
+  audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+  masterGain=audioCtx.createGain();
+  masterGain.gain.value=0;
+  const compressor=audioCtx.createDynamicsCompressor();
+  compressor.threshold.value=-20;
+  compressor.ratio.value=8;
+  masterGain.connect(compressor);
+  compressor.connect(audioCtx.destination);
+
+  const reverb=audioCtx.createConvolver();
+  const reverbLen=audioCtx.sampleRate*3;
+  const reverbBuf=audioCtx.createBuffer(2,reverbLen,audioCtx.sampleRate);
+  for(let ch=0;ch<2;ch++){
+    const d=reverbBuf.getChannelData(ch);
+    for(let i=0;i<reverbLen;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/reverbLen,2);
+  }
+  reverb.buffer=reverbBuf;
+
+  const scales=[[0,2,4,7,9],[0,3,5,7,10],[0,2,3,7,8],[0,1,4,6,10],[0,2,4,6,8]];
+  const scale=scales[params.scaleType]||scales[0];
+  const baseFreq=params.resonanceFreq;
+
+  for(let i=0;i<8;i++){
+    const osc=audioCtx.createOscillator();
+    const gain=audioCtx.createGain();
+    const semitone=scale[i%scale.length]+(Math.floor(i/scale.length)*12);
+    osc.frequency.value=baseFreq*Math.pow(2,semitone/12);
+    osc.type=['sine','triangle','sine','sawtooth'][params.audioMode%4];
+    gain.gain.value=0;
+    osc.connect(gain);
+    gain.connect(reverb);
+    gain.connect(masterGain);
+    osc.start();
+    oscillators.push({osc,gain});
+  }
+  reverb.connect(masterGain);
+}
+
+function updateAudio(ph){
+  if(!soundOn||!audioCtx) return;
+  masterGain.gain.setTargetAtTime(0.08,audioCtx.currentTime,0.1);
+  oscillators.forEach((o,i)=>{
+    const rootSlice=E8.slice(i*30,(i+1)*30);
+    const activity=rootSlice.reduce((s,r)=>{
+      const[px,py]=project(r,params.projMode,ph,1);
+      const d=Math.sqrt((px-W/2)**2+(py-H/2)**2);
+      return s+Math.exp(-d*0.002);
+    },0)/30;
+    const targetGain=0.02+0.08*activity*Math.sin(ph*0.001+i*0.7);
+    o.gain.gain.setTargetAtTime(Math.max(0,targetGain),audioCtx.currentTime,0.05);
+    const freqMod=1+0.05*Math.sin(ph*params.pulseFreq*0.001+i);
+    o.osc.frequency.setTargetAtTime(o.osc.frequency.value*freqMod,audioCtx.currentTime,0.1);
+  });
+}
+
+function stopAudio(){
+  if(masterGain) masterGain.gain.setTargetAtTime(0,audioCtx.currentTime,0.3);
+}
+
+// Plasma background
+function drawPlasma(ph){
+  const idata=g.createImageData(W,H);
+  const d=idata.data;
+  const freq=params.plasmaFreq;
+  const bg=params.background;
+
+  if(bg<0.2){
+    // Pure black
+    for(let i=0;i<d.length;i+=4){d[i]=d[i+1]=d[i+2]=0;d[i+3]=255;}
+  } else if(bg<0.4){
+    // Deep space
+    for(let i=0;i<d.length;i+=4){
+      d[i]=Math.floor(Math.random()*3);d[i+1]=Math.floor(Math.random()*3);
+      d[i+2]=Math.floor(Math.random()*8);d[i+3]=255;
+    }
+  } else if(bg<0.6){
+    // Subtle plasma
+    const step=4;
+    for(let y=0;y<H;y+=step) for(let x=0;x<W;x+=step){
+      const v=Math.sin(x*0.008*freq+ph*0.0005)+Math.sin(y*0.007*freq+ph*0.0004)+Math.sin((x+y)*0.006*freq+ph*0.0006)+Math.sin(Math.sqrt(x*x+y*y)*0.01+ph*0.0003);
+      const hue=(params.baseHue+v*30+ph*0.01)%360;
+      const[r,gr,b]=hslToRgb(hue/360,0.8,0.05+Math.abs(v)*0.04);
+      for(let dy=0;dy<step&&y+dy<H;dy++) for(let dx=0;dx<step&&x+dx<W;dx++){
+        const idx=4*((y+dy)*W+(x+dx));
+        d[idx]=r;d[idx+1]=gr;d[idx+2]=b;d[idx+3]=255;
+      }
+    }
+  } else {
+    // Void gradient
+    for(let y=0;y<H;y+=2) for(let x=0;x<W;x+=2){
+      const cx2=x-W/2,cy2=y-H/2;
+      const r2=Math.sqrt(cx2*cx2+cy2*cy2);
+      const v=Math.max(0,1-r2/(W*0.6))*0.06;
+      const idx=4*(y*W+x);
+      const hue=(params.baseHue+180)%360;
+      const[r3,gr3,b3]=hslToRgb(hue/360,0.9,v);
+      for(let dy=0;dy<2&&y+dy<H;dy++) for(let dx=0;dx<2&&x+dx<W;dx++){
+        const i2=4*((y+dy)*W+(x+dx));
+        d[i2]=r3;d[i2+1]=gr3;d[i2+2]=b3;d[i2+3]=255;
+      }
+    }
+  }
+  g.putImageData(idata,0,0);
+}
+
+// Connection web between roots
+function drawConnections(projPts,ph){
+  const thresh=params.connectionThreshold;
+  const maxDist=(W<H?W:H)*0.22;
+
+  for(let i=0;i<240;i+=3){
+    for(let j=i+1;j<240;j+=3){
+      const[x1,y1]=projPts[i];
+      const[x2,y2]=projPts[j];
+      const dx=x2-x1,dy=y2-y1;
+      const dist=Math.sqrt(dx*dx+dy*dy);
+      if(dist>maxDist) continue;
+
+      // Inner product in 8D determines connection strength
+      const dot=E8[i].reduce((s,v,k)=>s+v*E8[j][k],0);
+      const absDot=Math.abs(dot);
+      if(absDot<thresh) continue;
+
+      const alpha=absDot*0.4*(1-dist/maxDist)*0.6;
+      if(alpha<0.01) continue;
+
+      const grd=g.createLinearGradient(x1,y1,x2,y2);
+      grd.addColorStop(0,getColor(i,ph,alpha));
+      grd.addColorStop(1,getColor(j,ph,alpha));
+      g.beginPath();
+      g.moveTo(x1,y1);
+      g.lineTo(x2,y2);
+      g.strokeStyle=grd;
+      g.lineWidth=0.3+absDot*0.8;
+      g.stroke();
+    }
+  }
+}
+
+// Glow effect
+function drawGlow(x,y,radius,color,layers){
+  for(let l=layers;l>0;l--){
+    const r=radius*l*1.8;
+    const a=0.12/l;
+    const grd=g.createRadialGradient(x,y,0,x,y,r);
+    grd.addColorStop(0,color.replace('rgba(','rgba(').replace(/,[^,]+\)$/,`,${a})`));
+    grd.addColorStop(1,'rgba(0,0,0,0)');
+    g.beginPath();
+    g.arc(x,y,r,0,Math.PI*2);
+    g.fillStyle=grd;
+    g.fill();
+  }
+}
+
+// Particle update & draw
+function updateParticles(ph){
+  if(!params.particleField) return;
+  for(const p of particles){
+    // Influenced by nearby root projections
+    p.vx+=(Math.random()-0.5)*0.2;
+    p.vy+=(Math.random()-0.5)*0.2;
+    p.vx*=0.97;p.vy*=0.97;
+    p.x+=p.vx;p.y+=p.vy;
+    if(p.x<0)p.x=W;if(p.x>W)p.x=0;
+    if(p.y<0)p.y=H;if(p.y>H)p.y=0;
+    p.life-=0.003;
+    if(p.life<=0){p.life=1;p.hue=(p.hue+30)%360;}
+
+    const alpha=p.life*0.4;
+    g.beginPath();
+    g.arc(p.x,p.y,p.size,0,Math.PI*2);
+    g.fillStyle=`hsla(${(p.hue+ph*0.01)%360},80%,70%,${alpha})`;
+    g.fill();
+  }
+}
+
+// Cosmic dust stars
+function drawCosmicDust(ph){
+  if(!params.cosmicDust) return;
+  const seed=Math.floor(ph/1000);
+  const rng=(n)=>((Math.sin(n*127.1+seed*311.7)*43758.5453)%1+1)%1;
+  for(let i=0;i<300;i++){
+    const sx=rng(i)*W;
+    const sy=rng(i+1000)*H;
+    const sz=0.2+rng(i+2000)*1.2;
+    const alpha=0.2+rng(i+3000)*0.5;
+    const twinkle=0.5+0.5*Math.sin(ph*0.003*rng(i+4000)*3+i);
+    g.beginPath();
+    g.arc(sx,sy,sz*twinkle,0,Math.PI*2);
+    g.fillStyle=`rgba(255,255,255,${alpha*twinkle*0.6})`;
+    g.fill();
+  }
+}
+
+// Draw the Dynkin diagram E8
+function drawDynkin(ph){
+  if(!params.dynkinAnim) return;
+  const nodes=8;
+  const bx=W/2-(nodes/2*36);
+  const by=H-50;
+  const nodePositions=[];
+  for(let i=0;i<7;i++) nodePositions.push([bx+i*36,by]);
+  nodePositions.push([bx+4*36,by-36]); // branch node
+
+  const connections=[[0,1],[1,2],[2,3],[3,4],[4,5],[5,6],[4,7]];
+
+  for(const[a,b] of connections){
+    const[x1,y1]=nodePositions[a],[x2,y2]=nodePositions[b];
+    const pulse=(Math.sin(ph*0.003+a*0.7)+1)/2;
+    g.beginPath();
+    g.moveTo(x1,y1);g.lineTo(x2,y2);
+    g.strokeStyle=`rgba(100,200,255,${0.3+0.4*pulse})`;
+    g.lineWidth=1.5;g.stroke();
+  }
+
+  for(let i=0;i<nodes;i++){
+    const[nx,ny]=nodePositions[i];
+    const pulse=(Math.sin(ph*0.004+i*0.9)+1)/2;
+    const r=4+2*pulse;
+    const hue=(params.baseHue+i*30+ph*0.02)%360;
+    g.beginPath();g.arc(nx,ny,r,0,Math.PI*2);
+    g.fillStyle=`hsla(${hue},90%,70%,0.9)`;g.fill();
+    g.strokeStyle=`rgba(255,255,255,0.6)`;g.lineWidth=1;g.stroke();
+  }
+}
+
+// Fractal root system overlay
+function drawFractalRoots(projPts,ph){
+  if(!params.fractalRoots) return;
+  const depth=params.fractalDepth;
+  const simple=getSimpleRoots();
+  for(const sr of simple){
+    let pos=[...sr];
+    let rp=project(pos,params.projMode,ph,1);
+    for(let d=0;d<depth;d++){
+      const scale2=0.5**d;
+      const nextPos=pos.map((v,i)=>v*0.5+sr[i]*0.5*Math.sin(ph*0.001+d));
+      const nextRp=project(nextPos,params.projMode,ph,1);
+      const alpha=0.5*scale2*(0.5+0.5*Math.sin(ph*0.003+d));
+      g.beginPath();
+      g.moveTo(rp[0],rp[1]);
+      g.lineTo(nextRp[0],nextRp[1]);
+      g.strokeStyle=`rgba(255,200,100,${alpha})`;
+      g.lineWidth=scale2*2;g.stroke();
+      pos=nextPos;rp=nextRp;
+    }
+  }
+}
+
+// Interference wave field
+function drawInterference(ph){
+  if(params.webDensity<0.3) return;
+  const waves=params.interferenceWaves;
+  const centers=[];
+  for(let i=0;i<waves;i++){
+    centers.push([
+      W/2+Math.cos(i*Math.PI*2/waves+ph*0.0004)*W*0.3,
+      H/2+Math.sin(i*Math.PI*2/waves+ph*0.0003)*H*0.3
+    ]);
+  }
+
+  const step=6;
+  for(let y=0;y<H;y+=step) for(let x=0;x<W;x+=step){
+    let v=0;
+    for(const[cx2,cy2] of centers){
+      const d=Math.sqrt((x-cx2)**2+(y-cy2)**2);
+      v+=Math.sin(d*0.04-ph*0.005);
+    }
+    v/=waves;
+    if(Math.abs(v)>0.85){
+      const alpha=0.03*(Math.abs(v)-0.85)/0.15;
+      const hue=(params.baseHue+v*60+ph*0.005)%360;
+      g.fillStyle=`hsla(${hue},90%,70%,${alpha})`;
+      g.fillRect(x,y,step,step);
+    }
+  }
+}
+
+// Mode names for HUD
+const modeNames=['GOLDEN RATIO','PETRIE POLYGON','COXETER PLANE','TORUS KNOT','SPIRAL GALAXY','QUANTUM FIELD'];
+const colorModeNames=['SPECTRAL','QUANTUM PHASE','WEYL FIRE','COSMIC NEBULA','BIOLUMINESCENT','AURORA','METALLIC','VOID'];
+
+function updateHUD(){
+  if(document.getElementById('h-mode')) document.getElementById('h-mode').textContent=modeNames[params.projMode]||'—';
+  if(document.getElementById('h-rot')) document.getElementById('h-rot').textContent=colorModeNames[params.colorMode]||'—';
+  if(document.getElementById('h-zoom')) document.getElementById('h-zoom').textContent=params.zoomBase.toFixed(2);
+}
+
+// Main render
+let accTime=0;
+function render(now){
+  requestAnimationFrame(render);
+
+  const dt=Math.min(now-lastTime,50);
+  lastTime=now;
+  accTime+=dt;
+
+  // FPS
+  fpsCount++;
+  fpsTime+=dt;
+  if(fpsTime>500){
+    lastFps=Math.round(fpsCount*1000/fpsTime);
+    fpsCount=0;fpsTime=0;
+    if(document.getElementById('h-fps')) document.getElementById('h-fps').textContent=lastFps;
+  }
+
+  t+=dt;
+  frame++;
+
+  const ph=t;
+  const zoom=params.zoomBase*(1+params.pulseAmp*0.15*Math.sin(ph*params.pulseFreq*0.001));
+
+  if(document.getElementById('h-phase')) document.getElementById('h-phase').textContent=(ph*0.001).toFixed(3);
+
+  // Rotate all roots in 8D
+  if(frame%2===0){
+    for(let i=0;i<240;i++){
+      rotatedRoots[i]=rotate8D(E8[i],params.rotAxes,dt*0.001,ph);
+    }
+  }
+
+  // Project to 2D
+  const projPts=rotatedRoots.map(r=>project(r,params.projMode,ph,zoom));
+
+  // Background clear with trail
+  if(params.trailLen>20){
+    g.fillStyle=`rgba(0,0,0,${params.trailFade})`;
+    g.fillRect(0,0,W,H);
+  } else {
+    drawPlasma(ph);
+  }
+
+  // Cosmic dust
+  drawCosmicDust(ph);
+
+  // Interference field
+  drawInterference(ph);
+
+  // Fractal roots
+  drawFractalRoots(projPts,ph);
+
+  // Connection web
+  if(params.webDensity>0.2) drawConnections(projPts,ph);
+
+  // Particles
+  updateParticles(ph);
+
+  // Trail update
+  for(let i=0;i<240;i++){
+    const[px,py]=projPts[i];
+    trails[i].push([px,py]);
+    if(trails[i].length>params.trailLen) trails[i].shift();
+
+    // Draw trail
+    if(trails[i].length>2){
+      g.beginPath();
+      g.moveTo(trails[i][0][0],trails[i][0][1]);
+      for(let k=1;k<trails[i].length;k++){
+        const alpha=(k/trails[i].length)*0.6;
+        g.lineTo(trails[i][k][0],trails[i][k][1]);
+      }
+      const trailColor=getColor(i,ph,0.4);
+      g.strokeStyle=trailColor;
+      g.lineWidth=0.6;g.stroke();
+    }
+  }
+
+  // Draw root nodes
+  for(let i=0;i<240;i++){
+    const[px,py]=projPts[i];
+    if(px<-200||px>W+200||py<-200||py>H+200) continue;
+
+    const root=E8[i];
+    const energy=root.reduce((s,x)=>s+x*x,0);
+    const flicker=params.quantumFlicker?(0.7+0.3*Math.sin(ph*0.01+i*1.37)):1;
+    const pulse=1+params.pulseAmp*0.4*Math.sin(ph*params.pulseFreq*0.002+i*0.1);
+    const size=params.nodeSize*pulse*flicker*(i===params.rootHighlight?2.5:1);
+
+    const color=getColor(i,ph,0.9*flicker);
+
+    // Chromatic aberration
+    if(params.chromAberr>0.5){
+      const ca=params.chromAberr;
+      g.beginPath();g.arc(px-ca,py,size*0.8,0,Math.PI*2);
+      g.fillStyle=getColor(i,ph+50,0.4);g.fill();
+      g.beginPath();g.arc(px+ca,py,size*0.8,0,Math.PI*2);
+      g.fillStyle=getColor(i,ph-50,0.4);g.fill();
+    }
+
+    // Glow
+    if(params.glowLayers>1){
+      drawGlow(px,py,size*3,color,params.glowLayers);
+    }
+
+    // Node
+    g.beginPath();
+    g.arc(px,py,size,0,Math.PI*2);
+    g.fillStyle=color;g.fill();
+
+    // Highlight ring
+    if(i===params.rootHighlight){
+      g.beginPath();g.arc(px,py,size*3,0,Math.PI*2);
+      g.strokeStyle=color;g.lineWidth=1.5;g.stroke();
+    }
+  }
+
+  // Weyl group reflections overlay
+  if(params.weylReflect){
+    const simple=getSimpleRoots();
+    for(let si=0;si<8;si++){
+      const sr=simple[si];
+      const srp=project(sr,params.projMode,ph,zoom);
+      const alpha=0.2+0.1*Math.sin(ph*0.003+si);
+      g.beginPath();
+      g.arc(srp[0],srp[1],8+4*Math.sin(ph*0.005+si),0,Math.PI*2);
+      g.strokeStyle=`rgba(255,255,100,${alpha})`;
+      g.lineWidth=2;g.stroke();
+    }
+  }
+
+  // Dynkin diagram
+  drawDynkin(ph);
+
+  // Copy to main canvas
+  mainCtx.drawImage(ctx2,0,0);
+
+  // Audio
+  if(soundOn) updateAudio(ph);
+}
+
+// Init
+function init(){
+  resize();
+  randomParams();
+  initParticles();
+
+  window.addEventListener('resize',()=>{resize();});
+
+  document.addEventListener('keydown',e=>{
+    if(e.key==='h'||e.key==='H'){
+      hudOn=!hudOn;
+      document.getElementById('hud').style.display=hudOn?'block':'none';
+    }
+    if(e.key==='s'||e.key==='S'){
+      soundOn=!soundOn;
+      if(soundOn){initAudio();masterGain&&(masterGain.gain.value=0.08);}
+      else{stopAudio();}
+    }
+    if(e.key===' '){
+      e.preventDefault();
+      randomParams();
+      initParticles();
+      for(let i=0;i<240;i++) trails[i]=[];
+    }
+  });
+
+  C.addEventListener('click',()=>{
+    randomParams();
+    initParticles();
+    for(let i=0;i<240;i++) trails[i]=[];
+  });
+
+  document.getElementById('loading').style.display='none';
+  requestAnimationFrame(render);
+}
+
+window.addEventListener('load',init);
+window.addEventListener('touchstart',e=>{
+  e.preventDefault();
+  randomParams();initParticles();
+  for(let i=0;i<240;i++) trails[i]=[];
+},{passive:false});
+</script>
+</body>
+</html>

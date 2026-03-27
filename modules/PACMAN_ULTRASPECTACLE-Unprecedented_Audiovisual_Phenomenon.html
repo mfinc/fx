@@ -1,0 +1,1521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="description" content="PACMAN ULTRASPECTACLE — The most breathtaking, deeply complex, never-before-seen Pac-Man audiovisual animation experience. Featuring hyper-detailed particle systems, procedurally generated ghost architectures, chromatic dimension warping, fractal maze universes, and multi-layered synchronized audio-visual phenomena. An unprecedented spectrum of wholly original effect architectures surpassing any special effects display ever created.">
+<meta name="keywords" content="Pac-Man animation, Pac-Man visual effects, Pac-Man spectacle, arcade art, generative art, audio visual experience, WebGL canvas animation, Pac-Man graphics, retro game art, particle system animation, procedural animation, ghost animation, maze animation, chromatic aberration effects, fractal animation, Pac-Man showcase, interactive canvas art, browser animation demo, JavaScript canvas art, retro arcade spectacle">
+<meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+<meta name="author" content="PACMAN ULTRASPECTACLE">
+<meta property="og:title" content="PACMAN ULTRASPECTACLE — Never-Before-Seen Audiovisual Phenomenon">
+<meta property="og:description" content="The most breathtaking Pac-Man animation ever created. Hyper-complex particle systems, procedural ghost architectures, fractal mazes, chromatic warping, and synchronized audio — an unprecedented visual experience.">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="PACMAN ULTRASPECTACLE — Beyond Reality">
+<title>PACMAN ULTRASPECTACLE — Unprecedented Audiovisual Phenomenon | Never-Before-Seen Pac-Man Animation</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000;cursor:none;}
+  canvas{display:block;position:fixed;top:0;left:0;width:100%;height:100%;}
+  #hud{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;display:none;font-family:'Courier New',monospace;color:#0ff;font-size:11px;padding:10px;}
+  #hud.visible{display:block;}
+  #hud-top{display:flex;justify-content:space-between;align-items:flex-start;}
+  #hud-info{background:rgba(0,0,0,0.7);border:1px solid #0ff4;padding:8px 12px;border-radius:4px;line-height:1.8;}
+  #hud-keys{background:rgba(0,0,0,0.7);border:1px solid #ff04;padding:8px 12px;border-radius:4px;line-height:1.8;color:#ff0;}
+  #hint{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,0.3);font-family:'Courier New',monospace;font-size:12px;pointer-events:none;letter-spacing:3px;transition:opacity 2s;}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div id="hud-top">
+    <div id="hud-info">
+      PACMAN ULTRASPECTACLE<br>
+      MODE: <span id="hud-mode">—</span><br>
+      PHASE: <span id="hud-phase">—</span><br>
+      ENTITIES: <span id="hud-ent">—</span><br>
+      PARTICLES: <span id="hud-par">—</span><br>
+      FPS: <span id="hud-fps">—</span>
+    </div>
+    <div id="hud-keys">
+      [H] TOGGLE HUD<br>
+      [S] TOGGLE SOUND<br>
+      [SPACE] REGENERATE<br>
+      [CLICK/TAP] REGENERATE
+    </div>
+  </div>
+</div>
+<div id="hint">SPACE · CLICK · TAP → REGENERATE</div>
+<script>
+// ============================================================
+// PACMAN ULTRASPECTACLE
+// Never-before-seen audiovisual phenomenon
+// ============================================================
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const hud = document.getElementById('hud');
+const hudMode = document.getElementById('hud-mode');
+const hudPhase = document.getElementById('hud-phase');
+const hudEnt = document.getElementById('hud-ent');
+const hudPar = document.getElementById('hud-par');
+const hudFps = document.getElementById('hud-fps');
+const hint = document.getElementById('hint');
+
+let W, H, CX, CY;
+let t = 0, frame = 0, fps = 60, lastTime = 0;
+let hudVisible = false, soundEnabled = false;
+let audioCtx = null, masterGain = null;
+let rng, seed;
+let state = {};
+let particles = [];
+let entities = [];
+let trails = [];
+let mazeLines = [];
+let mode = 0;
+let phaseT = 0;
+let fpsArr = [], fpsLast = performance.now();
+
+// ─── SEEDED RNG ───────────────────────────────────────────────
+function mkRng(s) {
+  let x = s|0;
+  return () => {
+    x ^= x<<13; x ^= x>>17; x ^= x<<5;
+    return ((x>>>0)/4294967296);
+  };
+}
+
+// ─── RESIZE ───────────────────────────────────────────────────
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  CX = W/2; CY = H/2;
+}
+window.addEventListener('resize', () => { resize(); init(); });
+
+// ─── COLOR UTILS ─────────────────────────────────────────────
+const lerp = (a,b,t) => a+(b-a)*t;
+const clamp = (v,a,b) => Math.max(a,Math.min(b,v));
+const PI2 = Math.PI*2;
+
+function hsl(h,s,l,a=1){
+  return `hsla(${h|0},${s|0}%,${l|0}%,${a})`;
+}
+function rgb(r,g,b,a=1){
+  return `rgba(${r|0},${g|0},${b|0},${a})`;
+}
+
+// ─── AUDIO ENGINE ─────────────────────────────────────────────
+function initAudio() {
+  if(audioCtx) return;
+  audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+  masterGain = audioCtx.createGain();
+  masterGain.gain.value = 0;
+  masterGain.connect(audioCtx.destination);
+}
+
+function playTone(freq, type, dur, vol=0.08, detune=0, delay=0) {
+  if(!soundEnabled||!audioCtx) return;
+  try {
+    const g = audioCtx.createGain();
+    const o = audioCtx.createOscillator();
+    const now = audioCtx.currentTime + delay;
+    o.type = type;
+    o.frequency.setValueAtTime(freq, now);
+    o.detune.value = detune;
+    o.frequency.exponentialRampToValueAtTime(freq*0.5, now+dur);
+    g.gain.setValueAtTime(0,now);
+    g.gain.linearRampToValueAtTime(vol,now+0.01);
+    g.gain.exponentialRampToValueAtTime(0.001,now+dur);
+    o.connect(g); g.connect(masterGain);
+    o.start(now); o.stop(now+dur+0.05);
+  } catch(e){}
+}
+
+function playNoise(freq, dur, vol=0.05, delay=0) {
+  if(!soundEnabled||!audioCtx) return;
+  try {
+    const bufSize = audioCtx.sampleRate * dur;
+    const buf = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
+    const d = buf.getChannelData(0);
+    for(let i=0;i<bufSize;i++) d[i]=(Math.random()*2-1)*0.3;
+    const src = audioCtx.createBufferSource();
+    src.buffer = buf;
+    const filt = audioCtx.createBiquadFilter();
+    filt.type = 'bandpass';
+    filt.frequency.value = freq;
+    filt.Q.value = 3;
+    const g = audioCtx.createGain();
+    const now = audioCtx.currentTime + delay;
+    g.gain.setValueAtTime(vol,now);
+    g.gain.exponentialRampToValueAtTime(0.001,now+dur);
+    src.connect(filt); filt.connect(g); g.connect(masterGain);
+    src.start(now); src.stop(now+dur+0.05);
+  } catch(e){}
+}
+
+function audioTick() {
+  if(!soundEnabled||!audioCtx) return;
+  const m = state.modeIndex||0;
+  const ph = (phaseT*0.001)%1;
+  // Waka waka rhythm
+  if(frame%18===0) playTone(220+m*30,['square','sawtooth','triangle'][m%3],0.08,0.05);
+  if(frame%18===9) playTone(330+m*20,'square',0.06,0.04);
+  // Ghost ambient
+  if(frame%45===0) {
+    const ghostFreqs=[400,500,350,450];
+    ghostFreqs.forEach((f,i)=>{
+      const g=entities.filter(e=>e.type==='ghost')[i];
+      if(g&&g.frightened) playTone(f*0.5,'sine',0.2,0.02,0,i*0.05);
+      else playTone(f,'sine',0.15,0.01,50*Math.sin(ph*PI2),i*0.04);
+    });
+  }
+  // Mode transitions
+  if(frame%120===0) playNoise(200+m*50,0.15,0.03);
+  // Particle sounds
+  if(frame%30===0&&particles.length>50) playTone(800+rng()*400,'triangle',0.05,0.02);
+}
+
+// ─── PACMAN ENTITY ─────────────────────────────────────────────
+class Pacman {
+  constructor(x,y,size,palette,variant=0) {
+    this.x=x; this.y=y; this.size=size;
+    this.palette=palette; this.variant=variant;
+    this.angle=0; this.mouthAngle=0;
+    this.mouthOpen=0; this.mouthDir=1;
+    this.vx=0; this.vy=0; this.speed=0;
+    this.trail=[];
+    this.energized=false;
+    this.phaseOffset=rng()*PI2;
+    this.wobble=0;
+    this.eyeState=0;
+    this.deathAnim=0; // 0=alive, >0 dying
+    this.scale=1;
+    this.opacity=1;
+    this.chromaOffset=0;
+    this.pulsePhase=rng()*PI2;
+  }
+
+  update(dt) {
+    this.mouthAngle += dt * 0.008 * this.mouthDir;
+    if(this.mouthAngle>Math.PI/6) this.mouthDir=-1;
+    if(this.mouthAngle<0.001) { this.mouthAngle=0.001; this.mouthDir=1; }
+    this.mouthOpen = this.mouthAngle;
+    this.wobble = Math.sin(t*0.003+this.phaseOffset)*0.08;
+    this.pulsePhase += dt*0.003;
+
+    // Trail
+    if(this.trail.length===0 || Math.hypot(this.x-this.trail[0].x,this.y-this.trail[0].y)>this.size*0.3) {
+      this.trail.unshift({x:this.x,y:this.y,a:1,size:this.size});
+      if(this.trail.length>40) this.trail.pop();
+    }
+    this.trail.forEach((p,i)=>{ p.a=1-i/this.trail.length; });
+  }
+
+  drawCore(cx, px, py, sz, angle, mouth, pal, wobble, energized, opacity, chromaShift=0) {
+    cx.save();
+    cx.translate(px, py);
+    cx.rotate(angle + wobble);
+    cx.scale(1+wobble*0.3, 1-wobble*0.1);
+    cx.globalAlpha = opacity;
+
+    // Chromatic aberration layers
+    if(chromaShift>0) {
+      for(let ci=0;ci<3;ci++) {
+        const offX=ci===0?-chromaShift:ci===2?chromaShift:0;
+        const offY=ci===1?-chromaShift*0.5:0;
+        cx.save();
+        cx.translate(offX,offY);
+        cx.globalCompositeOperation=['screen','screen','screen'][ci];
+        cx.globalAlpha=opacity*0.4;
+        cx.beginPath();
+        cx.moveTo(0,0);
+        if(mouth < 0.05) {
+          cx.arc(0,0,sz, 0, Math.PI*2, false);
+        } else {
+          cx.arc(0,0,sz, mouth, -mouth, false);
+        }
+        cx.closePath();
+        const chC=['rgba(255,0,0,0.6)','rgba(0,255,0,0.6)','rgba(0,0,255,0.6)'][ci];
+        cx.fillStyle=chC;
+        cx.fill();
+        cx.restore();
+      }
+      cx.globalCompositeOperation='source-over';
+      cx.globalAlpha=opacity;
+    }
+
+    // Glow
+    if(energized) {
+      cx.shadowColor=pal[1]||'#fff';
+      cx.shadowBlur=sz*1.5;
+    } else {
+      cx.shadowColor=pal[0];
+      cx.shadowBlur=sz*0.4;
+    }
+
+    // Body gradient
+    const grad = cx.createRadialGradient(-sz*0.2,-sz*0.2,sz*0.05,0,0,sz*1.1);
+    grad.addColorStop(0, energized?'#fff':pal[2]||pal[0]);
+    grad.addColorStop(0.5, pal[0]);
+    grad.addColorStop(1, pal[1]||pal[0]);
+    // When mouth is near zero draw a full circle; otherwise draw pie slice with wedge gap = mouth.
+    cx.beginPath();
+    cx.moveTo(0,0);
+    if(mouth < 0.05) {
+      cx.arc(0,0,sz, 0, Math.PI*2, false);
+    } else {
+      cx.arc(0,0,sz, mouth, -mouth, false);
+    }
+    cx.closePath();
+    cx.fillStyle=grad;
+    cx.fill();
+
+    // Outline
+    cx.strokeStyle = energized ? '#fff' : (pal[3]||'rgba(0,0,0,0.5)');
+    cx.lineWidth = sz*0.04;
+    cx.stroke();
+
+    // Eye
+    const eyeR=sz*0.12;
+    cx.beginPath();
+    cx.arc(-sz*0.08,-sz*0.38,eyeR,0,PI2);
+    cx.fillStyle='#000';
+    cx.fill();
+    cx.beginPath();
+    cx.arc(-sz*0.08+eyeR*0.3,-sz*0.38-eyeR*0.2,eyeR*0.4,0,PI2);
+    cx.fillStyle='#fff';
+    cx.fill();
+
+    cx.restore();
+  }
+
+  draw(cx) {
+    // Trail
+    this.trail.forEach((p,i)=>{
+      if(i===0) return;
+      cx.save();
+      cx.globalAlpha=p.a*0.25;
+      cx.beginPath();
+      cx.arc(p.x,p.y,p.size*(1-i/this.trail.length*0.5),0,PI2);
+      cx.fillStyle=this.palette[0];
+      cx.shadowColor=this.palette[0];
+      cx.shadowBlur=p.size;
+      cx.fill();
+      cx.restore();
+    });
+
+    this.drawCore(cx, this.x, this.y, this.size*(this.scale+this.wobble*0.1),
+      this.angle, this.mouthOpen, this.palette, this.wobble,
+      this.energized, this.opacity, this.chromaOffset);
+  }
+}
+
+// ─── GHOST ENTITY ──────────────────────────────────────────────
+const GHOST_COLORS = [
+  ['#FF0000','#FFB8AE'], // Blinky red
+  ['#FFB8FF','#FFB8AE'], // Pinky
+  ['#00FFFF','#FFB8AE'], // Inky cyan
+  ['#FFB852','#FFB8AE'], // Clyde orange
+  ['#7F00FF','#CF7FFF'], // Ultra-violet (bonus)
+  ['#00FF7F','#7FFFFF'], // Spectral green
+];
+
+class Ghost {
+  constructor(x,y,size,colorIdx,variant=0) {
+    this.x=x; this.y=y; this.size=size;
+    this.colorIdx=colorIdx;
+    this.col=GHOST_COLORS[colorIdx%GHOST_COLORS.length];
+    this.variant=variant;
+    this.frightened=false;
+    this.eaten=false;
+    this.vx=(rng()-0.5)*2; this.vy=(rng()-0.5)*2;
+    this.waveOffset=rng()*PI2;
+    this.eyeAngle=0;
+    this.trail=[];
+    this.phaseShift=rng()*PI2;
+    this.aura=rng()*0.5+0.5;
+    this.distortionAmt=rng()*0.3;
+    this.tentaclePhase=rng()*PI2;
+    this.age=0;
+    this.opacity=1;
+    this.scale=1;
+    this.pulseAmt=rng()*0.2+0.05;
+    this.orbiting=false;
+    this.orbitR=0; this.orbitAngle=0; this.orbitSpeed=0;
+  }
+
+  update(dt) {
+    this.age+=dt;
+    if(this.orbiting) {
+      this.orbitAngle+=this.orbitSpeed*dt;
+      this.x=CX+Math.cos(this.orbitAngle)*this.orbitR;
+      this.y=CY+Math.sin(this.orbitAngle)*this.orbitR;
+    } else {
+      this.x+=this.vx*dt*0.04;
+      this.y+=this.vy*dt*0.04;
+      if(this.x<-this.size) this.x=W+this.size;
+      if(this.x>W+this.size) this.x=-this.size;
+      if(this.y<-this.size) this.y=H+this.size;
+      if(this.y>H+this.size) this.y=-this.size;
+    }
+    // Wobble velocity
+    this.vx+=Math.sin(this.age*0.002+this.phaseShift)*0.5;
+    this.vy+=Math.cos(this.age*0.003+this.phaseShift)*0.5;
+    const spd=Math.hypot(this.vx,this.vy);
+    if(spd>4){this.vx=this.vx/spd*4;this.vy=this.vy/spd*4;}
+    this.eyeAngle=Math.atan2(this.vy,this.vx);
+    this.waveOffset+=dt*0.005;
+    this.tentaclePhase+=dt*0.004;
+
+    // Trail
+    if(this.trail.length===0||Math.hypot(this.x-this.trail[0].x,this.y-this.trail[0].y)>this.size*0.2){
+      this.trail.unshift({x:this.x,y:this.y,a:0.5});
+      if(this.trail.length>30) this.trail.pop();
+    }
+    this.trail.forEach((p,i)=>{ p.a=(1-i/this.trail.length)*0.4; });
+  }
+
+  draw(cx) {
+    const s=this.size*(this.scale+Math.sin(this.age*0.008+this.phaseShift)*this.pulseAmt);
+    const col=this.frightened?'#2121DE':(this.eaten?'rgba(100,100,255,0.4)':this.col[0]);
+    const lightCol=this.frightened?'#FFB897':(this.col[1]||'#fff');
+
+    // Trail
+    this.trail.forEach((p,i)=>{
+      if(i===0) return;
+      cx.save();
+      cx.globalAlpha=p.a*0.3;
+      const ts=s*(0.5+0.5*(1-i/this.trail.length));
+      cx.beginPath();
+      cx.ellipse(p.x,p.y,ts*0.7,ts*0.7,0,0,PI2);
+      cx.fillStyle=col;
+      cx.fill();
+      cx.restore();
+    });
+
+    cx.save();
+    cx.translate(this.x, this.y);
+    cx.globalAlpha=this.opacity;
+
+    // Aura glow
+    const auraGrad=cx.createRadialGradient(0,0,s*0.5,0,0,s*2.5);
+    auraGrad.addColorStop(0, this.frightened ? 'rgba(33,33,222,0.15)' : `hsla(${this.colorIdx*40},100%,50%,0.15)`);
+    auraGrad.addColorStop(1,'transparent');
+    cx.beginPath();
+    cx.arc(0,0,s*2.5,0,PI2);
+    cx.fillStyle=auraGrad;
+    cx.fill();
+
+    // Shadow
+    cx.shadowColor=col;
+    cx.shadowBlur=s*0.8;
+
+    // Ghost body path
+    cx.beginPath();
+    const top=Math.PI;
+    cx.arc(0,-s*0.2,s*0.9,top,0);
+    // Bottom tentacles
+    const numT=5+this.variant;
+    const bw=s*1.8/(numT+1);
+    const baseY=s*0.7;
+    cx.lineTo(s*0.9,baseY);
+    for(let i=numT;i>=0;i--) {
+      const tx=-s*0.9+bw*(i+0.5);
+      const dir=i%2===0?1:-1;
+      const wave=Math.sin(this.tentaclePhase+i*1.2)*s*0.25*dir;
+      cx.quadraticCurveTo(tx+bw*0.3,baseY+s*0.35+wave,tx,baseY+wave*0.7);
+      cx.quadraticCurveTo(tx-bw*0.3,baseY+s*0.1+wave*0.5,-s*0.9+bw*i,baseY);
+    }
+    cx.closePath();
+
+    const grad=cx.createLinearGradient(0,-s,0,s*0.8);
+    grad.addColorStop(0,lightCol);
+    grad.addColorStop(0.4,col);
+    grad.addColorStop(1, this.frightened ? 'rgba(33,33,180,0.5)' : (this.eaten ? 'rgba(100,100,255,0.15)' : `hsla(${this.colorIdx*40},100%,40%,0.5)`));
+    cx.fillStyle=grad;
+    cx.fill();
+    cx.strokeStyle=this.frightened?'#1111BB':'rgba(0,0,0,0.3)';
+    cx.lineWidth=s*0.04;
+    cx.stroke();
+
+    // Eyes
+    if(!this.eaten) {
+      const eyePositions=[[-s*0.28,-s*0.1],[s*0.28,-s*0.1]];
+      eyePositions.forEach(([ex,ey])=>{
+        // White
+        cx.beginPath();
+        cx.ellipse(ex,ey,s*0.22,s*0.28,0,0,PI2);
+        cx.fillStyle=this.frightened?'rgba(255,255,255,0.4)':'#fff';
+        cx.fill();
+        // Iris
+        if(!this.frightened) {
+          const pupilX=ex+Math.cos(this.eyeAngle)*s*0.08;
+          const pupilY=ey+Math.sin(this.eyeAngle)*s*0.08;
+          cx.beginPath();
+          cx.ellipse(pupilX,pupilY,s*0.13,s*0.16,0,0,PI2);
+          cx.fillStyle='#2279FF';
+          cx.fill();
+          cx.beginPath();
+          cx.ellipse(pupilX+s*0.04,pupilY-s*0.04,s*0.05,s*0.06,0,0,PI2);
+          cx.fillStyle='#fff';
+          cx.fill();
+        } else {
+          // Scared eyes X
+          cx.strokeStyle='#fff';
+          cx.lineWidth=s*0.06;
+          cx.beginPath();
+          cx.moveTo(ex-s*0.1,ey-s*0.1);cx.lineTo(ex+s*0.1,ey+s*0.1);
+          cx.moveTo(ex+s*0.1,ey-s*0.1);cx.lineTo(ex-s*0.1,ey+s*0.1);
+          cx.stroke();
+        }
+      });
+    } else {
+      // Eaten eyes only
+      [-s*0.28,s*0.28].forEach(ex=>{
+        cx.beginPath();
+        cx.ellipse(ex,-s*0.1,s*0.12,s*0.15,0,0,PI2);
+        cx.fillStyle='#2279FF';
+        cx.fill();
+        cx.beginPath();
+        cx.ellipse(ex+s*0.04,-s*0.14,s*0.06,s*0.07,0,0,PI2);
+        cx.fillStyle='#fff';
+        cx.fill();
+      });
+    }
+
+    cx.restore();
+  }
+}
+
+// ─── PARTICLE SYSTEM ──────────────────────────────────────────
+class Particle {
+  constructor(x,y,opts={}) {
+    this.x=x; this.y=y;
+    this.vx=(rng()-0.5)*(opts.speed||3);
+    this.vy=(rng()-0.5)*(opts.speed||3)-(opts.buoyancy||0);
+    this.life=1; this.decay=rng()*0.01+0.005+(opts.decay||0);
+    this.size=rng()*(opts.maxSize||6)+1;
+    this.color=opts.color||'#ff0';
+    this.type=opts.type||'dot';
+    this.angle=rng()*PI2;
+    this.spin=(rng()-0.5)*0.2;
+    this.glow=opts.glow||false;
+    this.gravity=opts.gravity||0;
+    this.trail=[]; this.trailMax=opts.trail||0;
+    this.chromatic=opts.chromatic||false;
+    this.bloom=opts.bloom||0;
+    this.morphPhase=rng()*PI2;
+  }
+  update() {
+    if(this.trailMax>0) {
+      this.trail.unshift({x:this.x,y:this.y,a:this.life});
+      if(this.trail.length>this.trailMax) this.trail.pop();
+    }
+    this.x+=this.vx;
+    this.y+=this.vy;
+    this.vy+=this.gravity;
+    this.vx*=0.99; this.vy*=0.99;
+    this.life-=this.decay;
+    this.angle+=this.spin;
+    this.size*=0.998;
+    this.morphPhase+=0.05;
+  }
+  draw(cx) {
+    if(this.life<=0) return;
+    cx.save();
+    cx.globalAlpha=this.life;
+    if(this.glow) { cx.shadowColor=this.color; cx.shadowBlur=this.size*2; }
+    if(this.bloom>0) { cx.shadowBlur=this.size*this.bloom; }
+
+    if(this.type==='dot') {
+      cx.beginPath(); cx.arc(this.x,this.y,this.size,0,PI2);
+      cx.fillStyle=this.color; cx.fill();
+    } else if(this.type==='pellet') {
+      // Classic pac dot with glow rings
+      for(let r=3;r>=0;r--) {
+        cx.beginPath(); cx.arc(this.x,this.y,this.size*(1+r*0.5),0,PI2);
+        cx.fillStyle=`rgba(255,255,255,${(0.3-r*0.08)*this.life})`;
+        cx.fill();
+      }
+      cx.beginPath(); cx.arc(this.x,this.y,this.size,0,PI2);
+      cx.fillStyle=this.color; cx.fill();
+    } else if(this.type==='power') {
+      // Power pellet — pulsing star
+      const pts=8, outer=this.size*(1+0.3*Math.sin(this.morphPhase)), inner=outer*0.4;
+      cx.beginPath();
+      for(let i=0;i<pts*2;i++) {
+        const r=i%2===0?outer:inner;
+        const a=this.angle+i*Math.PI/pts;
+        i===0?cx.moveTo(this.x+Math.cos(a)*r,this.y+Math.sin(a)*r)
+              :cx.lineTo(this.x+Math.cos(a)*r,this.y+Math.sin(a)*r);
+      }
+      cx.closePath();
+      cx.fillStyle=this.color; cx.fill();
+      cx.shadowColor='#fff'; cx.shadowBlur=this.size*4;
+    } else if(this.type==='ghost_fragment') {
+      cx.save(); cx.translate(this.x,this.y); cx.rotate(this.angle);
+      cx.beginPath();
+      cx.arc(0,0,this.size*0.8,Math.PI,0);
+      cx.lineTo(this.size*0.8,this.size*0.5);
+      cx.quadraticCurveTo(this.size*0.5,this.size*0.2,0,this.size*0.5);
+      cx.quadraticCurveTo(-this.size*0.5,this.size*0.2,-this.size*0.8,this.size*0.5);
+      cx.closePath();
+      cx.fillStyle=this.color; cx.fill();
+      cx.restore();
+    } else if(this.type==='arc') {
+      cx.beginPath();
+      cx.arc(this.x,this.y,this.size,this.angle,this.angle+Math.PI*0.7);
+      cx.strokeStyle=this.color; cx.lineWidth=this.size*0.3; cx.stroke();
+    } else if(this.type==='maze_piece') {
+      cx.save(); cx.translate(this.x,this.y); cx.rotate(this.angle);
+      cx.strokeStyle=this.color; cx.lineWidth=Math.max(1,this.size*0.4);
+      cx.beginPath();
+      if(rng()>0.5) {
+        cx.rect(-this.size,-this.size,this.size*2,this.size*2);
+      } else {
+        cx.arc(0,0,this.size,0,Math.PI*rng()*2);
+      }
+      cx.stroke();
+      cx.restore();
+    } else if(this.type==='shockwave') {
+      cx.beginPath();
+      cx.arc(this.x,this.y,this.size*(2-this.life*2+1),0,PI2);
+      cx.strokeStyle=this.color;
+      cx.lineWidth=(1-this.life)*this.size*0.3+0.5;
+      cx.stroke();
+    }
+
+    // Trail
+    if(this.trail.length>1) {
+      cx.beginPath();
+      cx.moveTo(this.trail[0].x,this.trail[0].y);
+      this.trail.forEach(p=>cx.lineTo(p.x,p.y));
+      cx.strokeStyle=this.color;
+      cx.lineWidth=this.size*0.4;
+      cx.globalAlpha=this.life*0.4;
+      cx.stroke();
+    }
+
+    cx.restore();
+  }
+}
+
+// ─── FRACTAL MAZE GENERATOR ────────────────────────────────────
+function genMaze(seed) {
+  const r=mkRng(seed);
+  const lines=[];
+  const cols=['#00f','#00e','#0af','#08f','#06f','#04f'];
+
+  function addSegment(x1,y1,x2,y2,col,w,depth) {
+    lines.push({x1,y1,x2,y2,col,w,alpha:1,depth,
+      drawT:0, // animation progress
+      len:Math.hypot(x2-x1,y2-y1)
+    });
+  }
+
+  // Procedural maze using recursive subdivision
+  function divide(x,y,w,h,depth) {
+    if(depth>state.mazeDepth||w<30||h<30) return;
+    const col=cols[depth%cols.length];
+    const lw=Math.max(1,4-depth*0.5);
+
+    // Horizontal wall
+    if(r()>0.4) {
+      const wy=y+r()*h*0.6+h*0.2;
+      const gap=r()*w*0.3+w*0.1;
+      const gx=x+r()*(w-gap);
+      addSegment(x,wy,gx,wy,col,lw,depth);
+      addSegment(gx+gap,wy,x+w,wy,col,lw,depth);
+    }
+    // Vertical wall
+    if(r()>0.4) {
+      const wx=x+r()*w*0.6+w*0.2;
+      const gap=r()*h*0.3+h*0.1;
+      const gy=y+r()*(h-gap);
+      addSegment(wx,y,wx,gy,col,lw,depth);
+      addSegment(wx,gy+gap,wx,y+h,col,lw,depth);
+    }
+
+    // Curved corridors
+    if(r()>0.6&&depth<3) {
+      const cx2=x+r()*w, cy2=y+r()*h;
+      const r2=r()*Math.min(w,h)*0.3+20;
+      lines.push({
+        type:'arc',
+        x:cx2,y:cy2,radius:r2,
+        startAngle:r()*PI2, endAngle:r()*PI2+r()*Math.PI+0.5,
+        col,w:lw,alpha:1,depth,drawT:0
+      });
+    }
+    divide(x,y,w/2,h/2,depth+1);
+    divide(x+w/2,y,w/2,h/2,depth+1);
+    divide(x,y+h/2,w/2,h/2,depth+1);
+    divide(x+w/2,y+h/2,w/2,h/2,depth+1);
+  }
+
+  const border=30;
+  divide(border,border,W-border*2,H-border*2,0);
+
+  // Outer border
+  const bc=cols[0];
+  const bw=3;
+  addSegment(border,border,W-border,border,bc,bw,-1);
+  addSegment(W-border,border,W-border,H-border,bc,bw,-1);
+  addSegment(W-border,H-border,border,H-border,bc,bw,-1);
+  addSegment(border,H-border,border,border,bc,bw,-1);
+
+  // Sort for draw order
+  lines.sort((a,b)=>(b.depth||0)-(a.depth||0));
+  return lines;
+}
+
+// ─── SPAWNERS & EFFECTS ────────────────────────────────────────
+function spawnPellets() {
+  const count=state.pelletCount;
+  for(let i=0;i<count;i++) {
+    const isPower=rng()<0.05;
+    particles.push(new Particle(
+      rng()*W, rng()*H,
+      {type:isPower?'power':'pellet',
+       color:isPower?'#fff':`hsl(${rng()*60+30},100%,80%)`,
+       speed:0, decay:0, maxSize:isPower?8:3,
+       glow:true, bloom:isPower?6:2}
+    ));
+    particles[particles.length-1].decay=0; // Static pellets
+    particles[particles.length-1].static=true;
+    particles[particles.length-1].vx=0;
+    particles[particles.length-1].vy=0;
+  }
+}
+
+function spawnEatEffect(x,y,color) {
+  playTone(800+rng()*400,'square',0.05,0.06);
+  for(let i=0;i<20;i++) {
+    const angle=rng()*PI2;
+    const speed=rng()*4+1;
+    const p=new Particle(x,y,{
+      type:rng()>0.5?'dot':'arc',
+      color,speed:speed*2,
+      maxSize:rng()*5+2,decay:0.02,
+      glow:true,trail:8
+    });
+    p.vx=Math.cos(angle)*speed;
+    p.vy=Math.sin(angle)*speed;
+    particles.push(p);
+  }
+  // Shockwave
+  const sw=new Particle(x,y,{type:'shockwave',color,maxSize:80,decay:0.025,glow:false});
+  sw.vx=0;sw.vy=0;
+  particles.push(sw);
+}
+
+function spawnGhostEaten(ghost) {
+  ghost.eaten=true;
+  playTone(400,'sawtooth',0.1,0.1);
+  playNoise(200,0.1,0.06);
+  for(let i=0;i<40;i++) {
+    particles.push(new Particle(ghost.x,ghost.y,{
+      type:'ghost_fragment',
+      color:ghost.col[0],
+      speed:rng()*5+2,
+      maxSize:ghost.size*0.4,
+      decay:0.015,glow:true,
+      gravity:0.02,trail:5
+    }));
+  }
+  setTimeout(()=>{ ghost.eaten=false; ghost.frightened=false; },2000);
+}
+
+function spawnBigBang(x,y) {
+  playTone(100,'sawtooth',0.5,0.15);
+  playNoise(150,0.3,0.1);
+  for(let i=0;i<80;i++) {
+    const type=['dot','ghost_fragment','arc','maze_piece','pellet','power'][Math.floor(rng()*6)];
+    particles.push(new Particle(x,y,{
+      type,
+      color:`hsl(${rng()*360},100%,${60+rng()*30}%)`,
+      speed:rng()*10+2,maxSize:rng()*10+2,
+      decay:rng()*0.01+0.005,
+      glow:true,bloom:4,trail:10,
+      gravity:rng()*0.05-0.02
+    }));
+  }
+}
+
+function spawnChromaExplosion(x,y) {
+  ['#f00','#0f0','#00f','#ff0','#f0f','#0ff'].forEach((col,i)=>{
+    for(let j=0;j<15;j++) {
+      const angle=rng()*PI2;
+      const speed=rng()*6+1;
+      const p=new Particle(x,y,{type:'dot',color:col,maxSize:rng()*4+1,decay:0.01,glow:true});
+      p.vx=Math.cos(angle)*speed;
+      p.vy=Math.sin(angle)*speed;
+      particles.push(p);
+    }
+  });
+}
+
+// ─── DISPLAY MODES ────────────────────────────────────────────
+// 0: GRAND PARADE — Procession of Pac-Men + ghosts
+// 1: FRACTAL COLLAPSE — Mazes forming/exploding
+// 2: CHROMATIC STORM — Pac-Men made of chromatic layers
+// 3: GHOST DIMENSION — Ghosts phasing through realities
+// 4: QUANTUM CHASE — High-speed multi-scale chase
+// 5: VORTEX CATHEDRAL — Spiral formations
+// 6: NEON DISSECTION — Anatomical breakdown of characters
+// 7: HYPERCUBE MAZE — 3D-projected rotating maze
+const NUM_MODES = 8;
+
+function initMode() {
+  particles = [];
+  entities = [];
+  mazeLines = [];
+  trails = [];
+  phaseT = 0;
+
+  state.modeIndex = mode;
+  state.mazeDepth = 3+Math.floor(rng()*3);
+  state.pelletCount = 60+Math.floor(rng()*80);
+  state.numPacmen = 2+Math.floor(rng()*6);
+  state.numGhosts = 4+Math.floor(rng()*8);
+  state.palette = Math.floor(rng()*5);
+  state.colorShift = rng()*360;
+  state.bgStyle = Math.floor(rng()*4);
+  state.energized = rng()>0.5;
+  state.chromaIntensity = rng()*8;
+  state.zoomPulse = rng()>0.6;
+  state.twistField = rng()>0.5;
+  state.fractalDepth = 2+Math.floor(rng()*4);
+  state.trailLength = 20+Math.floor(rng()*60);
+
+  if(hudMode) hudMode.textContent=['GRAND PARADE','FRACTAL COLLAPSE','CHROMATIC STORM','GHOST DIMENSION','QUANTUM CHASE','VORTEX CATHEDRAL','NEON DISSECTION','HYPERCUBE MAZE'][mode];
+
+  // Maze
+  if(mode===1||mode===7||rng()>0.5) mazeLines=genMaze(seed*137+mode*13);
+
+  // Spawn entities based on mode
+  const palettes=[
+    ['#FFE000','#E8A000','#FFF080','#000'],  // Classic yellow
+    ['#FF6B6B','#C0392B','#FFB3B3','#3D0000'],// Red hot
+    ['#00FFFF','#0080FF','#80FFFF','#001040'],// Cyber cyan
+    ['#FF00FF','#8000FF','#FFB0FF','#200030'],// Psychedelic
+    ['#00FF80','#00C060','#80FFBF','#001020'],// Matrix green
+  ];
+  const pal=palettes[state.palette];
+
+  if(mode===0) { // Grand Parade
+    for(let i=0;i<state.numPacmen;i++) {
+      const pm=new Pacman(
+        CX+Math.cos(i/state.numPacmen*PI2)*(W*0.35),
+        CY+Math.sin(i/state.numPacmen*PI2)*(H*0.3),
+        30+rng()*50, pal, i%3
+      );
+      pm.angle=i/state.numPacmen*PI2+Math.PI*0.5;
+      pm.speed=rng()*1.5+0.5;
+      pm.orbitR=W*0.3+rng()*100;
+      pm.orbitAngle=i/state.numPacmen*PI2;
+      pm.orbitSpeed=(rng()*0.5+0.3)*(rng()>0.5?1:-1)*0.001;
+      pm.orbiting=true;
+      entities.push(pm);
+    }
+    for(let i=0;i<state.numGhosts;i++) {
+      const g=new Ghost(
+        rng()*W, rng()*H,
+        25+rng()*45, i, i%2
+      );
+      g.orbitR=W*0.2+rng()*150;
+      g.orbitAngle=rng()*PI2;
+      g.orbitSpeed=(rng()*0.3+0.1)*(rng()>0.5?1:-1)*0.001;
+      g.orbiting=true;
+      g.frightened=rng()>0.7;
+      entities.push(g);
+    }
+    spawnPellets();
+
+  } else if(mode===1) { // Fractal collapse
+    for(let i=0;i<state.numPacmen;i++) {
+      const pm=new Pacman(rng()*W,rng()*H,20+rng()*40,pal,i%3);
+      pm.vx=(rng()-0.5)*2; pm.vy=(rng()-0.5)*2;
+      pm.orbiting=false; pm.angle=rng()*PI2;
+      entities.push(pm);
+    }
+    for(let i=0;i<state.numGhosts;i++) {
+      const g=new Ghost(rng()*W,rng()*H,20+rng()*40,i);
+      entities.push(g);
+    }
+
+  } else if(mode===2) { // Chromatic storm
+    for(let i=0;i<state.numPacmen*2;i++) {
+      const cp=palettes[Math.floor(rng()*palettes.length)];
+      const pm=new Pacman(
+        CX+Math.cos(rng()*PI2)*(W*0.4),
+        CY+Math.sin(rng()*PI2)*(H*0.35),
+        15+rng()*60,cp,i%3
+      );
+      pm.chromaOffset=rng()*12+4;
+      pm.energized=true;
+      pm.orbitR=rng()*Math.min(W,H)*0.4+50;
+      pm.orbitAngle=rng()*PI2;
+      pm.orbitSpeed=(rng()-0.5)*0.004;
+      pm.orbiting=true;
+      entities.push(pm);
+    }
+
+  } else if(mode===3) { // Ghost dimension
+    const ringCounts=[3,5,7,4,6];
+    let gIdx=0;
+    ringCounts.forEach((count,ring)=>{
+      const r=(ring+1)*Math.min(W,H)*0.09+50;
+      for(let i=0;i<count;i++) {
+        const g=new Ghost(
+          CX+Math.cos(i/count*PI2)*r,
+          CY+Math.sin(i/count*PI2)*r,
+          18+rng()*35, gIdx++%6, ring%3
+        );
+        g.orbiting=true;
+        g.orbitR=r;
+        g.orbitAngle=i/count*PI2;
+        g.orbitSpeed=(ring%2===0?1:-1)*(0.0003*(ring+1)+rng()*0.0003);
+        g.frightened=(ring%3===1);
+        entities.push(g);
+      }
+    });
+    // Central massive Pac-Man
+    const bigPm=new Pacman(CX,CY,80+rng()*40,pal,2);
+    bigPm.energized=true;
+    bigPm.scale=1;
+    entities.push(bigPm);
+    spawnPellets();
+
+  } else if(mode===4) { // Quantum chase
+    // High-speed multi-scale chase
+    const sizes=[10,15,20,30,45,60,80];
+    sizes.forEach((sz,i)=>{
+      const pm=new Pacman(rng()*W,rng()*H,sz,pal,i%3);
+      pm.vx=(rng()-0.5)*3*(60/sz+1);
+      pm.vy=(rng()-0.5)*3*(60/sz+1);
+      pm.orbiting=false;
+      pm.angle=Math.atan2(pm.vy,pm.vx);
+      entities.push(pm);
+    });
+    for(let i=0;i<12;i++) {
+      const g=new Ghost(rng()*W,rng()*H,15+rng()*50,i%6);
+      g.vx=(rng()-0.5)*5;
+      g.vy=(rng()-0.5)*5;
+      g.frightened=(i%4===0);
+      entities.push(g);
+    }
+    spawnPellets();
+
+  } else if(mode===5) { // Vortex cathedral
+    const spiralCount=3+Math.floor(rng()*4);
+    for(let s=0;s<spiralCount;s++) {
+      const numOnSpiral=6+Math.floor(rng()*8);
+      const baseR=Math.min(W,H)*0.08+rng()*50;
+      const spiralExpand=Math.min(W,H)*0.35/numOnSpiral;
+      for(let i=0;i<numOnSpiral;i++) {
+        const angle=s/spiralCount*PI2+i/numOnSpiral*PI2*2.5;
+        const r=baseR+i*spiralExpand;
+        const isPm=i%3!==2;
+        if(isPm) {
+          const pm=new Pacman(CX+Math.cos(angle)*r,CY+Math.sin(angle)*r,8+i*3,pal,s%3);
+          pm.orbitR=r; pm.orbitAngle=angle; pm.orbiting=true;
+          pm.orbitSpeed=0.0015*(spiralCount-s+1)*(s%2===0?1:-1);
+          pm.angle=angle+Math.PI*0.5;
+          pm.energized=(rng()>0.7);
+          entities.push(pm);
+        } else {
+          const g=new Ghost(CX+Math.cos(angle)*r,CY+Math.sin(angle)*r,10+i*2.5,(s+i)%6);
+          g.orbitR=r; g.orbitAngle=angle; g.orbiting=true;
+          g.orbitSpeed=0.002*(spiralCount-s+1)*(s%2===0?-1:1);
+          g.frightened=(i%2===0);
+          entities.push(g);
+        }
+      }
+    }
+
+  } else if(mode===6) { // Neon dissection
+    // Giant Pac-Man center, surrounded by anatomical parts
+    const bigPm=new Pacman(CX,CY,Math.min(W,H)*0.25,pal,0);
+    bigPm.energized=true; bigPm.chromaOffset=state.chromaIntensity;
+    entities.push(bigPm);
+    // Orbiting smaller ghosts
+    for(let i=0;i<8;i++) {
+      const angle=i/8*PI2;
+      const g=new Ghost(CX+Math.cos(angle)*Math.min(W,H)*0.35,CY+Math.sin(angle)*Math.min(W,H)*0.35,25+rng()*25,i%6);
+      g.orbiting=true; g.orbitR=Math.min(W,H)*0.35;
+      g.orbitAngle=angle; g.orbitSpeed=0.001*(i%2===0?1:-1);
+      entities.push(g);
+    }
+    // Exploding pellets
+    for(let i=0;i<200;i++) {
+      const angle=rng()*PI2, r=rng()*Math.min(W,H)*0.5;
+      const isPow=rng()<0.1;
+      const pp=new Particle(CX+Math.cos(angle)*r,CY+Math.sin(angle)*r,{
+        type:isPow?'power':'pellet',
+        color:isPow?'#fff':`hsl(${rng()*360},100%,75%)`,
+        speed:0,decay:0,maxSize:isPow?7:4,glow:true
+      });
+      pp.vx=0;pp.vy=0;pp.decay=0;pp.static=true;
+      particles.push(pp);
+    }
+
+  } else { // mode 7: Hypercube maze
+    mazeLines=genMaze(seed*31+7);
+    for(let i=0;i<state.numPacmen;i++) {
+      const pm=new Pacman(rng()*W,rng()*H,20+rng()*35,pal,i%3);
+      pm.orbitR=rng()*Math.min(W,H)*0.3+80;
+      pm.orbitAngle=rng()*PI2;
+      pm.orbitSpeed=(rng()-0.5)*0.003;
+      pm.orbiting=true;
+      entities.push(pm);
+    }
+    for(let i=0;i<state.numGhosts;i++) {
+      const g=new Ghost(rng()*W,rng()*H,18+rng()*40,i%6);
+      g.orbiting=true;
+      g.orbitR=rng()*Math.min(W,H)*0.35+60;
+      g.orbitAngle=rng()*PI2;
+      g.orbitSpeed=(rng()-0.5)*0.004;
+      entities.push(g);
+    }
+  }
+}
+
+// ─── BACKGROUND RENDERERS ─────────────────────────────────────
+function drawBackground(cx) {
+  const bs=state.bgStyle;
+  const cs=state.colorShift;
+  const T=phaseT;
+
+  if(bs===0) {
+    // Deep space nebula
+    const grad=cx.createRadialGradient(CX,CY,0,CX,CY,Math.max(W,H)*0.9);
+    grad.addColorStop(0,`hsl(${230+cs%30+Math.sin(T*0.001)*10},60%,5%)`);
+    grad.addColorStop(0.5,`hsl(${250+cs%30},50%,3%)`);
+    grad.addColorStop(1,`hsl(${200+cs%30},40%,1%)`);
+    cx.fillStyle=grad; cx.fillRect(0,0,W,H);
+    // Star field
+    const starSeed=seed*7;
+    const sr=mkRng(starSeed);
+    for(let i=0;i<200;i++) {
+      const sx=sr()*W, sy=sr()*H;
+      const sa=0.3+sr()*0.7;
+      const ss=sr()*1.5+0.3;
+      const twinkle=Math.sin(T*0.002+i*1.7)*0.4;
+      cx.beginPath(); cx.arc(sx,sy,ss,0,PI2);
+      cx.fillStyle=`rgba(255,255,255,${sa+twinkle})`;
+      cx.fill();
+    }
+  } else if(bs===1) {
+    // Pulsing grid
+    cx.fillStyle='#000'; cx.fillRect(0,0,W,H);
+    cx.strokeStyle=`hsla(${200+cs%60+T*0.01},100%,30%,0.15)`;
+    cx.lineWidth=1;
+    const gs=40+Math.sin(T*0.001)*10;
+    for(let x=0;x<W;x+=gs) {
+      cx.beginPath(); cx.moveTo(x,0); cx.lineTo(x,H); cx.stroke();
+    }
+    for(let y=0;y<H;y+=gs) {
+      cx.beginPath(); cx.moveTo(0,y); cx.lineTo(W,y); cx.stroke();
+    }
+    // Grid glow points
+    for(let x=0;x<W;x+=gs) for(let y=0;y<H;y+=gs) {
+      if(Math.sin(x*0.05+T*0.002)*Math.sin(y*0.05+T*0.003)>0.5) {
+        cx.beginPath(); cx.arc(x,y,2,0,PI2);
+        cx.fillStyle=`hsla(${200+cs%60},100%,60%,0.3)`; cx.fill();
+      }
+    }
+  } else if(bs===2) {
+    // Plasma field
+    cx.fillStyle='#000'; cx.fillRect(0,0,W,H);
+    const res=20;
+    for(let px=0;px<W;px+=res) for(let py=0;py<H;py+=res) {
+      const v=Math.sin(px*0.02+T*0.001)+Math.sin(py*0.02+T*0.0013)+
+              Math.sin((px+py)*0.015+T*0.0008)+Math.sin(Math.hypot(px-CX,py-CY)*0.02-T*0.002);
+      const h2=(v*30+cs+T*0.05)%360;
+      const l=clamp(v*15+5,2,20);
+      cx.fillStyle=`hsl(${h2},80%,${l}%)`; cx.fillRect(px,py,res+1,res+1);
+    }
+  } else {
+    // Void + concentric rings
+    cx.fillStyle='#010005'; cx.fillRect(0,0,W,H);
+    for(let r=20;r<Math.max(W,H)*0.9;r+=40+r*0.05) {
+      const hue=(cs+r*0.1+T*0.02)%360;
+      const alpha=0.04+0.03*Math.sin(r*0.05-T*0.003);
+      cx.beginPath(); cx.arc(CX,CY,r,0,PI2);
+      cx.strokeStyle=`hsla(${hue},100%,50%,${alpha})`; cx.lineWidth=1; cx.stroke();
+    }
+  }
+}
+
+function drawMaze(cx) {
+  if(!mazeLines.length) return;
+  const animProgress=clamp(phaseT/800,0,1);
+
+  mazeLines.forEach((line,i)=>{
+    if(line.drawT===undefined) line.drawT=0;
+    const targetT=clamp((animProgress - i/(mazeLines.length+1))*2,0,1);
+    line.drawT+=(targetT-line.drawT)*0.1;
+    if(line.drawT<0.01) return;
+
+    const pulse=Math.sin(phaseT*0.003+i*0.1)*0.3+0.7;
+    const hue=(state.colorShift+i*2+phaseT*0.01)%360;
+    const alpha=line.drawT*pulse*(0.5+0.5*Math.sin(phaseT*0.005+i*0.3));
+
+    cx.save();
+    cx.strokeStyle=line.col||`hsl(${hue},80%,40%)`;
+    cx.lineWidth=(line.w||2)*line.drawT;
+    cx.globalAlpha=alpha;
+    cx.shadowColor=cx.strokeStyle;
+    cx.shadowBlur=4;
+
+    if(line.type==='arc') {
+      cx.beginPath();
+      cx.arc(line.x,line.y,line.radius,line.startAngle,line.endAngle);
+      cx.stroke();
+    } else {
+      const dx=line.x2-line.x1, dy=line.y2-line.y1;
+      cx.beginPath();
+      cx.moveTo(line.x1,line.y1);
+      cx.lineTo(line.x1+dx*line.drawT, line.y1+dy*line.drawT);
+      cx.stroke();
+    }
+    cx.restore();
+  });
+}
+
+// ─── HYPERCUBE / 3D MAZE PROJECTION ──────────────────────────
+function drawHypercube(cx) {
+  const T=phaseT;
+  const rotX=T*0.0003;
+  const rotY=T*0.0004;
+  const rotZ=T*0.0002;
+  const scale=Math.min(W,H)*0.28;
+
+  // 4D hypercube vertices
+  const verts4d=[];
+  for(let i=0;i<16;i++) {
+    verts4d.push([
+      (i&1?1:-1),(i&2?1:-1),(i&4?1:-1),(i&8?1:-1)
+    ]);
+  }
+
+  // Rotate in 4D
+  function rot4(v,t) {
+    let [x,y,z,w]=v;
+    // XY rotation
+    let nx=x*Math.cos(t)-y*Math.sin(t), ny=x*Math.sin(t)+y*Math.cos(t);
+    // ZW rotation
+    let nz=z*Math.cos(t*0.7)-w*Math.sin(t*0.7), nw=z*Math.sin(t*0.7)+w*Math.cos(t*0.7);
+    // XZ rotation
+    let nx2=nx*Math.cos(t*0.5)-nz*Math.sin(t*0.5), nz2=nx*Math.sin(t*0.5)+nz*Math.cos(t*0.5);
+    return [nx2,ny,nz2,nw];
+  }
+
+  const proj=verts4d.map(v=>{
+    const r=rot4(v,T*0.001);
+    // Perspective project 4D->3D->2D
+    const w4=3.5/(3.5+r[3]);
+    const x3=r[0]*w4, y3=r[1]*w4, z3=r[2]*w4;
+    const w3=3/(3+z3*0.5+1);
+    return {
+      x:CX+x3*w3*scale, y:CY+y3*w3*scale,
+      z:z3, w:r[3], alpha:w4*w3
+    };
+  });
+
+  // Edges of hypercube (pairs differing by 1 bit)
+  for(let a=0;a<16;a++) for(let b=a+1;b<16;b++) {
+    if(!(((a^b)&((a^b)-1))===0)) continue; // single bit diff
+    const pa=proj[a], pb=proj[b];
+    const alpha=(pa.alpha+pb.alpha)*0.5;
+    const hue=(state.colorShift+(a+b)*15+T*0.05)%360;
+    cx.beginPath();
+    cx.moveTo(pa.x,pa.y); cx.lineTo(pb.x,pb.y);
+    cx.strokeStyle=`hsla(${hue},100%,60%,${alpha*0.6})`;
+    cx.lineWidth=1+alpha*2;
+    cx.shadowColor=`hsl(${hue},100%,60%)`;
+    cx.shadowBlur=3;
+    cx.stroke();
+  }
+
+  // Vertices
+  proj.forEach((p,i)=>{
+    const hue=(state.colorShift+i*22+T*0.03)%360;
+    cx.beginPath(); cx.arc(p.x,p.y,3+p.alpha*4,0,PI2);
+    cx.fillStyle=`hsla(${hue},100%,80%,${p.alpha})`;
+    cx.shadowColor=`hsl(${hue},100%,60%)`;
+    cx.shadowBlur=6;
+    cx.fill();
+  });
+}
+
+// ─── SPECIAL OVERLAY EFFECTS ──────────────────────────────────
+function drawScanlines(cx) {
+  cx.save();
+  cx.globalAlpha=0.04;
+  cx.fillStyle='#000';
+  for(let y=0;y<H;y+=3) {
+    cx.fillRect(0,y,W,1);
+  }
+  cx.restore();
+}
+
+function drawVignette(cx) {
+  const grad=cx.createRadialGradient(CX,CY,Math.min(W,H)*0.3,CX,CY,Math.max(W,H)*0.7);
+  grad.addColorStop(0,'transparent');
+  grad.addColorStop(1,'rgba(0,0,0,0.7)');
+  cx.save();
+  cx.fillStyle=grad;
+  cx.fillRect(0,0,W,H);
+  cx.restore();
+}
+
+function drawChromaWarp(cx) {
+  if(state.chromaIntensity<1) return;
+  const ci=state.chromaIntensity;
+  const T=phaseT;
+  const offX=Math.sin(T*0.002)*ci;
+  const offY=Math.cos(T*0.003)*ci;
+  // This is done via CSS filter in a pixel-level trick:
+  // We draw the entire canvas image offset with blend modes
+  const imgData=cx.getImageData(0,0,W,H);
+  // Skip — too slow for real-time. Use layer-based chroma instead.
+  // Chroma aberration rings
+  for(let r=50;r<Math.max(W,H)*0.8;r+=80) {
+    const hue=(T*0.05+r*0.5)%360;
+    cx.save();
+    cx.beginPath();
+    cx.arc(CX+offX,CY+offY,r,0,PI2);
+    cx.strokeStyle=`hsla(${hue},100%,70%,${0.02+0.01*Math.sin(T*0.004+r)})`;
+    cx.lineWidth=2;
+    cx.stroke();
+    cx.restore();
+  }
+}
+
+function drawGlitchBars(cx) {
+  if(phaseT%500<20 || phaseT%700<10) {
+    const numBars=Math.floor(rng()*5)+1;
+    for(let i=0;i<numBars;i++) {
+      const y=rng()*H;
+      const h2=rng()*20+2;
+      const offset=(rng()-0.5)*30;
+      const alpha=rng()*0.4;
+      cx.save();
+      cx.globalAlpha=alpha;
+      cx.globalCompositeOperation='screen';
+      cx.drawImage(canvas,offset,y,W,h2,0,y,W,h2);
+      cx.restore();
+    }
+  }
+}
+
+function drawPulseRings(cx) {
+  const numRings=3+Math.floor(rng()*3);
+  for(let i=0;i<numRings;i++) {
+    const r=((phaseT*0.002+i/numRings)*Math.max(W,H)*0.6)%Math.max(W,H)*0.6;
+    const alpha=(1-r/(Math.max(W,H)*0.6))*0.1;
+    const hue=(state.colorShift+i*60+phaseT*0.02)%360;
+    cx.save();
+    cx.beginPath(); cx.arc(CX,CY,r,0,PI2);
+    cx.strokeStyle=`hsla(${hue},100%,60%,${alpha})`;
+    cx.lineWidth=2;
+    cx.shadowColor=`hsl(${hue},100%,60%)`;
+    cx.shadowBlur=8;
+    cx.stroke();
+    cx.restore();
+  }
+}
+
+// ─── ENTITY UPDATE & CHASE LOGIC ──────────────────────────────
+function updateEntities(dt) {
+  const pacmen=entities.filter(e=>e instanceof Pacman);
+  const ghosts=entities.filter(e=>e instanceof Ghost);
+
+  entities.forEach(e=>{
+    if(e instanceof Pacman) {
+      e.update(dt);
+      if(!e.orbiting) {
+        // Move pac toward nearest pellet
+        let nearestPellet=null, nearestDist=Infinity;
+        particles.filter(p=>p.static&&p.life>0).forEach(p=>{
+          const d=Math.hypot(p.x-e.x,p.y-e.y);
+          if(d<nearestDist){nearestDist=d;nearestPellet=p;}
+        });
+        if(nearestPellet&&nearestDist>5) {
+          const angle=Math.atan2(nearestPellet.y-e.y,nearestPellet.x-e.x);
+          e.vx+=(Math.cos(angle)-e.vx*0.1)*0.15;
+          e.vy+=(Math.sin(angle)-e.vy*0.1)*0.15;
+          e.angle=angle;
+          e.chromaOffset=Math.max(0,e.chromaOffset-0.05);
+        } else {
+          // Wander
+          e.vx+=(rng()-0.5)*0.5;
+          e.vy+=(rng()-0.5)*0.5;
+          const spd=Math.hypot(e.vx,e.vy);
+          if(spd>3){e.vx=e.vx/spd*3;e.vy=e.vy/spd*3;}
+          e.angle=Math.atan2(e.vy,e.vx);
+        }
+        e.x+=e.vx; e.y+=e.vy;
+        if(e.x<-e.size)e.x=W+e.size;
+        if(e.x>W+e.size)e.x=-e.size;
+        if(e.y<-e.size)e.y=H+e.size;
+        if(e.y>H+e.size)e.y=-e.size;
+        // Eat pellet
+        if(nearestPellet&&nearestDist<e.size) {
+          nearestPellet.life=-1;
+          spawnEatEffect(nearestPellet.x,nearestPellet.y,
+            `hsl(${rng()*360},100%,70%)`);
+          e.scale=1.3; setTimeout(()=>{e.scale=1;},150);
+          if(nearestPellet.type==='power') {
+            ghosts.forEach(g=>{ g.frightened=true; setTimeout(()=>{g.frightened=false;},5000); });
+            spawnBigBang(e.x,e.y);
+          }
+        }
+        // Eat ghost
+        ghosts.forEach(g=>{
+          if(g.frightened&&!g.eaten&&Math.hypot(g.x-e.x,g.y-e.y)<(e.size+g.size)*0.6) {
+            spawnGhostEaten(g);
+          }
+        });
+      } else {
+        // Orbiting update angle of arc
+        e.orbitAngle+=e.orbitSpeed*dt;
+        e.x=CX+Math.cos(e.orbitAngle)*e.orbitR;
+        e.y=CY+Math.sin(e.orbitAngle)*e.orbitR;
+        e.angle=e.orbitAngle+(e.orbitSpeed>0?Math.PI*0.5:-Math.PI*0.5);
+      }
+    } else if(e instanceof Ghost) {
+      e.update(dt);
+      if(!e.frightened&&!e.eaten&&mode===4) {
+        // Chase nearest pac
+        const nearPac=pacmen.reduce((best,p)=>{
+          const d=Math.hypot(p.x-e.x,p.y-e.y);
+          return (!best||d<best.d)?{p,d}:best;
+        },null);
+        if(nearPac&&nearPac.d>0) {
+          const angle=Math.atan2(nearPac.p.y-e.y,nearPac.p.x-e.x);
+          e.vx+=(Math.cos(angle)*2-e.vx)*0.05;
+          e.vy+=(Math.sin(angle)*2-e.vy)*0.05;
+        }
+      }
+    }
+  });
+
+  // Remove dead particles
+  particles=particles.filter(p=>p.life>0);
+}
+
+// ─── PERIODIC EVENTS ──────────────────────────────────────────
+function periodicEvents() {
+  // Regenerate pellets
+  if(frame%300===0) {
+    const alive=particles.filter(p=>p.static&&p.life>0).length;
+    if(alive<20) spawnPellets();
+  }
+
+  // Random explosions
+  if(frame%150===0) {
+    const target=entities[Math.floor(rng()*entities.length)];
+    if(target) {
+      spawnChromaExplosion(target.x||CX, target.y||CY);
+    }
+  }
+
+  // Mode-specific events
+  if(mode===2&&frame%80===0) {
+    // Chromatic burst from center
+    for(let i=0;i<30;i++) {
+      particles.push(new Particle(CX,CY,{
+        type:'arc',
+        color:`hsl(${rng()*360},100%,70%)`,
+        speed:rng()*8+2, maxSize:rng()*8+2,
+        decay:0.008, glow:true, bloom:3, trail:12
+      }));
+    }
+  }
+
+  if(mode===5&&frame%120===0) {
+    // Spiral particle burst
+    for(let i=0;i<40;i++) {
+      const angle=i/40*PI2, r=rng()*100+50;
+      const p=new Particle(CX+Math.cos(angle)*r,CY+Math.sin(angle)*r,{
+        type:rng()>0.5?'pellet':'dot',
+        color:`hsl(${rng()*60+200},100%,70%)`,
+        speed:rng()*3+1, maxSize:rng()*5+1,
+        decay:0.01, glow:true
+      });
+      p.vx=Math.cos(angle+Math.PI*0.5)*rng()*3;
+      p.vy=Math.sin(angle+Math.PI*0.5)*rng()*3;
+      particles.push(p);
+    }
+  }
+
+  // Ghost fright wave
+  if(frame%600===0) {
+    const ghosts=entities.filter(e=>e instanceof Ghost);
+    ghosts.forEach((g,i)=>{
+      setTimeout(()=>{
+        g.frightened=true;
+        setTimeout(()=>{g.frightened=false;},3000+rng()*2000);
+      },i*100);
+    });
+    playTone(440,'sawtooth',0.3,0.1);
+    spawnBigBang(CX+Math.sin(phaseT*0.002)*W*0.3, CY+Math.cos(phaseT*0.003)*H*0.3);
+  }
+
+  // Particle cascade
+  if(frame%30===0) {
+    if(particles.length<400) {
+      const ent=entities[Math.floor(rng()*entities.length)];
+      if(ent) {
+        const types=['dot','arc','maze_piece'];
+        particles.push(new Particle(
+          (ent.x||CX)+(rng()-0.5)*50,
+          (ent.y||CY)+(rng()-0.5)*50,{
+          type:types[Math.floor(rng()*types.length)],
+          color:`hsl(${(state.colorShift+rng()*60)%360},100%,${60+rng()*30}%)`,
+          speed:rng()*2+0.5, maxSize:rng()*4+1,
+          decay:0.008+rng()*0.01, glow:rng()>0.5,
+          bloom:rng()*3, gravity:rng()*0.02-0.01
+        }));
+      }
+    }
+  }
+}
+
+// ─── MAIN RENDER ─────────────────────────────────────────────
+function render(cx) {
+  cx.clearRect(0,0,W,H);
+  cx.save();
+
+  // Background
+  drawBackground(cx);
+
+  // Mode-specific underlays
+  if(mode===7) drawHypercube(cx);
+  if(mode===1||mode===7) drawMaze(cx);
+  if(rng()>0.9&&mazeLines.length) drawMaze(cx);// Sometimes draw maze in other modes
+
+  // Pulse rings
+  drawPulseRings(cx);
+
+  // Chroma warp
+  drawChromaWarp(cx);
+
+  // Particles (behind entities)
+  particles.forEach(p=>{
+    if(!p.static) p.update();
+    p.draw(cx);
+  });
+
+  // Entities (ghosts behind pac-men)
+  const ghosts=entities.filter(e=>e instanceof Ghost);
+  const pacmen=entities.filter(e=>e instanceof Pacman);
+  ghosts.forEach(g=>g.draw(cx));
+  pacmen.forEach(p=>p.draw(cx));
+
+  // Overlays
+  drawVignette(cx);
+  drawScanlines(cx);
+  // drawGlitchBars(cx); // occasionally glitch
+
+  cx.restore();
+}
+
+// ─── INIT & MAIN LOOP ─────────────────────────────────────────
+function init() {
+  seed = Math.floor(Math.random()*999999);
+  rng = mkRng(seed);
+  mode = Math.floor(Math.random()*NUM_MODES);
+  phaseT = 0;
+  frame = 0;
+  t = 0;
+  initMode();
+  // Hint fade
+  hint.style.opacity='0.5';
+  setTimeout(()=>{ hint.style.opacity='0'; },3000);
+}
+
+let animId;
+function loop(now) {
+  animId=requestAnimationFrame(loop);
+  const dt=Math.min(now-lastTime,50);
+  lastTime=now;
+  phaseT+=dt;
+  t+=dt;
+  frame++;
+
+  // FPS
+  fpsArr.push(1000/dt);
+  if(fpsArr.length>30) fpsArr.shift();
+  fps=fpsArr.reduce((a,b)=>a+b,0)/fpsArr.length;
+
+  // Update
+  updateEntities(dt);
+  periodicEvents();
+  audioTick();
+
+  // Render
+  render(ctx);
+
+  // HUD update
+  if(hudVisible&&frame%10===0) {
+    hudPhase.textContent=Math.floor(phaseT/1000)+'s';
+    hudEnt.textContent=entities.length;
+    hudPar.textContent=particles.length;
+    hudFps.textContent=fps.toFixed(0);
+  }
+}
+
+// ─── INPUT ────────────────────────────────────────────────────
+window.addEventListener('keydown', e=>{
+  if(e.code==='KeyH') {
+    hudVisible=!hudVisible;
+    hud.classList.toggle('visible',hudVisible);
+  }
+  if(e.code==='KeyS') {
+    soundEnabled=!soundEnabled;
+    if(soundEnabled) {
+      initAudio();
+      if(masterGain) masterGain.gain.linearRampToValueAtTime(0.6, audioCtx.currentTime+0.3);
+    } else if(masterGain) {
+      masterGain.gain.linearRampToValueAtTime(0, audioCtx.currentTime+0.3);
+    }
+  }
+  if(e.code==='Space') {
+    e.preventDefault();
+    init();
+  }
+});
+
+function handleTap() {
+  init();
+}
+window.addEventListener('click',handleTap);
+window.addEventListener('touchend',e=>{e.preventDefault();handleTap();},{passive:false});
+
+// ─── BOOT ────────────────────────────────────────────────────
+resize();
+init();
+requestAnimationFrame(loop);
+</script>
+<!-- Structured data for search engines -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "CreativeWork",
+  "name": "PACMAN ULTRASPECTACLE",
+  "description": "An unprecedented Pac-Man audiovisual animation phenomenon featuring hyper-complex particle systems, procedurally generated ghost architectures, chromatic dimension warping, fractal maze universes, and multi-layered synchronized audio-visual phenomena — surpassing any special effects display ever previously created.",
+  "keywords": "Pac-Man, animation, particle system, fractal, generative art, WebGL, canvas, retro arcade, audiovisual",
+  "genre": "Interactive Art",
+  "interactionStatistic": {
+    "@type": "InteractionCounter",
+    "interactionType": "https://schema.org/WatchAction"
+  }
+}
+</script>
+</body>
+</html>

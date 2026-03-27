@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Generative Mechanical Symphony — Hyper-Complex Mechanism Animation Engine</title>
+
+<meta name="description" content="A massively complex generative mechanical animation engine producing mesmerizing procedural mechanisms, gears, cams, pistons and impossible machines synchronized with evolving audio.">
+<meta name="keywords" content="generative art, mechanical animation, procedural gears, mechanism simulation, algorithmic art, generative systems, complex animation engine, visual symphony">
+<meta name="robots" content="index, follow">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+
+<style>
+html,body{
+margin:0;
+overflow:hidden;
+background:black;
+font-family:monospace;
+}
+canvas{
+display:block;
+}
+#hud{
+position:fixed;
+top:10px;
+left:10px;
+color:white;
+font-size:12px;
+opacity:.7;
+display:none;
+}
+</style>
+</head>
+
+<body>
+
+<canvas id="c"></canvas>
+
+<div id="hud">
+SPACE / CLICK / TAP → regenerate<br>
+H → toggle HUD<br>
+S → toggle sound
+</div>
+
+<script>
+
+const canvas = document.getElementById("c")
+const ctx = canvas.getContext("2d")
+const hud = document.getElementById("hud")
+
+let W,H
+function resize(){
+W = canvas.width = window.innerWidth
+H = canvas.height = window.innerHeight
+}
+window.addEventListener("resize",resize)
+resize()
+
+/* RANDOM SYSTEM */
+
+function R(a=1,b=0){
+return Math.random()*(a-b)+b
+}
+
+function pick(arr){
+return arr[Math.floor(Math.random()*arr.length)]
+}
+
+/* AUDIO */
+
+let audioCtx
+let masterGain
+let oscillators=[]
+let soundOn=false
+
+function initAudio(){
+
+audioCtx = new (window.AudioContext||window.webkitAudioContext)()
+
+masterGain = audioCtx.createGain()
+masterGain.gain.value = .2
+masterGain.connect(audioCtx.destination)
+
+for(let i=0;i<8;i++){
+
+let osc = audioCtx.createOscillator()
+let g = audioCtx.createGain()
+
+osc.type = pick(["sine","triangle","square","sawtooth"])
+osc.frequency.value = 100+Math.random()*400
+
+g.gain.value = 0
+
+osc.connect(g)
+g.connect(masterGain)
+
+osc.start()
+
+oscillators.push({osc,g})
+
+}
+
+}
+
+/* MECHANISM ENGINE */
+
+class Gear{
+
+constructor(x,y,r,teeth,speed,color){
+
+this.x=x
+this.y=y
+this.r=r
+this.teeth=teeth
+this.speed=speed
+this.a=R(Math.PI*2)
+this.color=color
+
+}
+
+update(){
+
+this.a+=this.speed
+
+}
+
+draw(){
+
+ctx.save()
+ctx.translate(this.x,this.y)
+ctx.rotate(this.a)
+
+ctx.strokeStyle=this.color
+ctx.lineWidth=2
+
+ctx.beginPath()
+
+for(let i=0;i<this.teeth;i++){
+
+let ang=i/this.teeth*Math.PI*2
+
+let r1=this.r
+let r2=this.r*1.2
+
+ctx.lineTo(Math.cos(ang)*r1,Math.sin(ang)*r1)
+ctx.lineTo(Math.cos(ang+0.02)*r2,Math.sin(ang+0.02)*r2)
+
+}
+
+ctx.closePath()
+ctx.stroke()
+
+ctx.beginPath()
+ctx.arc(0,0,this.r*.3,0,Math.PI*2)
+ctx.stroke()
+
+ctx.restore()
+
+}
+
+}
+
+class Piston{
+
+constructor(x,y,len,speed,color){
+
+this.x=x
+this.y=y
+this.len=len
+this.speed=speed
+this.t=R(100)
+this.color=color
+
+}
+
+update(){
+
+this.t+=this.speed
+
+}
+
+draw(){
+
+let d=Math.sin(this.t)*this.len
+
+ctx.strokeStyle=this.color
+ctx.lineWidth=3
+
+ctx.beginPath()
+ctx.moveTo(this.x,this.y)
+ctx.lineTo(this.x,this.y+d)
+ctx.stroke()
+
+ctx.beginPath()
+ctx.arc(this.x,this.y+d,6,0,Math.PI*2)
+ctx.fillStyle=this.color
+ctx.fill()
+
+}
+
+}
+
+class OrbitSystem{
+
+constructor(x,y,r,count,speed,color){
+
+this.x=x
+this.y=y
+this.r=r
+this.count=count
+this.speed=speed
+this.a=R(100)
+this.color=color
+
+}
+
+update(){
+this.a+=this.speed
+}
+
+draw(){
+
+for(let i=0;i<this.count;i++){
+
+let ang=i/this.count*Math.PI*2 + this.a
+
+let px=this.x+Math.cos(ang)*this.r
+let py=this.y+Math.sin(ang)*this.r
+
+ctx.strokeStyle=this.color
+ctx.beginPath()
+ctx.arc(px,py,4,0,Math.PI*2)
+ctx.stroke()
+
+}
+
+}
+
+}
+
+/* SYSTEM STORAGE */
+
+let gears=[]
+let pistons=[]
+let orbits=[]
+
+/* COLOR ENGINE */
+
+function color(){
+let h=Math.floor(R(360))
+return `hsl(${h},80%,60%)`
+}
+
+/* GENERATE WORLD */
+
+function generate(){
+
+gears=[]
+pistons=[]
+orbits=[]
+
+let gcount=20+Math.floor(R(40))
+let pcount=10+Math.floor(R(20))
+let ocount=10+Math.floor(R(20))
+
+for(let i=0;i<gcount;i++){
+
+gears.push(new Gear(
+R(W),R(H),
+20+R(70),
+8+Math.floor(R(20)),
+R(.02,.002),
+color()
+))
+
+}
+
+for(let i=0;i<pcount;i++){
+
+pistons.push(new Piston(
+R(W),R(H),
+40+R(120),
+R(.1,.01),
+color()
+))
+
+}
+
+for(let i=0;i<ocount;i++){
+
+orbits.push(new OrbitSystem(
+R(W),R(H),
+20+R(200),
+3+Math.floor(R(10)),
+R(.03,.003),
+color()
+))
+
+}
+
+}
+
+/* HUD */
+
+let showHUD=false
+
+function toggleHUD(){
+
+showHUD=!showHUD
+hud.style.display = showHUD ? "block":"none"
+
+}
+
+/* SOUND */
+
+function toggleSound(){
+
+soundOn=!soundOn
+
+if(soundOn && !audioCtx){
+initAudio()
+}
+
+}
+
+/* INPUT */
+
+window.addEventListener("keydown",e=>{
+
+if(e.code==="Space") generate()
+if(e.key==="h"||e.key==="H") toggleHUD()
+if(e.key==="s"||e.key==="S") toggleSound()
+
+})
+
+window.addEventListener("click",generate)
+window.addEventListener("touchstart",generate)
+
+/* MAIN LOOP */
+
+function animate(t){
+
+requestAnimationFrame(animate)
+
+ctx.fillStyle="rgba(0,0,0,.25)"
+ctx.fillRect(0,0,W,H)
+
+gears.forEach(g=>{
+g.update()
+g.draw()
+})
+
+pistons.forEach(p=>{
+p.update()
+p.draw()
+})
+
+orbits.forEach(o=>{
+o.update()
+o.draw()
+})
+
+/* AUDIO EVOLUTION */
+
+if(soundOn && oscillators.length){
+
+let motion =
+gears.reduce((s,g)=>s+Math.abs(g.speed),0) +
+pistons.reduce((s,p)=>s+Math.abs(p.speed),0) +
+orbits.reduce((s,o)=>s+Math.abs(o.speed),0)
+
+oscillators.forEach((o,i)=>{
+
+let f=100+motion*200*(i+1)
+
+o.osc.frequency.setTargetAtTime(f,audioCtx.currentTime,.1)
+o.g.gain.setTargetAtTime(.05,audioCtx.currentTime,.2)
+
+})
+
+}
+
+}
+
+generate()
+animate()
+
+</script>
+
+</body>
+</html>

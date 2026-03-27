@@ -1,0 +1,1098 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="E8 Lattice Visualization — An immersive, mathematically-driven audiovisual experience rendering the 248-dimensional exceptional Lie group E8 through stunning real-time animations, generative geometry, and synchronized synthesized audio. Explore the most beautiful structure in mathematics.">
+<meta name="keywords" content="E8 lattice, exceptional Lie group, mathematics visualization, 248 dimensions, root system, Lie algebra, abstract mathematics, generative art, WebGL animation, audiovisual, mathematical beauty, theoretical physics, string theory, quantum gravity">
+<meta name="robots" content="index, follow">
+<meta property="og:title" content="E8 Lattice — The Most Beautiful Structure in Mathematics">
+<meta property="og:description" content="Real-time audiovisual journey through the E8 exceptional Lie group — 240 roots, 8 dimensions, infinite wonder.">
+<meta property="og:type" content="website">
+<title>E8 Lattice — Exceptional Lie Group Visualization | Mathematical Beauty in Motion</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000}
+canvas{display:block;width:100vw;height:100vh}
+#hud{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;display:none;font-family:'Courier New',monospace;color:rgba(255,255,255,0.85)}
+#hud.visible{display:block}
+#hud-top{position:absolute;top:18px;left:22px;font-size:11px;line-height:1.7;text-shadow:0 0 8px rgba(100,200,255,0.8)}
+#hud-bot{position:absolute;bottom:18px;left:22px;font-size:10px;line-height:1.7;color:rgba(180,220,255,0.7)}
+#hud-right{position:absolute;top:18px;right:22px;text-align:right;font-size:10px;line-height:1.8;color:rgba(200,255,200,0.75)}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div id="hud-top">
+    E8 LATTICE VISUALIZATION<br>
+    <span id="h-mode">MODE: —</span><br>
+    <span id="h-phase">PHASE: —</span><br>
+    <span id="h-roots">ROOTS: 240</span><br>
+    <span id="h-fps">FPS: —</span>
+  </div>
+  <div id="hud-right">
+    RANK: 8 | DIM: 248<br>
+    COXETER: 30<br>
+    WEYL GROUP: 696,729,600<br>
+    KISSING #: 240<br>
+    <span id="h-param">θ: —</span><br>
+    <span id="h-energy">ENERGY: —</span>
+  </div>
+  <div id="hud-bot">
+    [H] TOGGLE HUD &nbsp;|&nbsp; [S] TOGGLE SOUND &nbsp;|&nbsp; [SPACE/CLICK] RANDOMIZE
+  </div>
+</div>
+<script>
+const canvas = document.getElementById('c');
+const gl = canvas.getContext('webgl2') || canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+
+// ── Fallback to 2D if WebGL unavailable ──
+if (!gl) { run2D(); }
+else { runGL(); }
+
+// ══════════════════════════════════════════════
+// FULL WebGL RENDERER
+// ══════════════════════════════════════════════
+function runGL() {
+  const hud = document.getElementById('hud');
+  const hudMode = document.getElementById('h-mode');
+  const hudPhase = document.getElementById('h-phase');
+  const hudFps = document.getElementById('h-fps');
+  const hudParam = document.getElementById('h-param');
+  const hudEnergy = document.getElementById('h-energy');
+
+  let W, H, t = 0, dt = 0, lastTime = 0;
+  let hudVisible = false, soundOn = false;
+  let mode = 0, phaseTimer = 0, phaseDuration = 0;
+  let rng = Math.random;
+  let seed = Math.random() * 99999;
+
+  // Audio
+  let audioCtx = null, masterGain = null, audioNodes = [];
+
+  function seededRand(s) {
+    let x = Math.sin(s + 1) * 43758.5453123;
+    return x - Math.floor(x);
+  }
+
+  function rand(a, b) {
+    seed += 0.7;
+    let r = seededRand(seed);
+    return a + r * (b - a);
+  }
+
+  // ── E8 Root System ──
+  // 240 roots of E8: ±e_i±e_j (112) + ½(±e1±e2±...±e8) even sign (128)
+  function generateE8Roots() {
+    const roots = [];
+    // Type 1: ±ei ± ej, i≠j  (112 roots)
+    for (let i = 0; i < 8; i++) {
+      for (let j = 0; j < 8; j++) {
+        if (i === j) continue;
+        for (let si = -1; si <= 1; si += 2) {
+          for (let sj = -1; sj <= 1; sj += 2) {
+            const v = new Array(8).fill(0);
+            v[i] = si; v[j] = sj;
+            roots.push(v);
+          }
+        }
+      }
+    }
+    // Type 2: ½(±1,±1,...,±1) with even number of minus signs (128 roots)
+    for (let mask = 0; mask < 256; mask++) {
+      let minus = 0;
+      for (let b = 0; b < 8; b++) if (mask & (1 << b)) minus++;
+      if (minus % 2 === 0) {
+        const v = [];
+        for (let b = 0; b < 8; b++) v.push((mask & (1 << b)) ? -0.5 : 0.5);
+        roots.push(v);
+      }
+    }
+    return roots;
+  }
+
+  const E8_ROOTS = generateE8Roots(); // 240 roots
+
+  // Projection matrices for various 2D embeddings
+  function makeProjMatrix(angleA, angleB, angleC, angleD) {
+    // Project 8D→3D→2D via rotation
+    const p = [];
+    for (let i = 0; i < 8; i++) {
+      p.push([
+        Math.cos(angleA + i * angleB) * Math.cos(angleC + i * 0.3),
+        Math.sin(angleA + i * angleB) * Math.cos(angleD + i * 0.4),
+        Math.sin(angleC + i * 0.5)
+      ]);
+    }
+    return p;
+  }
+
+  function project8to3(root, proj) {
+    let x = 0, y = 0, z = 0;
+    for (let i = 0; i < 8; i++) {
+      x += root[i] * proj[i][0];
+      y += root[i] * proj[i][1];
+      z += root[i] * proj[i][2];
+    }
+    return [x, y, z];
+  }
+
+  // ── Shader Programs ──
+  function createShader(type, src) {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, src);
+    gl.compileShader(s);
+    return s;
+  }
+
+  function createProgram(vs, fs) {
+    const p = gl.createProgram();
+    gl.attachShader(p, createShader(gl.VERTEX_SHADER, vs));
+    gl.attachShader(p, createShader(gl.FRAGMENT_SHADER, fs));
+    gl.linkProgram(p);
+    return p;
+  }
+
+  // Particle vertex shader
+  const particleVS = `
+    attribute vec2 a_pos;
+    attribute vec4 a_col;
+    attribute float a_size;
+    varying vec4 v_col;
+    void main() {
+      gl_Position = vec4(a_pos, 0.0, 1.0);
+      gl_PointSize = a_size;
+      v_col = a_col;
+    }
+  `;
+
+  const particleFS = `
+    precision mediump float;
+    varying vec4 v_col;
+    void main() {
+      vec2 uv = gl_PointCoord - 0.5;
+      float r = dot(uv, uv) * 4.0;
+      float alpha = exp(-r * 2.5) * v_col.a;
+      gl_FragColor = vec4(v_col.rgb, alpha);
+    }
+  `;
+
+  // Line vertex shader
+  const lineVS = `
+    attribute vec2 a_pos;
+    attribute vec4 a_col;
+    varying vec4 v_col;
+    void main() {
+      gl_Position = vec4(a_pos, 0.0, 1.0);
+      v_col = a_col;
+    }
+  `;
+
+  const lineFS = `
+    precision mediump float;
+    varying vec4 v_col;
+    void main() {
+      gl_FragColor = v_col;
+    }
+  `;
+
+  // Background fullscreen shader
+  const bgVS = `
+    attribute vec2 a_pos;
+    varying vec2 v_uv;
+    void main() {
+      gl_Position = vec4(a_pos, 0.0, 1.0);
+      v_uv = a_pos * 0.5 + 0.5;
+    }
+  `;
+
+  const bgFS = `
+    precision mediump float;
+    varying vec2 v_uv;
+    uniform float u_time;
+    uniform float u_mode;
+    uniform float u_energy;
+    uniform vec2 u_center;
+    
+    vec3 hsv2rgb(vec3 c) {
+      vec4 K = vec4(1.0, 2.0/3.0, 1.0/3.0, 3.0);
+      vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+      return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+    }
+    
+    float hash(vec2 p) {
+      return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+    }
+    
+    void main() {
+      vec2 uv = v_uv;
+      vec2 center = u_center;
+      float dist = length(uv - center);
+      
+      float m = mod(u_mode, 8.0);
+      vec3 col = vec3(0.0);
+      
+      float ripple = sin(dist * 12.0 - u_time * 1.5) * 0.5 + 0.5;
+      float radial = sin(atan(uv.y - center.y, uv.x - center.x) * 8.0 + u_time * 0.7) * 0.5 + 0.5;
+      
+      if (m < 1.0) {
+        col = hsv2rgb(vec3(0.6 + dist * 0.3, 0.9, ripple * 0.18 * u_energy));
+      } else if (m < 2.0) {
+        col = hsv2rgb(vec3(0.0 + radial * 0.2, 1.0, ripple * 0.15 * u_energy));
+      } else if (m < 3.0) {
+        col = hsv2rgb(vec3(0.3 + dist * 0.4, 0.8, ripple * 0.2 * u_energy));
+      } else if (m < 4.0) {
+        float vortex = sin((uv.x - center.x) * 8.0 + u_time) * sin((uv.y - center.y) * 8.0 + u_time);
+        col = hsv2rgb(vec3(0.75 + vortex * 0.15, 0.9, abs(vortex) * 0.2 * u_energy));
+      } else if (m < 5.0) {
+        float grid = step(0.96, fract(uv.x * 16.0)) + step(0.96, fract(uv.y * 16.0));
+        col = hsv2rgb(vec3(0.5 + radial * 0.3, 0.7, grid * 0.12 * u_energy));
+      } else if (m < 6.0) {
+        float plasma = sin(uv.x * 10.0 + u_time) * sin(uv.y * 10.0 - u_time * 0.7) * sin(dist * 15.0 + u_time * 1.2);
+        col = hsv2rgb(vec3(0.85 + plasma * 0.2, 0.95, abs(plasma) * 0.2 * u_energy));
+      } else if (m < 7.0) {
+        float nebula = hash(floor(uv * 32.0 + u_time * 0.1));
+        col = hsv2rgb(vec3(0.55 + nebula * 0.4, 0.6, nebula * ripple * 0.15 * u_energy));
+      } else {
+        float hyper = sin(uv.x * 6.0 + uv.y * 4.0 + u_time) * cos(uv.x * 4.0 - uv.y * 6.0 - u_time * 0.5);
+        col = hsv2rgb(vec3(0.1 + hyper * 0.5, 0.9, abs(hyper) * 0.22 * u_energy));
+      }
+      
+      gl_FragColor = vec4(col, 1.0);
+    }
+  `;
+
+  const particleProg = createProgram(particleVS, particleFS);
+  const lineProg = createProgram(lineVS, lineFS);
+  const bgProg = createProgram(bgVS, bgFS);
+
+  // BG quad
+  const bgBuf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, bgBuf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,1,1]), gl.STATIC_DRAW);
+
+  // Dynamic buffers
+  const MAX_PARTICLES = 8000;
+  const MAX_LINE_VERTS = 60000;
+
+  const ptPosBuf = gl.createBuffer();
+  const ptColBuf = gl.createBuffer();
+  const ptSizBuf = gl.createBuffer();
+  const lnPosBuf = gl.createBuffer();
+  const lnColBuf = gl.createBuffer();
+
+  let ptPos = new Float32Array(MAX_PARTICLES * 2);
+  let ptCol = new Float32Array(MAX_PARTICLES * 4);
+  let ptSiz = new Float32Array(MAX_PARTICLES);
+  let lnPos = new Float32Array(MAX_LINE_VERTS * 2);
+  let lnCol = new Float32Array(MAX_LINE_VERTS * 4);
+  let ptCount = 0, lnCount = 0;
+
+  // State
+  let params = {};
+  let particles = [];
+  let trailParticles = [];
+  let projA = 0, projB = 0.4, projC = 0.2, projD = 0.3;
+  let rotSpeed = 0.003;
+  let colorHue = 0;
+  let pulsePhase = 0;
+  let morphT = 0;
+  let explodeT = 0;
+  let exploding = false;
+  let vortexAngle = 0;
+  let ringPhase = 0;
+  let centerX = 0, centerY = 0;
+  let energyLevel = 1.0;
+  let beatPhase = 0;
+  let modeNames = ['CRYSTALLINE','VORTEX BLOOM','HYPERCUBE MORPH','STELLAR CASCADE','RESONANCE FIELD','QUANTUM FOAM','TACHYON STREAM','OMEGA COLLAPSE'];
+
+  const NUM_MODES = 8;
+
+  function randomizeParams() {
+    seed = Math.random() * 99999;
+    mode = Math.floor(Math.random() * NUM_MODES);
+    phaseTimer = 0;
+    phaseDuration = 8 + Math.random() * 12;
+    projA = rand(0, Math.PI * 2);
+    projB = rand(0.2, 0.8);
+    projC = rand(0, Math.PI);
+    projD = rand(0, Math.PI);
+    rotSpeed = rand(0.001, 0.007) * (Math.random() > 0.5 ? 1 : -1);
+    colorHue = rand(0, 1);
+    energyLevel = rand(0.7, 1.3);
+    centerX = rand(-0.2, 0.2);
+    centerY = rand(-0.2, 0.2);
+    params = {
+      scale: rand(0.4, 0.85),
+      lineAlpha: rand(0.05, 0.25),
+      rootSize: rand(4, 14),
+      trailLen: Math.floor(rand(20, 80)),
+      spiralArms: Math.floor(rand(3, 9)),
+      beatFreq: rand(0.5, 3.0),
+      morphSpeed: rand(0.003, 0.015),
+      vortexStrength: rand(0.3, 1.5),
+      colorSpread: rand(0.3, 1.0),
+      shimmer: rand(0.1, 0.8)
+    };
+    particles = [];
+    trailParticles = [];
+    exploding = false;
+    explodeT = 0;
+    morphT = 0;
+    vortexAngle = 0;
+  }
+
+  randomizeParams();
+
+  function resize() {
+    W = canvas.width = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+    gl.viewport(0, 0, W, H);
+  }
+  resize();
+  window.addEventListener('resize', resize);
+
+  // ── Audio Engine ──
+  function initAudio() {
+    if (audioCtx) return;
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    masterGain = audioCtx.createGain();
+    masterGain.gain.value = 0.3;
+    masterGain.connect(audioCtx.destination);
+    startAudioEvolution();
+  }
+
+  function startAudioEvolution() {
+    if (!audioCtx) return;
+
+    // Subharmonic drone based on E8 symmetry (order 30 Coxeter)
+    const baseFreqs = [27.5, 32.7, 41.2, 55.0, 82.4, 110.0];
+    const harmonics = [1, 2, 3, 5, 8, 13, 21, 30]; // Fibonacci + Coxeter 30
+
+    audioNodes.forEach(n => { try { n.stop(); } catch(e) {} });
+    audioNodes = [];
+
+    baseFreqs.forEach((freq, fi) => {
+      harmonics.slice(0, 3).forEach((harm, hi) => {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        const filter = audioCtx.createBiquadFilter();
+
+        osc.type = ['sine', 'triangle', 'sawtooth', 'square'][Math.floor(seededRand(fi * 7 + hi + seed) * 4)];
+        osc.frequency.value = freq * harm * (1 + seededRand(fi + hi * 3) * 0.02);
+
+        filter.type = 'bandpass';
+        filter.frequency.value = freq * harm * (1.5 + seededRand(fi * hi) * 2);
+        filter.Q.value = 8 + seededRand(fi) * 20;
+
+        const vol = (0.012 / (fi + 1)) / (hi + 1) * energyLevel;
+        gain.gain.value = vol;
+
+        osc.connect(filter);
+        filter.connect(gain);
+        gain.connect(masterGain);
+        osc.start();
+
+        // Modulate with LFO
+        const lfo = audioCtx.createOscillator();
+        const lfoGain = audioCtx.createGain();
+        lfo.frequency.value = seededRand(fi + hi * 11) * 0.5 + 0.05;
+        lfoGain.gain.value = vol * 0.4;
+        lfo.connect(lfoGain);
+        lfoGain.connect(gain.gain);
+        lfo.start();
+
+        audioNodes.push(osc, lfo);
+      });
+    });
+
+    // Percussion beat from E8 symmetry
+    scheduleBeat();
+  }
+
+  let nextBeatTime = 0;
+  function scheduleBeat() {
+    if (!audioCtx || !soundOn) return;
+    const now = audioCtx.currentTime;
+    if (now < nextBeatTime - 0.1) {
+      setTimeout(scheduleBeat, 50);
+      return;
+    }
+    const period = 60 / (params.beatFreq * 120);
+    nextBeatTime = Math.max(now, nextBeatTime) + period;
+
+    // Kick
+    const kick = audioCtx.createOscillator();
+    const kickGain = audioCtx.createGain();
+    kick.frequency.setValueAtTime(120, nextBeatTime);
+    kick.frequency.exponentialRampToValueAtTime(30, nextBeatTime + 0.1);
+    kickGain.gain.setValueAtTime(0.15 * energyLevel, nextBeatTime);
+    kickGain.gain.exponentialRampToValueAtTime(0.001, nextBeatTime + 0.2);
+    kick.connect(kickGain);
+    kickGain.connect(masterGain);
+    kick.start(nextBeatTime);
+    kick.stop(nextBeatTime + 0.3);
+
+    setTimeout(scheduleBeat, (period - 0.05) * 1000);
+  }
+
+  // ── Mode renderers ──
+  // All render functions push data into ptPos/ptCol/ptSiz/lnPos/lnCol arrays
+
+  function hsv2rgb(h, s, v) {
+    const i = Math.floor(h * 6);
+    const f = h * 6 - i;
+    const p = v * (1 - s), q = v * (1 - f * s), tv = v * (1 - (1 - f) * s);
+    const cases = [[v,tv,p],[q,v,p],[p,v,tv],[p,q,v],[tv,p,v],[v,p,q]];
+    const c = cases[i % 6];
+    return [c[0], c[1], c[2]];
+  }
+
+  function addParticle(nx, ny, r, g, b, a, size) {
+    if (ptCount >= MAX_PARTICLES) return;
+    ptPos[ptCount*2] = nx;
+    ptPos[ptCount*2+1] = ny;
+    ptCol[ptCount*4] = r;
+    ptCol[ptCount*4+1] = g;
+    ptCol[ptCount*4+2] = b;
+    ptCol[ptCount*4+3] = a;
+    ptSiz[ptCount] = size;
+    ptCount++;
+  }
+
+  function addLine(x1, y1, x2, y2, r, g, b, a) {
+    if (lnCount + 2 > MAX_LINE_VERTS) return;
+    const i = lnCount;
+    lnPos[i*2] = x1; lnPos[i*2+1] = y1;
+    lnCol[i*4] = r; lnCol[i*4+1] = g; lnCol[i*4+2] = b; lnCol[i*4+3] = a;
+    lnPos[(i+1)*2] = x2; lnPos[(i+1)*2+1] = y2;
+    lnCol[(i+1)*4] = r; lnCol[(i+1)*4+1] = g; lnCol[(i+1)*4+2] = b; lnCol[(i+1)*4+3] = a;
+    lnCount += 2;
+  }
+
+  // Project E8 root to NDC
+  function rootToNDC(root, proj, scale, ox, oy) {
+    const [x3, y3, z3] = project8to3(root, proj);
+    const persp = 1 / (1 + z3 * 0.3);
+    const aspect = W / H;
+    return [
+      (x3 * persp * scale / aspect) + ox + centerX,
+      (y3 * persp * scale) + oy + centerY,
+      z3
+    ];
+  }
+
+  // ── MODE 0: CRYSTALLINE ──
+  function renderCrystalline() {
+    const proj = makeProjMatrix(projA + t * rotSpeed, projB, projC + t * rotSpeed * 0.5, projD);
+    const scale = params.scale;
+    const hue = colorHue + t * 0.03;
+
+    // Draw connection lines between nearby roots
+    const positions = E8_ROOTS.map(r => rootToNDC(r, proj, scale, 0, 0));
+
+    for (let i = 0; i < 240; i++) {
+      for (let j = i + 1; j < 240; j++) {
+        const dx = E8_ROOTS[i][0] - E8_ROOTS[j][0];
+        let sumSq = 0;
+        for (let k = 0; k < 8; k++) {
+          const d = E8_ROOTS[i][k] - E8_ROOTS[j][k];
+          sumSq += d * d;
+        }
+        // Connect roots at distance sqrt(2) (adjacent in E8)
+        if (Math.abs(sumSq - 2) < 0.01) {
+          const [x1, y1, z1] = positions[i];
+          const [x2, y2, z2] = positions[j];
+          const depth = (z1 + z2) * 0.5;
+          const alpha = (0.15 + depth * 0.1) * params.lineAlpha * 8;
+          const hShift = hue + (i / 240) * params.colorSpread;
+          const [r, g, b] = hsv2rgb(hShift % 1, 0.8, 0.9);
+          addLine(x1, y1, x2, y2, r, g, b, Math.max(0, Math.min(1, alpha)));
+        }
+      }
+    }
+
+    // Draw root nodes
+    positions.forEach(([x, y, z], i) => {
+      const depth = (z + 1) * 0.5;
+      const hShift = (hue + i / 240 * params.colorSpread) % 1;
+      const pulse = 0.8 + 0.2 * Math.sin(t * 2 + i * 0.3);
+      const [r, g, b] = hsv2rgb(hShift, 0.9, 1.0);
+      const size = params.rootSize * depth * pulse;
+      addParticle(x, y, r, g, b, 0.9 * depth, size);
+    });
+  }
+
+  // ── MODE 1: VORTEX BLOOM ──
+  function renderVortexBloom() {
+    vortexAngle += 0.02 * params.vortexStrength;
+    const proj = makeProjMatrix(projA + t * rotSpeed, projB + Math.sin(t * 0.1) * 0.2, projC, projD + t * rotSpeed * 0.3);
+    const scale = params.scale * (1 + 0.15 * Math.sin(t * 0.5));
+
+    const arms = params.spiralArms;
+    E8_ROOTS.forEach((root, i) => {
+      const [x, y, z] = rootToNDC(root, proj, scale, 0, 0);
+      const armAngle = (i % arms) / arms * Math.PI * 2;
+      const spiralR = Math.sqrt(x*x + y*y);
+      const spiralTwist = vortexAngle + spiralR * 5;
+      const sx = x * Math.cos(spiralTwist) - y * Math.sin(spiralTwist);
+      const sy = x * Math.sin(spiralTwist) + y * Math.cos(spiralTwist);
+
+      const hue = (colorHue + i / 240 * 0.6 + armAngle / (Math.PI * 2) * 0.4) % 1;
+      const [r, g, b] = hsv2rgb(hue, 0.95, 1.0);
+      const depth = (z + 1) * 0.5;
+      const size = params.rootSize * 1.5 * depth;
+
+      addParticle(sx, sy, r, g, b, depth * 0.85, size);
+
+      // Trailing streamers
+      for (let tr = 1; tr <= 4; tr++) {
+        const frac = tr / 5;
+        const trx = sx * (1 - frac * 0.3);
+        const try_ = sy * (1 - frac * 0.3);
+        addParticle(trx, try_, r, g, b, depth * (1-frac) * 0.4, size * (1 - frac) * 0.6);
+      }
+    });
+
+    // Spiral connections
+    for (let i = 0; i < 240; i += 3) {
+      const next = (i + 3) % 240;
+      const [x1, y1] = rootToNDC(E8_ROOTS[i], proj, scale, 0, 0);
+      const [x2, y2] = rootToNDC(E8_ROOTS[next], proj, scale, 0, 0);
+      const tw = vortexAngle + Math.sqrt(x1*x1+y1*y1) * 5;
+      const sx1 = x1*Math.cos(tw)-y1*Math.sin(tw), sy1 = x1*Math.sin(tw)+y1*Math.cos(tw);
+      const sx2 = x2*Math.cos(tw)-y2*Math.sin(tw), sy2 = x2*Math.sin(tw)+y2*Math.cos(tw);
+      const hue = (colorHue + i / 240) % 1;
+      const [r,g,b] = hsv2rgb(hue, 0.9, 0.9);
+      addLine(sx1, sy1, sx2, sy2, r, g, b, params.lineAlpha);
+    }
+  }
+
+  // ── MODE 2: HYPERCUBE MORPH ──
+  function renderHypercubeMorph() {
+    morphT += params.morphSpeed;
+    const alpha8 = (Math.sin(morphT) + 1) * 0.5; // morph between projections
+
+    const projBase = makeProjMatrix(projA + t * rotSpeed, projB, projC, projD);
+    const projMorph = makeProjMatrix(projA + t * rotSpeed + Math.PI * 0.5, projB + 0.3, projC + 0.5, projD + 0.4);
+    const scale = params.scale;
+
+    E8_ROOTS.forEach((root, i) => {
+      const [x1, y1, z1] = rootToNDC(root, projBase, scale, 0, 0);
+      const [x2, y2, z2] = rootToNDC(root, projMorph, scale, 0, 0);
+      const x = x1 * (1 - alpha8) + x2 * alpha8;
+      const y = y1 * (1 - alpha8) + y2 * alpha8;
+      const z = z1 * (1 - alpha8) + z2 * alpha8;
+      const depth = (z + 1) * 0.5;
+      const hue = (colorHue + i / 240 * params.colorSpread + morphT * 0.1) % 1;
+      const [r, g, b] = hsv2rgb(hue, 1.0, 1.0);
+      addParticle(x, y, r, g, b, depth * 0.9, params.rootSize * 1.2);
+    });
+
+    // Morphing lattice lines
+    for (let i = 0; i < 240; i++) {
+      for (let j = i + 1; j < 240; j++) {
+        let sumSq = 0;
+        for (let k = 0; k < 8; k++) {
+          const d = E8_ROOTS[i][k] - E8_ROOTS[j][k];
+          sumSq += d * d;
+        }
+        if (Math.abs(sumSq - 2) < 0.01) {
+          const [x1a, y1a] = rootToNDC(E8_ROOTS[i], projBase, scale, 0, 0);
+          const [x2a, y2a] = rootToNDC(E8_ROOTS[j], projBase, scale, 0, 0);
+          const [x1b, y1b] = rootToNDC(E8_ROOTS[i], projMorph, scale, 0, 0);
+          const [x2b, y2b] = rootToNDC(E8_ROOTS[j], projMorph, scale, 0, 0);
+          const mx1 = x1a*(1-alpha8)+x1b*alpha8, my1 = y1a*(1-alpha8)+y1b*alpha8;
+          const mx2 = x2a*(1-alpha8)+x2b*alpha8, my2 = y2a*(1-alpha8)+y2b*alpha8;
+          const hue = (colorHue + i/240*0.5) % 1;
+          const [r,g,b] = hsv2rgb(hue, 0.8, 0.9);
+          addLine(mx1, my1, mx2, my2, r, g, b, params.lineAlpha * 1.5);
+        }
+      }
+    }
+  }
+
+  // ── MODE 3: STELLAR CASCADE ──
+  function renderStellarCascade() {
+    if (particles.length < 1200) {
+      // Spawn particles from E8 roots
+      const ri = Math.floor(Math.random() * 240);
+      const proj = makeProjMatrix(projA + t * rotSpeed, projB, projC, projD);
+      const [x, y, z] = rootToNDC(E8_ROOTS[ri], proj, params.scale, 0, 0);
+      const hue = (colorHue + ri / 240 * params.colorSpread) % 1;
+      particles.push({
+        x, y, vx: (Math.random()-0.5) * 0.02, vy: (Math.random()-0.5) * 0.02,
+        life: 1, decay: 0.008 + Math.random() * 0.015,
+        hue, size: params.rootSize * (0.5 + Math.random())
+      });
+    }
+
+    const proj = makeProjMatrix(projA + t * rotSpeed, projB, projC, projD);
+
+    // Draw static lattice
+    E8_ROOTS.forEach((root, i) => {
+      const [x, y, z] = rootToNDC(root, proj, params.scale * 0.7, 0, 0);
+      const depth = (z + 1) * 0.5;
+      const hue = (colorHue + i / 240 * 0.3) % 1;
+      const [r, g, b] = hsv2rgb(hue, 0.7, 0.8);
+      addParticle(x, y, r, g, b, depth * 0.4, params.rootSize * 0.6);
+    });
+
+    // Update and draw cascade particles
+    particles = particles.filter(p => p.life > 0);
+    particles.forEach(p => {
+      p.x += p.vx;
+      p.y += p.vy;
+      p.vy -= 0.0002;
+      p.life -= p.decay;
+      const [r, g, b] = hsv2rgb(p.hue, 0.9, 1.0);
+      addParticle(p.x, p.y, r, g, b, p.life * 0.9, p.size * p.life);
+    });
+  }
+
+  // ── MODE 4: RESONANCE FIELD ──
+  function renderResonanceField() {
+    ringPhase += 0.05;
+    const proj = makeProjMatrix(projA + t * rotSpeed * 0.5, projB, projC + t * 0.002, projD);
+    const scale = params.scale;
+
+    // Rippling rings emanating from roots
+    const numRings = 5;
+    E8_ROOTS.forEach((root, i) => {
+      if (i % 3 !== 0) return;
+      const [cx, cy, z] = rootToNDC(root, proj, scale, 0, 0);
+      const depth = (z + 1) * 0.5;
+      const hue = (colorHue + i / 240 * params.colorSpread) % 1;
+      const [r, g, b] = hsv2rgb(hue, 0.9, 1.0);
+
+      for (let ring = 0; ring < numRings; ring++) {
+        const ringT = (ringPhase + ring / numRings + i * 0.01) % 1;
+        const ringR = ringT * 0.4;
+        const alpha = (1 - ringT) * params.lineAlpha * 3;
+        const segs = 24;
+        for (let s = 0; s < segs; s++) {
+          const a1 = s / segs * Math.PI * 2;
+          const a2 = (s + 1) / segs * Math.PI * 2;
+          const aspect = W / H;
+          addLine(
+            cx + Math.cos(a1) * ringR / aspect, cy + Math.sin(a1) * ringR,
+            cx + Math.cos(a2) * ringR / aspect, cy + Math.sin(a2) * ringR,
+            r, g, b, alpha
+          );
+        }
+      }
+
+      addParticle(cx, cy, r, g, b, depth * 0.9, params.rootSize * depth);
+    });
+
+    // Central nexus
+    for (let i = 0; i < 240; i += 5) {
+      const [x, y] = rootToNDC(E8_ROOTS[i], proj, scale, 0, 0);
+      addLine(x, y, centerX, centerY,
+        ...hsv2rgb((colorHue + i/240) % 1, 0.8, 0.7), params.lineAlpha * 0.5);
+    }
+  }
+
+  // ── MODE 5: QUANTUM FOAM ──
+  function renderQuantumFoam() {
+    const foam_t = t * 0.7;
+    const proj = makeProjMatrix(projA + foam_t * rotSpeed, projB + Math.sin(foam_t * 0.3) * 0.4, projC + foam_t * rotSpeed * 0.4, projD);
+    const scale = params.scale;
+
+    E8_ROOTS.forEach((root, i) => {
+      // Quantum jitter
+      const jitter = params.shimmer * 0.08;
+      const ox = Math.sin(foam_t * 2.3 + i * 0.7) * jitter;
+      const oy = Math.cos(foam_t * 1.7 + i * 1.1) * jitter;
+      const [x, y, z] = rootToNDC(root, proj, scale, ox, oy);
+      const depth = (z + 1) * 0.5;
+
+      // Foam bubble effect
+      const bubblePhase = foam_t * 3 + i * 0.4;
+      const bubbleR = (Math.sin(bubblePhase) * 0.5 + 0.5) * 0.03 / (W / H);
+      const alpha = (Math.cos(bubblePhase * 1.3) * 0.3 + 0.7);
+
+      const hue = (colorHue + i / 240 * params.colorSpread + foam_t * 0.05) % 1;
+      const [r, g, b] = hsv2rgb(hue, 1.0, 1.0);
+      addParticle(x, y, r, g, b, depth * alpha * 0.9, params.rootSize * 2 * (0.5 + alpha * 0.5));
+
+      // Foam connections
+      if (i < 180) {
+        const j = (i + Math.floor(seededRand(i + seed) * 60)) % 240;
+        const [x2, y2] = rootToNDC(E8_ROOTS[j], proj, scale,
+          Math.sin(foam_t * 2.1 + j * 0.8) * jitter,
+          Math.cos(foam_t * 1.9 + j * 0.6) * jitter
+        );
+        addLine(x, y, x2, y2, r, g, b, params.lineAlpha * 0.7 * alpha);
+      }
+    });
+  }
+
+  // ── MODE 6: TACHYON STREAM ──
+  function renderTachyonStream() {
+    const proj = makeProjMatrix(projA + t * rotSpeed * 2, projB, projC, projD);
+    const scale = params.scale;
+
+    // Superluminal streaks
+    E8_ROOTS.forEach((root, i) => {
+      const [x, y, z] = rootToNDC(root, proj, scale, 0, 0);
+      const depth = (z + 1) * 0.5;
+      const speed = params.vortexStrength * (1 + depth);
+      const streamLen = speed * 0.2;
+      const angle = Math.atan2(y - centerY, x - centerX);
+      const hue = (colorHue + depth * 0.5 + t * 0.02) % 1;
+      const [r, g, b] = hsv2rgb(hue, 0.95, 1.0);
+
+      // Leading particle
+      addParticle(x, y, r, g, b, depth * 0.9, params.rootSize * 1.5 * depth);
+
+      // Streak trail
+      for (let s = 1; s <= 8; s++) {
+        const frac = s / 8;
+        const tx = x - Math.cos(angle) * streamLen * frac;
+        const ty = y - Math.sin(angle) * streamLen * frac;
+        addParticle(tx, ty, r, g, b, (1-frac) * depth * 0.5, params.rootSize * (1-frac) * depth);
+      }
+    });
+
+    // Tachyon lattice pulse
+    const pulseWave = Math.sin(t * 4) * 0.5 + 0.5;
+    for (let i = 0; i < 240; i += 2) {
+      const [x1, y1] = rootToNDC(E8_ROOTS[i], proj, scale, 0, 0);
+      const j = (i + 1) % 240;
+      const [x2, y2] = rootToNDC(E8_ROOTS[j], proj, scale, 0, 0);
+      const hue = (colorHue + pulseWave * 0.4 + i / 240 * 0.3) % 1;
+      const [r, g, b] = hsv2rgb(hue, 0.7, 0.8);
+      addLine(x1, y1, x2, y2, r, g, b, pulseWave * params.lineAlpha * 2);
+    }
+  }
+
+  // ── MODE 7: OMEGA COLLAPSE ──
+  function renderOmegaCollapse() {
+    if (!exploding) {
+      explodeT += 0.008;
+      if (explodeT > 1) { exploding = true; explodeT = 1; }
+    } else {
+      explodeT -= 0.004;
+      if (explodeT < 0) { exploding = false; explodeT = 0; }
+    }
+
+    const proj = makeProjMatrix(projA + t * rotSpeed * (exploding ? 3 : 0.5), projB, projC, projD);
+    const scale = params.scale * (exploding ? (1 + explodeT * 0.5) : (explodeT + 0.3));
+
+    E8_ROOTS.forEach((root, i) => {
+      const [x, y, z] = rootToNDC(root, proj, scale, 0, 0);
+      const depth = (z + 1) * 0.5;
+      const hue = (colorHue + i / 240 * params.colorSpread + explodeT * 0.5) % 1;
+      const intensity = exploding ? explodeT : (1 - explodeT * 0.5);
+      const [r, g, b] = hsv2rgb(hue, 0.95, intensity);
+      const size = params.rootSize * depth * (1 + explodeT * 2);
+      addParticle(x, y, r, g, b, depth * intensity * 0.9, size);
+
+      // Collapse/explosion lines
+      addLine(x, y, centerX, centerY,
+        r, g, b, params.lineAlpha * intensity * 2);
+    });
+
+    // Shockwave rings
+    for (let ring = 0; ring < 3; ring++) {
+      const ringT = (explodeT + ring / 3) % 1;
+      const ringR = ringT * 1.5;
+      const alpha = (1 - ringT) * 0.4;
+      const segs = 64;
+      const hue = (colorHue + ring * 0.15) % 1;
+      const [r, g, b] = hsv2rgb(hue, 0.9, 1.0);
+      const aspect = W / H;
+      for (let s = 0; s < segs; s++) {
+        const a1 = s / segs * Math.PI * 2;
+        const a2 = (s + 1) / segs * Math.PI * 2;
+        addLine(
+          centerX + Math.cos(a1) * ringR / aspect, centerY + Math.sin(a1) * ringR,
+          centerX + Math.cos(a2) * ringR / aspect, centerY + Math.sin(a2) * ringR,
+          r, g, b, alpha
+        );
+      }
+    }
+  }
+
+  const renderers = [
+    renderCrystalline,
+    renderVortexBloom,
+    renderHypercubeMorph,
+    renderStellarCascade,
+    renderResonanceField,
+    renderQuantumFoam,
+    renderTachyonStream,
+    renderOmegaCollapse
+  ];
+
+  // ── Main render loop ──
+  let frameCount = 0, fpsTimer = 0, fps = 0;
+
+  function render(now) {
+    requestAnimationFrame(render);
+
+    dt = (now - lastTime) / 1000;
+    lastTime = now;
+    if (dt > 0.1) dt = 0.1;
+    t += dt;
+    phaseTimer += dt;
+    beatPhase += dt * params.beatFreq;
+
+    frameCount++;
+    fpsTimer += dt;
+    if (fpsTimer >= 0.5) {
+      fps = Math.round(frameCount / fpsTimer);
+      frameCount = 0; fpsTimer = 0;
+      if (hudVisible) {
+        hudFps.textContent = 'FPS: ' + fps;
+        hudMode.textContent = 'MODE: ' + modeNames[mode % NUM_MODES];
+        hudPhase.textContent = 'PHASE: ' + Math.floor(phaseTimer) + 's / ' + Math.floor(phaseDuration) + 's';
+        hudParam.textContent = 'θ: ' + (projA + t * rotSpeed).toFixed(2);
+        hudEnergy.textContent = 'ENERGY: ' + energyLevel.toFixed(2);
+      }
+    }
+
+    // Auto-advance mode
+    if (phaseTimer >= phaseDuration) {
+      mode = (mode + 1) % NUM_MODES;
+      phaseTimer = 0;
+      phaseDuration = 8 + Math.random() * 14;
+    }
+
+    // Reset counters
+    ptCount = 0;
+    lnCount = 0;
+
+    // Render current mode
+    renderers[mode % NUM_MODES]();
+
+    gl.disable(gl.DEPTH_TEST);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE); // Additive blending
+
+    // Draw background
+    gl.useProgram(bgProg);
+    const bgPos = gl.getAttribLocation(bgProg, 'a_pos');
+    gl.bindBuffer(gl.ARRAY_BUFFER, bgBuf);
+    gl.enableVertexAttribArray(bgPos);
+    gl.vertexAttribPointer(bgPos, 2, gl.FLOAT, false, 0, 0);
+    gl.uniform1f(gl.getUniformLocation(bgProg, 'u_time'), t);
+    gl.uniform1f(gl.getUniformLocation(bgProg, 'u_mode'), mode);
+    gl.uniform1f(gl.getUniformLocation(bgProg, 'u_energy'), energyLevel);
+    gl.uniform2f(gl.getUniformLocation(bgProg, 'u_center'), (centerX+1)*0.5, (centerY+1)*0.5);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+    // Draw lines
+    if (lnCount > 0) {
+      gl.useProgram(lineProg);
+      const lPos = gl.getAttribLocation(lineProg, 'a_pos');
+      const lCol = gl.getAttribLocation(lineProg, 'a_col');
+
+      gl.bindBuffer(gl.ARRAY_BUFFER, lnPosBuf);
+      gl.bufferData(gl.ARRAY_BUFFER, lnPos.subarray(0, lnCount * 2), gl.DYNAMIC_DRAW);
+      gl.enableVertexAttribArray(lPos);
+      gl.vertexAttribPointer(lPos, 2, gl.FLOAT, false, 0, 0);
+
+      gl.bindBuffer(gl.ARRAY_BUFFER, lnColBuf);
+      gl.bufferData(gl.ARRAY_BUFFER, lnCol.subarray(0, lnCount * 4), gl.DYNAMIC_DRAW);
+      gl.enableVertexAttribArray(lCol);
+      gl.vertexAttribPointer(lCol, 4, gl.FLOAT, false, 0, 0);
+
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+      gl.drawArrays(gl.LINES, 0, lnCount);
+    }
+
+    // Draw particles
+    if (ptCount > 0) {
+      gl.useProgram(particleProg);
+      const pPos = gl.getAttribLocation(particleProg, 'a_pos');
+      const pCol = gl.getAttribLocation(particleProg, 'a_col');
+      const pSiz = gl.getAttribLocation(particleProg, 'a_size');
+
+      gl.bindBuffer(gl.ARRAY_BUFFER, ptPosBuf);
+      gl.bufferData(gl.ARRAY_BUFFER, ptPos.subarray(0, ptCount * 2), gl.DYNAMIC_DRAW);
+      gl.enableVertexAttribArray(pPos);
+      gl.vertexAttribPointer(pPos, 2, gl.FLOAT, false, 0, 0);
+
+      gl.bindBuffer(gl.ARRAY_BUFFER, ptColBuf);
+      gl.bufferData(gl.ARRAY_BUFFER, ptCol.subarray(0, ptCount * 4), gl.DYNAMIC_DRAW);
+      gl.enableVertexAttribArray(pCol);
+      gl.vertexAttribPointer(pCol, 4, gl.FLOAT, false, 0, 0);
+
+      gl.bindBuffer(gl.ARRAY_BUFFER, ptSizBuf);
+      gl.bufferData(gl.ARRAY_BUFFER, ptSiz.subarray(0, ptCount), gl.DYNAMIC_DRAW);
+      gl.enableVertexAttribArray(pSiz);
+      gl.vertexAttribPointer(pSiz, 1, gl.FLOAT, false, 0, 0);
+
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+      gl.drawArrays(gl.POINTS, 0, ptCount);
+    }
+  }
+
+  // ── Input handlers ──
+  document.addEventListener('keydown', e => {
+    const k = e.key.toUpperCase();
+    if (k === 'H') {
+      hudVisible = !hudVisible;
+      hud.classList.toggle('visible', hudVisible);
+    } else if (k === 'S') {
+      soundOn = !soundOn;
+      if (soundOn) {
+        initAudio();
+        if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+        startAudioEvolution();
+        if (masterGain) masterGain.gain.value = 0.3;
+      } else {
+        if (masterGain) masterGain.gain.value = 0;
+      }
+    } else if (k === ' ') {
+      e.preventDefault();
+      randomizeParams();
+      if (soundOn) startAudioEvolution();
+    }
+  });
+
+  function handleInteract(e) {
+    e.preventDefault();
+    randomizeParams();
+    if (soundOn) startAudioEvolution();
+  }
+
+  canvas.addEventListener('click', handleInteract);
+  canvas.addEventListener('touchend', handleInteract);
+
+  requestAnimationFrame(render);
+}
+
+// ══════════════════════════════════════════════
+// 2D CANVAS FALLBACK
+// ══════════════════════════════════════════════
+function run2D() {
+  const ctx = canvas.getContext('2d');
+  let W, H, t = 0, lastTime = 0;
+  let seed = Math.random() * 99999;
+  let colorHue = Math.random();
+  let rotSpeed = 0.002;
+  let projA = 0, projB = 0.4, projC = 0.2, projD = 0.3;
+
+  function seededRand(s) {
+    let x = Math.sin(s + 1) * 43758.5453;
+    return x - Math.floor(x);
+  }
+
+  function generateE8Roots() {
+    const roots = [];
+    for (let i = 0; i < 8; i++) for (let j = 0; j < 8; j++) {
+      if (i === j) continue;
+      for (let si = -1; si <= 1; si += 2) for (let sj = -1; sj <= 1; sj += 2) {
+        const v = new Array(8).fill(0);
+        v[i] = si; v[j] = sj;
+        roots.push(v);
+      }
+    }
+    for (let mask = 0; mask < 256; mask++) {
+      let minus = 0;
+      for (let b = 0; b < 8; b++) if (mask & (1 << b)) minus++;
+      if (minus % 2 === 0) {
+        const v = [];
+        for (let b = 0; b < 8; b++) v.push((mask & (1 << b)) ? -0.5 : 0.5);
+        roots.push(v);
+      }
+    }
+    return roots;
+  }
+
+  const E8_ROOTS = generateE8Roots();
+
+  function makeProjMatrix(a, b, c, d) {
+    return Array.from({length: 8}, (_, i) => [
+      Math.cos(a + i * b) * Math.cos(c + i * 0.3),
+      Math.sin(a + i * b) * Math.cos(d + i * 0.4),
+      Math.sin(c + i * 0.5)
+    ]);
+  }
+
+  function project8to3(root, proj) {
+    let x=0,y=0,z=0;
+    for(let i=0;i<8;i++){x+=root[i]*proj[i][0];y+=root[i]*proj[i][1];z+=root[i]*proj[i][2];}
+    return [x,y,z];
+  }
+
+  function resize() {
+    W = canvas.width = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+  }
+  resize();
+  window.addEventListener('resize', resize);
+
+  function hsv2hex(h, s, v) {
+    const i=Math.floor(h*6), f=h*6-i, p=v*(1-s), q=v*(1-f*s), tv=v*(1-(1-f)*s);
+    const c=[[v,tv,p],[q,v,p],[p,v,tv],[p,q,v],[tv,p,v],[v,p,q]][i%6];
+    return `rgb(${Math.floor(c[0]*255)},${Math.floor(c[1]*255)},${Math.floor(c[2]*255)})`;
+  }
+
+  function render(now) {
+    requestAnimationFrame(render);
+    const dt = Math.min(0.05, (now - lastTime) / 1000);
+    lastTime = now;
+    t += dt;
+
+    ctx.fillStyle = 'rgba(0,0,5,0.15)';
+    ctx.fillRect(0, 0, W, H);
+
+    const proj = makeProjMatrix(projA + t * rotSpeed, projB + Math.sin(t*0.1)*0.15, projC + t*rotSpeed*0.5, projD);
+    const scale = Math.min(W, H) * 0.28;
+    const cx = W / 2, cy = H / 2;
+
+    const positions = E8_ROOTS.map(r => {
+      const [x3,y3,z3] = project8to3(r, proj);
+      const persp = 1/(1+z3*0.3);
+      return [cx+x3*persp*scale, cy+y3*persp*scale, z3];
+    });
+
+    for (let i = 0; i < 240; i++) {
+      for (let j = i+1; j < 240; j++) {
+        let sumSq = 0;
+        for (let k = 0; k < 8; k++) {
+          const d = E8_ROOTS[i][k]-E8_ROOTS[j][k]; sumSq+=d*d;
+        }
+        if (Math.abs(sumSq-2) < 0.01) {
+          const [x1,y1,z1]=positions[i], [x2,y2,z2]=positions[j];
+          const hue=(colorHue+i/240*0.6+t*0.02)%1;
+          ctx.strokeStyle=hsv2hex(hue,0.8,0.7);
+          ctx.globalAlpha=(z1+z2)*0.06+0.05;
+          ctx.lineWidth=0.8;
+          ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+        }
+      }
+    }
+
+    positions.forEach(([x,y,z],i)=>{
+      const depth=(z+1)*0.5;
+      const hue=(colorHue+i/240*0.6+t*0.03)%1;
+      const pulse=0.7+0.3*Math.sin(t*2+i*0.3);
+      ctx.globalAlpha=depth*pulse*0.9;
+      const r=Math.max(2, 6*depth*pulse);
+      const grd=ctx.createRadialGradient(x,y,0,x,y,r*2);
+      grd.addColorStop(0,hsv2hex(hue,0.2,1));
+      grd.addColorStop(1,hsv2hex(hue,1,0.8)+'00');
+      ctx.fillStyle=grd;
+      ctx.beginPath(); ctx.arc(x,y,r*2,0,Math.PI*2); ctx.fill();
+    });
+
+    ctx.globalAlpha=1;
+  }
+
+  document.addEventListener('keydown', e => {
+    if (e.key.toUpperCase()==='H') document.getElementById('hud').classList.toggle('visible');
+    if (e.key===' ') { e.preventDefault(); colorHue=Math.random(); rotSpeed=(Math.random()*0.006+0.001)*(Math.random()>0.5?1:-1); projA=Math.random()*Math.PI*2; projB=0.2+Math.random()*0.6; }
+  });
+  canvas.addEventListener('click', ()=>{ colorHue=Math.random(); });
+  requestAnimationFrame(render);
+}
+</script>
+</body>
+</html>

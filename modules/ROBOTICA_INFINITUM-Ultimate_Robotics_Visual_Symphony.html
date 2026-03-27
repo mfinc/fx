@@ -1,0 +1,1178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="description" content="ROBOTICA INFINITUM — An unprecedented audiovisual symphony of robots and robotics. Breathtaking 3D animations, generative art, and dynamic sound synthesis celebrating the beauty of robotic engineering, artificial intelligence, and mechanical life. A never-before-seen interactive canvas of robotic visual phenomena.">
+<meta name="keywords" content="robotics animation, robot graphics, generative art, robotic visual symphony, AI art, robot showcase, mechanical animation, robotic engineering visualization, interactive robot display, audiovisual robotics experience, robot simulation, robotic art installation, computational animation, procedural robotics, robot dance animation">
+<meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+<meta name="author" content="ROBOTICA INFINITUM — Generative Robotics Visual Engine">
+<meta property="og:title" content="ROBOTICA INFINITUM — Ultimate Robotics Visual Symphony">
+<meta property="og:description" content="Experience the most complex and beautiful robotics animation ever created. Generative, interactive, audiovisual.">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="ROBOTICA INFINITUM — Robotics Animation Masterpiece">
+<meta name="theme-color" content="#00ffcc">
+<title>ROBOTICA INFINITUM — Ultimate Robotics Visual Symphony | Robot Animation Masterpiece</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Courier New',monospace}
+  canvas{display:block;position:fixed;top:0;left:0;width:100%!important;height:100%!important}
+  #hud{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;display:none;z-index:100}
+  #hud-inner{position:absolute;top:16px;left:16px;right:16px;bottom:16px;border:1px solid rgba(0,255,204,0.3);pointer-events:none}
+  .hud-corner{position:absolute;width:20px;height:20px;border-color:rgba(0,255,204,0.8);border-style:solid}
+  .hud-tl{top:-1px;left:-1px;border-width:2px 0 0 2px}
+  .hud-tr{top:-1px;right:-1px;border-width:2px 2px 0 0}
+  .hud-bl{bottom:-1px;left:-1px;border-width:0 0 2px 2px}
+  .hud-br{bottom:-1px;right:-1px;border-width:0 2px 2px 0}
+  #hud-title{position:absolute;top:24px;left:50%;transform:translateX(-50%);color:rgba(0,255,204,0.9);font-size:11px;letter-spacing:6px;text-transform:uppercase;white-space:nowrap}
+  #hud-stats{position:absolute;top:24px;left:30px;color:rgba(0,255,204,0.7);font-size:10px;line-height:1.8;letter-spacing:1px}
+  #hud-controls{position:absolute;bottom:24px;right:30px;color:rgba(0,255,204,0.6);font-size:9px;line-height:2;letter-spacing:1px;text-align:right}
+  #hud-mode{position:absolute;bottom:24px;left:30px;color:rgba(0,255,204,0.7);font-size:10px;letter-spacing:2px}
+  #hud-scanline{position:absolute;top:0;left:0;width:100%;height:2px;background:rgba(0,255,204,0.1);animation:scan 4s linear infinite}
+  @keyframes scan{0%{top:0}100%{top:100%}}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div id="hud-inner">
+    <div class="hud-corner hud-tl"></div>
+    <div class="hud-corner hud-tr"></div>
+    <div class="hud-corner hud-bl"></div>
+    <div class="hud-corner hud-br"></div>
+    <div id="hud-scanline"></div>
+  </div>
+  <div id="hud-title">ROBOTICA INFINITUM — GENERATIVE ROBOTICS VISUAL ENGINE</div>
+  <div id="hud-stats" id="hud-stats"></div>
+  <div id="hud-controls">
+    [SPACE / CLICK / TAP] REGENERATE<br>
+    [H] TOGGLE HUD<br>
+    [S] TOGGLE SOUND
+  </div>
+  <div id="hud-mode" id="hud-mode"></div>
+</div>
+
+<script>
+// ============================================================
+// ROBOTICA INFINITUM — Ultimate Robotics Visual Symphony Engine
+// ============================================================
+(function(){
+'use strict';
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const hudEl = document.getElementById('hud');
+const statsEl = document.getElementById('hud-stats');
+const modeEl = document.getElementById('hud-mode');
+
+let W, H, cx, cy;
+let hudVisible = false;
+let soundEnabled = false;
+let animFrame;
+let t = 0;
+let seed = Math.random() * 99999;
+let audioCtx = null;
+let masterGain = null;
+let frameCount = 0;
+let fps = 60;
+let lastFpsTime = 0;
+
+// ─── UNIVERSE PARAMETERS (randomized on regen) ─────────────────────
+let U = {};
+
+function rng(s){ let x=Math.sin(s)*10000;return x-Math.floor(x); }
+function srng(){ seed+=1.7182818;return rng(seed); }
+
+function randomizeUniverse(){
+  seed = Math.random()*99999|0;
+  t = 0; frameCount = 0;
+
+  U = {
+    // Palette family
+    palFamily: Math.floor(srng()*8),
+    // Scene mode
+    sceneMode: Math.floor(srng()*7),
+    // Robot count
+    robotCount: 4 + Math.floor(srng()*10),
+    // Swarm density
+    swarmN: 60 + Math.floor(srng()*120),
+    // Geometry complexity
+    geomComplexity: 0.4 + srng()*0.6,
+    // Plasma intensity
+    plasmaIntensity: 0.3 + srng()*0.7,
+    // Trail length
+    trailLen: 0.3 + srng()*0.7,
+    // Orbit speed
+    orbitSpeed: 0.3 + srng()*1.4,
+    // Color shift speed
+    colorShift: srng()*6.28,
+    // Grid resolution
+    gridRes: 8 + Math.floor(srng()*20),
+    // Neon bloom
+    bloom: srng()>0.3,
+    // Fractal depth
+    fractalDepth: 2+Math.floor(srng()*4),
+    // Waveform type
+    waveType: Math.floor(srng()*5),
+    // Circuit density
+    circuitDensity: 0.2+srng()*0.8,
+    // Arm count per robot
+    armCount: 2+Math.floor(srng()*6),
+    // Particle systems
+    particleSystems: 1+Math.floor(srng()*4),
+    // Energy field type
+    energyField: Math.floor(srng()*6),
+    // Rotation axes
+    multiAxis: srng()>0.4,
+    // Holographic
+    holo: srng()>0.5,
+    // Theme name
+    themeName: ['CYBERNET','PLASMA FORGE','QUANTUM GRID','NEURAL FLUX','CHROME STORM','NEON GENESIS','VOID PROTOCOL','TITAN CORE'][Math.floor(srng()*8)],
+  };
+}
+
+// ─── COLOR PALETTES ────────────────────────────────────────────────
+function getPalette(t2){
+  const palettes = [
+    // 0: Cyberpunk neon
+    (p)=>{ const h=[(p*360+t2*30)%360,((p*360+t2*30)+120)%360,((p*360+t2*30)+240)%360];
+           return `hsl(${h[0]},100%,${50+p*20}%)` },
+    // 1: Plasma fire
+    (p)=>{ const r=Math.sin(p*3.14+t2)*127+128,g=Math.sin(p*3.14+t2+2.1)*60+60,b=Math.sin(p*3.14+t2+4.2)*40+40;
+           return `rgb(${r|0},${g|0},${b|0})` },
+    // 2: Chrome + electric blue
+    (p)=>{ const v=(Math.sin(p*6.28+t2)+1)*0.5;
+           return `hsl(${200+p*40},${80+v*20}%,${40+v*40}%)` },
+    // 3: Emerald matrix
+    (p)=>{ const v=Math.sin(p*9.42+t2*2);
+           return `hsl(${120+v*30},${90+v*10}%,${35+v*30}%)` },
+    // 4: Violet neural
+    (p)=>{ return `hsl(${270+Math.sin(p*4+t2)*60},${80+p*20}%,${40+p*30}%)` },
+    // 5: Gold titanium
+    (p)=>{ return `hsl(${40+Math.sin(p*3+t2)*20},${80+p*10}%,${45+p*25}%)` },
+    // 6: Rainbow spectrum
+    (p)=>{ return `hsl(${(p*360+t2*60)%360},100%,55%)` },
+    // 7: Red + white hot
+    (p)=>{ const v=Math.sin(p*6+t2); return `hsl(${10+v*20},${90+v*10}%,${50+v*30}%)` },
+  ];
+  return palettes[U.palFamily % palettes.length];
+}
+
+// ─── AUDIO ENGINE ──────────────────────────────────────────────────
+function initAudio(){
+  if(audioCtx) return;
+  audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+  masterGain = audioCtx.createGain();
+  masterGain.gain.value = 0.12;
+  masterGain.connect(audioCtx.destination);
+  startAudioEngine();
+}
+
+function startAudioEngine(){
+  if(!audioCtx) return;
+  // Drone layer
+  const droneFreqs = [55, 82.5, 110, 165, 220];
+  droneFreqs.forEach((f,i)=>{
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    const filter = audioCtx.createBiquadFilter();
+    osc.type = ['sine','triangle','sawtooth','square'][i%4];
+    osc.frequency.value = f * (1 + U.orbitSpeed*0.1);
+    filter.type = 'bandpass';
+    filter.frequency.value = f*2;
+    filter.Q.value = 3;
+    gain.gain.value = 0.04 - i*0.005;
+    osc.connect(filter); filter.connect(gain); gain.connect(masterGain);
+    osc.start();
+    // Slow modulation
+    const lfo = audioCtx.createOscillator();
+    const lfoG = audioCtx.createGain();
+    lfo.frequency.value = 0.05 + i*0.03;
+    lfoG.gain.value = f*0.3;
+    lfo.connect(lfoG); lfoG.connect(osc.frequency); lfo.start();
+  });
+  // Rhythmic pulse
+  schedulePulse();
+}
+
+function schedulePulse(){
+  if(!audioCtx||!soundEnabled) return;
+  const now = audioCtx.currentTime;
+  const bpm = 60 + U.orbitSpeed*40;
+  const beat = 60/bpm;
+  // Metal hit
+  const buf = audioCtx.createBuffer(1, audioCtx.sampleRate*0.15, audioCtx.sampleRate);
+  const d = buf.getChannelData(0);
+  for(let i=0;i<d.length;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/d.length,3)*0.4;
+  const src = audioCtx.createBufferSource();
+  const filt = audioCtx.createBiquadFilter();
+  const g = audioCtx.createGain();
+  src.buffer = buf;
+  filt.type='bandpass'; filt.frequency.value=800+srng()*400; filt.Q.value=2;
+  g.gain.value=0.5;
+  src.connect(filt); filt.connect(g); g.connect(masterGain);
+  src.start(now);
+  setTimeout(schedulePulse, beat*1000*(0.5+srng()*0.5));
+}
+
+function synthNote(freq, dur=0.3){
+  if(!audioCtx||!soundEnabled) return;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type='sawtooth'; osc.frequency.value=freq;
+  gain.gain.setValueAtTime(0,audioCtx.currentTime);
+  gain.gain.linearRampToValueAtTime(0.08,audioCtx.currentTime+0.01);
+  gain.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+dur);
+  osc.connect(gain); gain.connect(masterGain);
+  osc.start(); osc.stop(audioCtx.currentTime+dur+0.1);
+}
+
+// ─── PARTICLE SYSTEM ───────────────────────────────────────────────
+class Particle{
+  constructor(x,y,col,type){
+    this.x=x; this.y=y; this.ox=x; this.oy=y;
+    this.vx=(Math.random()-0.5)*4; this.vy=(Math.random()-0.5)*4;
+    this.col=col; this.type=type||0;
+    this.life=1; this.decay=0.006+Math.random()*0.015;
+    this.size=1+Math.random()*4;
+    this.spin=Math.random()*0.2-0.1;
+    this.angle=Math.random()*6.28;
+  }
+  update(){
+    this.x+=this.vx; this.y+=this.vy;
+    this.vx*=0.98; this.vy*=0.98;
+    this.vy+=0.02;
+    this.life-=this.decay;
+    this.angle+=this.spin;
+    this.size*=0.995;
+  }
+  draw(ctx){
+    ctx.save();
+    ctx.globalAlpha=this.life*0.8;
+    ctx.fillStyle=this.col;
+    ctx.translate(this.x,this.y);
+    ctx.rotate(this.angle);
+    if(this.type===0){
+      ctx.fillRect(-this.size/2,-this.size/2,this.size,this.size);
+    } else if(this.type===1){
+      ctx.beginPath(); ctx.arc(0,0,this.size,0,6.28); ctx.fill();
+    } else {
+      ctx.beginPath();
+      ctx.moveTo(0,-this.size); ctx.lineTo(this.size,this.size); ctx.lineTo(-this.size,this.size);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
+  }
+}
+
+let particles = [];
+function emitParticles(x,y,col,n=5,type=0){
+  for(let i=0;i<n;i++) particles.push(new Particle(x,y,col,type));
+}
+function updateParticles(){
+  particles = particles.filter(p=>p.life>0);
+  particles.forEach(p=>{p.update();p.draw(ctx);});
+  if(particles.length>1200) particles.splice(0,200);
+}
+
+// ─── ROBOT ENTITY ──────────────────────────────────────────────────
+class Robot{
+  constructor(x,y,r,type,col){
+    this.x=x; this.y=y; this.r=r; this.type=type; this.col=col;
+    this.angle=Math.random()*6.28;
+    this.bodyAngle=0; this.headAngle=0;
+    this.limbPhase=Math.random()*6.28;
+    this.orbitR=r*1.2+Math.random()*r;
+    this.orbitA=Math.random()*6.28;
+    this.orbitSpeed=(0.3+Math.random()*0.7)*(Math.random()<0.5?1:-1)*U.orbitSpeed;
+    this.eyeGlow=0; this.energyPhase=Math.random()*6.28;
+    this.armCount=U.armCount;
+    this.scale=0.6+Math.random()*0.8;
+    this.alive=true; this.birthT=t;
+    this.trailPts=[];
+    this.id=Math.random()*1000|0;
+    this.fireInterval=60+Math.random()*120|0;
+  }
+  update(t2){
+    this.orbitA+=this.orbitSpeed*0.01;
+    this.x+=Math.cos(this.orbitA)*0.5;
+    this.y+=Math.sin(this.orbitA)*0.5;
+    // Keep in bounds with bounce
+    if(this.x<this.r||this.x>W-this.r) this.orbitSpeed*=-1;
+    if(this.y<this.r||this.y>H-this.r) this.orbitSpeed*=-1;
+    this.x=Math.max(this.r,Math.min(W-this.r,this.x));
+    this.y=Math.max(this.r,Math.min(H-this.r,this.y));
+    this.bodyAngle=Math.sin(t2*0.8+this.limbPhase)*0.15;
+    this.headAngle=Math.sin(t2*1.2+this.limbPhase+1)*0.3;
+    this.limbPhase+=0.03;
+    this.eyeGlow=0.5+Math.sin(t2*3+this.energyPhase)*0.5;
+    this.energyPhase+=0.02;
+    // Trail
+    if(frameCount%3===0){
+      this.trailPts.push({x:this.x,y:this.y,t:t2});
+      if(this.trailPts.length>30) this.trailPts.shift();
+    }
+    // Emit sparks
+    if(frameCount%15===0){
+      emitParticles(this.x,this.y,this.col,2,Math.floor(Math.random()*3));
+      if(soundEnabled && Math.random()<0.05) synthNote(200+this.id%400,0.1);
+    }
+  }
+  drawTrail(){
+    if(this.trailPts.length<2) return;
+    ctx.save();
+    for(let i=1;i<this.trailPts.length;i++){
+      const a=i/this.trailPts.length;
+      ctx.globalAlpha=a*0.3*U.trailLen;
+      ctx.strokeStyle=this.col;
+      ctx.lineWidth=a*this.r*0.15;
+      ctx.beginPath();
+      ctx.moveTo(this.trailPts[i-1].x,this.trailPts[i-1].y);
+      ctx.lineTo(this.trailPts[i].x,this.trailPts[i].y);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+  draw(t2){
+    this.drawTrail();
+    ctx.save();
+    ctx.translate(this.x,this.y);
+    ctx.rotate(this.bodyAngle);
+    ctx.scale(this.scale,this.scale);
+    // Draw by type
+    switch(this.type%6){
+      case 0: this.drawHumanoid(t2); break;
+      case 1: this.drawSpider(t2); break;
+      case 2: this.drawDrone(t2); break;
+      case 3: this.drawMech(t2); break;
+      case 4: this.drawNanoid(t2); break;
+      case 5: this.drawSentinel(t2); break;
+    }
+    ctx.restore();
+  }
+  drawHumanoid(t2){
+    const r=this.r, c=this.col;
+    // Legs
+    for(let side=-1;side<=1;side+=2){
+      const legA=Math.sin(t2*2+this.limbPhase)*0.5*side;
+      ctx.save();
+      ctx.translate(side*r*0.3,r*0.5);
+      ctx.rotate(legA);
+      ctx.strokeStyle=c; ctx.lineWidth=r*0.12; ctx.globalAlpha=0.9;
+      ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(0,r*0.6);
+      // Knee
+      const kx=side*r*0.1*Math.sin(legA*2);
+      ctx.lineTo(kx,r*1.0);
+      ctx.stroke();
+      // Foot
+      ctx.beginPath(); ctx.arc(kx,r*1.0,r*0.1,0,6.28); ctx.fillStyle=c; ctx.fill();
+      ctx.restore();
+    }
+    // Body
+    ctx.save();
+    ctx.strokeStyle=c; ctx.lineWidth=r*0.06;
+    this.drawNeonRect(-r*0.35,-r*0.5,r*0.7,r*1.0,c,0.8);
+    // Chest detail
+    this.drawCircuitLines(-r*0.35,-r*0.5,r*0.7,r*1.0,c);
+    ctx.restore();
+    // Arms
+    for(let side=-1;side<=1;side+=2){
+      const armA=Math.sin(t2*1.5+this.limbPhase+1)*0.6*side+side*0.3;
+      ctx.save();
+      ctx.translate(side*r*0.35,-r*0.2);
+      ctx.rotate(armA);
+      ctx.strokeStyle=c; ctx.lineWidth=r*0.1; ctx.globalAlpha=0.9;
+      ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(side*r*0.1,r*0.5);
+      ctx.lineTo(side*r*0.2,r*0.9); ctx.stroke();
+      // Hand glow
+      ctx.beginPath(); ctx.arc(side*r*0.2,r*0.9,r*0.1,0,6.28);
+      ctx.fillStyle=c; ctx.globalAlpha=this.eyeGlow; ctx.fill();
+      if(frameCount%30===0&&this.eyeGlow>0.8) emitParticles(this.x+side*r*0.2*this.scale,this.y+r*0.9*this.scale,c,3,1);
+      ctx.restore();
+    }
+    // Head
+    ctx.save();
+    ctx.rotate(this.headAngle);
+    ctx.translate(0,-r*0.6);
+    this.drawNeonRect(-r*0.28,-r*0.28,r*0.56,r*0.5,c,0.85);
+    // Eyes
+    for(let ex=-1;ex<=1;ex+=2){
+      ctx.beginPath(); ctx.arc(ex*r*0.1,0,r*0.07,0,6.28);
+      ctx.fillStyle=c; ctx.globalAlpha=this.eyeGlow; ctx.fill();
+      if(U.bloom){ ctx.shadowColor=c; ctx.shadowBlur=r*0.3; ctx.fill(); }
+    }
+    // Antenna
+    ctx.strokeStyle=c; ctx.lineWidth=r*0.05; ctx.globalAlpha=0.7;
+    ctx.beginPath(); ctx.moveTo(0,-r*0.28); ctx.lineTo(0,-r*0.6);
+    ctx.stroke();
+    ctx.beginPath(); ctx.arc(0,-r*0.6,r*0.06,0,6.28);
+    ctx.fillStyle=c; ctx.globalAlpha=this.eyeGlow; ctx.fill();
+    ctx.restore();
+  }
+  drawSpider(t2){
+    const r=this.r, c=this.col;
+    const legCount=6+Math.floor(srng()%3)*2;
+    // Legs
+    for(let i=0;i<legCount;i++){
+      const baseA=(i/legCount)*6.28;
+      const legPhase=Math.sin(t2*2+i*1.2+this.limbPhase)*0.4;
+      ctx.save();
+      ctx.strokeStyle=c; ctx.lineWidth=r*0.08; ctx.globalAlpha=0.85;
+      ctx.beginPath();
+      const jx1=Math.cos(baseA)*r*0.5, jy1=Math.sin(baseA)*r*0.5;
+      const jx2=Math.cos(baseA+legPhase)*r*1.2, jy2=Math.sin(baseA+legPhase)*r*1.2;
+      const jx3=Math.cos(baseA+legPhase*0.5)*r*1.8, jy3=Math.sin(baseA+legPhase*0.5)*r*1.9+r*0.2;
+      ctx.moveTo(0,0); ctx.lineTo(jx1,jy1); ctx.lineTo(jx2,jy2); ctx.lineTo(jx3,jy3);
+      ctx.stroke();
+      ctx.restore();
+    }
+    // Abdomen
+    ctx.save();
+    ctx.fillStyle=c; ctx.globalAlpha=0.2;
+    ctx.beginPath(); ctx.ellipse(r*0.3,0,r*0.5,r*0.35,0,0,6.28); ctx.fill();
+    ctx.strokeStyle=c; ctx.lineWidth=r*0.06; ctx.globalAlpha=0.8;
+    ctx.stroke();
+    // Body
+    ctx.beginPath(); ctx.arc(0,0,r*0.4,0,6.28);
+    ctx.fillStyle=c; ctx.globalAlpha=0.15; ctx.fill();
+    ctx.strokeStyle=c; ctx.lineWidth=r*0.08; ctx.globalAlpha=0.9; ctx.stroke();
+    // Eyes cluster
+    for(let i=0;i<4;i++){
+      const ex=Math.cos(i*1.57)*r*0.2, ey=Math.sin(i*1.57)*r*0.2;
+      ctx.beginPath(); ctx.arc(ex,ey,r*0.06,0,6.28);
+      ctx.fillStyle=c; ctx.globalAlpha=this.eyeGlow; ctx.fill();
+    }
+    ctx.restore();
+  }
+  drawDrone(t2){
+    const r=this.r, c=this.col;
+    const bladeA=t2*5+this.limbPhase;
+    // Rotors
+    for(let i=0;i<4;i++){
+      const rx=Math.cos(i*1.57)*r*0.7, ry=Math.sin(i*1.57)*r*0.7;
+      ctx.save(); ctx.translate(rx,ry);
+      // Blade
+      for(let b=0;b<3;b++){
+        ctx.save(); ctx.rotate(bladeA+b*2.094);
+        ctx.fillStyle=c; ctx.globalAlpha=0.4;
+        ctx.beginPath(); ctx.ellipse(r*0.25,0,r*0.3,r*0.06,0,0,6.28); ctx.fill();
+        ctx.restore();
+      }
+      // Rotor hub
+      ctx.beginPath(); ctx.arc(0,0,r*0.1,0,6.28);
+      ctx.fillStyle=c; ctx.globalAlpha=0.9; ctx.fill();
+      ctx.restore();
+    }
+    // Frame arms
+    ctx.save();
+    ctx.strokeStyle=c; ctx.lineWidth=r*0.08; ctx.globalAlpha=0.7;
+    for(let i=0;i<4;i++){
+      ctx.beginPath();
+      ctx.moveTo(0,0);
+      ctx.lineTo(Math.cos(i*1.57)*r*0.7,Math.sin(i*1.57)*r*0.7);
+      ctx.stroke();
+    }
+    ctx.restore();
+    // Body
+    ctx.save();
+    ctx.rotate(t2*0.3);
+    this.drawNeonRect(-r*0.25,-r*0.25,r*0.5,r*0.5,c,0.8);
+    // Camera eye
+    ctx.beginPath(); ctx.arc(0,r*0.1,r*0.12,0,6.28);
+    ctx.fillStyle=c; ctx.globalAlpha=this.eyeGlow; ctx.fill();
+    if(U.bloom){ctx.shadowColor=c;ctx.shadowBlur=r*0.4;ctx.fill();}
+    ctx.restore();
+    // Thrust particles
+    if(frameCount%8===0) emitParticles(this.x,this.y+r*0.3,c,2,1);
+  }
+  drawMech(t2){
+    const r=this.r, c=this.col;
+    // Treads
+    ctx.save();
+    ctx.fillStyle=c; ctx.globalAlpha=0.25;
+    ctx.beginPath(); ctx.roundRect(-r*0.6,r*0.6,r*1.2,r*0.4,r*0.1); ctx.fill();
+    ctx.strokeStyle=c; ctx.lineWidth=r*0.06; ctx.globalAlpha=0.7; ctx.stroke();
+    // Tread detail
+    for(let i=0;i<8;i++){
+      ctx.globalAlpha=0.4;
+      ctx.beginPath();
+      const tx=-r*0.5+i*r*0.14+Math.sin(t2*3)*r*0.02;
+      ctx.moveTo(tx,r*0.6); ctx.lineTo(tx,r*1.0); ctx.stroke();
+    }
+    ctx.restore();
+    // Body
+    this.drawNeonRect(-r*0.5,-r*0.3,r*1.0,r*0.9,c,0.8);
+    // Cannon arm
+    ctx.save();
+    const canA=Math.sin(t2*0.7+this.limbPhase)*0.5;
+    ctx.translate(r*0.6,0);
+    ctx.rotate(canA);
+    ctx.strokeStyle=c; ctx.lineWidth=r*0.15; ctx.globalAlpha=0.85;
+    ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(r*0.8,0); ctx.stroke();
+    ctx.beginPath(); ctx.arc(r*0.8,0,r*0.1,0,6.28);
+    ctx.fillStyle=c; ctx.globalAlpha=this.eyeGlow; ctx.fill();
+    if(frameCount%20===0&&Math.random()<0.3){
+      emitParticles(this.x+r*0.8*this.scale,this.y,c,5,0);
+      if(soundEnabled) synthNote(100+Math.random()*50,0.2);
+    }
+    ctx.restore();
+    // Viewport
+    ctx.save();
+    ctx.translate(0,-r*0.1);
+    ctx.fillStyle=c; ctx.globalAlpha=0.1;
+    ctx.beginPath(); ctx.ellipse(0,0,r*0.35,r*0.2,0,0,6.28); ctx.fill();
+    ctx.strokeStyle=c; ctx.lineWidth=r*0.05; ctx.globalAlpha=this.eyeGlow; ctx.stroke();
+    ctx.restore();
+  }
+  drawNanoid(t2){
+    const r=this.r, c=this.col;
+    const n=8+U.armCount;
+    for(let i=0;i<n;i++){
+      const a=(i/n)*6.28+t2*0.5;
+      const br=r*(0.5+Math.sin(t2*2+i*0.8)*0.3);
+      const cx2=Math.cos(a)*br, cy2=Math.sin(a)*br;
+      ctx.save();
+      ctx.strokeStyle=c; ctx.lineWidth=r*0.04; ctx.globalAlpha=0.6;
+      ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(cx2,cy2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(cx2,cy2,r*0.08,0,6.28);
+      ctx.fillStyle=c; ctx.globalAlpha=0.8+Math.sin(t2*3+i)*0.2; ctx.fill();
+      // Sub-arm
+      const a2=a+Math.sin(t2+i)*0.8;
+      ctx.strokeStyle=c; ctx.lineWidth=r*0.03; ctx.globalAlpha=0.4;
+      ctx.beginPath(); ctx.moveTo(cx2,cy2);
+      ctx.lineTo(cx2+Math.cos(a2)*r*0.3,cy2+Math.sin(a2)*r*0.3); ctx.stroke();
+      ctx.restore();
+    }
+    // Core
+    ctx.save();
+    ctx.rotate(t2);
+    for(let i=0;i<6;i++){
+      ctx.rotate(1.047);
+      ctx.strokeStyle=c; ctx.lineWidth=r*0.05; ctx.globalAlpha=0.7;
+      ctx.beginPath(); ctx.moveTo(r*0.1,0); ctx.lineTo(r*0.3,0); ctx.stroke();
+    }
+    ctx.restore();
+    ctx.beginPath(); ctx.arc(0,0,r*0.2,0,6.28);
+    ctx.fillStyle=c; ctx.globalAlpha=this.eyeGlow*0.5; ctx.fill();
+    if(U.bloom){ctx.shadowColor=c;ctx.shadowBlur=r*0.5;ctx.fill();}
+  }
+  drawSentinel(t2){
+    const r=this.r, c=this.col;
+    // Hovering orb base
+    ctx.save();
+    ctx.rotate(t2*0.4);
+    // Rings
+    for(let ring=0;ring<3;ring++){
+      const rr=r*(0.4+ring*0.25);
+      const rx=Math.cos(t2*(0.5+ring*0.3))*r*0.1;
+      const ry=Math.sin(t2*(0.5+ring*0.3))*r*0.1;
+      ctx.save(); ctx.translate(rx,ry);
+      ctx.rotate(ring*1.047+t2*0.2);
+      ctx.strokeStyle=c; ctx.lineWidth=r*0.04;
+      ctx.globalAlpha=0.6-ring*0.1;
+      ctx.beginPath(); ctx.arc(0,0,rr,0,6.28); ctx.stroke();
+      // Ring nodes
+      for(let n=0;n<4;n++){
+        const na=n*1.57+t2*0.3;
+        ctx.beginPath(); ctx.arc(Math.cos(na)*rr,Math.sin(na)*rr,r*0.05,0,6.28);
+        ctx.fillStyle=c; ctx.globalAlpha=this.eyeGlow; ctx.fill();
+      }
+      ctx.restore();
+    }
+    ctx.restore();
+    // Core sphere
+    const grad=ctx.createRadialGradient(-r*0.15,-r*0.15,r*0.05,0,0,r*0.35);
+    grad.addColorStop(0,'rgba(255,255,255,0.8)');
+    grad.addColorStop(0.5,c.replace(')',',0.4)').replace('hsl','hsla').replace('rgb','rgba'));
+    grad.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.beginPath(); ctx.arc(0,0,r*0.35,0,6.28);
+    ctx.fillStyle=grad; ctx.fill();
+    // Energy beams
+    for(let b=0;b<4;b++){
+      const ba=b*1.57+t2*0.3;
+      ctx.save();
+      ctx.rotate(ba);
+      ctx.strokeStyle=c; ctx.lineWidth=r*0.04; ctx.globalAlpha=0.3*this.eyeGlow;
+      ctx.beginPath(); ctx.moveTo(r*0.35,0); ctx.lineTo(r*1.2,0); ctx.stroke();
+      ctx.restore();
+    }
+    // Eye
+    ctx.beginPath(); ctx.arc(0,0,r*0.12,0,6.28);
+    ctx.fillStyle='#fff'; ctx.globalAlpha=this.eyeGlow; ctx.fill();
+    if(U.bloom){ctx.shadowColor=c;ctx.shadowBlur=r*0.6;ctx.fill();}
+  }
+
+  drawNeonRect(x,y,w,h,col,alpha){
+    ctx.save();
+    ctx.strokeStyle=col; ctx.lineWidth=Math.max(2,this.r*0.06);
+    ctx.globalAlpha=alpha||0.8;
+    ctx.fillStyle=col.replace(')',',0.05)').replace('hsl','hsla').replace('rgb','rgba');
+    if(U.bloom){ctx.shadowColor=col;ctx.shadowBlur=this.r*0.3;}
+    ctx.beginPath(); ctx.roundRect(x,y,w,h,this.r*0.05);
+    ctx.fill(); ctx.stroke();
+    ctx.restore();
+  }
+  drawCircuitLines(x,y,w,h,col){
+    ctx.save();
+    ctx.strokeStyle=col; ctx.lineWidth=1; ctx.globalAlpha=0.3;
+    const steps=4;
+    for(let i=0;i<steps;i++){
+      const py=y+h*(i+0.5)/steps;
+      ctx.beginPath();
+      ctx.moveTo(x+w*0.1,py);
+      ctx.lineTo(x+w*0.3,py);
+      ctx.lineTo(x+w*0.3,py-h*0.08);
+      ctx.lineTo(x+w*0.7,py-h*0.08);
+      ctx.stroke();
+      ctx.beginPath(); ctx.arc(x+w*0.7,py-h*0.08,2,0,6.28);
+      ctx.fillStyle=col; ctx.globalAlpha=0.5; ctx.fill();
+    }
+    ctx.restore();
+  }
+}
+
+// ─── SWARM ─────────────────────────────────────────────────────────
+class SwarmBot{
+  constructor(col){
+    this.x=Math.random()*W; this.y=Math.random()*H;
+    this.vx=(Math.random()-0.5)*2; this.vy=(Math.random()-0.5)*2;
+    this.col=col; this.size=2+Math.random()*4;
+    this.angle=0; this.life=1;
+    this.target={x:cx,y:cy};
+    this.orbitPhase=Math.random()*6.28;
+  }
+  update(t2,target){
+    // Flocking toward target
+    const dx=target.x-this.x, dy=target.y-this.y;
+    const dist=Math.sqrt(dx*dx+dy*dy);
+    const desired=Math.sqrt(W*W+H*H)*0.3;
+    if(dist>10){
+      this.vx+=(dx/dist)*0.1;
+      this.vy+=(dy/dist)*0.1;
+    }
+    // Orbit
+    const oa=Math.atan2(this.y-target.y,this.x-target.x)+0.02;
+    this.vx+=(Math.cos(oa)*desired-dx)*0.001;
+    this.vy+=(Math.sin(oa)*desired-dy)*0.001;
+    // Speed limit
+    const spd=Math.sqrt(this.vx*this.vx+this.vy*this.vy);
+    if(spd>3){this.vx*=3/spd;this.vy*=3/spd;}
+    this.x+=this.vx; this.y+=this.vy;
+    this.angle=Math.atan2(this.vy,this.vx);
+    // Bounce
+    if(this.x<0||this.x>W) this.vx*=-1;
+    if(this.y<0||this.y>H) this.vy*=-1;
+  }
+  draw(){
+    ctx.save();
+    ctx.translate(this.x,this.y); ctx.rotate(this.angle);
+    ctx.fillStyle=this.col; ctx.globalAlpha=0.7;
+    // Tiny bot shape
+    ctx.beginPath();
+    ctx.moveTo(this.size,0);
+    ctx.lineTo(-this.size,this.size*0.5);
+    ctx.lineTo(-this.size*0.5,0);
+    ctx.lineTo(-this.size,-this.size*0.5);
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+}
+
+// ─── ENERGY FIELD ──────────────────────────────────────────────────
+function drawEnergyField(t2, pal){
+  const res=U.gridRes;
+  const cw=W/res, ch=H/res;
+  ctx.save();
+  for(let gx=0;gx<=res;gx++){
+    for(let gy=0;gy<=res;gy++){
+      const nx=gx/res, ny=gy/res;
+      const v=Math.sin(nx*8+t2*1.2)*Math.cos(ny*6+t2*0.9)+
+              Math.sin((nx+ny)*5+t2*0.7)*0.5+
+              Math.cos(nx*ny*10+t2*1.5)*0.3;
+      const nv=(v+2)/4;
+      ctx.fillStyle=pal(nv);
+      ctx.globalAlpha=0.08*nv*U.plasmaIntensity;
+      ctx.fillRect(gx*cw,gy*ch,cw+1,ch+1);
+    }
+  }
+  ctx.restore();
+}
+
+// ─── CIRCUIT BOARD BACKGROUND ──────────────────────────────────────
+let circuitPaths=[];
+function generateCircuit(){
+  circuitPaths=[];
+  const n=40+Math.floor(U.circuitDensity*60);
+  for(let i=0;i<n;i++){
+    const pts=[{x:Math.random()*W,y:Math.random()*H}];
+    const segs=3+Math.floor(Math.random()*5);
+    for(let s=0;s<segs;s++){
+      const last=pts[pts.length-1];
+      const dir=Math.random()<0.5?0:1; // H or V
+      const len=30+Math.random()*150;
+      if(dir===0) pts.push({x:last.x+len*(Math.random()<0.5?1:-1),y:last.y});
+      else pts.push({x:last.x,y:last.y+len*(Math.random()<0.5?1:-1)});
+    }
+    circuitPaths.push({pts,col:Math.random()});
+  }
+}
+
+function drawCircuit(t2,pal){
+  ctx.save();
+  circuitPaths.forEach((cp,ci)=>{
+    const flow=(t2*0.5+ci*0.1)%1;
+    const col=pal(cp.col);
+    ctx.strokeStyle=col; ctx.lineWidth=0.8; ctx.globalAlpha=0.15;
+    ctx.beginPath();
+    cp.pts.forEach((p,i)=>i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y));
+    ctx.stroke();
+    // Moving dot on path
+    if(cp.pts.length>=2){
+      const totalLen=cp.pts.length-1;
+      const fi=flow*totalLen;
+      const i0=Math.floor(fi), i1=Math.min(i0+1,totalLen);
+      const frac=fi-i0;
+      const px=cp.pts[i0].x+(cp.pts[i1].x-cp.pts[i0].x)*frac;
+      const py=cp.pts[i0].y+(cp.pts[i1].y-cp.pts[i0].y)*frac;
+      ctx.beginPath(); ctx.arc(px,py,2.5,0,6.28);
+      ctx.fillStyle=col; ctx.globalAlpha=0.7; ctx.fill();
+      if(U.bloom){ctx.shadowColor=col;ctx.shadowBlur=8;ctx.fill();}
+    }
+    // Nodes at joints
+    cp.pts.forEach(p=>{
+      ctx.beginPath(); ctx.arc(p.x,p.y,2,0,6.28);
+      ctx.fillStyle=col; ctx.globalAlpha=0.3; ctx.fill();
+    });
+  });
+  ctx.restore();
+}
+
+// ─── HOLOGRAPHIC GRID ──────────────────────────────────────────────
+function drawHoloGrid(t2,pal){
+  ctx.save();
+  const spacing=60;
+  const vanishX=cx+Math.sin(t2*0.2)*100;
+  const vanishY=cy+Math.cos(t2*0.15)*60;
+  ctx.globalAlpha=0.12;
+  ctx.strokeStyle=pal(0.5);
+  ctx.lineWidth=0.5;
+  // Perspective grid
+  for(let x=0;x<=W;x+=spacing){
+    ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(vanishX,vanishY); ctx.stroke();
+  }
+  for(let y=0;y<=H;y+=spacing){
+    ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(vanishX,vanishY); ctx.stroke();
+  }
+  // Horizontal scan lines
+  for(let y=0;y<H;y+=spacing){
+    const scanY=(y+t2*30)%H;
+    ctx.globalAlpha=0.06;
+    ctx.beginPath(); ctx.moveTo(0,scanY); ctx.lineTo(W,scanY); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// ─── WAVE VISUALIZER ───────────────────────────────────────────────
+function drawWaveform(t2,pal){
+  const n=U.waveType;
+  ctx.save();
+  ctx.lineWidth=1.5; ctx.globalAlpha=0.4;
+  for(let layer=0;layer<3;layer++){
+    const yOff=H*0.25*(layer+1);
+    ctx.strokeStyle=pal(layer/3);
+    ctx.beginPath();
+    for(let x=0;x<W;x+=2){
+      const nx=x/W;
+      let y=0;
+      switch(n){
+        case 0: y=Math.sin(nx*20+t2*(2+layer))*50+Math.sin(nx*7+t2*(1+layer*0.3))*20; break;
+        case 1: y=(((nx*8+t2*2+layer)%1)-0.5)*80; break;
+        case 2: y=Math.abs(Math.sin(nx*10+t2*(1.5+layer*0.4)))*60-30; break;
+        case 3: y=Math.sin(nx*15+t2*(2+layer))*30+Math.cos(nx*9+t2*(1.2+layer*0.2))*40; break;
+        case 4: {
+          const f=nx*12+t2*1.5+layer;
+          y=Math.sign(Math.sin(f))*40*Math.sin(f*0.3);
+        } break;
+      }
+      const py=yOff+y;
+      x===0?ctx.moveTo(x,py):ctx.lineTo(x,py);
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// ─── FRACTAL ARMS ──────────────────────────────────────────────────
+function drawFractalArm(x,y,angle,len,depth,col,t2){
+  if(depth<=0||len<2) return;
+  ctx.save();
+  ctx.strokeStyle=col; ctx.lineWidth=depth*0.8;
+  ctx.globalAlpha=depth/U.fractalDepth*0.7;
+  if(U.bloom){ctx.shadowColor=col;ctx.shadowBlur=depth*3;}
+  const ex=x+Math.cos(angle)*len;
+  const ey=y+Math.sin(angle)*len;
+  ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(ex,ey); ctx.stroke();
+  // Joint node
+  ctx.beginPath(); ctx.arc(ex,ey,depth*1.5,0,6.28);
+  ctx.fillStyle=col; ctx.globalAlpha=0.5; ctx.fill();
+  ctx.restore();
+  const branchCount=2+Math.floor(U.geomComplexity*2);
+  for(let b=0;b<branchCount;b++){
+    const ba=angle+(b/(branchCount-1)-0.5)*1.8+Math.sin(t2*0.5+depth+b)*0.2;
+    drawFractalArm(ex,ey,ba,len*0.62,depth-1,col,t2);
+  }
+}
+
+// ─── LASER GRID ────────────────────────────────────────────────────
+function drawLaserGrid(t2,pal){
+  ctx.save();
+  const beams=6+Math.floor(U.geomComplexity*8);
+  for(let i=0;i<beams;i++){
+    const angle=(i/beams)*3.14159+t2*0.1;
+    const col=pal(i/beams);
+    ctx.strokeStyle=col; ctx.lineWidth=0.5; ctx.globalAlpha=0.25;
+    if(U.bloom){ctx.shadowColor=col;ctx.shadowBlur=15;}
+    ctx.beginPath();
+    ctx.moveTo(cx+Math.cos(angle)*W,cy+Math.sin(angle)*H);
+    ctx.lineTo(cx-Math.cos(angle)*W,cy-Math.sin(angle)*H);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// ─── DATA STREAM ───────────────────────────────────────────────────
+let dataStreams=[];
+function initDataStreams(){
+  dataStreams=[];
+  const n=12+Math.floor(U.circuitDensity*20);
+  for(let i=0;i<n;i++){
+    dataStreams.push({
+      x:Math.random()*W,
+      y:Math.random()*H,
+      vy:0.5+Math.random()*2,
+      chars:'01Σ∆Ω∇◊⟨⟩∞≡±×÷√∫∂'.split(''),
+      col:Math.random(),
+      len:8+Math.floor(Math.random()*15),
+      speed:0.5+Math.random()*2,
+      head:0
+    });
+  }
+}
+
+function drawDataStreams(t2,pal){
+  ctx.save();
+  ctx.font='10px monospace';
+  dataStreams.forEach(ds=>{
+    ds.head+=ds.speed;
+    if(ds.head>ds.len*14) { ds.head=0; ds.x=Math.random()*W; }
+    for(let i=0;i<ds.len;i++){
+      const fade=1-i/ds.len;
+      const charI=Math.floor(t2*3+i+ds.x)%ds.chars.length;
+      ctx.fillStyle=pal(ds.col);
+      ctx.globalAlpha=fade*0.5;
+      ctx.fillText(ds.chars[charI], ds.x, ds.y+ds.head-i*14);
+    }
+  });
+  ctx.restore();
+}
+
+// ─── PLASMA CORE ───────────────────────────────────────────────────
+function drawPlasmaCore(t2,pal,robots){
+  if(!robots.length) return;
+  // Connect all robots with energy beams
+  ctx.save();
+  for(let i=0;i<robots.length;i++){
+    for(let j=i+1;j<robots.length;j++){
+      const dx=robots[i].x-robots[j].x, dy=robots[i].y-robots[j].y;
+      const dist=Math.sqrt(dx*dx+dy*dy);
+      if(dist<W*0.4){
+        const alpha=(1-dist/(W*0.4))*0.3;
+        const col=pal((i+j)/(robots.length*2));
+        ctx.strokeStyle=col; ctx.lineWidth=0.5; ctx.globalAlpha=alpha;
+        if(U.bloom){ctx.shadowColor=col;ctx.shadowBlur=5;}
+        ctx.beginPath(); ctx.moveTo(robots[i].x,robots[i].y);
+        // Bezier arc
+        const mx=(robots[i].x+robots[j].x)/2+Math.sin(t2+i)*30;
+        const my=(robots[i].y+robots[j].y)/2+Math.cos(t2+j)*30;
+        ctx.quadraticCurveTo(mx,my,robots[j].x,robots[j].y);
+        ctx.stroke();
+      }
+    }
+  }
+  ctx.restore();
+}
+
+// ─── HEXAGONAL OVERLAY ─────────────────────────────────────────────
+function drawHexGrid(t2,pal){
+  ctx.save();
+  const hr=40; const hh=hr*Math.sqrt(3)/2;
+  ctx.lineWidth=0.5;
+  for(let row=-2;row<H/hh+2;row++){
+    for(let col=-2;col<W/(hr*1.5)+2;col++){
+      const hx=col*hr*1.5;
+      const hy=row*hh*2+(col%2)*hh;
+      const nx=hx/W, ny=hy/H;
+      const v=Math.sin(nx*5+t2*0.5)*Math.cos(ny*4+t2*0.4);
+      if(v>0.2) continue;
+      ctx.strokeStyle=pal((nx+ny+t2*0.05)%1);
+      ctx.globalAlpha=Math.abs(v)*0.15;
+      ctx.beginPath();
+      for(let s=0;s<6;s++){
+        const a=s*1.047+t2*0.01;
+        s===0?ctx.moveTo(hx+Math.cos(a)*hr,hy+Math.sin(a)*hr):
+              ctx.lineTo(hx+Math.cos(a)*hr,hy+Math.sin(a)*hr);
+      }
+      ctx.closePath(); ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+// ─── GEAR SYSTEM ───────────────────────────────────────────────────
+let gears=[];
+function initGears(){
+  gears=[];
+  const n=3+Math.floor(U.geomComplexity*5);
+  for(let i=0;i<n;i++){
+    gears.push({
+      x:W*(0.1+srng()*0.8), y:H*(0.1+srng()*0.8),
+      r:30+srng()*80,
+      teeth:8+Math.floor(srng()*16),
+      col:srng(),
+      speed:(srng()-0.5)*0.02,
+      angle:srng()*6.28,
+      inner:srng()*0.5+0.3
+    });
+  }
+}
+function drawGear(g,t2,pal){
+  ctx.save();
+  ctx.translate(g.x,g.y);
+  g.angle+=g.speed;
+  ctx.rotate(g.angle);
+  const col=pal(g.col);
+  ctx.strokeStyle=col; ctx.fillStyle='rgba(0,0,0,0.1)'; ctx.lineWidth=2;
+  ctx.globalAlpha=0.25;
+  // Teeth
+  ctx.beginPath();
+  for(let i=0;i<g.teeth;i++){
+    const a=(i/g.teeth)*6.28;
+    const a2=((i+0.4)/g.teeth)*6.28;
+    const a3=((i+0.6)/g.teeth)*6.28;
+    const a4=((i+1)/g.teeth)*6.28;
+    ctx.lineTo(Math.cos(a)*g.r,Math.sin(a)*g.r);
+    ctx.lineTo(Math.cos(a)*g.r*1.2,Math.sin(a)*g.r*1.2);
+    ctx.lineTo(Math.cos(a2)*g.r*1.2,Math.sin(a2)*g.r*1.2);
+    ctx.lineTo(Math.cos(a2)*g.r,Math.sin(a2)*g.r);
+    ctx.lineTo(Math.cos(a3)*g.r,Math.sin(a3)*g.r);
+    ctx.lineTo(Math.cos(a3)*g.r*1.2,Math.sin(a3)*g.r*1.2);
+    ctx.lineTo(Math.cos(a4)*g.r*1.2,Math.sin(a4)*g.r*1.2);
+    ctx.lineTo(Math.cos(a4)*g.r,Math.sin(a4)*g.r);
+  }
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  // Inner rings
+  for(let ir=1;ir<=3;ir++){
+    ctx.beginPath(); ctx.arc(0,0,g.r*g.inner*(ir/3),0,6.28);
+    ctx.globalAlpha=0.15; ctx.stroke();
+  }
+  // Spokes
+  for(let s=0;s<6;s++){
+    const sa=s*1.047;
+    ctx.beginPath(); ctx.moveTo(Math.cos(sa)*g.r*0.15,Math.sin(sa)*g.r*0.15);
+    ctx.lineTo(Math.cos(sa)*g.r*g.inner,Math.sin(sa)*g.r*g.inner);
+    ctx.globalAlpha=0.2; ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// ─── MAIN STATE ─────────────────────────────────────────────────────
+let robots=[];
+let swarm=[];
+let initialized=false;
+
+function resize(){
+  W=canvas.width=window.innerWidth;
+  H=canvas.height=window.innerHeight;
+  cx=W/2; cy=H/2;
+}
+
+function init(){
+  resize();
+  randomizeUniverse();
+  robots=[];
+  const pal=getPalette(0);
+  for(let i=0;i<U.robotCount;i++){
+    const x=W*0.15+Math.random()*W*0.7;
+    const y=H*0.15+Math.random()*H*0.7;
+    const r=30+Math.random()*50;
+    const col=pal((i/U.robotCount+srng()*0.2)%1);
+    robots.push(new Robot(x,y,r,i%6,col));
+  }
+  swarm=[];
+  const swarmPal=getPalette(t*0.01);
+  for(let i=0;i<U.swarmN;i++){
+    swarm.push(new SwarmBot(swarmPal(i/U.swarmN)));
+  }
+  generateCircuit();
+  initDataStreams();
+  initGears();
+  particles=[];
+  initialized=true;
+}
+
+// ─── RENDER ────────────────────────────────────────────────────────
+function render(){
+  const t2=t*0.016; // seconds
+  const pal=getPalette(t2+U.colorShift);
+
+  // Background fade
+  ctx.fillStyle=`rgba(0,0,0,${0.12+U.trailLen*0.08})`;
+  ctx.fillRect(0,0,W,H);
+
+  // ── LAYER 1: Energy field (plasma)
+  drawEnergyField(t2,pal);
+
+  // ── LAYER 2: Holographic grid
+  if(U.holo) drawHoloGrid(t2,pal);
+
+  // ── LAYER 3: Hex grid
+  drawHexGrid(t2,pal);
+
+  // ── LAYER 4: Circuit board
+  drawCircuit(t2,pal);
+
+  // ── LAYER 5: Laser grid
+  drawLaserGrid(t2,pal);
+
+  // ── LAYER 6: Gears
+  gears.forEach(g=>drawGear(g,t2,pal));
+
+  // ── LAYER 7: Waveform
+  drawWaveform(t2,pal);
+
+  // ── LAYER 8: Fractal arms from robots
+  if(robots.length){
+    const mainBot=robots[0];
+    const fracCol=pal(0.7);
+    drawFractalArm(mainBot.x,mainBot.y,-1.57,H*0.15,U.fractalDepth,fracCol,t2);
+    if(robots.length>1){
+      const b=robots[Math.floor(robots.length/2)];
+      drawFractalArm(b.x,b.y,0.3,H*0.12,U.fractalDepth-1,pal(0.3),t2);
+    }
+  }
+
+  // ── LAYER 9: Plasma connections between robots
+  drawPlasmaCore(t2,pal,robots);
+
+  // ── LAYER 10: Data streams
+  drawDataStreams(t2,pal);
+
+  // ── LAYER 11: Swarm
+  const swarmTarget=robots.length?robots[frameCount%robots.length]:{x:cx,y:cy};
+  swarm.forEach(s=>{ s.update(t2,swarmTarget); s.draw(); });
+
+  // ── LAYER 12: Robots
+  robots.forEach(r=>{ r.update(t2); r.draw(t2); });
+
+  // ── LAYER 13: Particles
+  updateParticles();
+
+  // ── LAYER 14: Vignette
+  const vig=ctx.createRadialGradient(cx,cy,H*0.3,cx,cy,H*0.9);
+  vig.addColorStop(0,'rgba(0,0,0,0)');
+  vig.addColorStop(1,'rgba(0,0,0,0.6)');
+  ctx.save(); ctx.fillStyle=vig; ctx.fillRect(0,0,W,H); ctx.restore();
+
+  // ── LAYER 15: Scanline overlay
+  ctx.save();
+  ctx.fillStyle='rgba(0,0,0,0.03)';
+  for(let y=0;y<H;y+=2) ctx.fillRect(0,y,W,1);
+  ctx.restore();
+
+
+
+  // HUD stats
+  if(hudVisible){
+    statsEl.innerHTML=`FRAME: ${frameCount}<br>ROBOTS: ${robots.length}<br>SWARM: ${swarm.length}<br>PARTICLES: ${particles.length}<br>FPS: ${fps|0}<br>MODE: ${U.sceneMode}<br>SEED: ${U.themeName}<br>PALETTE: ${U.palFamily}`;
+    modeEl.textContent=`◈ ${U.themeName} ◈`;
+  }
+
+  frameCount++;
+  t++;
+
+  // FPS
+  const now2=performance.now();
+  if(now2-lastFpsTime>500){ fps=(frameCount/(now2/1000)).toFixed(1)*1; lastFpsTime=now2; }
+
+  animFrame=requestAnimationFrame(render);
+}
+
+// ─── EVENT HANDLERS ────────────────────────────────────────────────
+window.addEventListener('resize',()=>{ resize(); });
+
+window.addEventListener('keydown',e=>{
+  if(e.code==='KeyH'){ hudVisible=!hudVisible; hudEl.style.display=hudVisible?'block':'none'; }
+  if(e.code==='KeyS'){
+    soundEnabled=!soundEnabled;
+    if(soundEnabled){ initAudio(); if(audioCtx&&audioCtx.state==='suspended') audioCtx.resume(); }
+    else if(audioCtx) audioCtx.suspend();
+  }
+  if(e.code==='Space'){ e.preventDefault(); cancelAnimationFrame(animFrame); init(); render(); }
+});
+
+function regen(e){
+  if(e.type==='click'||e.type==='touchend'){
+    e.preventDefault();
+    cancelAnimationFrame(animFrame); init(); render();
+  }
+}
+canvas.addEventListener('click',regen);
+canvas.addEventListener('touchend',regen,{passive:false});
+
+// ─── BOOT ──────────────────────────────────────────────────────────
+init();
+render();
+
+})();
+</script>
+
+<!-- Structured data for SEO -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "ROBOTICA INFINITUM",
+  "description": "An unprecedented generative audiovisual symphony featuring breathtaking robot and robotics animations. Never-before-seen visual phenomena including swarm intelligence, holographic grids, plasma fields, fractal robot arms, circuit board visualizations, and dynamic sound synthesis synchronized with visual evolution.",
+  "applicationCategory": "MultimediaApplication",
+  "operatingSystem": "Any",
+  "browserRequirements": "Requires JavaScript and HTML5 Canvas",
+  "keywords": "robotics animation, robot graphics, generative art, interactive animation, audiovisual experience, robot showcase, AI art, mechanical animation, swarm robotics, holographic display",
+  "creator": {
+    "@type": "Organization",
+    "name": "ROBOTICA INFINITUM Visual Engine"
+  },
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "USD"
+  },
+  "featureList": [
+    "Generative robot animations with 6 distinct robot archetypes",
+    "Swarm intelligence visualization",
+    "Plasma energy field rendering",
+    "Holographic perspective grid",
+    "Circuit board animation with data flow",
+    "Fractal robotic arm systems",
+    "Hexagonal overlay patterns",
+    "Real-time particle systems",
+    "Dynamic sound synthesis synchronized to visuals",
+    "Randomized universe parameters on each generation",
+    "8 color palette families",
+    "7 unique scene modes",
+    "Interactive controls: HUD, sound, regeneration"
+  ]
+}
+</script>
+</body>
+</html>

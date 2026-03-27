@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>E8 Lattice Visual Symphony — Hyperdimensional Generative Geometry</title>
+
+<meta name="description" content="A mesmerizing generative audiovisual visualization inspired by the E8 lattice. Hyperdimensional projections, vibrant colors, evolving geometry, and synchronized audio create a never-before-seen abstract mathematical experience.">
+
+<meta name="keywords" content="E8 lattice visualization, generative art, mathematical visualization, hyperdimensional geometry, abstract animation, lattice projection, audiovisual generative system, mathematical art">
+
+<style>
+
+html,body{
+margin:0;
+overflow:hidden;
+background:black;
+font-family:monospace;
+}
+
+#hud{
+position:fixed;
+left:20px;
+top:20px;
+color:#0f0;
+font-size:12px;
+line-height:18px;
+pointer-events:none;
+}
+
+canvas{
+display:block;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<canvas id="c"></canvas>
+
+<div id="hud"></div>
+
+<script>
+
+const canvas=document.getElementById("c")
+const ctx=canvas.getContext("2d")
+const hud=document.getElementById("hud")
+
+let W,H
+function resize(){
+W=canvas.width=window.innerWidth
+H=canvas.height=window.innerHeight
+}
+window.onresize=resize
+resize()
+
+let nodes=[]
+let edges=[]
+let projection=[]
+let time=0
+
+let hudVisible=false
+let soundOn=false
+
+let audioCtx=null
+let oscillators=[]
+
+function rand(a,b){
+return a+Math.random()*(b-a)
+}
+
+function generateProjection(){
+
+projection=[]
+
+for(let i=0;i<3;i++){
+
+let row=[]
+
+for(let j=0;j<8;j++){
+
+row.push(rand(-1,1))
+
+}
+
+projection.push(row)
+
+}
+
+}
+
+function generateE8(){
+
+nodes=[]
+edges=[]
+
+let size=60
+
+for(let i=0;i<240;i++){
+
+let v=[]
+
+for(let d=0;d<8;d++){
+
+v.push(rand(-1,1))
+
+}
+
+nodes.push(v)
+
+}
+
+for(let i=0;i<nodes.length;i++){
+
+for(let j=i+1;j<nodes.length;j++){
+
+let dist=0
+
+for(let d=0;d<8;d++){
+
+dist+=(nodes[i][d]-nodes[j][d])**2
+
+}
+
+dist=Math.sqrt(dist)
+
+if(dist<1.4){
+
+edges.push([i,j])
+
+}
+
+}
+
+}
+
+}
+
+function project(v){
+
+let p=[0,0,0]
+
+for(let i=0;i<3;i++){
+
+for(let j=0;j<8;j++){
+
+p[i]+=projection[i][j]*v[j]
+
+}
+
+}
+
+return p
+
+}
+
+function rotate8(v,t){
+
+let a=v.slice()
+
+for(let i=0;i<7;i++){
+
+let c=Math.cos(t*(i+1)*0.1)
+let s=Math.sin(t*(i+1)*0.1)
+
+let x=a[i]
+let y=a[i+1]
+
+a[i]=x*c-y*s
+a[i+1]=x*s+y*c
+
+}
+
+return a
+
+}
+
+function startAudio(){
+
+if(audioCtx) return
+
+audioCtx=new (window.AudioContext||window.webkitAudioContext)()
+
+for(let i=0;i<6;i++){
+
+let osc=audioCtx.createOscillator()
+let gain=audioCtx.createGain()
+
+osc.type="sine"
+osc.frequency.value=rand(80,500)
+
+gain.gain.value=0.05
+
+osc.connect(gain)
+gain.connect(audioCtx.destination)
+
+osc.start()
+
+oscillators.push({osc,gain})
+
+}
+
+}
+
+function stopAudio(){
+
+if(!audioCtx) return
+
+oscillators.forEach(o=>{
+o.gain.gain.value=0
+})
+
+}
+
+function regenerate(){
+
+generateProjection()
+generateE8()
+
+if(audioCtx){
+
+oscillators.forEach(o=>{
+o.osc.frequency.value=rand(60,600)
+})
+
+}
+
+}
+
+function draw(){
+
+time+=0.01
+
+ctx.fillStyle="rgba(0,0,0,0.2)"
+ctx.fillRect(0,0,W,H)
+
+let projected=[]
+
+nodes.forEach(v=>{
+
+let r=rotate8(v,time)
+
+let p=project(r)
+
+let scale=200/(3+p[2])
+
+let x=W/2+p[0]*scale
+let y=H/2+p[1]*scale
+
+projected.push({x,y,z:p[2],v:r})
+
+})
+
+edges.forEach(e=>{
+
+let a=projected[e[0]]
+let b=projected[e[1]]
+
+let hue=(Math.sin(time+e[0]*0.01)+1)*180
+
+ctx.strokeStyle=`hsla(${hue},100%,60%,0.5)`
+ctx.lineWidth=1
+
+ctx.beginPath()
+ctx.moveTo(a.x,a.y)
+ctx.lineTo(b.x,b.y)
+ctx.stroke()
+
+})
+
+projected.forEach((p,i)=>{
+
+let hue=(Math.sin(time+i*0.02)+1)*180
+
+ctx.fillStyle=`hsl(${hue},100%,60%)`
+
+ctx.beginPath()
+ctx.arc(p.x,p.y,2,0,Math.PI*2)
+ctx.fill()
+
+})
+
+if(hudVisible){
+
+hud.innerHTML=`
+E8 LATTICE VISUAL SYMPHONY<br>
+nodes: ${nodes.length}<br>
+edges: ${edges.length}<br>
+time: ${time.toFixed(2)}<br>
+sound: ${soundOn ? "ON":"OFF"}<br>
+<br>
+H : toggle HUD<br>
+S : toggle SOUND<br>
+SPACE / CLICK : regenerate
+`
+
+}else{
+
+hud.innerHTML=""
+
+}
+
+requestAnimationFrame(draw)
+
+}
+
+window.addEventListener("keydown",e=>{
+
+if(e.code==="KeyH"){
+
+hudVisible=!hudVisible
+
+}
+
+if(e.code==="KeyS"){
+
+soundOn=!soundOn
+
+if(soundOn){
+
+startAudio()
+
+}else{
+
+stopAudio()
+
+}
+
+}
+
+if(e.code==="Space"){
+
+regenerate()
+
+}
+
+})
+
+window.addEventListener("click",regenerate)
+window.addEventListener("touchstart",regenerate)
+
+generateProjection()
+generateE8()
+
+draw()
+
+</script>
+
+</body>
+</html>

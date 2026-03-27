@@ -1,0 +1,1043 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Neural Vision Engine — an immersive real-time artificial neural network visualization featuring breathtaking animations of deep learning architectures, convolutional networks, recurrent systems, generative adversarial networks, and transformer attention mechanisms rendered as spectacular audiovisual experiences.">
+<meta name="keywords" content="neural network visualization, deep learning animation, artificial intelligence graphics, convolutional neural network art, GAN visualization, transformer attention visualization, generative art, real-time neural animation, AI audiovisual experience, neural network art, deep learning visualization, machine learning graphics, recurrent neural network animation, LSTM visualization, attention mechanism art">
+<meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1">
+<meta name="author" content="Neural Vision Engine">
+<meta property="og:title" content="Neural Vision Engine — Artificial Neural Network Audiovisual Experience">
+<meta property="og:description" content="Experience breathtaking real-time animations of artificial neural networks — deep learning architectures rendered as spectacular audiovisual phenomena with synchronized audio evolution.">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Neural Vision Engine — AI Neural Network Visualization">
+<meta name="twitter:description" content="Immersive real-time artificial neural network visualization featuring deep learning architecture animations, GAN art, transformer attention maps, and synchronized audio.">
+<title>Neural Vision Engine — Artificial Neural Network Audiovisual Experience | Deep Learning Animation</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000}
+canvas{display:block;position:fixed;top:0;left:0}
+#hud{position:fixed;top:0;left:0;right:0;bottom:0;pointer-events:none;display:none;font-family:monospace;font-size:11px;color:rgba(255,255,255,0.7)}
+#hud.visible{display:block}
+#hud-top{position:absolute;top:12px;left:16px;line-height:1.6}
+#hud-bot{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);text-align:center;line-height:1.8}
+#hud-right{position:absolute;top:12px;right:16px;text-align:right;line-height:1.6}
+.hud-val{color:#0ff}
+.hud-key{color:rgba(255,255,255,0.45);font-size:10px}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div id="hud-top">
+    <div>MODE <span class="hud-val" id="h-mode">—</span></div>
+    <div>EPOCH <span class="hud-val" id="h-epoch">0</span></div>
+    <div>NODES <span class="hud-val" id="h-nodes">0</span></div>
+    <div>EDGES <span class="hud-val" id="h-edges">0</span></div>
+    <div>LOSS <span class="hud-val" id="h-loss">0.000</span></div>
+    <div>LR <span class="hud-val" id="h-lr">0.001</span></div>
+    <div>FPS <span class="hud-val" id="h-fps">60</span></div>
+  </div>
+  <div id="hud-right">
+    <div><span class="hud-val" id="h-net">—</span></div>
+    <div>LAYERS <span class="hud-val" id="h-layers">0</span></div>
+    <div>PARAMS <span class="hud-val" id="h-params">0M</span></div>
+    <div>ACTIVATION <span class="hud-val" id="h-act">ReLU</span></div>
+    <div>OPTIMIZER <span class="hud-val" id="h-opt">Adam</span></div>
+    <div>PHASE <span class="hud-val" id="h-phase">—</span></div>
+  </div>
+  <div id="hud-bot">
+    <span class="hud-key">[H] HUD &nbsp; [S] SOUND &nbsp; [SPACE/CLICK/TAP] REGENERATE</span>
+  </div>
+</div>
+<script>
+(function(){
+const canvas=document.getElementById('c');
+const ctx=canvas.getContext('2d');
+let W,H,cx,cy;
+let RAF,lastT=0,fps=60,fpsAlpha=0.05;
+let hudVisible=false,soundEnabled=false;
+let epoch=0,globalT=0,modeT=0;
+let audioCtx=null,masterGain=null,soundNodes=[];
+let currentMode=0,totalModes=12;
+let params={};
+
+// ── Resize ──────────────────────────────────────────────────────────────
+function resize(){
+  W=canvas.width=window.innerWidth;
+  H=canvas.height=window.innerHeight;
+  cx=W/2;cy=H/2;
+}
+window.addEventListener('resize',resize);
+resize();
+
+// ── Audio ────────────────────────────────────────────────────────────────
+function initAudio(){
+  if(audioCtx)return;
+  audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+  masterGain=audioCtx.createGain();
+  masterGain.gain.setValueAtTime(0.0001,audioCtx.currentTime);
+  masterGain.connect(audioCtx.destination);
+}
+function killSound(){
+  soundNodes.forEach(n=>{try{n.stop();}catch(e){}});
+  soundNodes=[];
+}
+function makeOsc(freq,type,gain,detune=0,dur=Infinity){
+  if(!audioCtx||!soundEnabled)return null;
+  const o=audioCtx.createOscillator();
+  const g=audioCtx.createGain();
+  const f=audioCtx.createBiquadFilter();
+  o.type=type;o.frequency.value=freq;o.detune.value=detune;
+  f.type='bandpass';f.frequency.value=freq*2;f.Q.value=0.5;
+  g.gain.setValueAtTime(0,audioCtx.currentTime);
+  g.gain.linearRampToValueAtTime(gain,audioCtx.currentTime+0.5);
+  o.connect(f);f.connect(g);g.connect(masterGain);
+  o.start();
+  soundNodes.push(o);
+  return {osc:o,gain:g,filter:f};
+}
+function startSound(){
+  killSound();
+  if(!audioCtx||!soundEnabled)return;
+  const base=params.soundBase||80;
+  // drone + harmonics
+  makeOsc(base,'sine',0.15);
+  makeOsc(base*2,'sine',0.08);
+  makeOsc(base*3,'triangle',0.05);
+  makeOsc(base*0.5,'sawtooth',0.03);
+  // texture
+  for(let i=0;i<4;i++){
+    const f=base*(1+i*0.618)*(0.9+Math.random()*0.2);
+    makeOsc(f,'sine',0.02,Math.random()*20-10);
+  }
+}
+function modulateSound(t){
+  if(!audioCtx||!soundEnabled||soundNodes.length===0)return;
+  const now=audioCtx.currentTime;
+  soundNodes.forEach((o,i)=>{
+    if(o.frequency){
+      const mod=Math.sin(t*0.001*(i+1)*params.soundSpeed)*params.soundMod;
+      o.frequency.setValueAtTime(o.frequency.value*(1+mod*0.01),now);
+    }
+  });
+}
+
+// ── Parameter randomisation ──────────────────────────────────────────────
+function rnd(a,b){return a+Math.random()*(b-a);}
+function rndInt(a,b){return Math.floor(rnd(a,b+1));}
+function pick(arr){return arr[Math.floor(Math.random()*arr.length)];}
+const MODES=['CNN_FORWARD','RNN_TEMPORAL','GAN_DUEL','TRANSFORMER_ATTN','AUTOENCODER','HOPFIELD','BOLTZMANN','CAPSNET','DIFFUSION','SPIKING','LIQUID_STATE','NEUROEVO'];
+const ACTIVATIONS=['ReLU','Sigmoid','Tanh','GELU','Swish','Mish','ELU','Softmax'];
+const OPTIMIZERS=['Adam','SGD','RMSProp','AdaGrad','AdamW','LAMB','Nadam','Adadelta'];
+const COLORS_PALETTES=[
+  ['#ff2d78','#ff6b35','#ffd600','#00e676','#00b0ff','#e040fb'],
+  ['#00ffff','#0080ff','#8000ff','#ff00ff','#ff0080','#ffffff'],
+  ['#39ff14','#00fff7','#ff6600','#ff0099','#ffff00','#ffffff'],
+  ['#ff4500','#ff8c00','#ffd700','#7cfc00','#00ced1','#9400d3'],
+  ['#f72585','#b5179e','#7209b7','#560bad','#480ca8','#3a0ca3'],
+  ['#00f5ff','#0affef','#09fbd3','#08f7fe','#fe53bb','#f5d300'],
+];
+
+function randomise(){
+  params={
+    mode:rndInt(0,MODES.length-1),
+    palette:pick(COLORS_PALETTES),
+    layers:rndInt(4,12),
+    nodesPerLayer:rndInt(6,20),
+    speed:rnd(0.3,2.0),
+    noiseScale:rnd(0.001,0.005),
+    pulseFreq:rnd(0.5,3.0),
+    waveAmp:rnd(20,120),
+    particleCount:rndInt(200,800),
+    orbitalCount:rndInt(5,20),
+    spiralArms:rndInt(2,8),
+    activation:pick(ACTIVATIONS),
+    optimizer:pick(OPTIMIZERS),
+    lr:parseFloat(Math.pow(10,-rnd(2,4)).toFixed(6)),
+    params:rndInt(1,500),
+    soundBase:rnd(40,200),
+    soundSpeed:rnd(0.5,3.0),
+    soundMod:rnd(5,40),
+    bgAlpha:rnd(0.03,0.12),
+    glowRadius:rnd(4,24),
+    connectionDensity:rnd(0.1,0.5),
+    hexGrid:Math.random()>0.5,
+    vortexCount:rndInt(2,6),
+    fractalDepth:rndInt(3,7),
+    plasmaFreq:rnd(1,5),
+    rippleCount:rndInt(3,12),
+    attentionHeads:rndInt(4,16),
+    ganPhase:Math.random()>0.5?'generator':'discriminator',
+    morphSpeed:rnd(0.001,0.005),
+  };
+  currentMode=params.mode;
+  epoch=0;modeT=0;
+  killSound();
+  if(soundEnabled)startSound();
+  updateHUD();
+}
+
+// ── HUD update ───────────────────────────────────────────────────────────
+function updateHUD(){
+  document.getElementById('h-mode').textContent=MODES[params.mode];
+  document.getElementById('h-net').textContent=['CNN','LSTM','GAN','Transformer','VAE','Hopfield','RBM','CapsNet','DDPM','SNN','LSM','NEAT'][params.mode]||'—';
+  document.getElementById('h-layers').textContent=params.layers;
+  document.getElementById('h-params').textContent=params.params+'M';
+  document.getElementById('h-act').textContent=params.activation;
+  document.getElementById('h-opt').textContent=params.optimizer;
+  document.getElementById('h-lr').textContent=params.lr;
+  document.getElementById('h-phase').textContent=params.ganPhase||'forward';
+}
+function updateHUDRuntime(){
+  document.getElementById('h-epoch').textContent=epoch;
+  document.getElementById('h-fps').textContent=Math.round(fps);
+  document.getElementById('h-nodes').textContent=params.layers*params.nodesPerLayer;
+  document.getElementById('h-edges').textContent=Math.floor(params.layers*params.nodesPerLayer*params.nodesPerLayer*params.connectionDensity);
+  document.getElementById('h-loss').textContent=(0.5*Math.exp(-epoch*0.003)*(0.8+0.2*Math.sin(epoch*0.07))).toFixed(4);
+}
+
+// ── Drawing utilities ─────────────────────────────────────────────────────
+function clear(){
+  ctx.fillStyle=`rgba(0,0,0,${params.bgAlpha})`;
+  ctx.fillRect(0,0,W,H);
+}
+function glow(r,g,b,a,blur){
+  ctx.shadowColor=`rgba(${r},${g},${b},${a})`;
+  ctx.shadowBlur=blur;
+}
+function noGlow(){ctx.shadowBlur=0;}
+function hexToRgb(hex){
+  const r=parseInt(hex.slice(1,3),16);
+  const g=parseInt(hex.slice(3,5),16);
+  const b=parseInt(hex.slice(5,7),16);
+  return[r,g,b];
+}
+function colorAlpha(hex,a){
+  const[r,g,b]=hexToRgb(hex);
+  return`rgba(${r},${g},${b},${a})`;
+}
+function lerpColor(c1,c2,t){
+  const[r1,g1,b1]=hexToRgb(c1);
+  const[r2,g2,b2]=hexToRgb(c2);
+  return`rgb(${Math.round(r1+(r2-r1)*t)},${Math.round(g1+(g2-g1)*t)},${Math.round(b1+(b2-b1)*t)})`;
+}
+function cycleColor(t,pal){
+  const n=pal.length;
+  const i=(t%n+n)%n;
+  const a=Math.floor(i),b=(a+1)%n;
+  return lerpColor(pal[a],pal[b],i-a);
+}
+
+// ── Noise ─────────────────────────────────────────────────────────────────
+function noise2(x,y){
+  const X=Math.floor(x)&255,Y=Math.floor(y)&255;
+  const xf=x-Math.floor(x),yf=y-Math.floor(y);
+  const u=fade(xf),v=fade(yf);
+  const _r=lerp(v,lerp(u,grad(P[P[X]+Y],xf,yf),grad(P[P[X+1]+Y],xf-1,yf)),lerp(u,grad(P[P[X]+Y+1],xf,yf-1),grad(P[P[X+1]+Y+1],xf-1,yf-1)));return Math.max(-1,Math.min(1,_r));
+}
+function fade(t){return t*t*t*(t*(t*6-15)+10);}
+function lerp(t,a,b){return a+t*(b-a);}
+function grad(hash,x,y){const h=hash&3;return((h&1)?-x:x)+((h&2)?-y:y);}
+const P=[];{const p=[];for(let i=0;i<256;i++)p.push(i);for(let i=255;i>0;i--){const j=Math.floor(Math.random()*(i+1));[p[i],p[j]]=[p[j],p[i]];}for(let i=0;i<512;i++)P[i]=p[i&255];}
+
+// ── Particle system ───────────────────────────────────────────────────────
+let particles=[];
+function initParticles(){
+  particles=[];
+  for(let i=0;i<params.particleCount;i++){
+    particles.push({
+      x:Math.random()*W,y:Math.random()*H,
+      vx:(Math.random()-0.5)*2,vy:(Math.random()-0.5)*2,
+      size:rnd(1,4),life:Math.random(),
+      colorIdx:Math.floor(Math.random()*params.palette.length),
+      type:rndInt(0,3),layer:rndInt(0,params.layers-1)
+    });
+  }
+}
+
+// ── Network structure ─────────────────────────────────────────────────────
+let netNodes=[],netEdges=[];
+function buildNetwork(){
+  netNodes=[];netEdges=[];
+  const L=params.layers,N=params.nodesPerLayer;
+  for(let l=0;l<L;l++){
+    for(let n=0;n<N;n++){
+      const spread=Math.min(H*0.7,W*0.5);
+      const lx=W*0.1+l*(W*0.8/(L-1));
+      const ly=H*0.5+(n-(N-1)/2)*(spread/N);
+      netNodes.push({x:lx,y:ly,l,n,act:0,bias:rnd(-1,1),phase:Math.random()*Math.PI*2});
+    }
+  }
+  // edges with density filter
+  for(let l=0;l<L-1;l++){
+    for(let a=0;a<N;a++){
+      for(let b=0;b<N;b++){
+        if(Math.random()<params.connectionDensity){
+          netEdges.push({from:l*N+a,to:(l+1)*N+b,w:rnd(-1,1),active:false,pulse:0});
+        }
+      }
+    }
+  }
+}
+
+// ── DRAW MODES ────────────────────────────────────────────────────────────
+
+// Mode 0: CNN Forward Pass
+function drawCNN(t){
+  const pal=params.palette;
+  // Convolutional feature maps
+  const maps=6,mapW=W/(maps+1),mapH=H*0.3;
+  for(let m=0;m<maps;m++){
+    const mx=(m+0.5)*W/(maps+0.5);
+    const baseY=H*0.15;
+    const phase=t*0.001*params.speed+m*0.8;
+    // draw feature map as vibrating grid
+    const cells=8;
+    for(let r=0;r<cells;r++){
+      for(let cc=0;cc<cells;cc++){
+        const v=Math.sin(phase+r*0.7+cc*0.5)*0.5+0.5;
+        const col=cycleColor(m+v*2+t*0.0005,pal);
+        ctx.fillStyle=colorAlpha(col,0.7);
+        glow(...hexToRgb(pal[m%pal.length]),0.8,12);
+        const fw=mapW*0.85/cells,fh=mapH/cells;
+        ctx.fillRect(mx-mapW*0.4+cc*fw,baseY+r*fh,fw-1,fh-1);
+      }
+    }
+    // label
+    ctx.fillStyle=pal[m%pal.length];
+    ctx.font=`${Math.round(10+m*0.5)}px monospace`;
+    ctx.textAlign='center';
+    ctx.fillText(`Conv${m+1}`,mx,baseY+mapH+18);
+  }
+
+  // Pooling arrows
+  for(let m=0;m<maps-1;m++){
+    const x1=(m+1)*W/(maps+0.5);
+    const x2=(m+1.5)*W/(maps+0.5);
+    const y=H*0.3;
+    ctx.strokeStyle=colorAlpha(pal[(m+2)%pal.length],0.6);
+    ctx.lineWidth=2;
+    ctx.beginPath();ctx.moveTo(x1,y);ctx.lineTo(x2,y);ctx.stroke();
+  }
+
+  // Activation heatmap pulses
+  const L=params.layers,N=params.nodesPerLayer;
+  netNodes.forEach((nd,i)=>{
+    nd.act=Math.sin(t*0.002*params.speed+nd.phase+nd.l*0.3)*0.5+0.5;
+    const col=cycleColor(nd.l/(L-1)*pal.length+t*0.001,pal);
+    const[r,g,b]=hexToRgb(col);
+    ctx.beginPath();
+    ctx.arc(nd.x,H*0.6+nd.y-H*0.5,Math.max(0.001,4+nd.act*8),0,Math.PI*2);
+    ctx.fillStyle=`rgba(${r},${g},${b},${0.3+nd.act*0.7})`;
+    glow(r,g,b,nd.act,params.glowRadius);
+    ctx.fill();
+  });
+
+  // Firing edges
+  netEdges.forEach(e=>{
+    e.pulse=(e.pulse+0.02*params.speed)%1;
+    const a=netNodes[e.from],b=netNodes[e.to];
+    if(!a||!b)return;
+    const px=a.x+(b.x-a.x)*e.pulse;
+    const py=(H*0.6+a.y-H*0.5)+(H*0.6+b.y-H*0.5-H*0.6-a.y+H*0.5)*e.pulse;
+    ctx.beginPath();ctx.arc(px,py,Math.max(0.001,2+e.pulse*3),0,Math.PI*2);
+    const col2=pal[Math.floor(e.pulse*pal.length)%pal.length];
+    ctx.fillStyle=colorAlpha(col2,0.8);
+    glow(...hexToRgb(col2),1,8);ctx.fill();
+  });
+  noGlow();
+}
+
+// Mode 1: RNN Temporal
+function drawRNN(t){
+  const pal=params.palette;
+  const steps=16,stepW=W/(steps+1);
+  const cellH=H*0.4,cellY=H*0.3;
+  for(let s=0;s<steps;s++){
+    const sx=(s+0.5)*stepW+stepW*0.5;
+    const wave=Math.sin(t*0.001*params.speed+s*0.4)*params.waveAmp*0.5;
+    const hiddenAct=Math.sin(t*0.0015+s*0.5)*0.5+0.5;
+    const col=cycleColor(s*0.2+t*0.001,pal);
+    const[r,g,b]=hexToRgb(col);
+    // LSTM cell box
+    ctx.strokeStyle=`rgba(${r},${g},${b},0.6)`;ctx.lineWidth=1.5;
+    ctx.strokeRect(sx-22,cellY+wave-30,44,60);
+    // gates: forget, input, output
+    ['F','I','O','G'].forEach((gate,gi)=>{
+      const gx=sx-14+gi*9,gy=cellY+wave-15+gi*8;
+      const gact=Math.sin(t*0.002+s*0.3+gi*1.1)*0.5+0.5;
+      ctx.beginPath();ctx.arc(gx,gy,Math.max(0.001,4),0,Math.PI*2);
+      ctx.fillStyle=colorAlpha(pal[gi%pal.length],0.6+gact*0.4);
+      glow(r,g,b,gact,10);ctx.fill();
+    });
+    // cell state ribbon
+    ctx.beginPath();ctx.moveTo(sx-22,cellY+wave+10);ctx.lineTo(sx+22,cellY+wave+10);
+    ctx.strokeStyle=`rgba(${r},${g},${b},${0.3+hiddenAct*0.7})`;ctx.lineWidth=3+hiddenAct*4;ctx.stroke();
+    // recurrent arrow
+    if(s<steps-1){
+      const nx=(s+1.5)*stepW+stepW*0.5;
+      ctx.beginPath();ctx.moveTo(sx+22,cellY+wave);ctx.quadraticCurveTo((sx+nx)/2,cellY+wave-50,nx-22,cellY+wave);
+      ctx.strokeStyle=colorAlpha(pal[(s+1)%pal.length],0.4);ctx.lineWidth=1.5;ctx.stroke();
+      // pulse dot
+      const pt=((t*0.001*params.speed+s*0.3)%1+1)%1;
+      const px=sx+22+(nx-22-sx-22)*pt;
+      const py=cellY+wave+(-50)*Math.sin(Math.PI*pt);
+      ctx.beginPath();ctx.arc(px,py,Math.max(0.001,3),0,Math.PI*2);
+      ctx.fillStyle=pal[(s+2)%pal.length];glow(...hexToRgb(pal[(s+2)%pal.length]),1,12);ctx.fill();
+    }
+  }
+  // attention weights heatmap at bottom
+  const hmW=W*0.8,hmH=H*0.18,hmX=W*0.1,hmY=H*0.72;
+  for(let i=0;i<steps;i++){
+    for(let j=0;j<steps;j++){
+      const att=Math.max(0,Math.cos(t*0.001+(i-j)*0.5)*0.5+0.5*(i===j?1:0.2));
+      const col2=cycleColor(att*3+t*0.0005,pal);
+      ctx.fillStyle=colorAlpha(col2,att*0.9);
+      ctx.fillRect(hmX+i*hmW/steps,hmY+j*hmH/steps,hmW/steps-1,hmH/steps-1);
+    }
+  }
+  noGlow();
+}
+
+// Mode 2: GAN Duel
+function drawGAN(t){
+  const pal=params.palette;
+  const phase=Math.sin(t*0.001*params.speed)*0.5+0.5;
+  // Generator side (left)
+  ctx.save();
+  const genCols=Math.floor(6+Math.sin(t*0.002)*2);
+  for(let i=0;i<genCols;i++){
+    for(let j=0;j<genCols;j++){
+      const nx=W*0.05+i*(W*0.38/genCols);
+      const ny=H*0.1+j*(H*0.8/genCols);
+      const v=noise2(nx*params.noiseScale+t*0.0005,ny*params.noiseScale)*0.5+0.5;
+      const col=cycleColor(v*4+t*0.001+i*0.3,pal);
+      ctx.fillStyle=colorAlpha(col,0.5+v*0.5);
+      glow(...hexToRgb(col),v,params.glowRadius*0.5);
+      ctx.beginPath();ctx.arc(nx+W*0.38/genCols/2,ny+H*0.8/genCols/2,Math.max(0.001,(W*0.38/genCols)*0.4*(0.5+v*0.5)),0,Math.PI*2);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+
+  // Center battle zone
+  const bx=W*0.45,by=H*0.5;
+  for(let i=0;i<30;i++){
+    const a=i/30*Math.PI*2+t*0.001*params.speed;
+    const r=50+Math.sin(t*0.003+i)*30;
+    const px=bx+Math.cos(a)*r,py=by+Math.sin(a)*r;
+    const col=cycleColor(i*0.2+t*0.002,pal);
+    ctx.beginPath();ctx.arc(px,py,Math.max(0.001,3+phase*5),0,Math.PI*2);
+    ctx.fillStyle=colorAlpha(col,0.8);glow(...hexToRgb(col),1,12);ctx.fill();
+  }
+  // loss curves
+  const lossG=0.5*Math.exp(-epoch*0.003)+0.1*Math.sin(epoch*0.07);
+  const lossD=0.4*Math.exp(-epoch*0.002)+0.15*Math.cos(epoch*0.05);
+  drawLossLine(W*0.48,H*0.05,W*0.5,H*0.35,'G Loss',pal[0],lossG,t);
+  drawLossLine(W*0.48,H*0.55,W*0.5,H*0.35,'D Loss',pal[3],lossD,t);
+
+  // Discriminator (right)
+  const dSteps=8;
+  for(let d=0;d<dSteps;d++){
+    const dx=W*0.56+d*(W*0.38/dSteps);
+    const dy=H*0.5;
+    const dact=Math.sigmoid?Math.sigmoid(noise2(d*0.5,t*0.0003)):1/(1+Math.exp(-noise2(d*0.5,t*0.0003)*4));
+    const col=cycleColor(d*0.4+phase*2+t*0.001,pal);
+    ctx.beginPath();ctx.arc(dx,dy,Math.max(0.001,12+dact*20),0,Math.PI*2);
+    ctx.fillStyle=colorAlpha(col,0.1+dact*0.4);ctx.fill();
+    ctx.strokeStyle=colorAlpha(col,0.8+dact*0.2);ctx.lineWidth=2;ctx.stroke();
+    glow(...hexToRgb(col),dact,20);
+  }
+  noGlow();
+}
+function drawLossLine(x,y,w,h,label,col,loss,t){
+  ctx.save();ctx.beginPath();ctx.rect(x,y,w,h);ctx.clip();
+  ctx.strokeStyle=colorAlpha(col,0.7);ctx.lineWidth=2;
+  ctx.beginPath();
+  const steps=80;
+  for(let i=0;i<=steps;i++){
+    const ep=epoch-steps+i;
+    const lv=0.5*Math.exp(-Math.max(0,ep)*0.003)*(0.8+0.2*Math.sin(ep*0.07));
+    const px=x+i*w/steps,py=y+h-(lv*h*1.2);
+    i===0?ctx.moveTo(px,py):ctx.lineTo(px,py);
+  }
+  ctx.stroke();ctx.restore();
+}
+
+// Mode 3: Transformer Attention
+function drawTransformer(t){
+  const pal=params.palette;
+  const heads=params.attentionHeads,seqLen=12;
+  const headH=H/heads,headW=W*0.6;
+  for(let h=0;h<heads;h++){
+    const hy=h*headH;
+    // attention matrix
+    for(let q=0;q<seqLen;q++){
+      for(let k=0;k<seqLen;k++){
+        const att=Math.pow(Math.max(0,Math.cos(t*0.001+q*0.4+k*0.3+h*0.7)),2);
+        const col=cycleColor(h*(pal.length/heads)+att*2+t*0.0005,pal);
+        ctx.fillStyle=colorAlpha(col,att*0.95);
+        ctx.fillRect(W*0.05+q*(headW/seqLen),hy+5+k*(headH/seqLen-1),headW/seqLen-1,(headH-10)/seqLen-1);
+      }
+    }
+    // head label
+    ctx.fillStyle=pal[h%pal.length];ctx.font='9px monospace';ctx.textAlign='left';
+    ctx.fillText(`H${h+1}`,W*0.67,hy+headH*0.5);
+  }
+  // positional encoding wave
+  ctx.beginPath();
+  for(let i=0;i<W;i++){
+    const pe=Math.sin(i*0.03+t*0.002)*H*0.04+H*0.88;
+    i===0?ctx.moveTo(i,pe):ctx.lineTo(i,pe);
+  }
+  ctx.strokeStyle=colorAlpha(pal[0],0.6);ctx.lineWidth=2;ctx.stroke();
+  // feed-forward pulses
+  for(let n=0;n<seqLen;n++){
+    const nx=W*0.7+n*(W*0.28/seqLen);
+    const pulse=((t*0.001*params.speed+n*0.1)%1+1)%1;
+    for(let l=0;l<4;l++){
+      const ly=H*0.15+l*(H*0.7/4);
+      const act=Math.sin(t*0.002+n*0.4+l*0.6)*0.5+0.5;
+      const col=cycleColor(n*0.2+l*0.5+t*0.001,pal);
+      ctx.beginPath();ctx.arc(nx,ly,Math.max(0.001,4+act*8),0,Math.PI*2);
+      ctx.fillStyle=colorAlpha(col,0.4+act*0.6);
+      glow(...hexToRgb(col),act,14);ctx.fill();
+      if(l<3){
+        ctx.beginPath();ctx.moveTo(nx,ly+4+act*8);ctx.lineTo(nx,ly+H*0.7/4-4);
+        ctx.strokeStyle=colorAlpha(col,0.3+pulse*0.5);ctx.lineWidth=1.5;ctx.stroke();
+      }
+    }
+  }
+  noGlow();
+}
+
+// Mode 4: Autoencoder
+function drawAutoencoder(t){
+  const pal=params.palette;
+  // Encoder: left expanding then compressing
+  const encLayers=[16,12,8,4,2];
+  const decLayers=[2,4,8,12,16];
+  const allLayers=[...encLayers,...decLayers];
+  const Lcount=allLayers.length;
+  for(let li=0;li<Lcount;li++){
+    const n=allLayers[li];
+    const lx=W*0.05+li*(W*0.9/(Lcount-1));
+    const isBottleneck=(li===encLayers.length-1);
+    for(let ni=0;ni<n;ni++){
+      const ny=H*0.5+(ni-(n-1)/2)*(H*0.7/n);
+      const act=Math.sin(t*0.002*params.speed+li*0.4+ni*0.3)*0.5+0.5;
+      const col=isBottleneck?pal[0]:cycleColor(li*0.4+act*2+t*0.001,pal);
+      const[r,g,b]=hexToRgb(col);
+      ctx.beginPath();ctx.arc(lx,ny,Math.max(0.001,isBottleneck?12:5+act*6),0,Math.PI*2);
+      ctx.fillStyle=`rgba(${r},${g},${b},${0.4+act*0.6})`;
+      glow(r,g,b,act,isBottleneck?20:params.glowRadius);ctx.fill();
+      // connect to next layer
+      if(li<Lcount-1){
+        const nn=allLayers[li+1];
+        const nx2=W*0.05+(li+1)*(W*0.9/(Lcount-1));
+        for(let ni2=0;ni2<nn;ni2++){
+          if(Math.random()<0.3){
+            const ny2=H*0.5+(ni2-(nn-1)/2)*(H*0.7/nn);
+            ctx.beginPath();ctx.moveTo(lx,ny);ctx.lineTo(nx2,ny2);
+            ctx.strokeStyle=colorAlpha(col,0.06);ctx.lineWidth=0.5;ctx.stroke();
+          }
+        }
+      }
+    }
+  }
+  // Latent space manifold
+  ctx.save();ctx.translate(W*0.5,H*0.5);
+  for(let i=0;i<200;i++){
+    const a=i/200*Math.PI*2+t*0.0003;
+    const r=20+noise2(Math.cos(a)*2,Math.sin(a)*2+t*0.001)*40;
+    const px=Math.cos(a)*r,py=Math.sin(a)*r;
+    const col=cycleColor(i*0.05+t*0.001,pal);
+    ctx.beginPath();ctx.arc(px,py,Math.max(0.001,2),0,Math.PI*2);
+    ctx.fillStyle=colorAlpha(col,0.8);ctx.fill();
+  }
+  ctx.restore();
+  noGlow();
+}
+
+// Mode 5: Hopfield / Energy landscape
+function drawHopfield(t){
+  const pal=params.palette;
+  const res=60;
+  const imgData=ctx.createImageData(W,H);
+  const data=imgData.data;
+  for(let px=0;px<W;px+=3){
+    for(let py=0;py<H;py+=3){
+      const nx=(px/W-0.5)*4,ny=(py/H-0.5)*4;
+      const energy=-0.5*(Math.cos(nx*Math.PI+t*0.001)+Math.cos(ny*Math.PI+t*0.001))
+        +0.25*noise2(nx+t*0.0005,ny+t*0.0005);
+      const v=Math.max(0,Math.min(1,(energy+1)*0.5));
+      const col=cycleColor(v*3+t*0.0005,pal);
+      const[r,g,b]=hexToRgb(col);
+      const alpha=Math.floor(v*220);
+      for(let dx=0;dx<3&&px+dx<W;dx++){
+        for(let dy=0;dy<3&&py+dy<H;dy++){
+          const idx=((py+dy)*W+(px+dx))*4;
+          data[idx]=r;data[idx+1]=g;data[idx+2]=b;data[idx+3]=alpha;
+        }
+      }
+    }
+  }
+  ctx.putImageData(imgData,0,0);
+  // Attractor basins overlaid
+  const basins=6;
+  for(let b=0;b<basins;b++){
+    const a=b/basins*Math.PI*2+t*0.0005;
+    const bx=cx+Math.cos(a)*W*0.25,by=cy+Math.sin(a)*H*0.25;
+    const r=40+Math.sin(t*0.001+b)*20;
+    ctx.beginPath();ctx.arc(bx,by,Math.max(0.001,r),0,Math.PI*2);
+    ctx.strokeStyle=colorAlpha(pal[b%pal.length],0.8);ctx.lineWidth=2;
+    glow(...hexToRgb(pal[b%pal.length]),0.9,20);ctx.stroke();
+  }
+  noGlow();
+}
+
+// Mode 6: Boltzmann Machine
+function drawBoltzmann(t){
+  const pal=params.palette;
+  const visN=16,hidN=12;
+  const visY=H*0.7,hidY=H*0.3;
+  // Gibbs sampling oscillation
+  for(let v=0;v<visN;v++){
+    const vx=W*0.1+v*(W*0.8/visN);
+    const state=Math.sin(t*0.003*params.speed+v*0.6)>0?1:-1;
+    const col=state>0?pal[0]:pal[3];
+    ctx.beginPath();ctx.arc(vx,visY,Math.max(0.001,10),0,Math.PI*2);
+    ctx.fillStyle=colorAlpha(col,0.9);glow(...hexToRgb(col),0.8,15);ctx.fill();
+    ctx.fillStyle='white';ctx.font='8px monospace';ctx.textAlign='center';
+    ctx.fillText(state>0?'1':'0',vx,visY+3);
+    for(let h=0;h<hidN;h++){
+      const hx=W*0.1+h*(W*0.8/hidN)+W*0.8/(hidN*2);
+      const w=Math.sin(v*0.7+h*1.1+t*0.0005);
+      ctx.beginPath();ctx.moveTo(vx,visY-10);ctx.lineTo(hx,hidY+10);
+      ctx.strokeStyle=colorAlpha(w>0?pal[1]:pal[4],Math.abs(w)*0.3);ctx.lineWidth=0.8;ctx.stroke();
+    }
+  }
+  for(let h=0;h<hidN;h++){
+    const hx=W*0.1+h*(W*0.8/hidN)+W*0.8/(hidN*2);
+    const state=Math.sin(t*0.002*params.speed+h*0.8+1.5)>0?1:-1;
+    const col=state>0?pal[2]:pal[5];
+    ctx.beginPath();ctx.arc(hx,hidY,Math.max(0.001,10),0,Math.PI*2);
+    ctx.fillStyle=colorAlpha(col,0.9);glow(...hexToRgb(col),0.9,15);ctx.fill();
+  }
+  // energy fluctuation display
+  for(let i=0;i<W;i+=4){
+    const energy=Math.sin(i*0.02+t*0.002)*H*0.05+H*0.5;
+    ctx.beginPath();ctx.arc(i,energy,Math.max(0.001,2),0,Math.PI*2);
+    ctx.fillStyle=colorAlpha(pal[i%pal.length],0.5);ctx.fill();
+  }
+  noGlow();
+}
+
+// Mode 7: Capsule Network
+function drawCapsNet(t){
+  const pal=params.palette;
+  const caps=12,capVecLen=8;
+  const rows=3;
+  for(let row=0;row<rows;row++){
+    const ry=H*0.2+row*(H*0.6/(rows-1));
+    for(let c=0;c<caps;c++){
+      const cx2=W*0.1+c*(W*0.8/caps);
+      // Capsule as oriented vector
+      const angle=noise2(c*0.5+row,t*params.morphSpeed)*Math.PI;
+      const len=20+Math.sin(t*0.002+c*0.4)*10;
+      const act=Math.cos(t*0.003+c*0.5+row)*0.5+0.5;
+      const col=cycleColor(c*0.2+row*0.5+t*0.001,pal);
+      const[r,g,b]=hexToRgb(col);
+      // draw capsule body
+      ctx.save();ctx.translate(cx2,ry);ctx.rotate(angle);
+      ctx.strokeStyle=`rgba(${r},${g},${b},0.8)`;ctx.lineWidth=3+act*4;
+      glow(r,g,b,act,15);
+      ctx.beginPath();ctx.moveTo(-len,0);ctx.lineTo(len,0);ctx.stroke();
+      ctx.beginPath();ctx.arc(Math.abs(len),0,Math.max(0.001,4+act*4),0,Math.PI*2);
+      ctx.fillStyle=`rgba(${r},${g},${b},0.9)`;ctx.fill();
+      ctx.restore();
+      // routing arcs to next layer
+      if(row<rows-1){
+        for(let c2=0;c2<caps;c2++){
+          const cx3=W*0.1+c2*(W*0.8/caps);
+          const ry2=H*0.2+(row+1)*(H*0.6/(rows-1));
+          const agree=Math.cos(c*0.4+c2*0.3+t*0.001)*0.5+0.5;
+          if(agree>0.6){
+            ctx.beginPath();ctx.moveTo(cx2,ry+10);ctx.quadraticCurveTo((cx2+cx3)/2,ry+(ry2-ry)*0.5,cx3,ry2-10);
+            ctx.strokeStyle=colorAlpha(col,agree*0.3);ctx.lineWidth=agree*3;ctx.stroke();
+          }
+        }
+      }
+    }
+  }
+  noGlow();
+}
+
+// Mode 8: Diffusion (DDPM)
+function drawDiffusion(t){
+  const pal=params.palette;
+  const steps=20;
+  const noiseLevel=Math.sin(t*0.0008*params.speed)*0.5+0.5;
+  // Show denoising trajectory
+  for(let s=0;s<steps;s++){
+    const sx=W*0.05+s*(W*0.9/steps);
+    const sw=W*0.9/steps-4;
+    const sh=H*0.6;
+    const sy=H*0.2;
+    const noiseFrac=(steps-1-s)/(steps-1);
+    // pixel noise field
+    for(let px2=0;px2<Math.round(sw);px2+=3){
+      for(let py2=0;py2<sh;py2+=3){
+        const n=noise2((sx+px2)*0.02+t*0.0003,py2*0.02);
+        const signal=Math.sin((sx+px2)*0.01+t*0.001)*Math.sin(py2*0.01);
+        const blend=signal*(1-noiseFrac)+n*noiseFrac;
+        const v=(blend+1)*0.5;
+        const col=cycleColor(v*2+s*0.2+t*0.0005,pal);
+        ctx.fillStyle=colorAlpha(col,0.7*Math.max(0,1-noiseFrac*0.5));
+        ctx.fillRect(sx+px2,sy+py2,3,3);
+      }
+    }
+    // step label
+    if(s%5===0){
+      ctx.fillStyle=pal[s%pal.length];ctx.font='9px monospace';ctx.textAlign='center';
+      ctx.fillText(`t=${steps-1-s}`,sx+sw*0.5,sy+sh+14);
+    }
+  }
+  // Noise schedule curve
+  ctx.beginPath();
+  for(let i=0;i<=steps;i++){
+    const bx=W*0.05+i*(W*0.9/steps);
+    const beta=0.0001+i/steps*(0.02-0.0001);
+    const by=H*0.88-beta*H*4;
+    i===0?ctx.moveTo(bx,by):ctx.lineTo(bx,by);
+  }
+  ctx.strokeStyle=colorAlpha(pal[0],0.8);ctx.lineWidth=2;ctx.stroke();
+  noGlow();
+}
+
+// Mode 9: Spiking Neural Network
+function drawSpiking(t){
+  const pal=params.palette;
+  const N=params.nodesPerLayer*params.layers;
+  const timeW=W*0.7;
+  // Spike raster plot
+  const neurons=40,timeSteps=100;
+  for(let n=0;n<neurons;n++){
+    const ny=H*0.08+n*(H*0.75/neurons);
+    for(let ts=0;ts<timeSteps;ts++){
+      const tx=W*0.05+ts*(timeW/timeSteps);
+      const refrac=5;
+      const thresh=0.7;
+      const potential=noise2(n*0.3+ts*0.1,t*params.morphSpeed+n*0.05);
+      if(potential>thresh){
+        const col=cycleColor(n*0.1+ts*0.02+t*0.001,pal);
+        ctx.beginPath();ctx.moveTo(tx,ny);ctx.lineTo(tx,ny+H*0.75/neurons*0.8);
+        ctx.strokeStyle=colorAlpha(col,0.9);ctx.lineWidth=1.5;
+        glow(...hexToRgb(col),1,6);ctx.stroke();
+      }
+    }
+    // Membrane potential trace (rightmost)
+    const traceX=W*0.78;
+    const pot=noise2(n*0.3,t*0.001+n*0.05)*H*0.03;
+    ctx.beginPath();ctx.arc(traceX+pot*3,ny,Math.max(0.001,2),0,Math.PI*2);
+    ctx.fillStyle=colorAlpha(pal[n%pal.length],0.7);ctx.fill();
+  }
+  // STDP weight matrix (right panel)
+  const wSize=80;
+  for(let i=0;i<wSize;i+=3){
+    for(let j=0;j<wSize;j+=3){
+      const dt=(i-j)/wSize;
+      const stdp=dt>0?0.1*Math.exp(-dt*5):-0.12*Math.exp(dt*4);
+      const v=(stdp+0.12)/0.22;
+      const col=cycleColor(v*3+t*0.0003,pal);
+      ctx.fillStyle=colorAlpha(col,v*0.9);
+      ctx.fillRect(W*0.8+i*(W*0.18/wSize),H*0.1+j*(H*0.8/wSize),3,3);
+    }
+  }
+  noGlow();
+}
+
+// Mode 10: Liquid State Machine
+function drawLSM(t){
+  const pal=params.palette;
+  const N=80;
+  if(!params._lsmNodes){
+    params._lsmNodes=[];
+    for(let i=0;i<N;i++){
+      params._lsmNodes.push({x:rnd(W*0.1,W*0.7),y:rnd(H*0.1,H*0.9),phase:Math.random()*Math.PI*2,freq:rnd(0.5,3)});
+    }
+  }
+  const nodes=params._lsmNodes;
+  // liquid dynamics - every node perturbed by input
+  nodes.forEach((nd,i)=>{
+    const input=Math.sin(t*0.002*params.speed)*0.5;
+    const state=Math.sin(t*0.001*nd.freq+nd.phase+input*2)*0.5+0.5;
+    nd.currentState=state;
+    const col=cycleColor(i*0.08+state*2+t*0.001,pal);
+    const[r,g,b]=hexToRgb(col);
+    ctx.beginPath();ctx.arc(nd.x,nd.y,Math.max(0.001,4+state*12),0,Math.PI*2);
+    ctx.fillStyle=`rgba(${r},${g},${b},${0.3+state*0.7})`;
+    glow(r,g,b,state,params.glowRadius);ctx.fill();
+  });
+  // recurrent connections with liquid ripple
+  for(let i=0;i<N;i++){
+    for(let j=i+1;j<N;j++){
+      const dx=nodes[j].x-nodes[i].x,dy=nodes[j].y-nodes[i].y;
+      const dist=Math.sqrt(dx*dx+dy*dy);
+      if(dist<150){
+        const w=(1-dist/150)*(nodes[i].currentState+nodes[j].currentState)*0.5;
+        ctx.beginPath();ctx.moveTo(nodes[i].x,nodes[i].y);ctx.lineTo(nodes[j].x,nodes[j].y);
+        ctx.strokeStyle=colorAlpha(pal[i%pal.length],w*0.4);ctx.lineWidth=w*2;ctx.stroke();
+      }
+    }
+  }
+  // Readout
+  ctx.beginPath();
+  const readoutX=W*0.75;
+  for(let i=0;i<=H;i+=2){
+    const v=nodes.reduce((s,nd)=>s+nd.currentState*Math.sin(i*0.05+nd.phase),0)/N;
+    const rx=readoutX+v*W*0.1;
+    i===0?ctx.moveTo(rx,i):ctx.lineTo(rx,i);
+  }
+  ctx.strokeStyle=colorAlpha(pal[0],0.7);ctx.lineWidth=2;ctx.stroke();
+  noGlow();
+}
+
+// Mode 11: NeuroEvolution
+function drawNeuroEvo(t){
+  const pal=params.palette;
+  // Population of evolved networks displayed as mini-genomes
+  const popSize=20;
+  const genomeW=W*0.04,genomeH=H*0.06;
+  for(let p=0;p<popSize;p++){
+    const px=W*0.03+(p%10)*(W*0.95/10);
+    const py=H*0.05+Math.floor(p/10)*(H*0.2);
+    const fitness=noise2(p*0.4,t*params.morphSpeed);
+    const col=cycleColor(fitness*3+p*0.2+t*0.001,pal);
+    // genome bar
+    for(let g=0;g<12;g++){
+      const gene=noise2(p*0.3+g*0.7,t*0.0002);
+      ctx.fillStyle=colorAlpha(cycleColor(gene*3+g*0.5,pal),0.8);
+      ctx.fillRect(px+g*genomeW/12,py,genomeW/12-1,genomeH*(0.5+fitness*0.5));
+    }
+    // fitness indicator
+    ctx.beginPath();ctx.arc(px+genomeW*0.5,py+genomeH+8,Math.max(0.001,4+Math.abs(fitness)*8),0,Math.PI*2);
+    ctx.fillStyle=colorAlpha(col,0.7);glow(...hexToRgb(col),0.8,10);ctx.fill();
+  }
+  // Phylogenetic tree
+  ctx.save();ctx.translate(cx,H*0.45);
+  function drawBranch(x,y,angle,len,depth){
+    if(depth===0||len<3)return;
+    const ex=x+Math.cos(angle)*len,ey=y+Math.sin(angle)*len;
+    const col=cycleColor(depth*0.5+t*0.001,pal);
+    ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(ex,ey);
+    ctx.strokeStyle=colorAlpha(col,0.7);ctx.lineWidth=depth*0.7;
+    glow(...hexToRgb(col),0.5,8);ctx.stroke();
+    const spread=0.4+Math.sin(t*0.001+depth)*0.15;
+    drawBranch(ex,ey,angle-spread,len*0.68,depth-1);
+    drawBranch(ex,ey,angle+spread,len*0.68,depth-1);
+  }
+  drawBranch(0,H*0.35,-Math.PI*0.5,H*0.12,params.fractalDepth);
+  ctx.restore();
+  // Mutation arrows
+  for(let m=0;m<8;m++){
+    const mx=rnd(W*0.1,W*0.9),my=rnd(H*0.55,H*0.95);
+    const a=Math.sin(t*0.001+m)*Math.PI;
+    const len=20+Math.sin(t*0.002+m)*10;
+    ctx.beginPath();ctx.moveTo(mx,my);ctx.lineTo(mx+Math.cos(a)*len,my+Math.sin(a)*len);
+    ctx.strokeStyle=colorAlpha(pal[m%pal.length],0.5);ctx.lineWidth=1.5;ctx.stroke();
+  }
+  noGlow();
+}
+
+// ── GLOBAL OVERLAYS ────────────────────────────────────────────────────────
+function drawParticles(t){
+  particles.forEach(p=>{
+    p.x+=p.vx*params.speed;
+    p.y+=p.vy*params.speed;
+    p.life+=0.003;
+    const flowX=noise2(p.x*params.noiseScale,p.y*params.noiseScale+t*0.0003)*Math.PI*4;
+    const flowY=noise2(p.x*params.noiseScale+100,p.y*params.noiseScale+t*0.0003)*Math.PI*4;
+    p.vx+=Math.cos(flowX)*0.05;p.vy+=Math.sin(flowY)*0.05;
+    p.vx*=0.98;p.vy*=0.98;
+    if(p.x<0)p.x=W;if(p.x>W)p.x=0;
+    if(p.y<0)p.y=H;if(p.y>H)p.y=0;
+    const col=params.palette[p.colorIdx%params.palette.length];
+    const alpha=0.3+0.5*Math.sin(p.life*3);
+    ctx.beginPath();ctx.arc(p.x,p.y,Math.max(0.001,p.size),0,Math.PI*2);
+    ctx.fillStyle=colorAlpha(col,alpha);ctx.fill();
+  });
+}
+
+function drawPlasma(t){
+  const freq=params.plasmaFreq;
+  for(let x=0;x<W;x+=6){
+    for(let y=0;y<H;y+=6){
+      const v=Math.sin(x*0.01*freq+t*0.001)+Math.sin(y*0.01*freq+t*0.0013)+Math.sin((x+y)*0.007*freq+t*0.0008)+noise2(x*params.noiseScale*0.5,y*params.noiseScale*0.5+t*0.0002);
+      const nv=(v+3)/6;
+      if(nv>0.7){
+        const col=cycleColor(nv*3+t*0.0003,params.palette);
+        ctx.fillStyle=colorAlpha(col,0.08);ctx.fillRect(x,y,6,6);
+      }
+    }
+  }
+}
+
+function drawVortices(t){
+  const vorts=params.vortexCount;
+  for(let v=0;v<vorts;v++){
+    const va=v/vorts*Math.PI*2+t*0.0003;
+    const vx=cx+Math.cos(va)*W*0.3,vy=cy+Math.sin(va)*H*0.3;
+    for(let ring=1;ring<=6;ring++){
+      const r=Math.max(0.001,ring*30+Math.sin(t*0.001+v+ring)*15);
+      const col=cycleColor(v*0.5+ring*0.3+t*0.001,params.palette);
+      ctx.beginPath();ctx.arc(vx,vy,Math.max(0.001,r),0,Math.PI*2);
+      ctx.strokeStyle=colorAlpha(col,0.15);ctx.lineWidth=1.5;ctx.stroke();
+    }
+  }
+}
+
+function drawHexGrid(t){
+  if(!params.hexGrid)return;
+  const s=40,h=s*Math.sqrt(3);
+  for(let row=-1;row<H/h+1;row++){
+    for(let col=-1;col<W/(s*1.5)+1;col++){
+      const hx=col*s*1.5;
+      const hy=row*h+(col%2)*h*0.5;
+      const noise=noise2(hx*params.noiseScale+t*0.0002,hy*params.noiseScale);
+      if(noise>0){
+        const col2=cycleColor(noise*3+t*0.0003+row*0.1,params.palette);
+        ctx.beginPath();
+        for(let a=0;a<6;a++){
+          const angle=a*Math.PI/3;
+          const px=hx+Math.cos(angle)*s*0.9,py=hy+Math.sin(angle)*s*0.9;
+          a===0?ctx.moveTo(px,py):ctx.lineTo(px,py);
+        }
+        ctx.closePath();ctx.strokeStyle=colorAlpha(col2,noise*0.3);ctx.lineWidth=0.5;ctx.stroke();
+        if(noise>0.5){ctx.fillStyle=colorAlpha(col2,noise*0.06);ctx.fill();}
+      }
+    }
+  }
+}
+
+function drawSpiral(t){
+  const arms=params.spiralArms;
+  const turnsMax=5;
+  for(let arm=0;arm<arms;arm++){
+    const armOff=arm/arms*Math.PI*2;
+    ctx.beginPath();
+    for(let i=0;i<=200;i++){
+      const turns=i/200*turnsMax;
+      const r=i*Math.min(W,H)*0.0015;
+      const a=turns*Math.PI*2+armOff+t*0.0003;
+      const px=cx+Math.cos(a)*r,py=cy+Math.sin(a)*r;
+      i===0?ctx.moveTo(px,py):ctx.lineTo(px,py);
+    }
+    const col=cycleColor(arm*0.8+t*0.001,params.palette);
+    ctx.strokeStyle=colorAlpha(col,0.2);ctx.lineWidth=1;ctx.stroke();
+  }
+}
+
+function drawRipples(t){
+  for(let r=0;r<params.rippleCount;r++){
+    const ra=r/params.rippleCount*Math.PI*2+t*0.0002;
+    const rx=cx+Math.cos(ra)*W*0.1,ry=cy+Math.sin(ra)*H*0.1;
+    const maxR=Math.max(W,H)*0.5;
+    for(let ring=0;ring<5;ring++){
+      const rr=((t*0.0015*params.speed+r*0.3+ring*0.2)%1)*maxR;
+      const alpha=(1-rr/maxR)*0.2;
+      const col=cycleColor(r*0.4+ring*0.2+t*0.001,params.palette);
+      ctx.beginPath();ctx.arc(rx,ry,Math.max(0.001,rr),0,Math.PI*2);
+      ctx.strokeStyle=colorAlpha(col,alpha);ctx.lineWidth=1.5;ctx.stroke();
+    }
+  }
+}
+
+// ── MAIN DRAW ──────────────────────────────────────────────────────────────
+const drawModes=[drawCNN,drawRNN,drawGAN,drawTransformer,drawAutoencoder,drawHopfield,drawBoltzmann,drawCapsNet,drawDiffusion,drawSpiking,drawLSM,drawNeuroEvo];
+
+function draw(ts){
+  RAF=requestAnimationFrame(draw);
+  const dt=ts-lastT;lastT=ts;
+  fps=fps*(1-fpsAlpha)+(1000/Math.max(dt,1))*fpsAlpha;
+  globalT=ts;modeT+=dt;epoch=Math.floor(ts*0.01);
+
+  clear();
+  ctx.save();
+  // Layer 0: hex grid substrate
+  drawHexGrid(globalT);
+  // Layer 1: plasma field
+  drawPlasma(globalT);
+  // Layer 2: spiral background
+  drawSpiral(globalT);
+  // Layer 3: vortices
+  drawVortices(globalT);
+  // Layer 4: mode-specific visualization
+  const drawFn=drawModes[currentMode%drawModes.length];
+  if(drawFn)drawFn(globalT);
+  // Layer 5: ripples
+  drawRipples(globalT);
+  // Layer 6: particles
+  drawParticles(globalT);
+  ctx.restore();
+
+  // Sound modulation
+  modulateSound(globalT);
+
+  // HUD runtime update (throttled)
+  if(hudVisible&&Math.floor(ts/100)!==Math.floor((ts-dt)/100)){
+    updateHUDRuntime();
+  }
+
+  // Auto mode cycle every ~25s
+  if(modeT>25000){
+    modeT=0;
+    currentMode=(currentMode+1)%MODES.length;
+    params.mode=currentMode;
+    epoch=0;
+    params._lsmNodes=null;
+    updateHUD();
+  }
+}
+
+// ── Events ─────────────────────────────────────────────────────────────────
+function regenerate(){
+  randomise();
+  initParticles();
+  buildNetwork();
+  params._lsmNodes=null;
+}
+
+window.addEventListener('keydown',e=>{
+  if(e.key==='h'||e.key==='H'){
+    hudVisible=!hudVisible;
+    document.getElementById('hud').className=hudVisible?'visible':'';
+  }
+  if(e.key==='s'||e.key==='S'){
+    initAudio();
+    soundEnabled=!soundEnabled;
+    if(soundEnabled){
+      masterGain.gain.setTargetAtTime(0.6,audioCtx.currentTime,0.5);
+      startSound();
+    }else{
+      masterGain.gain.setTargetAtTime(0.0001,audioCtx.currentTime,0.3);
+      killSound();
+    }
+  }
+  if(e.key===' '){e.preventDefault();regenerate();}
+});
+canvas.addEventListener('click',()=>regenerate());
+canvas.addEventListener('touchstart',e=>{e.preventDefault();regenerate();},{passive:false});
+
+// ── Init ───────────────────────────────────────────────────────────────────
+randomise();
+initParticles();
+buildNetwork();
+draw(0);
+
+})();
+</script>
+</body>
+</html>
