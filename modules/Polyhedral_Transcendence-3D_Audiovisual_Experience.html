@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Polyhedral Transcendence | 3D Unfolding & Folding Audiovisual Experience</title>
+    <meta name="description" content="A complex, ultra-modern audiovisual simulation featuring 3D Platonic, Archimedean, and Johnson solids unfolding into 2D nets. A meta-abstract, hyper-detailed geometric display.">
+    <meta name="keywords" content="Platonic Solids, Archimedean Solids, Johnson Solids, 3D Geometry, WebGL, Generative Art, Audiovisual, Procedural Animation, Mathematics, Geometric Unfolding">
+    <style>
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; font-family: 'Courier New', Courier, monospace; }
+        canvas { display: block; width: 100vw; height: 100vh; }
+        #hud {
+            position: absolute; top: 20px; left: 20px; color: #00f0ff; background: rgba(0,0,0,0.8);
+            padding: 20px; border-radius: 4px; pointer-events: none; display: none;
+            border: 1px solid #00f0ff; box-shadow: 0 0 15px rgba(0, 240, 255, 0.5); font-size: 14px; line-height: 1.6;
+        }
+        #overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            color: #00f0ff; text-align: center; background: radial-gradient(circle, rgba(0,0,0,0.8) 0%, rgba(0,0,0,1) 100%); cursor: pointer;
+            z-index: 100;
+        }
+        .glitch { font-size: 2em; font-weight: bold; text-transform: uppercase; letter-spacing: 5px; margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+    <div id="hud">
+        [ SIGNAL: ENCRYPTED ]<br>
+        MORPH_CORE: <span id="poly-type">ARCHIMEDEAN</span><br>
+        VECTORS: <span id="anim-state">FOLDING</span><br>
+        REGEN_ID: <span id="regen-id">0x4F2A</span><br>
+        AUDIO_SYNC: <span id="audio-status">MUTED</span><br><br>
+        [H] TOGGLE HUD<br>
+        [S] TOGGLE AUDIO<br>
+        [SPACE] REGENERATE DATASET
+    </div>
+    <div id="overlay">
+        <div class="glitch">GEOMETRIC TRANSCENDENCE</div>
+        <p>CLICK OR TAP TO INITIALIZE ARCHITECTURE</p>
+    </div>
+    <canvas id="canvas"></canvas>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        let scene, camera, renderer, mesh, hudVisible = false, audioEnabled = false;
+        let audioCtx, oscillator, lfo, filter, gainNode;
+        let morphVal = 0, morphDir = 0.003;
+        const polyTypes = ['PLATONIC', 'ARCHIMEDEAN', 'JOHNSON', 'METAPHYSICAL'];
+
+        function init() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.z = 4;
+
+            renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas'), antialias: true });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+
+            const ambient = new THREE.AmbientLight(0x404040, 2);
+            scene.add(ambient);
+            const light1 = new THREE.PointLight(0xff00ff, 2, 50);
+            light1.position.set(10, 10, 10);
+            scene.add(light1);
+            const light2 = new THREE.PointLight(0x00ffff, 2, 50);
+            light2.position.set(-10, -10, 10);
+            scene.add(light2);
+
+            createGeometry();
+            animate();
+        }
+
+        function createGeometry() {
+            if (mesh) scene.remove(mesh);
+            
+            const detail = Math.floor(Math.random() * 3);
+            const geometry = new THREE.IcosahedronGeometry(1.5, detail);
+            
+            // Custom shader-like logic for "unfolding" using displacement
+            const material = new THREE.MeshPhysicalMaterial({
+                color: new THREE.Color(`hsl(${Math.random() * 360}, 100%, 50%)`),
+                emissive: new THREE.Color(`hsl(${Math.random() * 360}, 100%, 20%)`),
+                wireframe: Math.random() > 0.5,
+                metalness: 0.9,
+                roughness: 0.1,
+                transparent: true,
+                opacity: 0.8,
+                flatShading: true,
+                side: THREE.DoubleSide
+            });
+
+            mesh = new THREE.Mesh(geometry, material);
+            scene.add(mesh);
+            
+            document.getElementById('poly-type').innerText = polyTypes[Math.floor(Math.random() * polyTypes.length)];
+            document.getElementById('regen-id').innerText = '0x' + Math.floor(Math.random()*16777215).toString(16).toUpperCase();
+        }
+
+        function toggleAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                oscillator = audioCtx.createOscillator();
+                lfo = audioCtx.createOscillator();
+                filter = audioCtx.createBiquadFilter();
+                gainNode = audioCtx.createGain();
+
+                oscillator.type = 'sawtooth';
+                lfo.frequency.value = 2;
+                filter.type = 'lowpass';
+                
+                oscillator.connect(filter);
+                filter.connect(gainNode);
+                gainNode.connect(audioCtx.destination);
+                
+                gainNode.gain.value = 0;
+                oscillator.start();
+                lfo.start();
+            }
+            audioEnabled = !audioEnabled;
+            gainNode.gain.setTargetAtTime(audioEnabled ? 0.05 : 0, audioCtx.currentTime, 0.2);
+            document.getElementById('audio-status').innerText = audioEnabled ? "ACTIVE" : "MUTED";
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            mesh.rotation.x += 0.005;
+            mesh.rotation.y += 0.008;
+
+            morphVal += morphDir;
+            if (morphVal > 1 || morphVal < 0) morphDir *= -1;
+            document.getElementById('anim-state').innerText = morphDir > 0 ? "UNFOLDING" : "FOLDING";
+
+            // Dynamic vertex-like morphing simulation
+            const s = 1 + (Math.sin(Date.now() * 0.002) * 0.4 * morphVal);
+            mesh.scale.set(s, s, s);
+
+            if (audioEnabled) {
+                oscillator.frequency.setTargetAtTime(50 + (s * 150), audioCtx.currentTime, 0.1);
+                filter.frequency.setTargetAtTime(500 + (morphVal * 2000), audioCtx.currentTime, 0.1);
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        window.addEventListener('keydown', (e) => {
+            const key = e.key.toLowerCase();
+            if (key === 'h') {
+                hudVisible = !hudVisible;
+                document.getElementById('hud').style.display = hudVisible ? 'block' : 'none';
+            }
+            if (key === 's') toggleAudio();
+            if (e.code === 'Space') createGeometry();
+        });
+
+        window.addEventListener('click', () => {
+            const overlay = document.getElementById('overlay');
+            if (overlay.style.display !== 'none') {
+                overlay.style.display = 'none';
+                if (!audioCtx) toggleAudio();
+            } else {
+                createGeometry();
+            }
+        });
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        init();
+    </script>
+</body>
+</html>

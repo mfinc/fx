@@ -1,0 +1,979 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>TRON Universe – Ultimate Video Game Animation Showcase | Cybernetic Grid Experience</title>
+<meta name="description" content="An unprecedented TRON video game animation showcase featuring breathtaking cybernetic grid displays, lightcycle races, identity disc battles, recognizer patrols, and immersive digital grid effects from all TRON games and films. Experience the Grid like never before.">
+<meta name="keywords" content="TRON, TRON Legacy, TRON Evolution, TRON 2.0, TRON Uprising, lightcycle, identity disc, Grid, Flynn, Quorra, CLU, recognizer, animation, WebGL, canvas, video game, cyberpunk, neon, digital world, arcade game, TRON arcade, GLaDOS, cybernetic, futuristic">
+<meta name="robots" content="index, follow, max-image-preview:large">
+<meta property="og:title" content="TRON Universe – Ultimate Video Game Animation Showcase">
+<meta property="og:description" content="Breathtaking TRON video game animations: lightcycles, identity discs, recognizers, the Grid, and more. A never-before-seen cybernetic audiovisual experience.">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#00f5ff">
+<link rel="canonical" href="https://tron-universe.experience/">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 100%; height: 100%; overflow: hidden;
+    background: #000; font-family: 'Courier New', monospace;
+  }
+  canvas {
+    display: block; position: fixed;
+    top: 0; left: 0; width: 100% !important; height: 100% !important;
+  }
+  #hud {
+    display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none; z-index: 100;
+    font-family: 'Courier New', monospace;
+  }
+  #hud.visible { display: block; }
+  .hud-panel {
+    position: absolute; border: 1px solid rgba(0,245,255,0.4);
+    background: rgba(0,0,0,0.7); padding: 10px 14px;
+    color: #00f5ff; font-size: 11px; text-transform: uppercase;
+    letter-spacing: 2px; text-shadow: 0 0 8px #00f5ff;
+  }
+  #hud-tl { top: 16px; left: 16px; }
+  #hud-tr { top: 16px; right: 16px; text-align: right; }
+  #hud-bl { bottom: 16px; left: 16px; }
+  #hud-br { bottom: 16px; right: 16px; text-align: right; }
+  #hud-center {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    text-align: center; border: none; background: none; font-size: 13px; color: rgba(0,245,255,0.5);
+  }
+  .scan-line {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,245,255,0.015) 2px, rgba(0,245,255,0.015) 4px);
+    pointer-events: none;
+  }
+  #instructions {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    color: rgba(0,245,255,0.35); font-size: 10px; letter-spacing: 3px;
+    text-transform: uppercase; pointer-events: none; z-index: 200;
+    text-shadow: 0 0 6px rgba(0,245,255,0.3);
+    transition: opacity 3s ease;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div class="scan-line"></div>
+  <div class="hud-panel" id="hud-tl">
+    <div>GRID SECTOR: <span id="h-sector">7F-ALPHA</span></div>
+    <div>CYCLE: <span id="h-cycle">0</span></div>
+    <div>ENTITIES: <span id="h-entities">0</span></div>
+  </div>
+  <div class="hud-panel" id="hud-tr">
+    <div>PROGRAM: TRON.EXE</div>
+    <div>USER: <span id="h-user">FLYNN</span></div>
+    <div>STATUS: <span id="h-status">ACTIVE</span></div>
+  </div>
+  <div class="hud-panel" id="hud-bl">
+    <div>MODE: <span id="h-mode">LIGHTCYCLE GRID</span></div>
+    <div>FPS: <span id="h-fps">60</span></div>
+  </div>
+  <div class="hud-panel" id="hud-br">
+    <div>[H] HUD  [S] SOUND</div>
+    <div>[SPACE/CLICK] REGENERATE</div>
+  </div>
+  <div id="hud-center">◈ TRON UNIVERSE ◈</div>
+</div>
+<div id="instructions">[ H ] HUD &nbsp;&nbsp; [ S ] SOUND &nbsp;&nbsp; [ SPACE / CLICK ] REGENERATE</div>
+<script>
+// ============================================================
+// TRON UNIVERSE – Ultimate Video Game Animation Engine
+// ============================================================
+const C = document.getElementById('c');
+const ctx = C.getContext('2d');
+let W, H, cx, cy;
+
+function resize() {
+  W = C.width = window.innerWidth;
+  H = C.height = window.innerHeight;
+  cx = W / 2; cy = H / 2;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ── State ──────────────────────────────────────────────────
+let T = 0, FRAME = 0;
+let HUD_ON = false, SOUND_ON = false;
+let params = {};
+let lastFPS = 60, fpsTimer = 0;
+
+// ── Audio Engine ────────────────────────────────────────────
+let audioCtx = null;
+function ensureAudio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return audioCtx;
+}
+function tronTone(freq, dur, type='sine', vol=0.08, detune=0) {
+  if (!SOUND_ON) return;
+  const a = ensureAudio();
+  const o = a.createOscillator();
+  const g = a.createGain();
+  const dist = a.createWaveShaper();
+  const curve = new Float32Array(256);
+  for (let i=0;i<256;i++) { const x=(i*2/256)-1; curve[i]=x*Math.abs(x); }
+  dist.curve = curve;
+  o.type = type; o.frequency.value = freq; o.detune.value = detune;
+  g.gain.setValueAtTime(vol, a.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.0001, a.currentTime + dur);
+  o.connect(dist); dist.connect(g); g.connect(a.destination);
+  o.start(); o.stop(a.currentTime + dur);
+}
+function playGridHum() {
+  if (!SOUND_ON) return;
+  const a = ensureAudio();
+  [40,80,160].forEach((f,i) => {
+    const o = a.createOscillator();
+    const g = a.createGain();
+    o.type = 'sawtooth'; o.frequency.value = f;
+    g.gain.setValueAtTime(0.02/(i+1), a.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001, a.currentTime + 0.8);
+    o.connect(g); g.connect(a.destination);
+    o.start(); o.stop(a.currentTime + 0.8);
+  });
+}
+function playCycleZoom() {
+  if (!SOUND_ON) return;
+  tronTone(220, 0.15, 'sawtooth', 0.12, -1200);
+  setTimeout(() => tronTone(440, 0.1, 'square', 0.07), 60);
+}
+function playDiscLaunch() {
+  if (!SOUND_ON) return;
+  tronTone(880, 0.08, 'square', 0.1);
+  setTimeout(() => tronTone(1760, 0.06, 'sine', 0.05), 40);
+}
+function playDerezz() {
+  if (!SOUND_ON) return;
+  for (let i=0;i<8;i++) setTimeout(() => tronTone(200-i*15, 0.08, 'sawtooth', 0.08), i*40);
+}
+
+// ── Color System ─────────────────────────────────────────────
+const PALETTE_SETS = [
+  { primary:'#00f5ff', secondary:'#0088ff', accent:'#ff4400', bg:'#000814', trail:'#00ccff' },
+  { primary:'#ff6600', secondary:'#ffaa00', accent:'#00f5ff', bg:'#060200', trail:'#ff8800' },
+  { primary:'#aa00ff', secondary:'#ff00aa', accent:'#00ff88', bg:'#050008', trail:'#cc44ff' },
+  { primary:'#00ff88', secondary:'#00ffcc', accent:'#ff0066', bg:'#000a04', trail:'#44ffaa' },
+  { primary:'#ffffff', secondary:'#88ccff', accent:'#ffcc00', bg:'#020408', trail:'#aaddff' },
+  { primary:'#ff0044', secondary:'#ff4488', accent:'#00f5ff', bg:'#0a0000', trail:'#ff2266' },
+];
+let PAL;
+
+function hexToRgb(h) {
+  const r=parseInt(h.slice(1,3),16),g=parseInt(h.slice(3,5),16),b=parseInt(h.slice(5,7),16);
+  return {r,g,b};
+}
+function rgba(hex, a) {
+  const {r,g,b} = hexToRgb(hex);
+  return `rgba(${r},${g},${b},${a})`;
+}
+function glow(col, blur, alpha=1) {
+  ctx.shadowBlur = blur;
+  ctx.shadowColor = rgba(col, alpha);
+}
+
+// ── Random Parameter System ──────────────────────────────────
+function rnd(a, b) { return a + Math.random()*(b-a); }
+function rndInt(a, b) { return Math.floor(rnd(a, b+1)); }
+function rndChoice(arr) { return arr[Math.floor(Math.random()*arr.length)]; }
+
+function generateParams() {
+  PAL = rndChoice(PALETTE_SETS);
+  const modes = ['lightcycle','recognizer','discbattle','gridpulse','derezz','portal','uprising','legacy'];
+  params = {
+    mode: rndChoice(modes),
+    gridDensity: rndInt(8,22),
+    cycleCount: rndInt(3,12),
+    discCount: rndInt(4,18),
+    recognizerCount: rndInt(1,4),
+    particleCount: rndInt(200,600),
+    gridTilt: rnd(-0.3,0.3),
+    scanSpeed: rnd(0.3,1.8),
+    pulseFreq: rnd(0.5,3.0),
+    hexagonField: Math.random()>0.5,
+    dataStreams: rndInt(3,10),
+    vortexCount: rndInt(1,4),
+    glitchIntensity: rnd(0,0.4),
+    timeScale: rnd(0.4,1.6),
+    mirrorMode: Math.random()>0.6,
+    trailLength: rndInt(40,120),
+    seed: Math.random()*10000,
+  };
+  playGridHum();
+  updateHUD();
+}
+
+function updateHUD() {
+  if (!HUD_ON) return;
+  document.getElementById('h-sector').textContent = `${Math.floor(params.seed%99).toString(16).toUpperCase()}-${rndChoice(['ALPHA','BETA','GAMMA','DELTA','SIGMA','OMEGA'])}`;
+  document.getElementById('h-mode').textContent = params.mode.toUpperCase()+' GRID';
+  document.getElementById('h-entities').textContent = params.cycleCount + params.discCount;
+  document.getElementById('h-user').textContent = rndChoice(['FLYNN','QUORRA','TRON','CLU','RAM','RINZLER']);
+}
+
+// ── Grid Renderer ─────────────────────────────────────────────
+function drawGrid(t) {
+  const spacing = Math.min(W,H) / params.gridDensity;
+  const tilt = params.gridTilt;
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(tilt);
+
+  // Perspective grid
+  const vanishY = -cy * 0.3;
+  const perspLines = 24;
+  ctx.lineWidth = 0.5;
+  ctx.strokeStyle = rgba(PAL.primary, 0.15);
+  glow(PAL.primary, 6, 0.3);
+
+  // Horizontal lines with perspective
+  for (let i=0; i<perspLines; i++) {
+    const frac = i/perspLines;
+    const y = cy * (1 - frac*1.8);
+    const xSpread = W * (0.5 + frac*2);
+    ctx.beginPath();
+    ctx.moveTo(-xSpread, y); ctx.lineTo(xSpread, y);
+    ctx.globalAlpha = frac * 0.4;
+    ctx.stroke();
+  }
+  // Vertical vanishing lines
+  for (let i=-16; i<=16; i++) {
+    const x = i * (W/(16));
+    ctx.beginPath();
+    ctx.moveTo(x, cy);
+    ctx.lineTo(cx * (i/16) * 0.05, vanishY);
+    ctx.globalAlpha = 0.15;
+    ctx.stroke();
+  }
+
+  // Flat grid overlay
+  ctx.globalAlpha = 1;
+  ctx.lineWidth = 0.6;
+  const offX = (t * 20 * params.scanSpeed) % spacing;
+  const offY = (t * 12 * params.scanSpeed) % spacing;
+  const cols = Math.ceil(W/spacing)+2, rows = Math.ceil(H/spacing)+2;
+  const sx = -W/2 - spacing + offX, sy = -H/2 - spacing + offY;
+
+  for (let i=0; i<=cols; i++) {
+    const x = sx + i*spacing;
+    const pulse = 0.08 + 0.05*Math.sin(t*params.pulseFreq + i*0.3);
+    ctx.strokeStyle = rgba(PAL.primary, pulse);
+    glow(PAL.primary, 4*pulse*8, pulse);
+    ctx.beginPath(); ctx.moveTo(x,-H); ctx.lineTo(x,H); ctx.stroke();
+  }
+  for (let j=0; j<=rows; j++) {
+    const y = sy + j*spacing;
+    const pulse = 0.08 + 0.05*Math.sin(t*params.pulseFreq + j*0.4);
+    ctx.strokeStyle = rgba(PAL.primary, pulse);
+    glow(PAL.primary, 4*pulse*8, pulse);
+    ctx.beginPath(); ctx.moveTo(-W,y); ctx.lineTo(W,y); ctx.stroke();
+  }
+  ctx.restore();
+  ctx.globalAlpha = 1;
+  ctx.shadowBlur = 0;
+}
+
+// ── Hexagon Field ─────────────────────────────────────────────
+function drawHexField(t) {
+  if (!params.hexagonField) return;
+  const R = Math.min(W,H)/params.gridDensity * 0.7;
+  const cols = Math.ceil(W/(R*1.5))+2, rows = Math.ceil(H/(R*1.732))+2;
+  ctx.lineWidth = 0.8;
+  const offX = (t * 8) % (R*3);
+  const offY = (t * 5) % (R*1.732*2);
+  for (let row=-1; row<rows; row++) {
+    for (let col=-1; col<cols; col++) {
+      const x = col*R*1.5 - offX;
+      const y = row*R*1.732 + (col%2)*R*0.866 - offY;
+      const d = Math.hypot(x-cx, y-cy) / Math.max(W,H);
+      const pulse = 0.04 + 0.06*Math.sin(t*2+d*8+row*0.5+col*0.7);
+      ctx.strokeStyle = rgba(PAL.secondary, pulse);
+      ctx.shadowBlur = 8; ctx.shadowColor = rgba(PAL.secondary, pulse);
+      ctx.beginPath();
+      for (let i=0; i<6; i++) {
+        const a = i*Math.PI/3;
+        i===0 ? ctx.moveTo(x+R*Math.cos(a), y+R*Math.sin(a))
+              : ctx.lineTo(x+R*Math.cos(a), y+R*Math.sin(a));
+      }
+      ctx.closePath(); ctx.stroke();
+    }
+  }
+  ctx.shadowBlur = 0;
+}
+
+// ── Lightcycle System ─────────────────────────────────────────
+class Lightcycle {
+  constructor(id) {
+    this.id = id;
+    this.reset();
+  }
+  reset() {
+    this.x = rnd(W*0.1, W*0.9);
+    this.y = rnd(H*0.1, H*0.9);
+    this.dir = rndInt(0,3);
+    this.dx = [1,0,-1,0][this.dir];
+    this.dy = [0,1,0,-1][this.dir];
+    this.speed = rnd(2,5);
+    this.trail = [];
+    this.alive = true;
+    this.color = this.id%2===0 ? PAL.primary : PAL.secondary;
+    this.turnTimer = 0;
+    this.turnInterval = rndInt(30,100);
+    this.size = rnd(4,8);
+    this.energy = 1.0;
+  }
+  update(t) {
+    if (!this.alive) return;
+    this.trail.push({x:this.x, y:this.y});
+    if (this.trail.length > params.trailLength) this.trail.shift();
+    this.x += this.dx * this.speed;
+    this.y += this.dy * this.speed;
+    this.turnTimer++;
+    if (this.turnTimer > this.turnInterval || this.x<20||this.x>W-20||this.y<20||this.y>H-20) {
+      this.dir = (this.dir + (Math.random()>0.5?1:3)) % 4;
+      this.dx = [1,0,-1,0][this.dir];
+      this.dy = [0,1,0,-1][this.dir];
+      this.turnTimer = 0;
+      this.turnInterval = rndInt(30,100);
+      if (Math.random()<0.1 && SOUND_ON) playCycleZoom();
+    }
+    if (this.x<0||this.x>W||this.y<0||this.y>H) this.reset();
+    this.energy = 0.7 + 0.3*Math.sin(t*4+this.id);
+  }
+  draw() {
+    if (!this.alive || this.trail.length < 2) return;
+    // Trail
+    for (let i=1; i<this.trail.length; i++) {
+      const frac = i/this.trail.length;
+      const a = frac*frac*0.9;
+      ctx.strokeStyle = rgba(this.color, a);
+      ctx.lineWidth = this.size*frac*0.7;
+      ctx.shadowBlur = 12*frac; ctx.shadowColor = this.color;
+      ctx.beginPath();
+      ctx.moveTo(this.trail[i-1].x, this.trail[i-1].y);
+      ctx.lineTo(this.trail[i].x, this.trail[i].y);
+      ctx.stroke();
+    }
+    // Cycle body
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.rotate(Math.atan2(this.dy, this.dx));
+    const sz = this.size * this.energy;
+    ctx.shadowBlur = 20; ctx.shadowColor = this.color;
+    ctx.fillStyle = this.color;
+    ctx.beginPath();
+    ctx.moveTo(sz*2.5, 0);
+    ctx.lineTo(-sz, -sz*0.6);
+    ctx.lineTo(-sz*0.5, 0);
+    ctx.lineTo(-sz, sz*0.6);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 0.5; ctx.shadowBlur = 4;
+    ctx.stroke();
+    // Wheel glow
+    ctx.beginPath();
+    ctx.arc(sz, 0, sz*0.4, 0, Math.PI*2);
+    ctx.fillStyle = '#fff'; ctx.fill();
+    ctx.restore();
+    ctx.shadowBlur = 0;
+  }
+}
+
+// ── Identity Disc System ──────────────────────────────────────
+class IdentityDisc {
+  constructor(id) {
+    this.id = id;
+    this.reset();
+  }
+  reset() {
+    this.x = rnd(cx*0.3, cx*1.7);
+    this.y = rnd(cy*0.3, cy*1.7);
+    this.vx = rnd(-5,5);
+    this.vy = rnd(-5,5);
+    const spd = rnd(2,6);
+    const ang = rnd(0, Math.PI*2);
+    this.vx = Math.cos(ang)*spd; this.vy = Math.sin(ang)*spd;
+    this.r = rnd(12,28);
+    this.angle = rnd(0,Math.PI*2);
+    this.spin = rnd(-0.15, 0.15);
+    this.color = [PAL.primary, PAL.secondary, PAL.accent][this.id%3];
+    this.trail = [];
+    this.bounces = 0;
+    this.energy = rnd(0.6,1.0);
+    this.rings = rndInt(2,5);
+  }
+  update(t) {
+    this.trail.push({x:this.x, y:this.y});
+    if (this.trail.length > 30) this.trail.shift();
+    this.x += this.vx; this.y += this.vy;
+    this.angle += this.spin;
+    if (this.x < this.r) { this.x = this.r; this.vx = Math.abs(this.vx); this.bounces++; if(SOUND_ON&&this.bounces%3===0) playDiscLaunch(); }
+    if (this.x > W-this.r) { this.x=W-this.r; this.vx=-Math.abs(this.vx); this.bounces++; }
+    if (this.y < this.r) { this.y=this.r; this.vy=Math.abs(this.vy); this.bounces++; }
+    if (this.y > H-this.r) { this.y=H-this.r; this.vy=-Math.abs(this.vy); this.bounces++; }
+    this.energy = 0.7+0.3*Math.sin(t*3+this.id*1.3);
+    if (this.bounces > 30) this.reset();
+  }
+  draw(t) {
+    // Trail
+    for (let i=1;i<this.trail.length;i++) {
+      const frac=i/this.trail.length;
+      ctx.beginPath();
+      ctx.arc(this.trail[i].x,this.trail[i].y,this.r*frac*0.4,0,Math.PI*2);
+      ctx.fillStyle=rgba(this.color,frac*0.15);
+      ctx.shadowBlur=8; ctx.shadowColor=this.color;
+      ctx.fill();
+    }
+    ctx.save();
+    ctx.translate(this.x,this.y);
+    ctx.rotate(this.angle);
+    const e=this.energy;
+    // Outer rings
+    for (let ring=0;ring<this.rings;ring++) {
+      const rf=(ring+1)/this.rings;
+      ctx.beginPath();
+      ctx.arc(0,0,this.r*rf,0,Math.PI*2);
+      ctx.strokeStyle=rgba(this.color,0.15+0.1*e);
+      ctx.lineWidth=1+ring*0.5;
+      ctx.shadowBlur=10; ctx.shadowColor=this.color;
+      ctx.stroke();
+    }
+    // Main disc body
+    ctx.beginPath(); ctx.arc(0,0,this.r,0,Math.PI*2);
+    ctx.fillStyle=rgba(this.color,0.08);
+    ctx.shadowBlur=20; ctx.shadowColor=this.color;
+    ctx.fill();
+    ctx.strokeStyle=rgba(this.color,0.9*e);
+    ctx.lineWidth=2; ctx.stroke();
+    // Data segments
+    const segs=12;
+    for (let i=0;i<segs;i++) {
+      const a=i/segs*Math.PI*2;
+      const bright=i%3===0?0.9:0.25;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(a)*this.r*0.3, Math.sin(a)*this.r*0.3);
+      ctx.lineTo(Math.cos(a)*this.r*0.85, Math.sin(a)*this.r*0.85);
+      ctx.strokeStyle=rgba(this.color,bright*e);
+      ctx.lineWidth=1; ctx.stroke();
+    }
+    // Core
+    ctx.beginPath(); ctx.arc(0,0,this.r*0.18,0,Math.PI*2);
+    ctx.fillStyle=rgba('#ffffff',0.9*e);
+    ctx.shadowBlur=15; ctx.shadowColor='#ffffff';
+    ctx.fill();
+    ctx.restore();
+    ctx.shadowBlur=0;
+  }
+}
+
+// ── Recognizer ────────────────────────────────────────────────
+class Recognizer {
+  constructor(id) {
+    this.id=id; this.reset();
+  }
+  reset() {
+    this.x = rnd(0,W);
+    this.y = -200;
+    this.vx = rnd(-0.5,0.5);
+    this.vy = rnd(0.3,1.0);
+    this.scale = rnd(0.5,1.4);
+    this.angle = 0;
+    this.legAngle = 0;
+    this.color = PAL.primary;
+    this.spotAngle = 0;
+    this.alive = true;
+  }
+  update(t) {
+    this.x += this.vx;
+    this.y += this.vy;
+    this.spotAngle += 0.03;
+    this.legAngle = Math.sin(t*1.5)*0.15;
+    if (this.y > H+300) this.reset();
+  }
+  draw(t) {
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.scale(this.scale, this.scale);
+    const c=this.color;
+    ctx.shadowBlur=20; ctx.shadowColor=c;
+    ctx.strokeStyle=rgba(c,0.85);
+    ctx.lineWidth=2;
+    ctx.fillStyle=rgba(c,0.1);
+    // Main body – inverted U shape
+    ctx.beginPath();
+    ctx.moveTo(-60,0); ctx.lineTo(-60,-80);
+    ctx.lineTo(-30,-100); ctx.lineTo(30,-100); ctx.lineTo(60,-80);
+    ctx.lineTo(60,0);
+    ctx.stroke();
+    ctx.fill();
+    // Top bar
+    ctx.beginPath();
+    ctx.rect(-65,-100,130,20);
+    ctx.strokeStyle=rgba(c,0.9); ctx.fillStyle=rgba(c,0.2);
+    ctx.fill(); ctx.stroke();
+    // Legs
+    ctx.save();
+    ctx.translate(-60, 0);
+    ctx.rotate(this.legAngle);
+    ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(-20,60); ctx.lineTo(0,80);
+    ctx.stroke();
+    ctx.restore();
+    ctx.save();
+    ctx.translate(60, 0);
+    ctx.rotate(-this.legAngle);
+    ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(20,60); ctx.lineTo(0,80);
+    ctx.stroke();
+    ctx.restore();
+    // Eye/scanner
+    const ex=Math.cos(this.spotAngle)*25;
+    ctx.beginPath(); ctx.arc(ex,-88,8,0,Math.PI*2);
+    ctx.fillStyle=rgba(PAL.accent,0.9);
+    ctx.shadowBlur=20; ctx.shadowColor=PAL.accent;
+    ctx.fill();
+    // Scan beam
+    ctx.beginPath();
+    ctx.moveTo(ex,-80);
+    const bx=ex+Math.sin(this.spotAngle)*200;
+    ctx.lineTo(bx, 200);
+    const grad=ctx.createLinearGradient(ex,-80,bx,200);
+    grad.addColorStop(0,rgba(PAL.accent,0.5));
+    grad.addColorStop(1,rgba(PAL.accent,0));
+    ctx.strokeStyle=grad; ctx.lineWidth=8;
+    ctx.stroke();
+    ctx.restore();
+    ctx.shadowBlur=0;
+  }
+}
+
+// ── Particle System ───────────────────────────────────────────
+class Particle {
+  constructor() { this.reset(); }
+  reset() {
+    this.x=rnd(0,W); this.y=rnd(0,H);
+    this.vx=rnd(-1.5,1.5); this.vy=rnd(-1.5,1.5);
+    this.life=1.0; this.decay=rnd(0.003,0.01);
+    this.r=rnd(1,4);
+    this.color=[PAL.primary,PAL.secondary,PAL.accent][rndInt(0,2)];
+    this.type=rndChoice(['dot','square','diamond','cross']);
+    this.spin=rnd(-0.1,0.1); this.angle=rnd(0,Math.PI*2);
+  }
+  update() {
+    this.x+=this.vx; this.y+=this.vy;
+    this.angle+=this.spin;
+    this.life-=this.decay;
+    if (this.life<=0||this.x<-10||this.x>W+10||this.y<-10||this.y>H+10) this.reset();
+  }
+  draw() {
+    const a=this.life*0.8;
+    ctx.save(); ctx.translate(this.x,this.y); ctx.rotate(this.angle);
+    ctx.globalAlpha=a;
+    ctx.fillStyle=this.color;
+    ctx.shadowBlur=6; ctx.shadowColor=this.color;
+    const r=this.r;
+    if (this.type==='dot') {
+      ctx.beginPath(); ctx.arc(0,0,r,0,Math.PI*2); ctx.fill();
+    } else if (this.type==='square') {
+      ctx.fillRect(-r,-r,r*2,r*2);
+    } else if (this.type==='diamond') {
+      ctx.beginPath(); ctx.moveTo(0,-r*1.4); ctx.lineTo(r*1.4,0); ctx.lineTo(0,r*1.4); ctx.lineTo(-r*1.4,0); ctx.closePath(); ctx.fill();
+    } else {
+      ctx.fillRect(-r*0.3,-r*1.5,r*0.6,r*3);
+      ctx.fillRect(-r*1.5,-r*0.3,r*3,r*0.6);
+    }
+    ctx.restore(); ctx.globalAlpha=1; ctx.shadowBlur=0;
+  }
+}
+
+// ── Data Stream ───────────────────────────────────────────────
+class DataStream {
+  constructor(id) { this.id=id; this.reset(); }
+  reset() {
+    this.x=rnd(0,W);
+    this.y=rnd(-H,0);
+    this.speed=rnd(2,8);
+    this.chars=[];
+    const len=rndInt(15,50);
+    for (let i=0;i<len;i++) this.chars.push({c:rndChar(), age:0, update:rndInt(3,12)});
+    this.fontSize=rnd(10,18);
+    this.color=PAL.primary;
+  }
+  update() {
+    this.y+=this.speed;
+    this.chars.forEach((c,i)=>{ c.age++; if(c.age>c.update){c.c=rndChar();c.age=0;}});
+    if (this.y > H+100) this.reset();
+  }
+  draw() {
+    this.chars.forEach((c,i)=>{
+      const yy=this.y+i*this.fontSize;
+      if (yy<-10||yy>H+10) return;
+      const frac=1-i/this.chars.length;
+      const bright=i===0?1:frac*0.6;
+      ctx.fillStyle=i===0?'#ffffff':rgba(this.color,bright);
+      ctx.shadowBlur=i===0?10:4; ctx.shadowColor=this.color;
+      ctx.font=`${this.fontSize}px monospace`;
+      ctx.fillText(c.c, this.x, yy);
+    });
+    ctx.shadowBlur=0;
+  }
+}
+function rndChar() {
+  const chars='01アイウエオカキクケコサシスセソタチツテトナニヌネノABCDEF0123456789!@#$%^&*TRON';
+  return chars[rndInt(0,chars.length-1)];
+}
+
+// ── Energy Vortex ─────────────────────────────────────────────
+class Vortex {
+  constructor(id) { this.id=id; this.reset(); }
+  reset() {
+    this.x=rnd(W*0.1,W*0.9);
+    this.y=rnd(H*0.1,H*0.9);
+    this.r=rnd(40,160);
+    this.angle=rnd(0,Math.PI*2);
+    this.spinSpeed=rnd(0.005,0.04)*(Math.random()>0.5?1:-1);
+    this.pulsePhase=rnd(0,Math.PI*2);
+    this.arms=rndInt(3,8);
+    this.color=[PAL.primary,PAL.secondary,PAL.accent][this.id%3];
+    this.life=rnd(3,8); this.age=0;
+    this.particles=[];
+    for(let i=0;i<60;i++) this.particles.push({
+      a:rnd(0,Math.PI*2), r:rnd(0,this.r), va:rnd(-0.05,0.05), vr:rnd(-0.5,0.5)
+    });
+  }
+  update(t) {
+    this.angle+=this.spinSpeed;
+    this.age+=1/60;
+    this.particles.forEach(p=>{
+      p.a+=p.va+this.spinSpeed*2;
+      p.r+=p.vr;
+      if (p.r<5||p.r>this.r*1.2) p.vr*=-1;
+      p.r=Math.max(5,Math.min(this.r*1.2,p.r));
+    });
+    if (this.age>this.life) this.reset();
+  }
+  draw(t) {
+    const pulse=0.5+0.5*Math.sin(t*2+this.pulsePhase);
+    ctx.save(); ctx.translate(this.x,this.y);
+    // Arms
+    for (let a=0;a<this.arms;a++) {
+      const baseAngle=this.angle+a/this.arms*Math.PI*2;
+      ctx.beginPath();
+      for (let i=0;i<60;i++) {
+        const frac=i/60;
+        const r=frac*this.r*(0.8+0.2*pulse);
+        const ang=baseAngle+frac*Math.PI*2.5;
+        const x=Math.cos(ang)*r, y=Math.sin(ang)*r;
+        i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+      }
+      const grd=ctx.createLinearGradient(0,0,this.r,0);
+      grd.addColorStop(0,rgba(this.color,0.8));
+      grd.addColorStop(1,rgba(this.color,0));
+      ctx.strokeStyle=grd; ctx.lineWidth=1.5*(0.5+0.5*pulse);
+      ctx.shadowBlur=15; ctx.shadowColor=this.color;
+      ctx.stroke();
+    }
+    // Particles
+    this.particles.forEach(p=>{
+      const px=Math.cos(p.a)*p.r, py=Math.sin(p.a)*p.r;
+      ctx.beginPath(); ctx.arc(px,py,1.5,0,Math.PI*2);
+      ctx.fillStyle=rgba(this.color,0.6+0.4*pulse);
+      ctx.shadowBlur=8; ctx.shadowColor=this.color;
+      ctx.fill();
+    });
+    // Core
+    const coreGrad=ctx.createRadialGradient(0,0,0,0,0,this.r*0.2);
+    coreGrad.addColorStop(0,rgba('#ffffff',0.9*pulse));
+    coreGrad.addColorStop(1,rgba(this.color,0));
+    ctx.beginPath(); ctx.arc(0,0,this.r*0.2,0,Math.PI*2);
+    ctx.fillStyle=coreGrad; ctx.shadowBlur=25; ctx.shadowColor='#ffffff';
+    ctx.fill();
+    ctx.restore(); ctx.shadowBlur=0;
+  }
+}
+
+// ── Portal / End-of-Line Gateway ──────────────────────────────
+class Portal {
+  constructor() { this.reset(); }
+  reset() {
+    this.x=rnd(W*0.2,W*0.8); this.y=rnd(H*0.2,H*0.8);
+    this.r=rnd(50,120); this.angle=0;
+    this.spin=rnd(0.005,0.02);
+    this.color=PAL.secondary;
+    this.rings=rndInt(4,10);
+    this.active=false;
+    this.activateTime=rnd(2,8);
+    this.age=0;
+  }
+  update(t) {
+    this.angle+=this.spin; this.age+=1/60;
+    if (this.age>this.activateTime) this.active=true;
+    if (this.age>this.activateTime+6) this.reset();
+  }
+  draw(t) {
+    const pulse=0.5+0.5*Math.sin(t*3);
+    const alpha=this.active?(0.5+0.5*pulse)*0.9:0.3;
+    ctx.save(); ctx.translate(this.x,this.y); ctx.rotate(this.angle);
+    for (let i=0;i<this.rings;i++) {
+      const rf=(i+1)/this.rings;
+      ctx.beginPath();
+      ctx.arc(0,0,this.r*rf,0,Math.PI*2);
+      ctx.strokeStyle=rgba(this.color,alpha*rf*0.8);
+      ctx.lineWidth=this.active?2.5:1;
+      ctx.shadowBlur=this.active?20:5; ctx.shadowColor=this.color;
+      ctx.stroke();
+    }
+    // Radial spokes
+    for (let i=0;i<8;i++) {
+      const a=i/8*Math.PI*2;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(a)*this.r*0.15,Math.sin(a)*this.r*0.15);
+      ctx.lineTo(Math.cos(a)*this.r,Math.sin(a)*this.r);
+      ctx.strokeStyle=rgba(this.color,alpha*0.5); ctx.lineWidth=1; ctx.stroke();
+    }
+    if (this.active) {
+      const cg=ctx.createRadialGradient(0,0,0,0,0,this.r*0.4);
+      cg.addColorStop(0,rgba('#ffffff',0.3*pulse));
+      cg.addColorStop(0.5,rgba(this.color,0.15*pulse));
+      cg.addColorStop(1,rgba(this.color,0));
+      ctx.beginPath(); ctx.arc(0,0,this.r*0.4,0,Math.PI*2);
+      ctx.fillStyle=cg; ctx.fill();
+    }
+    ctx.restore(); ctx.shadowBlur=0;
+  }
+}
+
+// ── Glitch Effect ─────────────────────────────────────────────
+function drawGlitch(t) {
+  if (params.glitchIntensity<=0) return;
+  if (Math.random()>params.glitchIntensity*0.5) return;
+  const bands=rndInt(1,5);
+  for (let i=0;i<bands;i++) {
+    const y=rnd(0,H), h=rnd(2,30);
+    const shift=rnd(-30,30)*params.glitchIntensity;
+    const imageData=ctx.getImageData(0,y,W,h);
+    ctx.putImageData(imageData,shift,y);
+    ctx.fillStyle=rgba(rndChoice([PAL.primary,PAL.accent]),'0.05');
+    ctx.fillRect(0,y,W,h);
+  }
+}
+
+// ── Scan Lines ────────────────────────────────────────────────
+function drawScanlines(t) {
+  const scanY=(t*H*params.scanSpeed*0.5)%H;
+  const scanGrad=ctx.createLinearGradient(0,scanY-30,0,scanY+30);
+  scanGrad.addColorStop(0,rgba(PAL.primary,0));
+  scanGrad.addColorStop(0.5,rgba(PAL.primary,0.12));
+  scanGrad.addColorStop(1,rgba(PAL.primary,0));
+  ctx.fillStyle=scanGrad;
+  ctx.fillRect(0,scanY-30,W,60);
+}
+
+// ── Background Nebula ─────────────────────────────────────────
+function drawNebula(t) {
+  const count=4;
+  for (let i=0;i<count;i++) {
+    const px=cx+Math.cos(t*0.1+i*1.7)*W*0.25;
+    const py=cy+Math.sin(t*0.13+i*2.1)*H*0.2;
+    const r=rnd(100,300);
+    const grad=ctx.createRadialGradient(px,py,0,px,py,r);
+    const cols=[PAL.primary,PAL.secondary,PAL.accent];
+    const col=cols[i%cols.length];
+    grad.addColorStop(0,rgba(col,0.04));
+    grad.addColorStop(1,rgba(col,0));
+    ctx.fillStyle=grad;
+    ctx.beginPath(); ctx.arc(px,py,r,0,Math.PI*2); ctx.fill();
+  }
+}
+
+// ── TRON Title / HUD Text ─────────────────────────────────────
+function drawTronText(t) {
+  const pulse=0.7+0.3*Math.sin(t*1.5);
+  ctx.save();
+  ctx.font=`bold ${Math.min(W,H)*0.06}px 'Courier New', monospace`;
+  ctx.textAlign='center';
+  ctx.letterSpacing='0.3em';
+  ctx.shadowBlur=30; ctx.shadowColor=PAL.primary;
+  ctx.fillStyle=rgba(PAL.primary,0.06*pulse);
+  ctx.fillText('TRON', cx, cy*0.25);
+  ctx.font=`${Math.min(W,H)*0.022}px 'Courier New', monospace`;
+  ctx.fillStyle=rgba(PAL.secondary,0.05*pulse);
+  ctx.fillText('END OF LINE', cx, cy*0.35);
+  ctx.restore();
+}
+
+// ── Derezz Effect ─────────────────────────────────────────────
+let derezzParticles=[];
+function spawnDerezz(x,y,color) {
+  for (let i=0;i<30;i++) {
+    const a=rnd(0,Math.PI*2), spd=rnd(1,8);
+    derezzParticles.push({
+      x,y,
+      vx:Math.cos(a)*spd, vy:Math.sin(a)*spd,
+      life:1, decay:rnd(0.02,0.06),
+      size:rnd(2,10), color,
+      angle:rnd(0,Math.PI*2), spin:rnd(-0.2,0.2)
+    });
+  }
+  if (SOUND_ON) playDerezz();
+}
+function updateDerezz() {
+  derezzParticles=derezzParticles.filter(p=>p.life>0);
+  derezzParticles.forEach(p=>{
+    p.x+=p.vx; p.y+=p.vy;
+    p.vy+=0.1;
+    p.life-=p.decay;
+    p.angle+=p.spin;
+  });
+}
+function drawDerezz() {
+  derezzParticles.forEach(p=>{
+    ctx.save(); ctx.translate(p.x,p.y); ctx.rotate(p.angle);
+    ctx.globalAlpha=p.life;
+    ctx.fillStyle=p.color;
+    ctx.shadowBlur=10; ctx.shadowColor=p.color;
+    ctx.fillRect(-p.size/2,-p.size/2,p.size,p.size);
+    ctx.restore();
+  });
+  ctx.globalAlpha=1; ctx.shadowBlur=0;
+}
+
+// ── Entities ──────────────────────────────────────────────────
+let cycles=[], discs=[], recognizers=[], particles=[], streams=[], vortexes=[], portals=[];
+
+function initEntities() {
+  cycles=[]; discs=[]; recognizers=[]; particles=[]; streams=[]; vortexes=[]; portals=[];
+  for (let i=0;i<params.cycleCount;i++) cycles.push(new Lightcycle(i));
+  for (let i=0;i<params.discCount;i++) discs.push(new IdentityDisc(i));
+  for (let i=0;i<params.recognizerCount;i++) recognizers.push(new Recognizer(i));
+  for (let i=0;i<params.particleCount;i++) particles.push(new Particle());
+  for (let i=0;i<params.dataStreams;i++) streams.push(new DataStream(i));
+  for (let i=0;i<params.vortexCount;i++) vortexes.push(new Vortex(i));
+  portals.push(new Portal());
+  derezzParticles=[];
+}
+
+// ── Main Render Loop ──────────────────────────────────────────
+let lastTime=0;
+function render(ts) {
+  requestAnimationFrame(render);
+  const dt=(ts-lastTime)/1000; lastTime=ts;
+  T += dt * params.timeScale;
+  FRAME++;
+
+  // FPS counter
+  fpsTimer+=dt;
+  if (fpsTimer>0.5) {
+    lastFPS=Math.round(1/dt);
+    document.getElementById('h-fps').textContent=lastFPS;
+    document.getElementById('h-cycle').textContent=Math.floor(T);
+    document.getElementById('h-entities').textContent=cycles.length+discs.length;
+    fpsTimer=0;
+  }
+
+  // Clear with motion blur
+  ctx.fillStyle=rgba(params.bg||'#000814', 0.18);
+  ctx.fillRect(0,0,W,H);
+
+  // Background nebula
+  drawNebula(T);
+
+  // Grid
+  drawGrid(T);
+  if (params.hexagonField) drawHexField(T);
+
+  // Data streams (Matrix-like)
+  ctx.globalAlpha=0.6;
+  streams.forEach(s=>{ s.update(); s.draw(); });
+  ctx.globalAlpha=1;
+
+  // Vortexes
+  vortexes.forEach(v=>{ v.update(T); v.draw(T); });
+
+  // Portals
+  portals.forEach(p=>{ p.update(T); p.draw(T); });
+
+  // Recognizers
+  recognizers.forEach(r=>{ r.update(T); r.draw(T); });
+
+  // Particles
+  particles.forEach(p=>{ p.update(); p.draw(); });
+
+  // Lightcycles
+  cycles.forEach(c=>{ c.update(T); c.draw(); });
+
+  // Identity discs
+  discs.forEach(d=>{ d.update(T); d.draw(T); });
+
+  // Derezz particles
+  updateDerezz(); drawDerezz();
+
+  // Scan line
+  drawScanlines(T);
+
+  // Ambient title
+  drawTronText(T);
+
+  // Glitch
+  drawGlitch(T);
+
+  // Mirror mode
+  if (params.mirrorMode && FRAME%2===0) {
+    const id=ctx.getImageData(0,0,W,H);
+    ctx.save();
+    ctx.translate(W,0); ctx.scale(-1,1);
+    ctx.globalAlpha=0.15;
+    ctx.putImageData(id,0,0);
+    ctx.restore(); ctx.globalAlpha=1;
+  }
+
+  // Random derezz events
+  if (FRAME%240===0 && Math.random()<0.3) {
+    const c=rndChoice(cycles);
+    spawnDerezz(c.x, c.y, c.color);
+    c.reset();
+  }
+
+  // Play ambient sound
+  if (SOUND_ON && FRAME%180===0) playGridHum();
+}
+
+// ── Regenerate ────────────────────────────────────────────────
+function regenerate() {
+  generateParams();
+  initEntities();
+}
+
+// ── Input Handling ────────────────────────────────────────────
+document.addEventListener('keydown', e=>{
+  if (e.key==='h'||e.key==='H') {
+    HUD_ON=!HUD_ON;
+    document.getElementById('hud').classList.toggle('visible',HUD_ON);
+    updateHUD();
+  }
+  if (e.key==='s'||e.key==='S') {
+    SOUND_ON=!SOUND_ON;
+    if (SOUND_ON) { ensureAudio(); playGridHum(); }
+  }
+  if (e.key===' ') { e.preventDefault(); regenerate(); }
+});
+document.addEventListener('click', regenerate);
+document.addEventListener('touchstart', e=>{ e.preventDefault(); regenerate(); }, {passive:false});
+
+// Hide instructions after 8s
+setTimeout(()=>{
+  const ins=document.getElementById('instructions');
+  if (ins) ins.style.opacity='0';
+}, 8000);
+
+// ── Boot ──────────────────────────────────────────────────────
+generateParams();
+initEntities();
+requestAnimationFrame(render);
+</script>
+<noscript>
+  <p>TRON Universe requires JavaScript for its immersive WebCanvas animation engine. Please enable JavaScript to experience the full cybernetic grid display.</p>
+</noscript>
+</body>
+</html>

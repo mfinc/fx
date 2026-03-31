@@ -1,0 +1,1531 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Molecular Universe — Hyperdimensional Chemical Animation Engine | 2D &amp; 3D Molecular Structures Visual Symphony</title>
+<meta name="description" content="An unprecedented audiovisual experience featuring breathtaking animations of colorful random 2D and 3D molecular structures with advanced shading and rendering techniques. Never-before-seen molecular visualization combining quantum chemistry aesthetics with generative art. Mesmerizing, vibrant, ultra-modern molecular graphics engine.">
+<meta name="keywords" content="molecular animation, 3D molecular structures, 2D molecular structures, chemical visualization, generative art, molecular graphics, quantum chemistry animation, WebGL molecular, canvas animation, procedural chemistry, molecular shading, bond rendering, atomic visualization, molecule art, chemistry generative, fractal molecules, molecular networks, chemical bonds animation, atomic orbital, electron cloud visualization">
+<meta name="robots" content="index, follow, max-image-preview:large">
+<meta name="author" content="Molecular Universe Engine">
+<meta property="og:title" content="Molecular Universe — Hyperdimensional Chemical Animation Engine">
+<meta property="og:description" content="Breathtaking 2D and 3D molecular structure animations with unprecedented visual phenomena. Vibrant, complex, sensationally mesmerizing molecular graphics.">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Molecular Universe — Hyperdimensional Chemical Animation Engine">
+<link rel="canonical" href="https://molecular-universe.app/">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Courier New',monospace;}
+  canvas{display:block;position:fixed;top:0;left:0;}
+  #hud{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;display:none;z-index:10;}
+  #hud-inner{position:absolute;top:16px;left:16px;color:rgba(0,255,200,0.85);font-size:11px;line-height:1.7;text-shadow:0 0 8px rgba(0,255,200,0.7);background:rgba(0,0,0,0.45);padding:10px 14px;border:1px solid rgba(0,255,200,0.3);border-radius:4px;max-width:320px;}
+  #hud-controls{position:absolute;bottom:16px;right:16px;color:rgba(255,255,255,0.5);font-size:10px;line-height:1.8;text-align:right;}
+  #hud-title{position:absolute;top:16px;right:16px;color:rgba(255,220,80,0.8);font-size:12px;text-shadow:0 0 10px rgba(255,220,80,0.5);letter-spacing:2px;text-align:right;}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div id="hud-inner">
+    <div id="hud-stats"></div>
+  </div>
+  <div id="hud-title">MOLECULAR UNIVERSE<br><span style="font-size:9px;letter-spacing:4px;color:rgba(255,180,80,0.6)">HYPERDIMENSIONAL ENGINE</span></div>
+  <div id="hud-controls">
+    [H] TOGGLE HUD &nbsp;|&nbsp; [S] TOGGLE SOUND<br>
+    [SPACE / CLICK / TAP] REGENERATE<br>
+    MOUSE DRAG — ORBIT 3D SCENE
+  </div>
+</div>
+<script>
+// ============================================================
+//  MOLECULAR UNIVERSE — HYPERDIMENSIONAL ENGINE
+//  Colorful 2D + 3D molecular structures, advanced shading,
+//  procedural audio synthesis, full-spectrum visual effects
+// ============================================================
+(function(){
+'use strict';
+
+// ── Canvas & Context ────────────────────────────────────────
+const canvas = document.getElementById('c');
+const gl_canvas = document.createElement('canvas');
+let W, H;
+function resize(){
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  gl_canvas.width = W; gl_canvas.height = H;
+}
+resize();
+window.addEventListener('resize', resize);
+
+const ctx = canvas.getContext('2d');
+
+// ── State ────────────────────────────────────────────────────
+let HUD_ON = false;
+let SOUND_ON = false;
+let audioCtx = null;
+let masterGain = null;
+let frame = 0;
+let seed = Math.random() * 99999 | 0;
+let rng; // seeded RNG
+
+// ── HUD ─────────────────────────────────────────────────────
+document.getElementById('hud').style.display = HUD_ON ? 'block' : 'none';
+
+// ── Seeded RNG ───────────────────────────────────────────────
+function makePRNG(s){
+  let x = s | 0;
+  return function(){
+    x = Math.imul(x ^ (x >>> 16), 0x45d9f3b);
+    x = Math.imul(x ^ (x >>> 16), 0x45d9f3b);
+    x ^= x >>> 16;
+    return (x >>> 0) / 4294967296;
+  };
+}
+
+// ── Palette System ───────────────────────────────────────────
+const PALETTE_SETS = [
+  // Neon acid
+  ['#ff0080','#00ffcc','#ff6600','#00aaff','#ffff00','#ff00ff','#00ff44'],
+  // Quantum deep
+  ['#6600ff','#00ccff','#ff3300','#ffaa00','#00ff99','#ff0066','#aaffee'],
+  // Solar storm
+  ['#ff4400','#ffcc00','#ff8800','#ff0044','#ffee44','#ff6644','#ffe0aa'],
+  // Bio bioluminescent
+  ['#00ff88','#44ffcc','#88ff44','#00ddff','#ccff00','#44ff88','#00ffaa'],
+  // Crystal plasma
+  ['#cc00ff','#ff00cc','#0044ff','#00ffee','#ff8844','#ff44cc','#8800ff'],
+  // Aurora
+  ['#00ffcc','#aaffee','#44ddff','#88ff88','#00ccaa','#66ffcc','#88eeff'],
+];
+
+let palette, bgGrad1, bgGrad2, bgGrad3;
+
+// ── Global params randomized on REGEN ───────────────────────
+let params = {};
+
+function randomize(){
+  seed = Math.random() * 99999 | 0;
+  rng = makePRNG(seed);
+  const pi = rng() * PALETTE_SETS.length | 0;
+  palette = PALETTE_SETS[pi].slice();
+  // Shuffle palette
+  for(let i=palette.length-1;i>0;i--){
+    const j = rng()*i|0;
+    [palette[i],palette[j]]=[palette[j],palette[i]];
+  }
+
+  params = {
+    seed,
+    paletteIdx: pi,
+    bgMode: rng()*4|0,           // 0=deep space, 1=nebula, 2=void, 3=prismatic
+    mol2dCount: 18 + (rng()*28|0),
+    mol3dCount: 10 + (rng()*18|0),
+    networkCount: 2 + (rng()*5|0),
+    particleCount: 400 + (rng()*600|0),
+    globalSpeed: 0.4 + rng()*1.4,
+    renderMode: rng()*6|0,       // shading style
+    bloomFactor: 0.5 + rng()*0.8,
+    atomScale: 0.6 + rng()*1.2,
+    bondStyle: rng()*5|0,        // 0=line,1=tube,2=dashed,3=glow,4=double
+    rotSpeed: (rng()-0.5)*0.02,
+    morphSpeed: 0.005 + rng()*0.015,
+    fieldLines: rng()>0.5,
+    crystalline: rng()>0.6,
+    ribbonMode: rng()>0.4,
+    waveField: rng()>0.5,
+    particleSystems: rng()*3+1|0,
+    hexGrid: rng()>0.7,
+    timeOffset: rng()*1000,
+    cameraFOV: 60 + rng()*40,
+    glowPulse: rng()>0.5,
+    mirrorMode: rng()>0.4,
+    chromaAberr: rng()>0.3,
+    scanlines: rng()>0.6,
+    noiseField: rng()>0.5,
+    motionBlur: rng()>0.5,
+    orbitals: rng()>0.4,
+    tunnelEffect: rng()>0.3,
+    fractalDepth: 2 + (rng()*4|0),
+    electroField: rng()>0.5,
+  };
+
+  // Reinit all subsystems
+  initMolecules2D();
+  initMolecules3D();
+  initNetworks();
+  initParticles();
+  initAudio();
+  frame = 0;
+}
+
+// ── Color Utilities ──────────────────────────────────────────
+function hexToRgb(hex){
+  const r=parseInt(hex.slice(1,3),16);
+  const g=parseInt(hex.slice(3,5),16);
+  const b=parseInt(hex.slice(5,7),16);
+  return [r,g,b];
+}
+function rgbStr(r,g,b,a=1){return `rgba(${r|0},${g|0},${b|0},${a})`;}
+function lerpColor(c1,c2,t){
+  const [r1,g1,b1]=hexToRgb(c1);
+  const [r2,g2,b2]=hexToRgb(c2);
+  return rgbStr(r1+(r2-r1)*t, g1+(g2-g1)*t, b1+(b2-b1)*t);
+}
+function pick(arr){ return arr[rng()*arr.length|0]; }
+function rngPick(arr){ return arr[Math.random()*arr.length|0]; }
+
+// ── Atom Types ───────────────────────────────────────────────
+const ATOM_TYPES = [
+  {symbol:'C',r:12,w:1.5},
+  {symbol:'N',r:13,w:1.6},
+  {symbol:'O',r:11,w:1.7},
+  {symbol:'H',r:7,w:1.0},
+  {symbol:'P',r:16,w:1.8},
+  {symbol:'S',r:15,w:1.7},
+  {symbol:'F',r:9,w:1.5},
+  {symbol:'Cl',r:17,w:1.6},
+  {symbol:'Fe',r:18,w:2.0},
+  {symbol:'Au',r:17,w:2.1},
+  {symbol:'Xe',r:20,w:1.9},
+  {symbol:'Rb',r:22,w:1.8},
+];
+
+// ============================================================
+//  2D MOLECULES
+// ============================================================
+let mols2d = [];
+
+function makeMol2D(){
+  const r = rng;
+  const type = r()*6|0; // ring, chain, branched, benzene, cage, spiral
+  const x = r()*W;
+  const y = r()*H;
+  const n = 4 + (r()*14|0);
+  const col1 = pick(palette);
+  const col2 = pick(palette);
+  const atoms = [];
+  const bonds = [];
+  const scale = params.atomScale * (0.5 + r()*0.8) * (Math.min(W,H)/900);
+  const speed = {
+    x:(r()-0.5)*0.6*params.globalSpeed,
+    y:(r()-0.5)*0.6*params.globalSpeed,
+    rot:(r()-0.5)*0.012*params.globalSpeed,
+    pulse: r()*0.05+0.01,
+    phase: r()*Math.PI*2,
+  };
+  const shading = r()*5|0; // 0=flat,1=radial,2=metallic,3=crystal,4=neon
+
+  // Generate positions by type
+  const positions = [];
+  if(type===0){// ring
+    for(let i=0;i<n;i++){
+      const a = (i/n)*Math.PI*2;
+      const rad = 30*scale*(0.8+r()*0.4);
+      positions.push([Math.cos(a)*rad, Math.sin(a)*rad]);
+    }
+    for(let i=0;i<n;i++) bonds.push([i,(i+1)%n, r()*3|0]);
+  } else if(type===1){// chain
+    for(let i=0;i<n;i++){
+      const zigzag = (i%2)*20*scale - 10*scale;
+      positions.push([i*22*scale - (n-1)*11*scale, zigzag + (r()-0.5)*8*scale]);
+    }
+    for(let i=0;i<n-1;i++) bonds.push([i,i+1, r()*3|0]);
+  } else if(type===2){// branched
+    positions.push([0,0]);
+    for(let i=1;i<n;i++){
+      const parent = r()*i|0;
+      const [px,py]=positions[parent];
+      const a=r()*Math.PI*2;
+      const d=20*scale*(0.7+r()*0.6);
+      positions.push([px+Math.cos(a)*d, py+Math.sin(a)*d]);
+      bonds.push([parent,i, r()*3|0]);
+    }
+  } else if(type===3){// benzene-like aromatic
+    const rings = 1+(r()*3|0);
+    for(let ri=0;ri<rings;ri++){
+      const cx = (ri-(rings-1)/2)*42*scale;
+      for(let i=0;i<6;i++){
+        const a=(i/6)*Math.PI*2;
+        positions.push([cx+Math.cos(a)*20*scale, Math.sin(a)*20*scale]);
+      }
+    }
+    for(let ri=0;ri<rings;ri++){
+      const base=ri*6;
+      for(let i=0;i<6;i++) bonds.push([base+i, base+(i+1)%6, i%2+1]);
+      if(ri>0) bonds.push([ri*6, ri*6-3, 1]); // fused
+    }
+  } else if(type===4){// cage/3d-like projected
+    const r2=24*scale;
+    for(let i=0;i<8;i++){
+      const cube_x=((i&1)?1:-1)*r2;
+      const cube_y=((i&2)?1:-1)*r2*0.6;
+      const cube_z=((i&4)?1:-1)*r2*0.4;
+      positions.push([cube_x+cube_z*0.5, cube_y+cube_z*0.3]);
+    }
+    for(let i=0;i<8;i++){
+      if(i&1) bonds.push([i,i-1,1]);
+      if(i&2) bonds.push([i,i-2,1]);
+      if(i&4) bonds.push([i,i-4,1]);
+    }
+  } else {// spiral
+    for(let i=0;i<n;i++){
+      const a=i*0.72;
+      const rad=(8+i*5)*scale;
+      positions.push([Math.cos(a)*rad, Math.sin(a)*rad]);
+    }
+    for(let i=0;i<n-1;i++) bonds.push([i,i+1, r()*2+1|0]);
+  }
+
+  for(let i=0;i<positions.length;i++){
+    const at = ATOM_TYPES[r()*ATOM_TYPES.length|0];
+    atoms.push({
+      x:positions[i][0], y:positions[i][1],
+      r: at.r * scale * (0.8+r()*0.4),
+      symbol: at.symbol,
+      col: pick(palette),
+      col2: pick(palette),
+      shading,
+    });
+  }
+
+  // Extra decorative bonds
+  if(r()>0.5 && atoms.length>3){
+    const extra = r()*3|0;
+    for(let e=0;e<extra;e++){
+      const a=r()*atoms.length|0;
+      let b=r()*atoms.length|0;
+      if(b===a) b=(b+1)%atoms.length;
+      bonds.push([a,b,r()*2+1|0]);
+    }
+  }
+
+  return {x,y,type,atoms,bonds,scale,speed,col1,col2,shading,rot:r()*Math.PI*2,
+    pulseT:r()*100, opacity:0.7+r()*0.3,
+    trailLen: params.motionBlur ? (r()*20|0) : 0,
+    glowR: 20+r()*60, shimmer:r()>0.5,
+    orbitalRing: params.orbitals && r()>0.5,
+    electroHalo: params.electroField && r()>0.4,
+  };
+}
+
+function initMolecules2D(){
+  mols2d = [];
+  for(let i=0;i<params.mol2dCount;i++) mols2d.push(makeMol2D());
+}
+
+// ── Draw atom with advanced shading ──────────────────────────
+function drawAtom2D(cx,cy,radius,col,col2,shading,glow,t){
+  ctx.save();
+  const [r1,g1,b1]=hexToRgb(col);
+  const [r2,g2,b2]=hexToRgb(col2||col);
+  const pulse = 1+0.12*Math.sin(t);
+  const rd = radius*pulse;
+
+  if(glow){
+    const gc=ctx.createRadialGradient(cx,cy,0,cx,cy,rd*3.5);
+    gc.addColorStop(0,rgbStr(r1,g1,b1,0.25));
+    gc.addColorStop(1,rgbStr(r1,g1,b1,0));
+    ctx.beginPath(); ctx.arc(cx,cy,rd*3.5,0,Math.PI*2);
+    ctx.fillStyle=gc; ctx.fill();
+  }
+
+  if(shading===0){// flat + rim
+    ctx.beginPath(); ctx.arc(cx,cy,rd,0,Math.PI*2);
+    ctx.fillStyle=col; ctx.fill();
+    ctx.strokeStyle=rgbStr(r1+60,g1+60,b1+60,0.9); ctx.lineWidth=1.5; ctx.stroke();
+  } else if(shading===1){// radial sphere
+    const grd=ctx.createRadialGradient(cx-rd*0.3,cy-rd*0.3,rd*0.05,cx,cy,rd);
+    grd.addColorStop(0,'#ffffff');
+    grd.addColorStop(0.25,col);
+    grd.addColorStop(1,rgbStr(r1*0.2,g1*0.2,b1*0.2,1));
+    ctx.beginPath(); ctx.arc(cx,cy,rd,0,Math.PI*2);
+    ctx.fillStyle=grd; ctx.fill();
+  } else if(shading===2){// metallic
+    const grd=ctx.createLinearGradient(cx-rd,cy-rd,cx+rd,cy+rd);
+    grd.addColorStop(0,'#ffffff');
+    grd.addColorStop(0.3,col);
+    grd.addColorStop(0.7,rgbStr(r1*0.4,g1*0.4,b1*0.4));
+    grd.addColorStop(1,rgbStr(r1*0.7,g1*0.7,b1*0.7));
+    ctx.beginPath(); ctx.arc(cx,cy,rd,0,Math.PI*2);
+    ctx.fillStyle=grd; ctx.fill();
+    ctx.strokeStyle='rgba(255,255,255,0.4)'; ctx.lineWidth=1; ctx.stroke();
+  } else if(shading===3){// crystal facets
+    ctx.beginPath(); ctx.arc(cx,cy,rd,0,Math.PI*2);
+    ctx.fillStyle=rgbStr(r1,g1,b1,0.7); ctx.fill();
+    for(let f=0;f<6;f++){
+      const a=f/6*Math.PI*2;
+      const a2=(f+1)/6*Math.PI*2;
+      const grd2=ctx.createLinearGradient(cx,cy,cx+Math.cos(a)*rd,cy+Math.sin(a)*rd);
+      grd2.addColorStop(0,rgbStr(r1,g1,b1,0.0));
+      grd2.addColorStop(1,rgbStr(Math.min(r2+80,255),Math.min(g2+80,255),Math.min(b2+80,255),0.4));
+      ctx.beginPath(); ctx.moveTo(cx,cy);
+      ctx.arc(cx,cy,rd,a,a2); ctx.closePath();
+      ctx.fillStyle=grd2; ctx.fill();
+    }
+  } else {// neon
+    ctx.beginPath(); ctx.arc(cx,cy,rd,0,Math.PI*2);
+    ctx.fillStyle=rgbStr(r1*0.15,g1*0.15,b1*0.15,0.95); ctx.fill();
+    ctx.strokeStyle=col; ctx.lineWidth=2.5+Math.sin(t)*0.8;
+    ctx.shadowColor=col; ctx.shadowBlur=rd*1.2;
+    ctx.stroke(); ctx.shadowBlur=0;
+  }
+
+  // Specular highlight
+  if(shading!==4){
+    const hg=ctx.createRadialGradient(cx-rd*0.32,cy-rd*0.38,0,cx-rd*0.2,cy-rd*0.2,rd*0.45);
+    hg.addColorStop(0,'rgba(255,255,255,0.75)');
+    hg.addColorStop(1,'rgba(255,255,255,0)');
+    ctx.beginPath(); ctx.arc(cx,cy,rd,0,Math.PI*2);
+    ctx.fillStyle=hg; ctx.fill();
+  }
+  ctx.restore();
+}
+
+// ── Draw bond ────────────────────────────────────────────────
+function drawBond2D(x1,y1,x2,y2,order,col1,col2,bondStyle,t){
+  ctx.save();
+  const [r1,g1,b1]=hexToRgb(col1);
+  const dx=x2-x1, dy=y2-y1;
+  const len=Math.sqrt(dx*dx+dy*dy);
+  const nx=-dy/len, ny=dx/len;
+  const sep=4;
+
+  const drawSingle=(ox,oy,alpha=1)=>{
+    if(bondStyle===0){// line
+      ctx.beginPath(); ctx.moveTo(x1+ox,y1+oy); ctx.lineTo(x2+ox,y2+oy);
+      ctx.strokeStyle=rgbStr(r1,g1,b1,alpha*0.85);
+      ctx.lineWidth=2.2; ctx.stroke();
+    } else if(bondStyle===1){// tube gradient
+      const grd=ctx.createLinearGradient(x1,y1,x2,y2);
+      grd.addColorStop(0,col1);
+      grd.addColorStop(1,col2||col1);
+      ctx.beginPath(); ctx.moveTo(x1+ox,y1+oy); ctx.lineTo(x2+ox,y2+oy);
+      ctx.strokeStyle=grd; ctx.lineWidth=3.5; ctx.stroke();
+      ctx.strokeStyle='rgba(255,255,255,0.2)'; ctx.lineWidth=1; ctx.stroke();
+    } else if(bondStyle===2){// dashed
+      ctx.setLineDash([6,5]);
+      ctx.beginPath(); ctx.moveTo(x1+ox,y1+oy); ctx.lineTo(x2+ox,y2+oy);
+      ctx.strokeStyle=rgbStr(r1,g1,b1,alpha*0.9);
+      ctx.lineWidth=2; ctx.stroke();
+      ctx.setLineDash([]);
+    } else if(bondStyle===3){// glow
+      ctx.beginPath(); ctx.moveTo(x1+ox,y1+oy); ctx.lineTo(x2+ox,y2+oy);
+      ctx.strokeStyle=rgbStr(r1,g1,b1,alpha*0.5);
+      ctx.lineWidth=7; ctx.shadowColor=col1; ctx.shadowBlur=12;
+      ctx.stroke();
+      ctx.strokeStyle=rgbStr(r1,g1,b1,alpha); ctx.lineWidth=1.5; ctx.shadowBlur=0;
+      ctx.stroke();
+    } else {// double outline
+      ctx.beginPath(); ctx.moveTo(x1+ox,y1+oy); ctx.lineTo(x2+ox,y2+oy);
+      ctx.strokeStyle='rgba(255,255,255,0.15)'; ctx.lineWidth=5; ctx.stroke();
+      ctx.strokeStyle=rgbStr(r1,g1,b1,alpha*0.9); ctx.lineWidth=2; ctx.stroke();
+    }
+  };
+
+  if(order===1) drawSingle(0,0);
+  else if(order===2){
+    drawSingle(nx*sep, ny*sep);
+    drawSingle(-nx*sep, -ny*sep);
+  } else if(order>=3){
+    drawSingle(0,0,1);
+    drawSingle(nx*sep*1.4, ny*sep*1.4, 0.7);
+    drawSingle(-nx*sep*1.4, -ny*sep*1.4, 0.7);
+  }
+  ctx.restore();
+}
+
+function drawMol2D(mol, t){
+  const {x,y,atoms,bonds,rot,col1,col2,shading,opacity,glowR,shimmer,orbitalRing,electroHalo} = mol;
+  ctx.save();
+  ctx.globalAlpha = opacity;
+  ctx.translate(x,y); ctx.rotate(rot);
+
+  // Orbital rings
+  if(orbitalRing){
+    for(let o=0;o<3;o++){
+      const oa = t*0.3+o*Math.PI*2/3;
+      const or = glowR*(0.5+o*0.3);
+      ctx.beginPath();
+      ctx.ellipse(0,0,or,or*0.38,oa,0,Math.PI*2);
+      ctx.strokeStyle=rgbStr(...hexToRgb(col1),0.25+0.1*Math.sin(t+o));
+      ctx.lineWidth=1; ctx.stroke();
+    }
+  }
+
+  // Electrostatic halo
+  if(electroHalo){
+    const haloR = glowR*1.5;
+    const gr=ctx.createRadialGradient(0,0,glowR*0.3,0,0,haloR);
+    gr.addColorStop(0,rgbStr(...hexToRgb(col1),0.08));
+    gr.addColorStop(1,rgbStr(...hexToRgb(col2),0));
+    ctx.beginPath(); ctx.arc(0,0,haloR,0,Math.PI*2);
+    ctx.fillStyle=gr; ctx.fill();
+  }
+
+  // Shimmer effect
+  if(shimmer){
+    ctx.beginPath(); ctx.arc(0,0,glowR*0.8,0,Math.PI*2);
+    const sg=ctx.createRadialGradient(0,0,0,0,0,glowR*0.8);
+    sg.addColorStop(0,rgbStr(...hexToRgb(col1),0.04+0.04*Math.sin(t*2)));
+    sg.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle=sg; ctx.fill();
+  }
+
+  // Bonds
+  for(const b of bonds){
+    if(b[0]<atoms.length && b[1]<atoms.length){
+      const a1=atoms[b[0]], a2=atoms[b[1]];
+      drawBond2D(a1.x,a1.y, a2.x,a2.y, b[2]||1, a1.col, a2.col, params.bondStyle, t);
+    }
+  }
+
+  // Atoms
+  for(const a of atoms){
+    drawAtom2D(a.x,a.y, a.r, a.col, a.col2, a.shading, params.glowPulse, t);
+  }
+
+  ctx.restore();
+}
+
+function updateMol2D(mol, dt){
+  mol.x += mol.speed.x;
+  mol.y += mol.speed.y;
+  mol.rot += mol.speed.rot;
+  mol.pulseT += mol.speed.pulse;
+  // Wrap
+  const margin=120;
+  if(mol.x < -margin) mol.x = W+margin;
+  if(mol.x > W+margin) mol.x = -margin;
+  if(mol.y < -margin) mol.y = H+margin;
+  if(mol.y > H+margin) mol.y = -margin;
+}
+
+// ============================================================
+//  3D MOLECULES (software renderer)
+// ============================================================
+let mols3d = [];
+
+function vec3(x,y,z){return {x,y,z};}
+function v3add(a,b){return vec3(a.x+b.x,a.y+b.y,a.z+b.z);}
+function v3sub(a,b){return vec3(a.x-b.x,a.y-b.y,a.z-b.z);}
+function v3scale(v,s){return vec3(v.x*s,v.y*s,v.z*s);}
+function v3len(v){return Math.sqrt(v.x*v.x+v.y*v.y+v.z*v.z);}
+function v3norm(v){const l=v3len(v)||1;return v3scale(v,1/l);}
+function v3dot(a,b){return a.x*b.x+a.y*b.y+a.z*b.z;}
+function v3cross(a,b){return vec3(a.y*b.z-a.z*b.y, a.z*b.x-a.x*b.z, a.x*b.y-a.y*b.x);}
+
+function rotX(v,a){
+  const c=Math.cos(a),s=Math.sin(a);
+  return vec3(v.x, v.y*c-v.z*s, v.y*s+v.z*c);
+}
+function rotY(v,a){
+  const c=Math.cos(a),s=Math.sin(a);
+  return vec3(v.x*c+v.z*s, v.y, -v.x*s+v.z*c);
+}
+function rotZ(v,a){
+  const c=Math.cos(a),s=Math.sin(a);
+  return vec3(v.x*c-v.y*s, v.x*s+v.y*c, v.z);
+}
+
+function project3D(v, cx,cy, fov){
+  const z = v.z + fov;
+  if(z<=0.01) return null;
+  const scale = fov / z;
+  return {x: cx + v.x*scale, y: cy + v.y*scale, scale};
+}
+
+function makeMol3D(){
+  const r = rng;
+  const type = r()*8|0;
+  const cx = W*0.1 + r()*W*0.8;
+  const cy = H*0.1 + r()*H*0.8;
+  const n = 5 + (r()*20|0);
+  const sc = params.atomScale * (0.8+r()*1.2) * (Math.min(W,H)/700);
+  const atoms=[], bonds=[];
+  const shading3d = r()*5|0;
+
+  const makeAtom=(x,y,z)=>{
+    const at=ATOM_TYPES[r()*ATOM_TYPES.length|0];
+    atoms.push({
+      x,y,z,
+      r: at.r*sc*(0.7+r()*0.6),
+      col: pick(palette),
+      col2: pick(palette),
+      symbol: at.symbol,
+      vx:(r()-0.5)*0.01, vy:(r()-0.5)*0.01, vz:(r()-0.5)*0.01,
+    });
+  };
+
+  if(type===0){// icosahedron-like
+    const phi=(1+Math.sqrt(5))/2;
+    const pts=[
+      [0,1,phi],[0,-1,phi],[0,1,-phi],[0,-1,-phi],
+      [1,phi,0],[-1,phi,0],[1,-phi,0],[-1,-phi,0],
+      [phi,0,1],[phi,0,-1],[-phi,0,1],[-phi,0,-1]
+    ];
+    const s=20*sc;
+    for(const p of pts) makeAtom(p[0]*s,p[1]*s,p[2]*s);
+    for(let i=0;i<atoms.length;i++){
+      for(let j=i+1;j<atoms.length;j++){
+        const dx=atoms[i].x-atoms[j].x,dy=atoms[i].y-atoms[j].y,dz=atoms[i].z-atoms[j].z;
+        const d=Math.sqrt(dx*dx+dy*dy+dz*dz);
+        if(d<42*sc) bonds.push([i,j,1]);
+      }
+    }
+  } else if(type===1){// helix
+    for(let i=0;i<n;i++){
+      const t2=i/n*Math.PI*4;
+      makeAtom(Math.cos(t2)*25*sc, Math.sin(t2)*25*sc, (i-n/2)*8*sc);
+    }
+    for(let i=0;i<n-1;i++) bonds.push([i,i+1,1]);
+    for(let i=0;i<n-3;i++) bonds.push([i,i+3,1]);
+  } else if(type===2){// fullerene-ish sphere
+    for(let i=0;i<n;i++){
+      const phi2=Math.acos(1-2*(i+0.5)/n);
+      const theta=Math.PI*(1+Math.sqrt(5))*i;
+      const r2=28*sc;
+      makeAtom(r2*Math.sin(phi2)*Math.cos(theta), r2*Math.sin(phi2)*Math.sin(theta), r2*Math.cos(phi2));
+    }
+    for(let i=0;i<atoms.length;i++){
+      for(let j=i+1;j<atoms.length;j++){
+        const dx=atoms[i].x-atoms[j].x,dy=atoms[i].y-atoms[j].y,dz=atoms[i].z-atoms[j].z;
+        const d=Math.sqrt(dx*dx+dy*dy+dz*dz);
+        if(d<28*sc) bonds.push([i,j,1]);
+      }
+    }
+  } else if(type===3){// diamond cubic
+    const s=14*sc;
+    for(let ix=0;ix<3;ix++) for(let iy=0;iy<3;iy++) for(let iz=0;iz<3;iz++){
+      if((ix+iy+iz)%2===0) makeAtom((ix-1)*s*2,(iy-1)*s*2,(iz-1)*s*2);
+    }
+    for(let i=0;i<atoms.length;i++){
+      for(let j=i+1;j<atoms.length;j++){
+        const dx=atoms[i].x-atoms[j].x,dy=atoms[i].y-atoms[j].y,dz=atoms[i].z-atoms[j].z;
+        const d=Math.sqrt(dx*dx+dy*dy+dz*dz);
+        if(d<s*2.2) bonds.push([i,j,1]);
+      }
+    }
+  } else if(type===4){// double helix (DNA)
+    const hn=n*2;
+    for(let i=0;i<hn;i++){
+      const strand=i%2, idx=i>>1;
+      const t2=idx/n*Math.PI*4 + strand*Math.PI;
+      const r2=22*sc;
+      makeAtom(Math.cos(t2)*r2, Math.sin(t2)*r2, (idx-n/2)*7*sc);
+    }
+    for(let i=0;i<hn-2;i++) bonds.push([i,i+2,(i%4<2)?2:1]);
+    for(let i=0;i<hn-1;i+=2) bonds.push([i,i+1,1]);
+  } else if(type===5){// nanotube
+    const rings=6, sides=8;
+    for(let ri=0;ri<rings;ri++){
+      for(let si=0;si<sides;si++){
+        const a=(si/sides)*Math.PI*2+(ri%2)*Math.PI/sides;
+        makeAtom(Math.cos(a)*22*sc, Math.sin(a)*22*sc, (ri-rings/2)*12*sc);
+      }
+    }
+    for(let ri=0;ri<rings;ri++){
+      for(let si=0;si<sides;si++){
+        const idx=ri*sides+si;
+        bonds.push([idx, ri*sides+(si+1)%sides, 1]);
+        if(ri<rings-1) bonds.push([idx, (ri+1)*sides+si, 1]);
+      }
+    }
+  } else if(type===6){// random 3d branched
+    makeAtom(0,0,0);
+    for(let i=1;i<n;i++){
+      const parent=r()*i|0;
+      const a1=r()*Math.PI*2, a2=r()*Math.PI;
+      const d=18*sc*(0.7+r()*0.6);
+      makeAtom(
+        atoms[parent].x+Math.sin(a2)*Math.cos(a1)*d,
+        atoms[parent].y+Math.sin(a2)*Math.sin(a1)*d,
+        atoms[parent].z+Math.cos(a2)*d
+      );
+      bonds.push([parent,i,r()*3|0+1]);
+    }
+  } else {// ring stack (porphyrin-like)
+    const layers=3+(r()*3|0);
+    for(let l=0;l<layers;l++){
+      const sides2=5+(r()*4|0);
+      const rr=(15+l*8)*sc;
+      const zz=(l-layers/2)*16*sc;
+      for(let si=0;si<sides2;si++){
+        const a=(si/sides2)*Math.PI*2;
+        makeAtom(Math.cos(a)*rr, Math.sin(a)*rr, zz);
+      }
+      const base=l*(5+(r()*4|0)|0); // rough
+    }
+    for(let i=0;i<atoms.length;i++){
+      for(let j=i+1;j<atoms.length;j++){
+        const dx=atoms[i].x-atoms[j].x,dy=atoms[i].y-atoms[j].y,dz=atoms[i].z-atoms[j].z;
+        const d=Math.sqrt(dx*dx+dy*dy+dz*dz);
+        if(d<26*sc) bonds.push([i,j, d<14*sc?2:1]);
+      }
+    }
+  }
+
+  return {
+    cx,cy,atoms,bonds,sc,shading3d,
+    rx: r()*Math.PI*2, ry: r()*Math.PI*2, rz: r()*Math.PI*2,
+    vrx:(r()-0.5)*0.008*params.globalSpeed,
+    vry:(r()-0.5)*0.012*params.globalSpeed,
+    vrz:(r()-0.5)*0.006*params.globalSpeed,
+    vx:(r()-0.5)*0.5*params.globalSpeed,
+    vy:(r()-0.5)*0.5*params.globalSpeed,
+    fov: 280+r()*200,
+    opacity: 0.75+r()*0.25,
+    col1: pick(palette), col2: pick(palette),
+    glowHalo: r()>0.4,
+    ribbons: params.ribbonMode && r()>0.4,
+    crystallineLines: params.crystalline && r()>0.5,
+  };
+}
+
+function initMolecules3D(){
+  mols3d=[];
+  for(let i=0;i<params.mol3dCount;i++) mols3d.push(makeMol3D());
+}
+
+function drawAtom3D(px,py,radius,col,col2,shading,pscale,depth){
+  ctx.save();
+  const r2=radius*pscale;
+  if(r2<1) {ctx.restore(); return;}
+  const depthFade = Math.max(0.2, Math.min(1, 1-(depth-300)/600));
+  const [r1,g1,b1]=hexToRgb(col);
+  const [rr,gg,bb]=hexToRgb(col2||col);
+
+  // Depth glow
+  if(shading===4){
+    ctx.beginPath(); ctx.arc(px,py,r2*2.5,0,Math.PI*2);
+    ctx.fillStyle=rgbStr(r1,g1,b1,0.12*depthFade);
+    ctx.fill();
+  }
+
+  if(shading===0){// flat
+    ctx.beginPath(); ctx.arc(px,py,r2,0,Math.PI*2);
+    ctx.fillStyle=rgbStr(r1*depthFade,g1*depthFade,b1*depthFade,0.95);
+    ctx.fill();
+  } else if(shading===1){// sphere
+    const grd=ctx.createRadialGradient(px-r2*0.35,py-r2*0.38,r2*0.05,px,py,r2);
+    grd.addColorStop(0,'rgba(255,255,255,0.95)');
+    grd.addColorStop(0.15,col);
+    grd.addColorStop(0.7,rgbStr(r1*0.5*depthFade,g1*0.5*depthFade,b1*0.5*depthFade));
+    grd.addColorStop(1,'rgba(0,0,0,0.9)');
+    ctx.beginPath(); ctx.arc(px,py,r2,0,Math.PI*2);
+    ctx.fillStyle=grd; ctx.fill();
+  } else if(shading===2){// metallic anisotropic
+    const grd=ctx.createLinearGradient(px-r2,py-r2,px+r2,py+r2);
+    grd.addColorStop(0,'#fff');
+    grd.addColorStop(0.2,col);
+    grd.addColorStop(0.5,rgbStr(rr*0.6,gg*0.6,bb*0.6));
+    grd.addColorStop(0.8,rgbStr(r1*0.3,g1*0.3,b1*0.3));
+    grd.addColorStop(1,rgbStr(rr*0.5,gg*0.5,bb*0.5));
+    ctx.beginPath(); ctx.arc(px,py,r2,0,Math.PI*2);
+    ctx.fillStyle=grd; ctx.fill();
+    ctx.strokeStyle=rgbStr(255,255,255,0.3); ctx.lineWidth=0.8; ctx.stroke();
+  } else if(shading===3){// crystal
+    ctx.beginPath(); ctx.arc(px,py,r2,0,Math.PI*2);
+    ctx.fillStyle=rgbStr(r1,g1,b1,0.55*depthFade); ctx.fill();
+    // Facets
+    for(let f=0;f<5;f++){
+      const fa=(f/5)*Math.PI*2;
+      const fa2=((f+1)/5)*Math.PI*2;
+      const grd2=ctx.createLinearGradient(px,py,px+Math.cos(fa)*r2,py+Math.sin(fa)*r2);
+      grd2.addColorStop(0,rgbStr(r1,g1,b1,0));
+      grd2.addColorStop(1,rgbStr(Math.min(rr+100,255),Math.min(gg+100,255),Math.min(bb+100,255),0.5*depthFade));
+      ctx.beginPath(); ctx.moveTo(px,py);
+      ctx.arc(px,py,r2,fa,fa2); ctx.closePath();
+      ctx.fillStyle=grd2; ctx.fill();
+    }
+  } else {// neon3d
+    ctx.beginPath(); ctx.arc(px,py,r2,0,Math.PI*2);
+    ctx.fillStyle=rgbStr(r1*0.1,g1*0.1,b1*0.1,0.95); ctx.fill();
+    ctx.strokeStyle=col;
+    ctx.lineWidth=2+depthFade;
+    ctx.shadowColor=col; ctx.shadowBlur=r2*1.8*depthFade;
+    ctx.stroke(); ctx.shadowBlur=0;
+  }
+
+  // Specular dot
+  if(shading!==4 && r2>4){
+    const sg=ctx.createRadialGradient(px-r2*0.3,py-r2*0.4,0,px-r2*0.2,py-r2*0.25,r2*0.5);
+    sg.addColorStop(0,`rgba(255,255,255,${0.7*depthFade})`);
+    sg.addColorStop(1,'rgba(255,255,255,0)');
+    ctx.beginPath(); ctx.arc(px,py,r2,0,Math.PI*2);
+    ctx.fillStyle=sg; ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawBond3D(x1,y1,x2,y2,s1,s2,order,col1,col2,bondStyle,depth){
+  ctx.save();
+  const depthFade=Math.max(0.1,Math.min(1,1-(depth-300)/600));
+  const [r1,g1,b1]=hexToRgb(col1);
+  const [r2,g2,b2]=hexToRgb(col2||col1);
+  const avgScale=(s1+s2)*0.5;
+  const lw = Math.max(0.5, 2*avgScale*depthFade);
+
+  if(bondStyle===3){
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2);
+    ctx.strokeStyle=rgbStr(r1,g1,b1,0.4*depthFade);
+    ctx.lineWidth=lw*3.5; ctx.shadowColor=col1; ctx.shadowBlur=lw*4;
+    ctx.stroke(); ctx.shadowBlur=0;
+    ctx.strokeStyle=rgbStr(r1,g1,b1,0.9*depthFade);
+    ctx.lineWidth=lw*0.8; ctx.stroke();
+  } else if(bondStyle===1){
+    const grd=ctx.createLinearGradient(x1,y1,x2,y2);
+    grd.addColorStop(0,rgbStr(r1,g1,b1,0.9*depthFade));
+    grd.addColorStop(0.5,rgbStr(255,255,255,0.3*depthFade));
+    grd.addColorStop(1,rgbStr(r2,g2,b2,0.9*depthFade));
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2);
+    ctx.strokeStyle=grd; ctx.lineWidth=lw*1.8; ctx.stroke();
+  } else if(bondStyle===2){
+    ctx.setLineDash([5*avgScale,4*avgScale]);
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2);
+    ctx.strokeStyle=rgbStr(r1,g1,b1,0.85*depthFade);
+    ctx.lineWidth=lw*1.4; ctx.stroke();
+    ctx.setLineDash([]);
+  } else {
+    const grd=ctx.createLinearGradient(x1,y1,x2,y2);
+    grd.addColorStop(0,rgbStr(r1,g1,b1,0.9*depthFade));
+    grd.addColorStop(1,rgbStr(r2,g2,b2,0.9*depthFade));
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2);
+    ctx.strokeStyle=grd; ctx.lineWidth=lw; ctx.stroke();
+    if(order>=2){
+      const dx=x2-x1,dy=y2-y1,len=Math.sqrt(dx*dx+dy*dy)||1;
+      const nx=-dy/len*3,ny=dx/len*3;
+      ctx.beginPath(); ctx.moveTo(x1+nx,y1+ny); ctx.lineTo(x2+nx,y2+ny);
+      ctx.strokeStyle=grd; ctx.lineWidth=lw*0.6; ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x1-nx,y1-ny); ctx.lineTo(x2-nx,y2-ny);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+function drawMol3D(mol, t){
+  const {cx,cy,atoms,bonds,rx,ry,rz,fov,shading3d,opacity,col1,glowHalo} = mol;
+  ctx.save();
+  ctx.globalAlpha = opacity;
+
+  // Transform atoms
+  const projected=[];
+  for(const a of atoms){
+    let v=vec3(a.x,a.y,a.z);
+    v=rotX(v,rx); v=rotY(v,ry); v=rotZ(v,rz);
+    const p=project3D(v,cx,cy,fov);
+    projected.push(p ? {...p,z:v.z+fov,col:a.col,col2:a.col2,r:a.r} : null);
+  }
+
+  // Glow halo
+  if(glowHalo){
+    let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
+    for(const p of projected) if(p){
+      minX=Math.min(minX,p.x); maxX=Math.max(maxX,p.x);
+      minY=Math.min(minY,p.y); maxY=Math.max(maxY,p.y);
+    }
+    const hcx=(minX+maxX)/2, hcy=(minY+maxY)/2;
+    const hr=Math.max(maxX-minX,maxY-minY)*0.65;
+    if(hr>5){
+      const gh=ctx.createRadialGradient(hcx,hcy,0,hcx,hcy,hr);
+      const [r1,g1,b1]=hexToRgb(col1);
+      gh.addColorStop(0,rgbStr(r1,g1,b1,0.1));
+      gh.addColorStop(1,rgbStr(r1,g1,b1,0));
+      ctx.beginPath(); ctx.arc(hcx,hcy,hr,0,Math.PI*2);
+      ctx.fillStyle=gh; ctx.fill();
+    }
+  }
+
+  // Sort bonds & atoms by depth
+  const bondDepths=[];
+  for(const b of bonds){
+    if(!projected[b[0]]||!projected[b[1]]) continue;
+    const depth=(projected[b[0]].z+projected[b[1]].z)*0.5;
+    bondDepths.push({b,depth});
+  }
+  const atomDepths=[];
+  for(let i=0;i<projected.length;i++){
+    if(!projected[i]) continue;
+    atomDepths.push({i,depth:projected[i].z});
+  }
+
+  bondDepths.sort((a,b2)=>b2.depth-a.depth);
+  atomDepths.sort((a,b2)=>b2.depth-a.depth);
+
+  // Draw bonds (back to front)
+  for(const {b,depth} of bondDepths){
+    const p1=projected[b[0]], p2=projected[b[1]];
+    drawBond3D(p1.x,p1.y,p2.x,p2.y,p1.scale,p2.scale,b[2]||1,
+      atoms[b[0]].col, atoms[b[1]].col, params.bondStyle, depth);
+  }
+
+  // Draw atoms (back to front)
+  for(const {i,depth} of atomDepths){
+    const p=projected[i];
+    drawAtom3D(p.x,p.y,atoms[i].r,atoms[i].col,atoms[i].col2,shading3d,p.scale,depth);
+  }
+
+  ctx.restore();
+}
+
+function updateMol3D(mol){
+  mol.rx += mol.vrx;
+  mol.ry += mol.vry;
+  mol.rz += mol.vrz;
+  mol.cx += mol.vx;
+  mol.cy += mol.vy;
+  const margin=150;
+  if(mol.cx<-margin) mol.cx=W+margin;
+  if(mol.cx>W+margin) mol.cx=-margin;
+  if(mol.cy<-margin) mol.cy=H+margin;
+  if(mol.cy>H+margin) mol.cy=-margin;
+}
+
+// ============================================================
+//  MOLECULAR NETWORKS
+// ============================================================
+let networks=[];
+
+function makeNetwork(){
+  const r=rng;
+  const n=12+(r()*30|0);
+  const nodes=[], edges=[];
+  const cx=W*0.05+r()*W*0.9;
+  const cy=H*0.05+r()*H*0.9;
+  const spread=60+r()*180;
+  const col=pick(palette);
+  const col2=pick(palette);
+  const netType=r()*3|0; // 0=random,1=grid,2=ring
+
+  if(netType===0){
+    for(let i=0;i<n;i++){
+      nodes.push({
+        x:cx+(r()-0.5)*spread*2, y:cy+(r()-0.5)*spread*2,
+        vx:(r()-0.5)*0.4*params.globalSpeed, vy:(r()-0.5)*0.4*params.globalSpeed,
+        r:3+r()*8, col:pick(palette), pulse:r()*Math.PI*2,
+      });
+    }
+    for(let i=0;i<n;i++){
+      const numConn=1+(r()*4|0);
+      for(let c=0;c<numConn;c++){
+        let j=r()*n|0;
+        if(j!==i) edges.push({a:i,b:j,order:r()*3|0+1});
+      }
+    }
+  } else if(netType===1){
+    const cols2=Math.ceil(Math.sqrt(n));
+    const rows2=Math.ceil(n/cols2);
+    const sp=spread/Math.max(cols2,rows2);
+    for(let iy=0;iy<rows2;iy++) for(let ix=0;ix<cols2;ix++){
+      if(nodes.length>=n) break;
+      nodes.push({x:cx+(ix-cols2/2)*sp,y:cy+(iy-rows2/2)*sp,
+        vx:0,vy:0,r:3+r()*6,col:pick(palette),pulse:r()*Math.PI*2});
+    }
+    for(let iy=0;iy<rows2;iy++) for(let ix=0;ix<cols2;ix++){
+      const idx=iy*cols2+ix;
+      if(idx>=nodes.length) continue;
+      if(ix<cols2-1&&idx+1<nodes.length) edges.push({a:idx,b:idx+1,order:1});
+      if(iy<rows2-1&&idx+cols2<nodes.length) edges.push({a:idx,b:idx+cols2,order:1});
+    }
+  } else {
+    for(let i=0;i<n;i++){
+      const a=(i/n)*Math.PI*2;
+      const rr=spread*(0.7+r()*0.3);
+      nodes.push({x:cx+Math.cos(a)*rr,y:cy+Math.sin(a)*rr,
+        vx:0,vy:0,r:3+r()*7,col:pick(palette),pulse:r()*Math.PI*2});
+      edges.push({a:i,b:(i+1)%n,order:1});
+      if(r()>0.6) edges.push({a:i,b:(i+2)%n,order:1});
+    }
+  }
+
+  return {nodes,edges,col,col2,netType,
+    vx:(r()-0.5)*0.3*params.globalSpeed,
+    vy:(r()-0.5)*0.3*params.globalSpeed,
+    rot:0, vrot:(r()-0.5)*0.005*params.globalSpeed,
+    opacity:0.5+r()*0.45,
+    glowLines:r()>0.4, particleFlow:r()>0.5,
+    flowParticles: r()>0.5 ? Array.from({length:8+r()*12|0},()=>({
+      edge:r()*edges.length|0, t:r(), speed:0.005+r()*0.02,col:pick(palette)
+    })) : [],
+  };
+}
+
+function initNetworks(){
+  networks=[];
+  for(let i=0;i<params.networkCount;i++) networks.push(makeNetwork());
+}
+
+function drawNetwork(net,t){
+  const {nodes,edges,col,col2,opacity,glowLines,flowParticles}=net;
+  ctx.save(); ctx.globalAlpha=opacity;
+
+  for(const e of edges){
+    if(e.a>=nodes.length||e.b>=nodes.length) continue;
+    const n1=nodes[e.a],n2=nodes[e.b];
+    if(glowLines){
+      ctx.beginPath(); ctx.moveTo(n1.x,n1.y); ctx.lineTo(n2.x,n2.y);
+      ctx.strokeStyle=rgbStr(...hexToRgb(n1.col),0.3);
+      ctx.lineWidth=3+e.order; ctx.shadowColor=n1.col; ctx.shadowBlur=8;
+      ctx.stroke(); ctx.shadowBlur=0;
+    }
+    const grd=ctx.createLinearGradient(n1.x,n1.y,n2.x,n2.y);
+    grd.addColorStop(0,n1.col); grd.addColorStop(1,n2.col);
+    ctx.beginPath(); ctx.moveTo(n1.x,n1.y); ctx.lineTo(n2.x,n2.y);
+    ctx.strokeStyle=grd; ctx.lineWidth=0.8+e.order*0.5;
+    ctx.shadowBlur=0; ctx.stroke();
+  }
+
+  // Flow particles on edges
+  for(const fp of flowParticles){
+    if(fp.edge>=edges.length) continue;
+    const e=edges[fp.edge];
+    if(e.a>=nodes.length||e.b>=nodes.length) continue;
+    const n1=nodes[e.a],n2=nodes[e.b];
+    const px=n1.x+(n2.x-n1.x)*fp.t;
+    const py=n1.y+(n2.y-n1.y)*fp.t;
+    ctx.beginPath(); ctx.arc(px,py,2.5,0,Math.PI*2);
+    ctx.fillStyle=fp.col; ctx.shadowColor=fp.col; ctx.shadowBlur=6;
+    ctx.fill(); ctx.shadowBlur=0;
+    fp.t+=fp.speed;
+    if(fp.t>1){fp.t=0; fp.edge=Math.random()*edges.length|0;}
+  }
+
+  for(const n of nodes){
+    const pr=n.r*(1+0.15*Math.sin(t*2+n.pulse));
+    drawAtom2D(n.x,n.y,pr,n.col,n.col,1,glowLines,t+n.pulse);
+    n.x+=n.vx; n.y+=n.vy;
+    if(n.x<0||n.x>W) n.vx*=-1;
+    if(n.y<0||n.y>H) n.vy*=-1;
+  }
+  ctx.restore();
+}
+
+// ============================================================
+//  PARTICLE SYSTEMS
+// ============================================================
+let particles=[];
+
+function makeParticle(r){
+  const col=pick(palette);
+  return {
+    x:r()*W, y:r()*H,
+    vx:(r()-0.5)*2.5*params.globalSpeed,
+    vy:(r()-0.5)*2.5*params.globalSpeed,
+    r:1+r()*4,
+    col,
+    life:0.5+r()*0.5,
+    decay:0.001+r()*0.003,
+    twinkle:r()*Math.PI*2,
+    trail:[],
+    maxTrail:r()*15|0,
+    shape:r()*4|0,// 0=circle,1=star,2=hex,3=diamond
+  };
+}
+
+function initParticles(){
+  particles=[];
+  for(let i=0;i<params.particleCount;i++) particles.push(makeParticle(rng));
+}
+
+function drawParticle(p,t){
+  ctx.save();
+  ctx.globalAlpha=p.life*0.8;
+  const col=p.col;
+  const [r1,g1,b1]=hexToRgb(col);
+
+  if(p.trail.length>1){
+    ctx.beginPath();
+    ctx.moveTo(p.trail[0][0],p.trail[0][1]);
+    for(let i=1;i<p.trail.length;i++) ctx.lineTo(p.trail[i][0],p.trail[i][1]);
+    ctx.strokeStyle=rgbStr(r1,g1,b1,0.3);
+    ctx.lineWidth=p.r*0.5; ctx.stroke();
+  }
+
+  ctx.translate(p.x,p.y);
+  if(p.shape===0){
+    ctx.beginPath(); ctx.arc(0,0,p.r,0,Math.PI*2);
+    ctx.fillStyle=col; ctx.shadowColor=col; ctx.shadowBlur=p.r*3;
+    ctx.fill();
+  } else if(p.shape===1){
+    ctx.rotate(t*0.5+p.twinkle);
+    ctx.beginPath();
+    for(let i=0;i<10;i++){
+      const a=(i/10)*Math.PI*2;
+      const rr=(i%2===0?p.r:p.r*0.45);
+      if(i===0) ctx.moveTo(Math.cos(a)*rr, Math.sin(a)*rr);
+      else ctx.lineTo(Math.cos(a)*rr, Math.sin(a)*rr);
+    }
+    ctx.closePath();
+    ctx.fillStyle=col; ctx.shadowColor=col; ctx.shadowBlur=p.r*2;
+    ctx.fill();
+  } else if(p.shape===2){
+    ctx.beginPath();
+    for(let i=0;i<6;i++){
+      const a=(i/6)*Math.PI*2;
+      if(i===0) ctx.moveTo(Math.cos(a)*p.r, Math.sin(a)*p.r);
+      else ctx.lineTo(Math.cos(a)*p.r, Math.sin(a)*p.r);
+    }
+    ctx.closePath();
+    ctx.fillStyle=rgbStr(r1,g1,b1,0.9);
+    ctx.strokeStyle=col; ctx.lineWidth=0.8; ctx.shadowColor=col; ctx.shadowBlur=p.r*2;
+    ctx.fill(); ctx.stroke();
+  } else {
+    ctx.rotate(Math.PI/4);
+    ctx.fillStyle=col; ctx.shadowColor=col; ctx.shadowBlur=p.r*2;
+    ctx.fillRect(-p.r,-p.r,p.r*2,p.r*2);
+  }
+  ctx.restore();
+}
+
+// ============================================================
+//  BACKGROUND EFFECTS
+// ============================================================
+function drawBackground(t){
+  const mode=params.bgMode;
+
+  if(mode===0){// Deep space
+    ctx.fillStyle='rgba(0,0,4,0.92)';
+    ctx.fillRect(0,0,W,H);
+    // Nebula clouds
+    for(let i=0;i<4;i++){
+      const nx=W*(0.15+i*0.22);
+      const ny=H*(0.2+Math.sin(t*0.08+i*1.3)*0.15);
+      const nr=W*0.18*(0.8+Math.sin(t*0.05+i)*0.2);
+      const [r1,g1,b1]=hexToRgb(palette[i%palette.length]);
+      const grd=ctx.createRadialGradient(nx,ny,0,nx,ny,nr);
+      grd.addColorStop(0,rgbStr(r1,g1,b1,0.04));
+      grd.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.beginPath(); ctx.arc(nx,ny,nr,0,Math.PI*2);
+      ctx.fillStyle=grd; ctx.fill();
+    }
+  } else if(mode===1){// Nebula
+    ctx.fillStyle='rgba(2,0,8,0.88)';
+    ctx.fillRect(0,0,W,H);
+    for(let i=0;i<6;i++){
+      const nx=W*0.5+Math.cos(t*0.04+i*1.05)*W*0.35;
+      const ny=H*0.5+Math.sin(t*0.06+i*0.8)*H*0.3;
+      const nr=W*(0.12+i*0.04);
+      const [r1,g1,b1]=hexToRgb(palette[i%palette.length]);
+      const grd=ctx.createRadialGradient(nx,ny,0,nx,ny,nr);
+      grd.addColorStop(0,rgbStr(r1,g1,b1,0.07));
+      grd.addColorStop(0.5,rgbStr(r1,g1,b1,0.03));
+      grd.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.beginPath(); ctx.arc(nx,ny,nr,0,Math.PI*2);
+      ctx.fillStyle=grd; ctx.fill();
+    }
+  } else if(mode===2){// Void
+    ctx.fillStyle='rgba(0,0,0,0.95)';
+    ctx.fillRect(0,0,W,H);
+    // Subtle grid
+    ctx.strokeStyle='rgba(30,30,60,0.25)';
+    ctx.lineWidth=0.5;
+    const gs=Math.min(W,H)/14;
+    for(let ix=0;ix<=W/gs+1;ix++){
+      const gx=(ix*gs+t*0.5*params.globalSpeed)%W;
+      ctx.beginPath(); ctx.moveTo(gx,0); ctx.lineTo(gx,H); ctx.stroke();
+    }
+    for(let iy=0;iy<=H/gs+1;iy++){
+      const gy=(iy*gs+t*0.3*params.globalSpeed)%H;
+      ctx.beginPath(); ctx.moveTo(0,gy); ctx.lineTo(W,gy); ctx.stroke();
+    }
+  } else {// Prismatic
+    ctx.fillStyle='rgba(0,0,2,0.9)';
+    ctx.fillRect(0,0,W,H);
+    const pw=W/3, ph=H/3;
+    for(let ix=0;ix<3;ix++) for(let iy=0;iy<3;iy++){
+      const [r1,g1,b1]=hexToRgb(palette[(ix*3+iy)%palette.length]);
+      const pcx=ix*pw+pw/2+Math.cos(t*0.03+ix+iy)*20;
+      const pcy=iy*ph+ph/2+Math.sin(t*0.04+iy-ix)*20;
+      const grd=ctx.createRadialGradient(pcx,pcy,0,pcx,pcy,pw*0.6);
+      grd.addColorStop(0,rgbStr(r1,g1,b1,0.05));
+      grd.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.beginPath(); ctx.arc(pcx,pcy,pw*0.6,0,Math.PI*2);
+      ctx.fillStyle=grd; ctx.fill();
+    }
+  }
+
+  // Hex grid overlay
+  if(params.hexGrid){
+    const hsize=30+Math.sin(t*0.05)*5;
+    ctx.strokeStyle=rgbStr(...hexToRgb(palette[0]),0.05);
+    ctx.lineWidth=0.5;
+    for(let iy=-1;iy<H/hsize/1.73+2;iy++){
+      for(let ix=-1;ix<W/hsize*0.58+2;ix++){
+        const hx=ix*hsize*1.73+(iy%2)*hsize*0.865;
+        const hy=iy*hsize*1.5;
+        ctx.beginPath();
+        for(let v=0;v<6;v++){
+          const a=(v/6)*Math.PI*2-Math.PI/6;
+          const px2=hx+Math.cos(a)*hsize, py2=hy+Math.sin(a)*hsize;
+          if(v===0) ctx.moveTo(px2,py2); else ctx.lineTo(px2,py2);
+        }
+        ctx.closePath(); ctx.stroke();
+      }
+    }
+  }
+
+  // Wave field
+  if(params.waveField){
+    ctx.save();
+    for(let wy=0;wy<H;wy+=22){
+      ctx.beginPath();
+      for(let wx=0;wx<W;wx+=3){
+        const wave=Math.sin(wx*0.018+t*0.08)*16+Math.sin(wx*0.032-t*0.05)*8;
+        if(wx===0) ctx.moveTo(wx,wy+wave); else ctx.lineTo(wx,wy+wave);
+      }
+      const [r1,g1,b1]=hexToRgb(palette[wy/22%palette.length|0]);
+      ctx.strokeStyle=rgbStr(r1,g1,b1,0.04);
+      ctx.lineWidth=1; ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // Tunnel effect
+  if(params.tunnelEffect){
+    const tr=100+Math.sin(t*0.08)*40;
+    for(let ring=0;ring<8;ring++){
+      const rr=tr+(ring*40+t*15*params.globalSpeed)%(W*0.7);
+      const [r1,g1,b1]=hexToRgb(palette[ring%palette.length]);
+      ctx.beginPath(); ctx.arc(W/2,H/2,rr,0,Math.PI*2);
+      ctx.strokeStyle=rgbStr(r1,g1,b1,0.06*(1-ring/8));
+      ctx.lineWidth=2; ctx.stroke();
+    }
+  }
+
+  // Electrostatic field lines
+  if(params.electroField){
+    ctx.save();
+    ctx.strokeStyle=rgbStr(...hexToRgb(palette[1]),0.05);
+    ctx.lineWidth=0.8;
+    for(let fl=0;fl<20;fl++){
+      const fx=fl*W/20;
+      ctx.beginPath();
+      for(let fy=0;fy<H;fy+=4){
+        const dx=Math.sin(fy*0.02+t*0.06+fl*0.5)*25;
+        if(fy===0) ctx.moveTo(fx+dx,fy); else ctx.lineTo(fx+dx,fy);
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+// ── Post-processing effects ───────────────────────────────────
+function drawPostFX(t){
+  // Scanlines
+  if(params.scanlines){
+    ctx.save();
+    for(let sy=0;sy<H;sy+=3){
+      ctx.fillStyle='rgba(0,0,0,0.08)';
+      ctx.fillRect(0,sy,W,1);
+    }
+    ctx.restore();
+  }
+
+  // Chroma aberration
+  if(params.chromaAberr){
+    ctx.save();
+    ctx.globalCompositeOperation='screen';
+    ctx.globalAlpha=0.04;
+    const shift=2+Math.sin(t*0.12)*1.5;
+    const imgData=ctx.getImageData(0,0,W,H);
+    // just a color fringe vignette
+    const cx2=W/2, cy2=H/2;
+    const grd=ctx.createRadialGradient(cx2-shift*10,cy2,0,cx2,cy2,Math.max(W,H)*0.6);
+    grd.addColorStop(0,'rgba(255,0,0,0)');
+    grd.addColorStop(1,'rgba(0,0,255,0.12)');
+    ctx.fillStyle=grd; ctx.fillRect(0,0,W,H);
+    ctx.globalAlpha=0.04;
+    const grd2=ctx.createRadialGradient(cx2+shift*10,cy2,0,cx2,cy2,Math.max(W,H)*0.6);
+    grd2.addColorStop(0,'rgba(0,255,0,0)');
+    grd2.addColorStop(1,'rgba(255,0,0,0.1)');
+    ctx.fillStyle=grd2; ctx.fillRect(0,0,W,H);
+    ctx.restore();
+  }
+
+  // Vignette
+  ctx.save();
+  const vgrd=ctx.createRadialGradient(W/2,H/2,Math.min(W,H)*0.3,W/2,H/2,Math.max(W,H)*0.7);
+  vgrd.addColorStop(0,'rgba(0,0,0,0)');
+  vgrd.addColorStop(1,'rgba(0,0,0,0.55)');
+  ctx.fillStyle=vgrd; ctx.fillRect(0,0,W,H);
+  ctx.restore();
+
+  // Noise
+  if(params.noiseField && (frame%3===0)){
+    ctx.save(); ctx.globalAlpha=0.02;
+    for(let nx=0;nx<W;nx+=4) for(let ny=0;ny<H;ny+=4){
+      if(Math.random()>0.97){
+        ctx.fillStyle=`rgba(${Math.random()*255|0},${Math.random()*255|0},${Math.random()*255|0},1)`;
+        ctx.fillRect(nx,ny,2,2);
+      }
+    }
+    ctx.restore();
+  }
+}
+
+// ── Bloom pass ────────────────────────────────────────────────
+function drawBloom(t){
+  if(!params.glowPulse) return;
+  ctx.save();
+  ctx.globalCompositeOperation='screen';
+  ctx.globalAlpha=0.03+0.015*Math.sin(t*0.12);
+  ctx.drawImage(canvas,2,2,W-4,H-4,0,0,W,H);
+  ctx.drawImage(canvas,-2,-2,W+4,H+4,0,0,W,H);
+  ctx.restore();
+}
+
+// ── Atomic orbital display ────────────────────────────────────
+function drawOrbitals(t){
+  if(!params.orbitals) return;
+  ctx.save();
+  for(let o=0;o<4;o++){
+    const ox=W*(0.2+o*0.2);
+    const oy=H*0.5+Math.sin(t*0.04+o)*H*0.15;
+    const [r1,g1,b1]=hexToRgb(palette[o%palette.length]);
+    // s orbital
+    ctx.beginPath(); ctx.arc(ox,oy,40,0,Math.PI*2);
+    ctx.strokeStyle=rgbStr(r1,g1,b1,0.08);
+    ctx.lineWidth=1; ctx.stroke();
+    // p orbital lobes
+    for(let l=0;l<3;l++){
+      const la=(l/3)*Math.PI*2+t*0.03;
+      ctx.save(); ctx.translate(ox,oy); ctx.rotate(la);
+      ctx.beginPath();
+      ctx.ellipse(35,0,30,14,0,0,Math.PI*2);
+      ctx.strokeStyle=rgbStr(r1,g1,b1,0.06); ctx.lineWidth=0.8; ctx.stroke();
+      ctx.restore();
+    }
+  }
+  ctx.restore();
+}
+
+// ============================================================
+//  AUDIO ENGINE
+// ============================================================
+function initAudio(){
+  if(!SOUND_ON || audioCtx) return;
+  try{
+    audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+    masterGain = audioCtx.createGain();
+    masterGain.gain.value = 0;
+    masterGain.connect(audioCtx.destination);
+    masterGain.gain.linearRampToValueAtTime(0.18, audioCtx.currentTime+2);
+    startAmbience();
+  }catch(e){console.warn('Audio init failed',e);}
+}
+
+function stopAudio(){
+  if(audioCtx){ audioCtx.close(); audioCtx=null; masterGain=null; }
+}
+
+function startAmbience(){
+  if(!audioCtx) return;
+  // Generative drone based on palette index
+  const baseFreq = 55 + params.paletteIdx * 22;
+  const harmonics = [1,2,3,5,8,13];
+  for(const h of harmonics){
+    const osc=audioCtx.createOscillator();
+    const gain=audioCtx.createGain();
+    const lfo=audioCtx.createOscillator();
+    const lfoGain=audioCtx.createGain();
+
+    osc.type = ['sine','triangle','sawtooth','square'][params.renderMode%4];
+    osc.frequency.value = baseFreq*h*(0.99+Math.random()*0.02);
+
+    lfo.type='sine';
+    lfo.frequency.value = 0.03+Math.random()*0.12;
+    lfoGain.gain.value = baseFreq*h*0.008;
+    lfo.connect(lfoGain); lfoGain.connect(osc.frequency);
+
+    gain.gain.value = 0.04/h;
+    osc.connect(gain); gain.connect(masterGain);
+    lfo.start(); osc.start();
+
+    // Fade in
+    gain.gain.setValueAtTime(0, audioCtx.currentTime);
+    gain.gain.linearRampToValueAtTime(0.035/h, audioCtx.currentTime+3);
+  }
+
+  // Molecular click/blip synth — triggered periodically
+  setInterval(()=>{
+    if(!audioCtx||!SOUND_ON) return;
+    try{
+      const osc2=audioCtx.createOscillator();
+      const g2=audioCtx.createGain();
+      const freq2=100+Math.random()*800;
+      osc2.frequency.value=freq2;
+      osc2.type='sine';
+      g2.gain.setValueAtTime(0.05,audioCtx.currentTime);
+      g2.gain.exponentialRampToValueAtTime(0.0001,audioCtx.currentTime+0.3);
+      osc2.connect(g2); g2.connect(masterGain);
+      osc2.start(); osc2.stop(audioCtx.currentTime+0.35);
+    }catch(e){}
+  }, 600+Math.random()*1400);
+}
+
+function syncAudioToFrame(t){
+  if(!audioCtx||!masterGain) return;
+  // Pulse master gain with molecular animation rhythm
+  const pulse=0.15+0.05*Math.sin(t*params.globalSpeed*0.12);
+  masterGain.gain.linearRampToValueAtTime(pulse, audioCtx.currentTime+0.05);
+}
+
+// ============================================================
+//  HUD
+// ============================================================
+function updateHUD(){
+  if(!HUD_ON) return;
+  document.getElementById('hud-stats').innerHTML =
+    `SEED: ${params.seed}<br>` +
+    `PALETTE: ${params.paletteIdx} / ${PALETTE_SETS.length-1}<br>` +
+    `2D MOLECULES: ${params.mol2dCount}<br>` +
+    `3D MOLECULES: ${params.mol3dCount}<br>` +
+    `NETWORKS: ${params.networkCount}<br>` +
+    `PARTICLES: ${params.particleCount}<br>` +
+    `BOND STYLE: ${['LINE','TUBE','DASHED','GLOW','DOUBLE'][params.bondStyle]}<br>` +
+    `RENDER: ${['FLAT','SPHERE','METAL','CRYSTAL','NEON','MIXED'][params.renderMode]}<br>` +
+    `BG MODE: ${['DEEP SPACE','NEBULA','VOID','PRISMATIC'][params.bgMode]}<br>` +
+    `SPEED: ${params.globalSpeed.toFixed(2)}<br>` +
+    `FX: ${[params.bloomFactor.toFixed(1),'GL',params.chromaAberr?'CA':'--',params.scanlines?'SL':'--',params.noiseField?'NF':'--'].join(' ')}<br>` +
+    `FRAME: ${frame}`;
+}
+
+// ============================================================
+//  MAIN LOOP
+// ============================================================
+let lastT = 0;
+function loop(ts){
+  const dt = ts - lastT; lastT = ts;
+  const t = ts * 0.001 + params.timeOffset;
+
+  // Motion blur via translucent clear
+  if(params.motionBlur){
+    ctx.fillStyle='rgba(0,0,0,0.25)';
+    ctx.fillRect(0,0,W,H);
+  } else {
+    drawBackground(t);
+  }
+
+  if(!params.motionBlur) {}
+
+  // Draw orbitals (deep background layer)
+  drawOrbitals(t);
+
+  // Draw networks
+  for(const net of networks){
+    net.rot+=net.vrot;
+    drawNetwork(net,t);
+    net.nodes.forEach(n=>{
+      if(n.x<0||n.x>W) n.vx*=-1;
+      if(n.y<0||n.y>H) n.vy*=-1;
+    });
+  }
+
+  // Draw particles
+  ctx.save();
+  for(let i=particles.length-1;i>=0;i--){
+    const p=particles[i];
+    if(p.maxTrail>0){
+      p.trail.push([p.x,p.y]);
+      if(p.trail.length>p.maxTrail) p.trail.shift();
+    }
+    drawParticle(p,t);
+    p.x+=p.vx; p.y+=p.vy;
+    p.life-=p.decay;
+    p.twinkle+=0.05;
+    if(p.life<=0||p.x<-20||p.x>W+20||p.y<-20||p.y>H+20){
+      particles[i]=makeParticle(Math.random);
+    }
+  }
+  ctx.restore();
+
+  // 3D molecules (sorted by depth globally for correct overlapping)
+  const all3d_depth=[];
+  for(const mol of mols3d){
+    updateMol3D(mol);
+    all3d_depth.push(mol);
+  }
+  // Sort by average z of atoms
+  all3d_depth.sort((a,b)=>{
+    const za=a.atoms.reduce((s,at)=>s+at.z,0)/a.atoms.length;
+    const zb=b.atoms.reduce((s,at)=>s+at.z,0)/b.atoms.length;
+    return zb-za;
+  });
+  for(const mol of all3d_depth) drawMol3D(mol,t);
+
+  // 2D molecules
+  for(const mol of mols2d){
+    updateMol2D(mol,dt);
+    drawMol2D(mol,t);
+  }
+
+  // Mirror mode
+  if(params.mirrorMode){
+    ctx.save();
+    ctx.globalAlpha=0.18;
+    ctx.scale(-1,1);
+    ctx.drawImage(canvas,-W,0);
+    ctx.restore();
+  }
+
+  drawBloom(t);
+  drawPostFX(t);
+
+  // If motion blur, draw background on top lightly
+  if(params.motionBlur){
+    ctx.save();
+    ctx.globalAlpha=0.08;
+    drawBackground(t);
+    ctx.restore();
+  }
+
+  syncAudioToFrame(t);
+  updateHUD();
+  frame++;
+  requestAnimationFrame(loop);
+}
+
+// ── Input ────────────────────────────────────────────────────
+document.addEventListener('keydown',e=>{
+  const k=e.key.toLowerCase();
+  if(k==='h'){
+    HUD_ON=!HUD_ON;
+    document.getElementById('hud').style.display=HUD_ON?'block':'none';
+  }
+  if(k==='s'){
+    SOUND_ON=!SOUND_ON;
+    if(SOUND_ON) initAudio(); else stopAudio();
+  }
+  if(k===' '||k==='enter') regenerate();
+});
+
+function regenerate(){
+  randomize();
+  if(SOUND_ON){ stopAudio(); audioCtx=null; initAudio(); }
+}
+
+canvas.addEventListener('click', regenerate);
+canvas.addEventListener('touchend', e=>{e.preventDefault(); regenerate();},{passive:false});
+
+// Mouse drag for 3D orbit
+let drag={active:false,lx:0,ly:0};
+canvas.addEventListener('mousedown',e=>{drag.active=true;drag.lx=e.clientX;drag.ly=e.clientY;});
+canvas.addEventListener('mouseup',()=>{drag.active=false;});
+canvas.addEventListener('mousemove',e=>{
+  if(!drag.active) return;
+  const dx=(e.clientX-drag.lx)*0.005;
+  const dy=(e.clientY-drag.ly)*0.005;
+  for(const m of mols3d){ m.ry+=dx; m.rx+=dy; }
+  drag.lx=e.clientX; drag.ly=e.clientY;
+});
+
+// ── Boot ─────────────────────────────────────────────────────
+randomize();
+requestAnimationFrame(loop);
+
+})();
+</script>
+</body>
+</html>
